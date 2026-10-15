@@ -714,13 +714,16 @@ func (s *Service) publicSettings() map[string]interface{} {
 func (s *Service) handleStatus(w http.ResponseWriter, r *http.Request) {
 	st := s.Settings()
 	available := 0
-	// 分区计数：前端展示「可用账号 N（国内 x / 国际 y）」。
-	regionCounts := map[string]map[string]int{
-		regionCN:   {"total": 0, "available": 0},
-		regionIntl: {"total": 0, "available": 0},
+	// 分区计数：前端展示「可用账号 N（国内 x / 办公 y / 国际 z）」。
+	regionCounts := map[string]map[string]int{}
+	for _, region := range regionOrder {
+		regionCounts[region] = map[string]int{"total": 0, "available": 0}
 	}
 	for _, a := range st.Accounts {
 		region := normalizeRegion(a.Region)
+		if regionCounts[region] == nil {
+			regionCounts[region] = map[string]int{"total": 0, "available": 0}
+		}
 		regionCounts[region]["total"]++
 		if accountAvailable(a) {
 			available++

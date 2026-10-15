@@ -4,9 +4,40 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"net/http"
+	"strings"
 	"testing"
 	"time"
 )
+
+// 办公版（wb）转发请求必须补桌面端指纹头与租户头；国内版不带这些，避免行为漂移。
+func TestBackendHeadersOfficeVersionExtras(t *testing.T) {
+	wb := Account{ID: "wb-u1", Region: regionWB, AccessToken: "t", UID: "u1", EnterpriseID: "ent1"}
+	req, _ := http.NewRequest(http.MethodPost, "https://www.workbuddy.cn/v2/chat/completions", nil)
+	backendHeaders(req, &wb)
+	if req.Header.Get("X-Tenant-Id") != "ent1" {
+		t.Errorf("wb 应带 X-Tenant-Id=ent1，得到 %q", req.Header.Get("X-Tenant-Id"))
+	}
+	if req.Header.Get("X-IDE-Type") != "WorkBuddy" || req.Header.Get("X-IDE-Name") != "WorkBuddy" {
+		t.Error("wb 应带 WorkBuddy 桌面端 IDE 指纹头")
+	}
+	if req.Header.Get("X-Private-Data") != "true" || req.Header.Get("X-Codebuddy-Request") != "1" {
+		t.Error("wb 应带 X-Private-Data / X-Codebuddy-Request")
+	}
+	if req.Header.Get("Authorization") != "Bearer t" {
+		t.Errorf("Authorization 应为 Bearer t，得到 %q", req.Header.Get("Authorization"))
+	}
+
+	cn := Account{ID: "u1", Region: regionCN, AccessToken: "t", UID: "u1", EnterpriseID: "ent1"}
+	req2, _ := http.NewRequest(http.MethodPost, "https://copilot.tencent.com/v2/chat/completions", nil)
+	backendHeaders(req2, &cn)
+	if req2.Header.Get("X-Tenant-Id") != "" {
+		t.Error("国内版不应带 X-Tenant-Id")
+	}
+	if req2.Header.Get("X-IDE-Type") != "" {
+		t.Error("国内版不应带桌面端 IDE 指纹头")
+	}
+}
 
 func TestDetectTokenRegion(t *testing.T) {
 	// 构造一个未签名的 JWT（header.payload.sig），payload 里带 iss。
@@ -26,8 +57,10 @@ func TestDetectTokenRegion(t *testing.T) {
 	}{
 		{"国际 JWT", jwt("https://www.workbuddy.ai/auth/realms/copilot"), "", regionIntl, true},
 		{"国内 JWT", jwt("https://copilot.tencent.com/auth/realms/copilot"), "", regionCN, true},
+		{"办公 JWT", jwt("https://www.workbuddy.cn/auth/realms/copilot"), "", regionWB, true},
 		{"JWT 优先于 domain", jwt("https://www.workbuddy.ai/auth/realms/copilot"), "www.codebuddy.cn", regionIntl, true},
 		{"无 JWT 用 domain 兜底(国际)", "not-a-jwt", "www.workbuddy.ai", regionIntl, true},
+		{"无 JWT 用 domain 兜底(办公)", "not-a-jwt", "www.workbuddy.cn", regionWB, true},
 		{"无 JWT 用 domain 兜底(国内)", "not-a-jwt", "www.codebuddy.cn", regionCN, true},
 		{"完全无从判定→不确凿", "", "", regionCN, false},
 	}
@@ -48,6 +81,8 @@ func TestNormalizeRegionDefaultsToCN(t *testing.T) {
 		"":        regionCN,
 		"cn":      regionCN,
 		"CN":      regionCN,
+		"wb":      regionWB,
+		" WB ":    regionWB,
 		" intl ":  regionIntl,
 		"INTL":    regionIntl,
 		"unknown": regionCN,
@@ -56,6 +91,29 @@ func TestNormalizeRegionDefaultsToCN(t *testing.T) {
 		if got := normalizeRegion(in); got != want {
 			t.Errorf("normalizeRegion(%q) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+func TestRegionWBHostsAndPlatform(t *testing.T) {
+	if regionHost(regionWB) != "https://www.workbuddy.cn" {
+		t.Errorf("wb host = %q", regionHost(regionWB))
+	}
+	if regionBillingHost(regionWB) != "https://www.workbuddy.cn" {
+		t.Errorf("wb billing host = %q", regionBillingHost(regionWB))
+	}
+	if regionPlatform(regionWB) != "workbuddy" {
+		t.Errorf("wb platform = %q", regionPlatform(regionWB))
+	}
+	if regionPlatform(regionCN) != "CLI" {
+		t.Errorf("cn platform = %q", regionPlatform(regionCN))
+	}
+	if regionLabel(regionWB) != "办公版" {
+		t.Errorf("wb label = %q", regionLabel(regionWB))
+	}
+	// 三个区域 UA 互不相同。
+	uas := map[string]bool{regionUA(regionCN): true, regionUA(regionWB): true, regionUA(regionIntl): true}
+	if len(uas) != 3 {
+		t.Error("三个区域的 UA 应互不相同")
 	}
 }
 
@@ -100,9 +158,51 @@ func TestAccountIDForRegion(t *testing.T) {
 	if got := accountIDForRegion(regionIntl, "u1"); got != "intl-u1" {
 		t.Errorf("国际账号 ID 应加前缀，得到 %q", got)
 	}
-	// 同一 uid 在两区必须得到不同 ID（否则会互相覆盖）。
-	if accountIDForRegion(regionCN, "u1") == accountIDForRegion(regionIntl, "u1") {
-		t.Error("同一 uid 在两区应得到不同 ID")
+	if got := accountIDForRegion(regionWB, "u1"); got != "wb-u1" {
+		t.Errorf("办公账号 ID 应加前缀，得到 %q", got)
+	}
+	// 同一 uid 在不同区必须得到不同 ID（否则会互相覆盖）。
+	ids := map[string]bool{
+		accountIDForRegion(regionCN, "u1"):   true,
+		accountIDForRegion(regionWB, "u1"):   true,
+		accountIDForRegion(regionIntl, "u1"): true,
+	}
+	if len(ids) != 3 {
+		t.Error("同一 uid 在三个区域应得到三个不同 ID")
+	}
+}
+
+func TestAlignAuthURLToRegion(t *testing.T) {
+	// 办公版：归一到 workbuddy.cn 站点源，保留 path/query/hash。
+	got := alignAuthURLToRegion("https://copilot.tencent.com/login/?platform=workbuddy&state=abc#x", regionWB)
+	if got != "https://www.workbuddy.cn/login/?platform=workbuddy&state=abc#x" {
+		t.Errorf("办公版 authUrl 应归一到 workbuddy.cn，得到 %q", got)
+	}
+	// 其余区域：原样返回。
+	raw := "https://copilot.tencent.com/login/?state=abc"
+	if got := alignAuthURLToRegion(raw, regionCN); got != raw {
+		t.Errorf("国内版 authUrl 应原样返回，得到 %q", got)
+	}
+	// 非法 URL：原样返回。
+	if got := alignAuthURLToRegion("not a url", regionWB); got != "not a url" {
+		t.Errorf("非法 URL 应原样返回，得到 %q", got)
+	}
+}
+
+func TestEndpointAuthStateUsesRegionPlatform(t *testing.T) {
+	old := upstreamBaseOverride
+	upstreamBaseOverride = "https://up.example.com"
+	t.Cleanup(func() { upstreamBaseOverride = old })
+	cn := endpointAuthState(regionCN)
+	if !strings.Contains(cn, "platform=CLI") {
+		t.Errorf("cn auth/state 应带 platform=CLI，得到 %q", cn)
+	}
+	wb := endpointAuthState(regionWB)
+	if !strings.Contains(wb, "platform=workbuddy") {
+		t.Errorf("wb auth/state 应带 platform=workbuddy，得到 %q", wb)
+	}
+	if !strings.Contains(wb, "ww_device_nonce=") {
+		t.Errorf("wb auth/state 应带 ww_device_nonce，得到 %q", wb)
 	}
 }
 

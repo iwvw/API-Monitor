@@ -10,6 +10,8 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -63,8 +65,16 @@ func upstreamBaseFor(region string) string {
 var upstreamBaseOverride string
 
 // 端点 URL 一律经这些函数派生，避免在别处硬编码域名（测试改 upstreamBaseOverride 即刻生效）。
+//
+// platform 按区域派生：办公版（workbuddy）登录页据此展示企业微信渠道，国内版沿用 CLI。
+// ww_device_nonce 是办公版登录页识别的设备指纹（客户端会带上；这边送一个随机值即可，
+// 让登录页走标准桌面登录分支而非浏览器直登）。
 func endpointAuthState(region string) string {
-	return upstreamBaseFor(region) + "/v2/plugin/auth/state?platform=CLI"
+	u := upstreamBaseFor(region) + "/v2/plugin/auth/state?platform=" + url.QueryEscape(regionPlatform(region))
+	if normalizeRegion(region) == regionWB {
+		u += "&ww_device_nonce=" + url.QueryEscape(randomNonce())
+	}
+	return u
 }
 func endpointLoginAccount(region, state string) string {
 	return upstreamBaseFor(region) + "/v2/plugin/login/account?state=" + url.QueryEscape(state)
@@ -80,6 +90,14 @@ func endpointChat(region string) string {
 }
 func endpointConfig(region string) string {
 	return upstreamBaseFor(region) + "/v3/config"
+}
+
+// randomNonce 生成办公版登录页所需的设备指纹（ww_device_nonce）。
+// 真实客户端持久化该值；这边每次登录随机即可，仅用于让登录页走标准桌面登录分支。
+func randomNonce() string {
+	b := make([]byte, 16)
+	_, _ = rand.Read(b)
+	return hex.EncodeToString(b)
 }
 
 // -----------------------------------------------------------------------------
@@ -109,7 +127,7 @@ type ModelInfo struct {
 	// CreditsParsed 表示倍率是否解析成功（false 时前端显示「—」而不是 0）。
 	CreditsParsed bool `json:"creditsParsed,omitempty"`
 
-	// Regions 是该模型**型号**可用的区域列表（cn / intl），按 displayName 判定：
+	// Regions 是该模型**型号**可用的区域列表（cn / wb / intl），按 displayName 判定：
 	// 同一型号在两个区域可能用不同 id（如 Kimi-K3 = kimi-k3-1 / kimi-k3），
 	// 只要型号名两版都出现就标共用。
 	Regions []string `json:"regions,omitempty"`
@@ -131,7 +149,7 @@ type Account struct {
 	EnterpriseID string `json:"enterpriseId,omitempty"`
 	Nickname     string `json:"nickname,omitempty"`
 	Domain       string `json:"domain,omitempty"`
-	// Region 是账号所属区域：cn（国内版）/ intl（国际版）。空值按 cn 处理（存量兼容）。
+	// Region 是账号所属区域：cn（国内版）/ wb（办公版）/ intl（国际版）。空值按 cn 处理（存量兼容）。
 	Region string `json:"region,omitempty"`
 
 	AccessToken  string `json:"accessToken,omitempty"`
@@ -161,7 +179,7 @@ type AccountView struct {
 	Nickname     string `json:"nickname,omitempty"`
 	UID          string `json:"uid,omitempty"`
 	EnterpriseID string `json:"enterpriseId,omitempty"`
-	// Region 是账号所属区域：cn / intl（前端据此显示区域徽标）。
+	// Region 是账号所属区域：cn / wb / intl（前端据此显示区域徽标）。
 	Region   string `json:"region,omitempty"`
 	Disabled bool   `json:"disabled"`
 	// CheckinDisabled 是签到停用，与转发 Disabled 独立；前端据此展示签到开关。
@@ -315,6 +333,10 @@ func backendHeaders(req *http.Request, acc *Account) {
 	}
 	if acc.EnterpriseID != "" {
 		req.Header.Set("X-Enterprise-Id", acc.EnterpriseID)
+		if normalizeRegion(acc.Region) == regionWB {
+			// 办公版（WorkBuddy 桌面端）额外要求租户头，否则企业账号被判无租户。
+			req.Header.Set("X-Tenant-Id", acc.EnterpriseID)
+		}
 	} else {
 		req.Header.Set("X-No-Enterprise-Id", "1")
 	}
@@ -327,6 +349,14 @@ func backendHeaders(req *http.Request, acc *Account) {
 		req.Header.Set("X-No-Department-Info", "1")
 	}
 	req.Header.Set("X-Product", "SaaS")
+	// 办公版桌面端的客户端指纹：上游据此把请求归到 WorkBuddy 客户端通道。
+	if normalizeRegion(acc.Region) == regionWB {
+		req.Header.Set("X-IDE-Type", "WorkBuddy")
+		req.Header.Set("X-IDE-Name", "WorkBuddy")
+		req.Header.Set("X-IDE-Version", "5.8.2")
+		req.Header.Set("X-Private-Data", "true")
+		req.Header.Set("X-Codebuddy-Request", "1")
+	}
 }
 
 // doEnvelope 发送请求并解析 {code,msg,data} 包装，但**不**因业务码非 0 返回错误：
@@ -378,7 +408,7 @@ func doJSON(ctx context.Context, client *http.Client, method, fullURL string, he
 
 // startLogin 发起扫码登录：向 auth/state 要一个 state 与授权链接，
 // 并把本次的独立 cookie jar 与 state 绑定保存，供后续轮询复用。
-// region 决定登录的目标区域（国内版 / 国际版）。
+// region 决定登录的目标区域（国内版 / 办公版 / 国际版）。
 func (s *Service) startLogin(ctx context.Context, region string) (string, string, error) {
 	region = normalizeRegion(region)
 	client := newLoginClient()
@@ -394,10 +424,32 @@ func (s *Service) startLogin(ctx context.Context, region string) (string, string
 	if st.State == "" || st.AuthURL == "" {
 		return "", "", fmt.Errorf("登录接口未返回 state 或 authUrl")
 	}
+	// 办公版：把 authUrl 归一到办公版站点源，登录页才会按办公版品牌渲染并展示
+	// 企业微信渠道（上游可能给到 copilot.tencent.com/codebuddy 等其它源）。
+	st.AuthURL = alignAuthURLToRegion(st.AuthURL, region)
 	s.loginMu.Lock()
 	s.loginStates[st.State] = &loginState{client: client, expires: time.Now().Add(loginTTL), region: region}
 	s.loginMu.Unlock()
 	return st.State, st.AuthURL, nil
+}
+
+// alignAuthURLToRegion 把授权链接归一到指定区域的站点源（仅保留 path/query/hash）。
+// 仅办公版需要：其登录页按站点源决定品牌与企业微信渠道入口。其余区域原样返回。
+func alignAuthURLToRegion(raw, region string) string {
+	if normalizeRegion(region) != regionWB {
+		return raw
+	}
+	u, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil || u.Host == "" {
+		return raw
+	}
+	base, err := url.Parse(regionHost(region))
+	if err != nil || base.Host == "" {
+		return raw
+	}
+	u.Scheme = base.Scheme
+	u.Host = base.Host
+	return u.String()
 }
 
 // pollLogin 单次探测登录状态（节奏由前端驱动）。
@@ -487,6 +539,9 @@ func (s *Service) refreshAccessToken(ctx context.Context, acc *Account) error {
 		r.Header.Set("X-Refresh-Token", acc.RefreshToken)
 		if acc.EnterpriseID != "" {
 			r.Header.Set("X-Enterprise-Id", acc.EnterpriseID)
+			if normalizeRegion(acc.Region) == regionWB {
+				r.Header.Set("X-Tenant-Id", acc.EnterpriseID)
+			}
 		}
 		r.Header.Set("X-Auth-Refresh-Source", providerName)
 	}

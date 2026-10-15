@@ -57,7 +57,7 @@ func (s *Service) regionModelSetFor(region string) map[string]bool {
 func (s *Service) refreshCatalogs(ctx context.Context) ([]ModelInfo, map[string][]ModelInfo) {
 	byRegion := map[string][]ModelInfo{}
 	anyOK := false
-	for _, region := range []string{regionCN, regionIntl} {
+	for _, region := range regionOrder {
 		models, err := s.fetchCatalog(ctx, region)
 		if err != nil {
 			// 单区域失败：沿用该区域上一份快照（若有），不阻塞另一区域。
@@ -93,20 +93,17 @@ func normalizeModelName(name string) string {
 }
 
 // mergeCatalogs 把各区域目录合并成一份对外视图（按模型 id 去重）：
-//   - 国内版（cn）为基，保留其元数据（显示名/倍率）；
-//   - 仅国际版有的 id 追加进来（元数据取国际版）；
-//   - 每个模型标记**型号级**可用区域（Regions，按 displayName 判定：同一型号
-//     两版都有即为共用，即使两版 id 不同）、**该 id 级**区域（IDRegions）与
-//     型号级 InternationalOnly。
+//   - 以 regionOrder 首个区域（国内版 cn）为基，保留其元数据（显示名/倍率）；
+//   - 其余区域（办公版 wb、国际版 intl）同 id 合并区域标记，独有 id 追加（元数据取该区域）；
+//   - 每个模型标记**型号级**可用区域（Regions，按 displayName 判定：同一型号多个区域
+//     都有即为共用，即使各区域 id 不同）、**该 id 级**区域（IDRegions）与型号级
+//     InternationalOnly（仅国际版提供）。
 //
 // 为什么要按型号名而不是 id 判定：上游对同一型号在不同区域用不同 id
 // （Kimi-K3 = kimi-k3-1 / kimi-k3；Hy3 = hy3 / hy3-x / hy3），只按 id 会把
-// 同一型号错拆成「国内独有 + 国际独有」两行。路由仍按 id（在 regionModelSet 里），
+// 同一型号错拆成「各区域独有」多行。路由仍按 id（在 regionModelSet 里），
 // 展示标签按型号名，两者语义分离。
 func mergeCatalogs(byRegion map[string][]ModelInfo) []ModelInfo {
-	cn := byRegion[regionCN]
-	intl := byRegion[regionIntl]
-
 	// 型号名（归一化）→ 出现过的区域集合。
 	nameRegions := map[string]map[string]bool{}
 	mark := func(models []ModelInfo, region string) {
@@ -121,23 +118,27 @@ func mergeCatalogs(byRegion map[string][]ModelInfo) []ModelInfo {
 			nameRegions[key][region] = true
 		}
 	}
-	mark(cn, regionCN)
-	mark(intl, regionIntl)
+	for _, region := range regionOrder {
+		mark(byRegion[region], region)
+	}
 
 	regionsFor := func(m ModelInfo) []string {
 		set := nameRegions[normalizeModelName(firstNonEmpty(m.DisplayName, m.ID))]
 		out := make([]string, 0, len(set))
-		// 固定顺序，便于前端稳定展示。
-		if set[regionCN] {
-			out = append(out, regionCN)
-		}
-		if set[regionIntl] {
-			out = append(out, regionIntl)
+		// 按 regionOrder 固定顺序，便于前端稳定展示。
+		for _, region := range regionOrder {
+			if set[region] {
+				out = append(out, region)
+			}
 		}
 		return out
 	}
 
-	merged := make([]ModelInfo, 0, len(cn)+len(intl))
+	total := 0
+	for _, region := range regionOrder {
+		total += len(byRegion[region])
+	}
+	merged := make([]ModelInfo, 0, total)
 	index := map[string]int{}
 	add := func(m ModelInfo, idRegion string) {
 		m.IDRegions = []string{idRegion}
@@ -147,17 +148,17 @@ func mergeCatalogs(byRegion map[string][]ModelInfo) []ModelInfo {
 		index[m.ID] = len(merged) - 1
 	}
 
-	// 国内版打底。
-	for _, m := range cn {
-		add(m, regionCN)
-	}
-	// 国际版：同 id 合并 id 区域标记；独有 id 追加。
-	for _, m := range intl {
-		if i, ok := index[m.ID]; ok {
-			merged[i].IDRegions = append(merged[i].IDRegions, regionIntl)
-			continue
+	// 首个区域（国内版）打底，其余区域同 id 合并区域标记、独有 id 追加。
+	for i, region := range regionOrder {
+		for _, m := range byRegion[region] {
+			if i > 0 {
+				if idx, ok := index[m.ID]; ok {
+					merged[idx].IDRegions = append(merged[idx].IDRegions, region)
+					continue
+				}
+			}
+			add(m, region)
 		}
-		add(m, regionIntl)
 	}
 	return merged
 }
