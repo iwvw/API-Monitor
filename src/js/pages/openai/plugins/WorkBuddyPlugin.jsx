@@ -9,6 +9,16 @@ import { getAuthHeaders, formatCompact } from '../utils.js';
 
 const API = '/api/workbuddy';
 
+// 账号区域元数据：国内版（CodeBuddy 扫码）/ 办公版（WorkBuddy 桌面端，含企微）/
+// 国际版（网页 OneID）。region 缺省按国内版（与后端 normalizeRegion 一致）。
+const REGION_META = {
+  cn: { label: '国内', tag: '国内版 · codebuddy.cn', badge: 'blue', qr: true, checkin: true },
+  wb: { label: '办公', tag: '办公版 · workbuddy.cn', badge: 'teal', qr: false, checkin: false },
+  intl: { label: '国际', tag: '国际版 · workbuddy.ai', badge: 'purple', qr: false, checkin: false },
+};
+const normalizeRegion = region => (region === 'intl' || region === 'wb' ? region : 'cn');
+const regionMeta = region => REGION_META[normalizeRegion(region)];
+
 const WORKBUDDY_ACCOUNT_COLUMNS = [
   { id: 'enabled', role: 'control' },
   { id: 'checkinEnabled', role: 'control' },
@@ -285,9 +295,9 @@ export function WorkBuddyPlugin() {
     return () => clearInterval(timer);
   }, [loginOpen, login.state, login.phase]);
 
-  // 登录方式：国内版用 CodeBuddy 客户端扫码；国际版是网页登录（OneID/SSO），
-  // 需要用户在浏览器里打开授权链接完成登录，故不生成二维码。
-  const regionNeedsQR = region => (region || 'cn') !== 'intl';
+  // 登录方式：国内版用 CodeBuddy 客户端扫码；办公版/国际版是网页登录
+  // （办公版桌面端登录页含企业微信渠道），需在浏览器打开授权链接完成登录，故不生成二维码。
+  const regionNeedsQR = region => regionMeta(region).qr;
 
   const startLogin = async (region = loginRegion) => {
     const target = region || 'cn';
@@ -619,33 +629,33 @@ export function WorkBuddyPlugin() {
 
   const allEnabled = models.length > 0 && models.every(m => m.enabled);
 
-  // 账号按区域分组（国内在上、国际在下），表格内上下分开显示。
+  // 账号按区域分组（国内在上、办公居中、国际在下），表格内上下分开显示。
   const accountGroups = [
-    { region: 'cn', label: '国内版 · codebuddy.cn', items: accounts.filter(a => (a.region || 'cn') !== 'intl') },
-    { region: 'intl', label: '国际版 · workbuddy.ai', items: accounts.filter(a => a.region === 'intl') },
+    { region: 'cn', label: REGION_META.cn.tag, items: accounts.filter(a => normalizeRegion(a.region) === 'cn') },
+    { region: 'wb', label: REGION_META.wb.tag, items: accounts.filter(a => normalizeRegion(a.region) === 'wb') },
+    { region: 'intl', label: REGION_META.intl.tag, items: accounts.filter(a => normalizeRegion(a.region) === 'intl') },
   ].filter(g => g.items.length > 0);
 
-  // 模型区域标签：国际独有 / 国内独有 / 共用。国内=蓝、国际=紫，与账号表保持一致。
-  // 模型区域标签：按**型号名**判定（后端已按 displayName 对齐两区域）。
-  // 国际独有 / 国内独有 / 共用；国内=蓝、国际=紫，与账号表保持一致。
-  // 若该 id 自身不是两版都有（如 Kimi-K3 的国内档 kimi-k3-1），tooltip 里补充说明。
+  // 模型区域标签：按**型号名**判定（后端已按 displayName 对齐各区域）。
+  // 国内=蓝、办公=青、国际=紫，与账号表保持一致。仅一个区域提供时打「国内/办公/国际」，
+  // 多区域提供则「共用」；若该 id 自身不是多区域都有（如 Kimi-K3 的国内档 kimi-k3-1），
+  // tooltip 里补充说明。
   const modelRegionMeta = m => {
     const idOnly = Array.isArray(m.idRegions) && m.idRegions.length === 1 ? m.idRegions[0] : '';
-    const idHint = idOnly
-      ? idOnly === 'intl'
-        ? '（此档位仅国际版提供）'
-        : '（此档位仅国内版提供）'
-      : '';
-    if (m.internationalOnly) {
-      return { label: '国际', variant: 'purple', title: '仅国际版提供（workbuddy.ai），转发只会在国际版账号上选号' };
-    }
-    if (Array.isArray(m.regions) && m.regions.length === 1 && m.regions[0] === 'cn') {
-      return { label: '国内', variant: 'blue', title: '仅国内版提供（codebuddy.cn），转发只会在国内版账号上选号' };
+    const idHint = idOnly ? `（此档位仅${regionMeta(idOnly).label}版提供）` : '';
+    const regions = Array.isArray(m.regions) ? m.regions : [];
+    if (regions.length === 1) {
+      const meta = regionMeta(regions[0]);
+      return {
+        label: meta.label,
+        variant: meta.badge,
+        title: `仅${meta.label}版提供（${meta.tag.split('· ')[1]}），转发只会在此区域的账号上选号${idHint}`,
+      };
     }
     return {
       label: '共用',
       variant: 'outline',
-      title: `该型号国内版与国际版都提供，在所有账号间轮询选号${idHint}`,
+      title: `该型号多区域提供，在所有账号间轮询选号${idHint}`,
     };
   };
 
@@ -739,11 +749,15 @@ export function WorkBuddyPlugin() {
               </div>
               <div
                 className="flex min-w-0 items-center gap-2"
-                title="按区域分列的账号数（国内版 codebuddy.cn / 国际版 workbuddy.ai）"
+                title="按区域分列的账号数（国内版 codebuddy.cn / 办公版 workbuddy.cn / 国际版 workbuddy.ai）"
               >
                 <span className="text-xs text-kumo-subtle">国内</span>
                 <span className="font-mono text-xs text-kumo-default">
                   {status?.regionCounts?.cn?.available ?? 0}/{status?.regionCounts?.cn?.total ?? 0}
+                </span>
+                <span className="text-xs text-kumo-subtle">办公</span>
+                <span className="font-mono text-xs text-kumo-default">
+                  {status?.regionCounts?.wb?.available ?? 0}/{status?.regionCounts?.wb?.total ?? 0}
                 </span>
                 <span className="text-xs text-kumo-subtle">国际</span>
                 <span className="font-mono text-xs text-kumo-default">
@@ -752,7 +766,7 @@ export function WorkBuddyPlugin() {
               </div>
               <div
                 className="flex min-w-0 items-center gap-2"
-                title="上游 /v3/config 返回的模型条数（国内+国际合并去重）"
+                title="上游 /v3/config 返回的模型条数（各区域合并去重）"
               >
                 <span className="text-xs text-kumo-subtle">模型</span>
                 <span className="font-mono text-xs text-kumo-default">{status?.modelCount ?? 0}</span>
@@ -864,20 +878,20 @@ export function WorkBuddyPlugin() {
                                 <Switch
                                   size="sm"
                                   checked={!a.checkinDisabled}
-                                  disabled={busyAccount === a.id || a.region === 'intl'}
+                                  disabled={busyAccount === a.id || !regionMeta(a.region).checkin}
                                   onCheckedChange={v => toggleCheckin(a, v)}
                                   aria-label={`${a.checkinDisabled ? '开启签到' : '停用签到'} ${a.id}`}
-                                  title={a.region === 'intl' ? '国际版无签到体系' : '签到开关（独立于转发）'}
+                                  title={regionMeta(a.region).checkin ? '签到开关（独立于转发）' : `${regionMeta(a.region).label}版无签到体系`}
                                 />
                               </div>
                             </Table.Cell>
                             <Table.Cell className="!px-2 !py-1.5 text-center">
                               <Badge
-                                variant={a.region === 'intl' ? 'purple' : 'blue'}
+                                variant={regionMeta(a.region).badge}
                                 className="!text-[0.72em]"
-                                title={a.region === 'intl' ? '国际版账号（workbuddy.ai）' : '国内版账号（codebuddy.cn）'}
+                                title={`${regionMeta(a.region).tag} 账号`}
                               >
-                                {a.region === 'intl' ? '国际' : '国内'}
+                                {regionMeta(a.region).label}
                               </Badge>
                             </Table.Cell>
                             <Table.Cell className="!px-2.5 !py-1.5">
@@ -894,8 +908,8 @@ export function WorkBuddyPlugin() {
                               <span className="font-mono text-xs text-kumo-strong" title="该账号累计转发次数">{a.callCount ?? 0}</span>
                             </Table.Cell>
                             <Table.Cell className="!px-2 !py-1.5 text-center">
-                              {a.region === 'intl' ? (
-                                <span className="text-xs text-kumo-subtle" title="国际版无签到体系">—</span>
+                              {!regionMeta(a.region).checkin ? (
+                                <span className="text-xs text-kumo-subtle" title={`${regionMeta(a.region).label}版无签到体系`}>—</span>
                               ) : (
                                 <div className="flex justify-center">
                                   <Popover
@@ -1113,8 +1127,8 @@ export function WorkBuddyPlugin() {
                                 <Button
                                   size="sm"
                                   variant="secondary"
-                                  disabled={busyAccount === a.id || a.region === 'intl'}
-                                  title={a.region === 'intl' ? '国际版无签到体系' : '立即签到（含连登兑换与抽奖）'}
+                                  disabled={busyAccount === a.id || !regionMeta(a.region).checkin}
+                                  title={regionMeta(a.region).checkin ? '立即签到（含连登兑换与抽奖）' : `${regionMeta(a.region).label}版无签到体系`}
                                   onClick={() => checkinAccount(a)}
                                 >
                                   签到
@@ -1448,13 +1462,15 @@ export function WorkBuddyPlugin() {
         <Dialog className="flex max-h-[min(calc(100dvh-2rem),44rem)] !w-[min(30rem,calc(100vw-2rem))] !max-w-[min(30rem,calc(100vw-2rem))] flex-col overflow-hidden !p-0">
           <div className="shrink-0 px-6 pt-5">
             <Dialog.Title className="mb-1 text-sm font-semibold text-kumo-strong">
-              {loginRegion === 'intl' ? '添加国际版账号' : '添加国内版账号'}
+              {loginRegion === 'intl' ? '添加国际版账号' : loginRegion === 'wb' ? '添加办公版账号' : '添加国内版账号'}
             </Dialog.Title>
             <Dialog.Description className="mb-3 text-sm text-kumo-subtle">
-              {loginRegion === 'intl'
-                ? '国际版为网页登录：点击授权链接在浏览器完成登录即可。'
-                : '用 CodeBuddy 客户端扫描二维码完成授权。'}
-              国内版与国际版是两套账号、额度不互通，可分别添加。
+              {loginRegion === 'cn'
+                ? '用 CodeBuddy 客户端扫描二维码完成授权。'
+                : loginRegion === 'wb'
+                  ? '办公版为网页登录：点击授权链接在浏览器完成登录（支持企业微信渠道）。'
+                  : '国际版为网页登录：点击授权链接在浏览器完成登录即可。'}
+              国内版、办公版与国际版是独立账号、额度不互通，可分别添加。
             </Dialog.Description>
             <div className="mb-4 flex items-center gap-2">
               <span className="text-xs text-kumo-subtle">账号区域</span>
@@ -1466,6 +1482,7 @@ export function WorkBuddyPlugin() {
                 aria-label="登录账号区域"
                 items={[
                   { value: 'cn', label: '国内版 · codebuddy.cn' },
+                  { value: 'wb', label: '办公版 · workbuddy.cn（企微）' },
                   { value: 'intl', label: '国际版 · workbuddy.ai' },
                 ]}
               />
@@ -1479,11 +1496,13 @@ export function WorkBuddyPlugin() {
                 </div>
               ) : login.image ? (
                 <img src={login.image} alt="登录二维码" className="h-[220px] w-[220px]" />
-              ) : login.url && loginRegion === 'intl' ? (
-                // 国际版为网页登录：给出可点击的授权链接与说明，而非二维码。
+              ) : login.url && !regionNeedsQR(loginRegion) ? (
+                // 办公版/国际版为网页登录：给出可点击的授权链接与说明，而非二维码。
                 <div className="flex w-full flex-col items-center gap-3 rounded border border-kumo-line px-4 py-6 text-center">
                   <span className="text-xs text-kumo-subtle">
-                    国际版需在浏览器中完成登录，请点击下方链接授权后返回本页。
+                    {loginRegion === 'wb'
+                      ? '办公版需在浏览器中完成登录（可选企业微信扫码），请点击下方链接授权后返回本页。'
+                      : '国际版需在浏览器中完成登录，请点击下方链接授权后返回本页。'}
                   </span>
                   <a
                     className="max-w-full truncate font-mono text-[0.78em] text-brand underline"
@@ -1501,11 +1520,11 @@ export function WorkBuddyPlugin() {
                 </div>
               )}
               <div className="text-center text-xs text-kumo-subtle">
-                {login.phase === 'waiting' ? (loginRegion === 'intl' ? '等待浏览器授权…' : '等待扫码授权…') : null}
+                {login.phase === 'waiting' ? (regionNeedsQR(loginRegion) ? '等待扫码授权…' : '等待浏览器授权…') : null}
                 {login.phase === 'success' ? '登录成功。' : null}
                 {login.phase === 'error' ? <span className="text-kumo-strong">{login.error}</span> : null}
               </div>
-              {login.url && loginRegion !== 'intl' ? (
+              {login.url && regionNeedsQR(loginRegion) ? (
                 <a
                   className="max-w-full truncate font-mono text-[0.75em] text-brand underline"
                   href={login.url}
@@ -1521,7 +1540,7 @@ export function WorkBuddyPlugin() {
           <div className="flex shrink-0 items-center justify-end gap-3 border-t border-kumo-line px-6 py-4">
             <Dialog.Close render={props => <Button size="sm" variant="secondary" {...props}>关闭</Button>} />
             <Button size="sm" variant="primary" onClick={() => startLogin()}>
-              {loginRegion === 'intl' ? '重新获取链接' : '重新获取二维码'}
+              {regionNeedsQR(loginRegion) ? '重新获取二维码' : '重新获取链接'}
             </Button>
           </div>
         </Dialog>
