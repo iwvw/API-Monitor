@@ -1012,12 +1012,14 @@ export function QoderPlugin() {
                           </Badge>
                         </Table.Cell>
                         <Table.Cell className="!px-2.5 !py-1.5">
-                          <div className="truncate text-kumo-strong" title={m.name || m.id}>
-                            {m.name || m.id}
-                          </div>
-                          <div className="truncate font-mono text-kumo-subtle" title={m.id}>
+                          <div className="truncate text-kumo-strong" title={m.id}>
                             {m.id}
                           </div>
+                          {m.key && m.key !== m.id ? (
+                            <div className="truncate font-mono text-kumo-subtle" title={m.key}>
+                              {m.key}
+                            </div>
+                          ) : null}
                         </Table.Cell>
                         <Table.Cell className="!px-2 !py-1.5 text-center">
                           <div className="flex flex-col items-center gap-0.5">
