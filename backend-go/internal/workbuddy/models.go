@@ -164,6 +164,10 @@ func mergeCatalogs(byRegion map[string][]ModelInfo) []ModelInfo {
 }
 
 // buildRegionModelSet 由「区域→目录」构建「区域→模型 id 集合」，供选号过滤。
+//
+// 办公版（wb）与国内版（cn）同域同模型 id 命名空间（wb 目录是 cn 的子集且二者后端
+// 一致），故 wb 的可用集合扩为 cn ∪ wb——否则 cn 目录里存在、wb 目录未列出的模型
+// （如 deepseek-v4.1-flash）会把办公版账号排除在选择之外。
 func buildRegionModelSet(byRegion map[string][]ModelInfo) map[string]map[string]bool {
 	out := make(map[string]map[string]bool, len(byRegion))
 	for region, models := range byRegion {
@@ -172,6 +176,11 @@ func buildRegionModelSet(byRegion map[string][]ModelInfo) map[string]map[string]
 			set[m.ID] = true
 		}
 		out[normalizeRegion(region)] = set
+	}
+	if wb, ok := out[regionWB]; ok {
+		for id := range out[regionCN] {
+			wb[id] = true
+		}
 	}
 	return out
 }

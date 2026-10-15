@@ -44,10 +44,20 @@ func endpointBilling(region string) string {
 	return billingBaseFor(region) + "/v2/billing/meter/get-user-resource"
 }
 
-// fetchBalance 查询单个账号的余额。国内走 codebuddy.cn、国际走 workbuddy.ai。
+// endpointEnterpriseUsage 是办公版企业账号的用量/额度接口。
+func endpointEnterpriseUsage(region string) string {
+	return billingBaseFor(region) + "/v2/billing/meter/get-enterprise-user-usage"
+}
+
+// fetchBalance 查询单个账号的余额。
+// 办公版（企业账号）走 get-enterprise-user-usage（credit/limitNum 口径）；
+// 国内/国际版走 codebuddy.cn / workbuddy.ai 的 get-user-resource。
 func (s *Service) fetchBalance(ctx context.Context, acc Account) (Balance, error) {
 	if strings.TrimSpace(acc.AccessToken) == "" {
 		return Balance{}, fmt.Errorf("账号缺少 access token")
+	}
+	if normalizeRegion(acc.Region) == regionWB {
+		return s.fetchOfficeBalance(ctx, acc)
 	}
 	region := normalizeRegion(acc.Region)
 	referer := billingBaseFor(region)
@@ -144,6 +154,73 @@ func parseBalance(data json.RawMessage) (Balance, error) {
 			CapacityT: p.CapacityType,
 		})
 	}
+	return out, nil
+}
+
+// fetchOfficeBalance 查询办公版企业账号的企业额度。
+// 上游 get-enterprise-user-usage 的口径与个人版相反：
+//   - credit    = 本周期**已用**额度（非剩余）
+//   - limitNum  = 分配给本账号的额度；< 0 表示不限量
+//
+// 故 remain = limitNum - credit、total = limitNum，映射到通用的 Balance 视图。
+func (s *Service) fetchOfficeBalance(ctx context.Context, acc Account) (Balance, error) {
+	headers := func(r *http.Request) {
+		commonHeaders(r, acc.Region)
+		r.Header.Set("Authorization", "Bearer "+acc.AccessToken)
+		if acc.UID != "" {
+			r.Header.Set("X-User-Id", acc.UID)
+		}
+		if acc.EnterpriseID != "" {
+			r.Header.Set("X-Enterprise-Id", acc.EnterpriseID)
+			r.Header.Set("X-Tenant-Id", acc.EnterpriseID)
+		}
+		r.Header.Set("X-Product", "SaaS")
+	}
+	ctx, cancel := context.WithTimeout(ctx, balanceQueryTimeout)
+	defer cancel()
+	data, _, err := doJSON(ctx, s.httpClientFor(acc.ID), http.MethodPost, endpointEnterpriseUsage(acc.Region), headers, bytes.NewReader([]byte("{}")))
+	if err != nil {
+		return Balance{}, err
+	}
+	var resp struct {
+		Credit        float64 `json:"credit"`
+		LimitNum      float64 `json:"limitNum"`
+		LimitNumSnake float64 `json:"limit_num"`
+		CycleEndTime  string  `json:"cycleEndTime"`
+	}
+	if err := json.Unmarshal(data, &resp); err != nil {
+		return Balance{}, fmt.Errorf("企业额度响应解析失败: %w", err)
+	}
+	limit := resp.LimitNum
+	if limit == 0 && resp.LimitNumSnake != 0 {
+		limit = resp.LimitNumSnake
+	}
+	used := resp.Credit
+	if used < 0 {
+		used = 0
+	}
+	out := Balance{Packages: []BalancePackage{}, UpdatedAt: time.Now().UTC().Format(time.RFC3339)}
+	// limitNum < 0 表示不限量：remain 记 -1 供前端识别，不做减法。
+	if limit < 0 {
+		out.Remain = -1
+		out.Size = -1
+		out.Used = used
+		return out, nil
+	}
+	remain := limit - used
+	if remain < 0 {
+		remain = 0
+	}
+	out.Size = limit
+	out.Used = used
+	out.Remain = remain
+	out.Packages = append(out.Packages, BalancePackage{
+		Name:     "企业额度",
+		Size:     limit,
+		Remain:   remain,
+		Used:     used,
+		CycleEnd: resp.CycleEndTime,
+	})
 	return out, nil
 }
 

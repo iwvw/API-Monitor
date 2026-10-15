@@ -94,6 +94,31 @@ func TestNormalizeRegionDefaultsToCN(t *testing.T) {
 	}
 }
 
+func TestMaskNickname(t *testing.T) {
+	cases := map[string]string{
+		"":                    "",
+		"董帅":                  "董*",
+		"董":                   "董*",
+		"张三丰":                 "张*",
+		"1502199269359923009": "1*",
+	}
+	for in, want := range cases {
+		if got := maskNickname(in); got != want {
+			t.Errorf("maskNickname(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestToAccountViewMasksNickname(t *testing.T) {
+	s := &Service{}
+	a := validAccount("u1", "t1")
+	a.Nickname = "董帅"
+	view := s.toAccountView(a)
+	if view.Nickname != "董*" {
+		t.Errorf("下发视图昵称应打码，得到 %q", view.Nickname)
+	}
+}
+
 func TestRegionWBHostsAndPlatform(t *testing.T) {
 	if regionHost(regionWB) != "https://www.workbuddy.cn" {
 		t.Errorf("wb host = %q", regionHost(regionWB))
@@ -173,10 +198,16 @@ func TestAccountIDForRegion(t *testing.T) {
 }
 
 func TestAlignAuthURLToRegion(t *testing.T) {
-	// 办公版：归一到 workbuddy.cn 站点源，保留 path/query/hash。
+	// 办公版：归一到 workbuddy.cn 站点源，保留 path/query/hash，并补 version。
 	got := alignAuthURLToRegion("https://copilot.tencent.com/login/?platform=workbuddy&state=abc#x", regionWB)
-	if got != "https://www.workbuddy.cn/login/?platform=workbuddy&state=abc#x" {
-		t.Errorf("办公版 authUrl 应归一到 workbuddy.cn，得到 %q", got)
+	want := "https://www.workbuddy.cn/login/?platform=workbuddy&state=abc&version=5.8.2#x"
+	if got != want {
+		t.Errorf("办公版 authUrl 应归一到 workbuddy.cn 并补 version，得到 %q want %q", got, want)
+	}
+	// 已带 version 时不覆盖。
+	got2 := alignAuthURLToRegion("https://www.workbuddy.cn/login?platform=workbuddy&state=abc&version=9.9.9", regionWB)
+	if !strings.Contains(got2, "version=9.9.9") {
+		t.Errorf("已有 version 不应被覆盖，得到 %q", got2)
 	}
 	// 其余区域：原样返回。
 	raw := "https://copilot.tencent.com/login/?state=abc"

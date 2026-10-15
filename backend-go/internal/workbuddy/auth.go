@@ -12,11 +12,26 @@ import (
 // tokenExpiringWindow 是判定 access token「即将过期」的阈值。
 const tokenExpiringWindow = 30 * time.Minute
 
+// maskNickname 把昵称打码为「首字符 + *」，避免真实姓名下发前端。
+// 空昵称保持空（前端会退回 uid/id 展示）。
+func maskNickname(name string) string {
+	s := strings.TrimSpace(name)
+	if s == "" {
+		return ""
+	}
+	r := []rune(s)
+	if len(r) <= 1 {
+		return string(r) + "*"
+	}
+	return string(r[0]) + "*"
+}
+
 // toAccountView 把账号脱敏成可下发前端的视图（不下发任何 token）。
+// 昵称打码为「姓+*」，避免真实姓名下发到前端。
 func (s *Service) toAccountView(a Account) AccountView {
 	view := AccountView{
 		ID:           a.ID,
-		Nickname:     a.Nickname,
+		Nickname:     maskNickname(a.Nickname),
 		UID:          a.UID,
 		EnterpriseID: a.EnterpriseID,
 		Region:       normalizeRegion(a.Region),

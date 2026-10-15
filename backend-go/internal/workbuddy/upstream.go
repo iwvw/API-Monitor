@@ -92,6 +92,51 @@ func endpointConfig(region string) string {
 	return upstreamBaseFor(region) + "/v3/config"
 }
 
+// endpointConsoleAccounts 是办公版账号信息接口（含 displayName / enterpriseId 等真名与企业字段）。
+func endpointConsoleAccounts(region string) string {
+	return upstreamBaseFor(region) + "/console/accounts"
+}
+
+// officeAccount 是办公版 /console/accounts 返回的账号条目子集。
+type officeAccount struct {
+	UID                string `json:"uid"`
+	Nickname           string `json:"nickname"`
+	DisplayName        string `json:"displayName"`
+	EnterpriseUserName string `json:"enterpriseUserName"`
+	EnterpriseID       string `json:"enterpriseId"`
+	EnterpriseName     string `json:"enterpriseName"`
+}
+
+// fetchOfficeAccount 拉取办公版账号信息，返回首个账号条目。
+// uidHint 非空时优先匹配同 uid 的条目（多账号企业下避免选错）。
+func (s *Service) fetchOfficeAccount(ctx context.Context, client *http.Client, region, accessToken, uidHint string) (officeAccount, bool) {
+	headers := func(r *http.Request) {
+		commonHeaders(r, region)
+		r.Header.Set("Authorization", "Bearer "+accessToken)
+		if uidHint != "" {
+			r.Header.Set("X-User-Id", uidHint)
+		}
+	}
+	raw, _, err := doJSON(ctx, client, http.MethodGet, endpointConsoleAccounts(region), headers, nil)
+	if err != nil {
+		return officeAccount{}, false
+	}
+	var parsed struct {
+		Accounts []officeAccount `json:"accounts"`
+	}
+	if err := json.Unmarshal(raw, &parsed); err != nil || len(parsed.Accounts) == 0 {
+		return officeAccount{}, false
+	}
+	if uidHint != "" {
+		for _, a := range parsed.Accounts {
+			if a.UID == uidHint {
+				return a, true
+			}
+		}
+	}
+	return parsed.Accounts[0], true
+}
+
 // randomNonce 生成办公版登录页所需的设备指纹（ww_device_nonce）。
 // 真实客户端持久化该值；这边每次登录随机即可，仅用于让登录页走标准桌面登录分支。
 func randomNonce() string {
@@ -434,7 +479,12 @@ func (s *Service) startLogin(ctx context.Context, region string) (string, string
 }
 
 // alignAuthURLToRegion 把授权链接归一到指定区域的站点源（仅保留 path/query/hash）。
-// 仅办公版需要：其登录页按站点源决定品牌与企业微信渠道入口。其余区域原样返回。
+// 仅办公版需要：其登录页按站点源决定品牌与企业微信渠道入口。
+//
+// 办公版还必须携带 version：登录页用 `platform=workbuddy` + `version>=5.8.0` 判定是否
+// 启用企业微信 OAuth 入口（源码 oe/ht：platform!=workbuddy 恒可用；否则需版本不低于
+// 阈值 5.8.0）。缺 version 时企微入口不渲染，故这里统一补上客户端实测版本。
+// 其余区域原样返回。
 func alignAuthURLToRegion(raw, region string) string {
 	if normalizeRegion(region) != regionWB {
 		return raw
@@ -449,6 +499,11 @@ func alignAuthURLToRegion(raw, region string) string {
 	}
 	u.Scheme = base.Scheme
 	u.Host = base.Host
+	q := u.Query()
+	if strings.TrimSpace(q.Get("version")) == "" {
+		q.Set("version", "5.8.2")
+	}
+	u.RawQuery = q.Encode()
 	return u.String()
 }
 
@@ -501,6 +556,23 @@ func (s *Service) pollLogin(ctx context.Context, state string) (Account, bool, e
 	}
 	if raw, _, err := doJSON(ctx, lc.client, http.MethodGet, endpointLoginAccount(lc.region, state), acctHeaders, nil); err == nil {
 		_ = json.Unmarshal(raw, &acct)
+	}
+
+	// 办公版：/v2/plugin/login/account 的 nickname 是 oneid 数字 id，不是真名；
+	// 真名与企业信息在 /console/accounts（displayName / enterpriseUserName / enterpriseName）。
+	// 补一次该接口，用真名与企业 id 覆盖，避免账号表显示一串数字。
+	if normalizeRegion(lc.region) == regionWB {
+		if oa, ok := s.fetchOfficeAccount(ctx, lc.client, lc.region, tok.AccessToken, acct.UID); ok {
+			if n := firstNonEmpty(oa.DisplayName, oa.EnterpriseUserName); n != "" {
+				acct.Nickname = n
+			}
+			if acct.UID == "" {
+				acct.UID = oa.UID
+			}
+			if oa.EnterpriseID != "" {
+				acct.EnterpriseID = oa.EnterpriseID
+			}
+		}
 	}
 
 	// 凭据自证区域：优先按 access token 的 JWT iss 判定，其次用登录响应的 domain。
