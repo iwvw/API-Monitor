@@ -854,7 +854,7 @@ async fn serve_lightweight_tunnel(
     loop {
         match parse_lightweight_request(&head) {
             Some(request) => {
-                match handle_lightweight_request(port, &request.path).await {
+                match handle_lightweight_request(port, &request).await {
                     Ok(response) => {
                         if send_framed(ws_stream, &response).await.is_err() {
                             return Ok(());
@@ -923,10 +923,13 @@ async fn serve_lightweight_tunnel(
 
 struct LightweightRequest {
     path: String,
+    /// 需带到本机 opencode 的请求头（v2 的 /api/* 强制 Basic 鉴权，由网关注入）。
+    authorization: Option<String>,
 }
 
 /// 判断请求是否为「轻量消息列表」请求：GET + 带 X-Lightweight 头 +
-/// 路径形如 /session/{id}/message。不匹配返回 None，走普通透传。
+/// 路径形如 /session/{id}/message（v1）或 /api/session/{id}/message（v2）。
+/// 不匹配返回 None，走普通透传。
 fn parse_lightweight_request(head: &[u8]) -> Option<LightweightRequest> {
     let text = std::str::from_utf8(head).ok()?;
     let mut lines = text.split("\r\n");
@@ -939,6 +942,7 @@ fn parse_lightweight_request(head: &[u8]) -> Option<LightweightRequest> {
     }
 
     let mut lightweight = false;
+    let mut authorization: Option<String> = None;
     for line in lines {
         if line.is_empty() {
             break;
@@ -947,6 +951,8 @@ fn parse_lightweight_request(head: &[u8]) -> Option<LightweightRequest> {
             if name.trim().eq_ignore_ascii_case("x-lightweight") {
                 let v = value.trim();
                 lightweight = v == "1" || v.eq_ignore_ascii_case("true");
+            } else if name.trim().eq_ignore_ascii_case("authorization") {
+                authorization = Some(value.trim().to_string());
             }
         }
     }
@@ -954,14 +960,21 @@ fn parse_lightweight_request(head: &[u8]) -> Option<LightweightRequest> {
         return None;
     }
 
-    // 路径形如 /session/<id>/message（可带 query）。
+    // 路径形如 /session/<id>/message（v1，可带 query）或
+    // /api/session/<id>/message（v2）。二者都投影。
     let path_only = target.split('?').next().unwrap_or(target);
     let segments: Vec<&str> = path_only.trim_start_matches('/').split('/').collect();
-    if segments.len() != 3 || segments[0] != "session" || segments[2] != "message" {
+    let matches_v1 = segments.len() == 3 && segments[0] == "session" && segments[2] == "message";
+    let matches_v2 = segments.len() == 4
+        && segments[0] == "api"
+        && segments[1] == "session"
+        && segments[3] == "message";
+    if !matches_v1 && !matches_v2 {
         return None;
     }
     Some(LightweightRequest {
         path: target.to_string(),
+        authorization,
     })
 }
 
@@ -1257,17 +1270,24 @@ async fn handle_reuse_request(
     request: &KeepAliveRequest,
     body: &[u8],
 ) -> Result<Vec<u8>, String> {
-    if parse_lightweight_request(head).is_some() {
+    if let Some(lightweight) = parse_lightweight_request(head) {
         // 本条请求要投影：直接投影（与普通透传共用同一本机 opencode 连接池）。
-        return handle_lightweight_request(port, &request.path).await;
+        return handle_lightweight_request(port, &lightweight).await;
     }
     handle_keepalive_request(port, request, body).await
 }
 
 /// 直连本机 opencode 拉取完整消息，投影后组装成 HTTP/1.1 响应字节。
 /// 请求走 identity 编码（不压缩），响应体为投影后的 JSON。
-async fn handle_lightweight_request(port: u16, path: &str) -> Result<Vec<u8>, String> {
-    let url = format!("http://127.0.0.1:{}{}", port, path);
+///
+/// v2 的 `/api/session/{id}/message` 强制 Basic 鉴权，且单次 limit 被钳到 200：
+/// 这里带上网关注入的 Authorization，并在 v2 路径下按 cursor 内部翻页取全，
+/// 让客户端只发一次大 limit 请求即可拿到整段压缩对话（与 v1 主机轻量路径对齐）。
+async fn handle_lightweight_request(port: u16, request: &LightweightRequest) -> Result<Vec<u8>, String> {
+    if let Some(session_id) = v2_session_id(&request.path) {
+        return handle_v2_lightweight_request(port, session_id, request.authorization.as_deref()).await;
+    }
+    let url = format!("http://127.0.0.1:{}{}", port, request.path);
     let client = local_http_client();
 
     let resp = client
@@ -1300,6 +1320,114 @@ async fn handle_lightweight_request(port: u16, path: &str) -> Result<Vec<u8>, St
         &projected,
         &[("X-Lightweight", "1")],
     ))
+}
+
+/// v2 单次底层请求的 limit 上限（与 v2 服务端一致）。
+const V2_MESSAGE_PAGE_LIMIT: usize = 200;
+/// v2 内部翻页上限：病态超长会话也不至于无限循环（50 * 200 = 10000 条）。
+const V2_MESSAGE_MAX_PAGES: usize = 50;
+
+/// v2：内部按 cursor 翻页取全整段会话，逐页投影，拼成单个轻量响应。
+///
+/// 客户端只发一次带大 limit 的请求；这里忽略其 limit（v2 服务端本就钳到 200），
+/// 从最新端往前翻到最早。响应体仍是 `{"data":[...], "cursor":{...}}` 形状，
+/// 但 `data` 已是整段、`cursor` 置空（无更早页），并带 X-Lightweight 头。
+async fn handle_v2_lightweight_request(
+    port: u16,
+    session_id: &str,
+    authorization: Option<&str>,
+) -> Result<Vec<u8>, String> {
+    let client = local_http_client();
+    let mut collected: Vec<serde_json::Value> = Vec::new();
+    let mut cursor: Option<String> = None;
+    let mut pages = 0usize;
+
+    loop {
+        let mut url = format!(
+            "http://127.0.0.1:{}/api/session/{}/message?limit={}",
+            port,
+            session_id,
+            V2_MESSAGE_PAGE_LIMIT
+        );
+        if let Some(c) = &cursor {
+            url.push_str("&cursor=");
+            url.push_str(&urlencoding(c));
+        } else {
+            // 首页显式 desc（最新在前），与官方客户端一致。
+            url.push_str("&order=desc");
+        }
+
+        let mut req = client
+            .get(&url)
+            .header(reqwest::header::ACCEPT_ENCODING, "identity");
+        if let Some(auth) = authorization {
+            req = req.header(reqwest::header::AUTHORIZATION, auth);
+        }
+        let resp = req
+            .send()
+            .await
+            .map_err(|err| format!("请求本机 opencode 失败: {}", err))?;
+
+        let status = resp.status();
+        let body = resp
+            .bytes()
+            .await
+            .map_err(|err| format!("读取本机响应失败: {}", err))?;
+
+        if !status.is_success() {
+            // 第一页就失败：原样回传状态与 body，让客户端按错误路径处理。
+            return Ok(build_http_response(status.as_u16(), "application/json", &body, &[]));
+        }
+
+        let parsed: serde_json::Value =
+            serde_json::from_slice(&body).map_err(|err| format!("解析 v2 响应失败: {}", err))?;
+        if let Some(items) = parsed.get("data").and_then(serde_json::Value::as_array) {
+            collected.extend(items.iter().cloned());
+        }
+        cursor = parsed
+            .get("cursor")
+            .and_then(|c| c.get("next"))
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_string);
+        pages += 1;
+        if cursor.is_none() || pages >= V2_MESSAGE_MAX_PAGES {
+            break;
+        }
+    }
+
+    let projected = crate::aiagent_projection::project_v2_message_list(&collected)?;
+    // 组装与 v2 同构的响应：data 为整段（desc），cursor.next 置空表示无更早页。
+    let envelope = serde_json::json!({
+        "data": serde_json::from_slice::<serde_json::Value>(&projected).unwrap_or(serde_json::Value::Array(collected)),
+        "cursor": {}
+    });
+    let out = serde_json::to_vec(&envelope).map_err(|err| format!("序列化轻量响应失败: {}", err))?;
+    Ok(build_http_response(200, "application/json", &out, &[("X-Lightweight", "1")]))
+}
+
+/// 从 v2 路径 `/api/session/<id>/message` 取出 session id；非该形状返回 None。
+fn v2_session_id(path: &str) -> Option<&str> {
+    let path_only = path.split('?').next().unwrap_or(path);
+    let segments: Vec<&str> = path_only.trim_start_matches('/').split('/').collect();
+    if segments.len() == 4 && segments[0] == "api" && segments[1] == "session" && segments[3] == "message" {
+        Some(segments[2])
+    } else {
+        None
+    }
+}
+
+/// 最小 percent-encoding：游标是 base64url，仅需转义少量字符即可安全放进 query。
+fn urlencoding(value: &str) -> String {
+    let mut out = String::with_capacity(value.len());
+    for byte in value.bytes() {
+        match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                out.push(byte as char)
+            }
+            _ => out.push_str(&format!("%{:02X}", byte)),
+        }
+    }
+    out
 }
 
 /// 组装一个最小 HTTP/1.1 响应：keep-alive + 正确 Content-Length。
@@ -1358,7 +1486,7 @@ mod tests {
     use super::{
         build_http_response, extract_token, handle_keepalive_request, handle_reuse_request, listening_pid,
         parse_keepalive_request, parse_lightweight_request, probe, process_resources, read_request_body, redact_secrets,
-        KEEPALIVE_BODY_MAX,
+        urlencoding, v2_session_id, KEEPALIVE_BODY_MAX,
     };
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::TcpListener;
@@ -1885,6 +2013,34 @@ Host: 127.0.0.1\r\nX-Lightweight: 1\r\nAccept: */*\r\n\r\n";
     fn ignores_requests_without_lightweight_header() {
         let head = b"GET /session/ses_abc/message?limit=100 HTTP/1.1\r\nHost: x\r\n\r\n";
         assert!(parse_lightweight_request(head).is_none());
+    }
+
+    /// v2 路径 `/api/session/{id}/message` 也应命中，且保留 Authorization 供后续注入。
+    #[test]
+    fn matches_v2_lightweight_message_request_with_auth() {
+        let head = b"GET /api/session/ses_v2/message?limit=1000 HTTP/1.1\r\n\
+Host: 127.0.0.1:4098\r\nX-Lightweight: 1\r\n\
+Authorization: Basic b3BlbmNvZGU6c2VjcmV0\r\nAccept: */*\r\n\r\n";
+        let req = parse_lightweight_request(head).expect("v2 路径应命中轻量投影");
+        assert_eq!(req.path, "/api/session/ses_v2/message?limit=1000");
+        assert_eq!(req.authorization.as_deref(), Some("Basic b3BlbmNvZGU6c2VjcmV0"));
+    }
+
+    /// v2 路径 id 提取：仅 `/api/session/<id>/message` 形状命中有值。
+    #[test]
+    fn v2_session_id_extracts_only_message_paths() {
+        assert_eq!(v2_session_id("/api/session/ses_x/message?limit=1"), Some("ses_x"));
+        assert_eq!(v2_session_id("/api/session/ses_x/message"), Some("ses_x"));
+        assert_eq!(v2_session_id("/api/session/ses_x/other"), None);
+        assert_eq!(v2_session_id("/session/ses_x/message"), None);
+        assert_eq!(v2_session_id("/api/session/message"), None);
+    }
+
+    /// 游标是 base64url：`-`/`_` 及字母数字保留，`=`/`+`/`/` 等应被百分号转义。
+    #[test]
+    fn urlencoding_preserves_base64url_and_escapes_rest() {
+        assert_eq!(urlencoding("Abc-123_xy.z~"), "Abc-123_xy.z~");
+        assert_eq!(urlencoding("a+b/c="), "a%2Bb%2Fc%3D");
     }
 
     #[test]

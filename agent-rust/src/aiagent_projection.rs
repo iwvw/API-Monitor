@@ -30,6 +30,113 @@ pub fn project_message_list(body: &[u8]) -> Result<Vec<u8>, String> {
     serde_json::to_vec(&out).map_err(|err| format!("序列化轻量消息失败: {}", err))
 }
 
+/// v2 单条 tool part 的 state 中体积最大、折叠态不需要的字段。
+/// v2 用 `state.content: [{type,text}]` 承载命令/文件输出（v1 是 `state.output`）。
+const V2_HEAVY_STATE_KEYS: [&str; 6] =
+    ["content", "error", "raw", "attachments", "providerState", "providerResultState"];
+
+/// 投影 v2 的 message 列表（`/api/session/{id}/message` 的 `data[]`）。
+///
+/// v2 消息形状与 v1 不同：assistant 的 parts 收在 `content[]` 里（v1 是顶层 `parts[]`），
+/// 工具输出收在 `state.content[]`（v1 是 `state.output`）。语义一致：剥掉 reasoning
+/// 与工具大输出，保留对话文本与工具元数据壳，并回填 lightweight 统计。
+pub fn project_v2_message_list(messages: &[Value]) -> Result<Vec<u8>, String> {
+    let mut out: Vec<Value> = Vec::with_capacity(messages.len());
+    for message in messages {
+        out.push(project_v2_message(message.clone()));
+    }
+    serde_json::to_vec(&out).map_err(|err| format!("序列化轻量消息失败: {}", err))
+}
+
+fn project_v2_message(message: Value) -> Value {
+    let Value::Object(mut obj) = message else {
+        return message;
+    };
+
+    let mut reasoning_count: u64 = 0;
+    let mut step_count: u64 = 0;
+
+    // assistant：content[] 里含 text / reasoning / tool。
+    if let Some(Value::Array(parts)) = obj.get_mut("content") {
+        let mut kept: Vec<Value> = Vec::with_capacity(parts.len());
+        for part in parts.drain(..) {
+            if let Some(next) = project_v2_part(part, &mut reasoning_count, &mut step_count) {
+                kept.push(next);
+            }
+        }
+        *parts = kept;
+    }
+
+    // user：files[] 里的内联图片（data: base64）首屏不拉本体，只留占位。
+    if let Some(Value::Array(files)) = obj.get_mut("files") {
+        for file in files.iter_mut() {
+            strip_v2_inline_data(file);
+        }
+    }
+
+    if reasoning_count > 0 || step_count > 0 {
+        let mut lightweight = Map::new();
+        lightweight.insert("reasoningCount".to_string(), Value::from(reasoning_count));
+        lightweight.insert("stepCount".to_string(), Value::from(step_count));
+        obj.insert("lightweight".to_string(), Value::Object(lightweight));
+    }
+
+    Value::Object(obj)
+}
+
+/// 投影 v2 单个 content part。返回 None 表示整条丢弃（reasoning）。
+fn project_v2_part(part: Value, reasoning_count: &mut u64, step_count: &mut u64) -> Option<Value> {
+    let Value::Object(mut obj) = part else {
+        return Some(part);
+    };
+    let part_type = obj.get("type").and_then(Value::as_str).unwrap_or("");
+
+    match part_type {
+        "reasoning" => {
+            *reasoning_count += 1;
+            None
+        }
+        "tool" => {
+            *step_count += 1;
+            if let Some(Value::Object(state)) = obj.get_mut("state") {
+                for key in V2_HEAVY_STATE_KEYS {
+                    state.remove(key);
+                }
+                if let Some(Value::Object(metadata)) = state.get_mut("metadata") {
+                    strip_metadata(metadata);
+                }
+            }
+            Some(Value::Object(obj))
+        }
+        "file" => {
+            let mut value = Value::Object(obj);
+            strip_v2_inline_data(&mut value);
+            Some(value)
+        }
+        _ => Some(Value::Object(obj)),
+    }
+}
+
+/// v2 file 对象：把 data: 内联 URL 清空，只留 mime/name/source 占位。
+fn strip_v2_inline_data(file: &mut Value) {
+    if let Value::Object(obj) = file {
+        if let Some(Value::String(url)) = obj.get("url") {
+            if url.starts_with("data:") {
+                obj.insert("url".to_string(), Value::String(String::new()));
+                obj.insert("urlStripped".to_string(), Value::Bool(true));
+            }
+        }
+        // v2 file 也可能把内联数据放在 source.uri / data 字段。
+        if let Some(Value::Object(source)) = obj.get_mut("source") {
+            if let Some(Value::String(uri)) = source.get("uri") {
+                if uri.starts_with("data:") {
+                    source.insert("uri".to_string(), Value::String(String::new()));
+                }
+            }
+        }
+    }
+}
+
 fn project_message(message: Value) -> Value {
     let Value::Object(mut obj) = message else {
         return message;
@@ -282,5 +389,55 @@ mod tests {
             .collect();
         assert_eq!(types, vec!["step-finish", "text"]);
         assert!(projected.get("lightweight").is_none());
+    }
+
+    fn project_v2_one(message: Value) -> Value {
+        let out = project_v2_message_list(&[message]).unwrap();
+        let mut parsed: Vec<Value> = serde_json::from_slice(&out).unwrap();
+        parsed.pop().unwrap()
+    }
+
+    /// v2：assistant 的 content[] 里剥掉 reasoning、重工具输出，回填统计。
+    #[test]
+    fn v2_drops_reasoning_and_strips_heavy_tool_state() {
+        let message = json!({
+            "info": { "id": "a1", "role": "assistant" },
+            "content": [
+                { "type": "reasoning", "text": "thinking" },
+                { "type": "text", "text": "answer" },
+                {
+                    "type": "tool",
+                    "tool": "bash",
+                    "state": {
+                        "status": "completed",
+                        "content": [ { "type": "text", "text": "huge output" } ],
+                        "metadata": { "preview": "big", "diff": "big" }
+                    }
+                }
+            ]
+        });
+        let projected = project_v2_one(message);
+        let parts = projected["content"].as_array().unwrap();
+        assert_eq!(parts.len(), 2);
+        assert_eq!(parts[0]["type"], "text");
+        assert_eq!(parts[1]["type"], "tool");
+        assert!(parts[1]["state"].get("content").is_none(), "state.content 应被剥掉");
+        assert!(parts[1]["state"]["metadata"].get("preview").is_none());
+        assert_eq!(projected["lightweight"]["reasoningCount"], 1);
+        assert_eq!(projected["lightweight"]["stepCount"], 1);
+    }
+
+    /// v2：user 消息内联 data: 图片只留占位，本体清空。
+    #[test]
+    fn v2_strips_inline_image_data() {
+        let message = json!({
+            "info": { "id": "u1", "role": "user" },
+            "files": [ { "url": "data:image/png;base64,AAAA", "mime": "image/png" } ]
+        });
+        let projected = project_v2_one(message);
+        let file = &projected["files"][0];
+        assert_eq!(file["url"], "");
+        assert_eq!(file["urlStripped"], true);
+        assert_eq!(file["mime"], "image/png");
     }
 }
