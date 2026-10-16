@@ -21,8 +21,9 @@ type ModelInfo struct {
 	Description       string `json:"description,omitempty"`
 }
 
-// freeModelIDs 是免费层实测可用的模型（与参考实现 opencode-proxy 的
-// FREE_MODEL_IDS 对齐；免费 ID 会轮换，/v1/models 始终显示可用的当前集合）。
+// freeModelIDs 是免费层兜底种子模型（与参考实现 opencode-proxy 的 FREE_MODEL_IDS
+// 对齐）。开启自动发现后以官方能力目录（models.opencode.ai/api.json）为准，免费 ID
+// 会轮换，目录始终给出当前集合；本种子仅在自动发现关闭或远端不可达时兜底。
 var freeModelIDs = []string{
 	"muse-spark-1.3-contributor-free",
 	"muse-spark-1.2-contributor-free",
@@ -30,7 +31,7 @@ var freeModelIDs = []string{
 	"longcat-2.5-preview-free",
 }
 
-// staticModels 是静态模型目录。muse-spark-* 走 /zen/v1/responses（原生推理），
+// staticModels 是静态种子目录。muse-spark-* 走 /zen/v1/responses（原生推理），
 // 其余走 /zen/v1/chat/completions。上下文/输出上限无可靠权威值时不编造。
 var staticModels = func() []ModelInfo {
 	out := make([]ModelInfo, 0, len(freeModelIDs))
@@ -48,9 +49,23 @@ var staticModels = func() []ModelInfo {
 	return out
 }()
 
-// catalog 返回静态模型目录快照。
+// catalog 返回当前应对外服务的模型目录快照：自动发现优先，否则回退种子。
 func (s *Service) catalog() []ModelInfo {
-	return append([]ModelInfo(nil), staticModels...)
+	return effectiveCatalogFrom(s.Settings())
+}
+
+// modelProtocol 返回模型应使用的上游协议（responses / chat）。优先取自动发现
+// 记录的协议，未命中时沿用 muse-spark 系列走 responses 的既有约定。
+func (s *Service) modelProtocol(id string) string {
+	for _, d := range s.Settings().DiscoveredModels {
+		if d.ID == id && d.Protocol != "" {
+			return d.Protocol
+		}
+	}
+	if strings.HasPrefix(id, "muse-spark-") {
+		return "responses"
+	}
+	return "chat"
 }
 
 // allModelIDs 返回对外（带前缀）的模型 ID 列表。

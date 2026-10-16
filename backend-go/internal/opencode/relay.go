@@ -103,14 +103,14 @@ func (s *Service) serveChatCompletions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// muse-spark 系列只在 /zen/v1/responses 上游存在，chat 请求需要翻译。
+	// muse-spark 系列只在 /zen/v1/responses 上游存在，chat 请求需要翻译；
+	// 自动发现的新模型按探测到的协议路由（默认 chat）。
+	translate := s.modelProtocol(upstreamModel) == "responses"
 	var outbound map[string]interface{}
 	upstreamPath := "/zen/v1/chat/completions"
-	translate := false
-	if strings.HasPrefix(upstreamModel, "muse-spark-") {
+	if translate {
 		outbound = translateChatToResponses(payload)
 		upstreamPath = "/zen/v1/responses"
-		translate = true
 	} else {
 		outbound = cloneMap(payload)
 		ensureChatTools(outbound)

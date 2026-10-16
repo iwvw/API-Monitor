@@ -3,6 +3,7 @@ import { Button, Switch, Loader, Input, Badge, Table, Select } from '@cloudflare
 import { SectionCard, FieldRow, EmptyState, AppTable } from '../../../components/ui/AppPrimitives.jsx';
 import { OpenCodeBrand, Terminal, Rocket, RefreshCw, Layers } from '../../../components/Icons.jsx';
 import { toast } from '../../../modules/toast.js';
+import { formatDateTime } from '../../../modules/utils.js';
 import { getAuthHeaders } from '../utils.js';
 
 const API = '/api/opencode';
@@ -267,6 +268,15 @@ export function OpenCodePlugin() {
             />
           )}
           {field(
+            '自动发现免费模型',
+            '定期从 OpenCode 官方能力目录发现免费模型并探测可用性：新增免费模型自动出现在下方列表，退役模型自动移除；配置会话身份后探测才生效',
+            <Switch
+              checked={!!settings?.autoDetect}
+              disabled={saving}
+              onCheckedChange={v => update({ autoDetect: v })}
+            />
+          )}
+          {field(
             '模型前缀',
             '给本插件对外暴露的所有模型名统一加前缀（如 oc-），便于在网关端点列表区分来源；请求转发时自动剥掉前缀还原到原模型，留空表示不加',
             <Input
@@ -331,6 +341,20 @@ export function OpenCodePlugin() {
                 <span className="text-xs text-kumo-subtle">模型</span>
                 <span className="font-mono text-xs text-kumo-default">{status?.modelCount ?? 0}</span>
               </div>
+              <div className="flex min-w-0 items-center gap-2" title={status?.autoDetect ? '自动发现免费模型：从官方能力目录同步并探测可用性' : '自动发现免费模型已关闭，仅使用内置种子模型'}>
+                <span className="text-xs text-kumo-subtle">自动发现</span>
+                <Badge variant={status?.autoDetect ? 'success' : 'outline'} className="text-xs">
+                  {status?.autoDetect ? '开启' : '关闭'}
+                </Badge>
+              </div>
+              {status?.autoDetect ? (
+                <div className="flex min-w-0 items-center gap-2" title={`发现 ${status?.discoveredCount ?? 0} 个，探测可用 ${status?.verifiedCount ?? 0} 个，确认退役 ${status?.excludedCount ?? 0} 个`}>
+                  <span className="text-xs text-kumo-subtle">目录同步</span>
+                  <span className="font-mono text-xs text-kumo-default" title={status?.lastCatalogSync || '尚未同步'}>
+                    {status?.lastCatalogSync ? formatDateTime(status.lastCatalogSync) : '未同步'}
+                  </span>
+                </div>
+              ) : null}
               {status && !status.upstreamReady ? (
                 <Badge variant="warning" className="text-xs">上游协议层未就绪</Badge>
               ) : null}

@@ -16,8 +16,10 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
+	"reflect"
 	"strconv"
 	"strings"
 	"sync"
@@ -56,6 +58,13 @@ type Settings struct {
 	ProxyPoolID string `json:"proxyPoolId,omitempty"`
 	// DisabledModels 被停用的模型（不在 /v1/models 对外提供）。
 	DisabledModels []string `json:"disabledModels"`
+	// AutoDetect 是否自动从官方能力目录发现免费模型并探测可用性（默认开启）。
+	// 不开 omitempty：始终落盘，便于遗留行识别「未设置」与「显式关闭」。
+	AutoDetect bool `json:"autoDetect"`
+	// DiscoveredModels 自动发现的免费模型及其可用性状态快照。
+	DiscoveredModels []DiscoveredModel `json:"discoveredModels,omitempty"`
+	// LastCatalogSync 最近一次成功同步能力目录的时间（RFC3339 UTC）。
+	LastCatalogSync string `json:"lastCatalogSync,omitempty"`
 }
 
 // SessionIdentity 是要重放给 Zen 上游的 OpenCode 会话身份。字段命名与
@@ -72,7 +81,9 @@ type SessionIdentity struct {
 
 func defaultSettings() Settings {
 	return Settings{
-		DisabledModels: []string{},
+		DisabledModels:   []string{},
+		AutoDetect:       true,
+		DiscoveredModels: []DiscoveredModel{},
 		Session: SessionIdentity{
 			UserAgent:       "opencode/latest/2.0.12/cli",
 			XOpencodeClient: "cli",
@@ -87,6 +98,8 @@ type Service struct {
 
 	mu       sync.RWMutex
 	settings Settings
+	// lastCatalogFail 最近一次能力目录抓取失败时间（内存态，用于重试退避）。
+	lastCatalogFail time.Time
 
 	externalPool ProxyPoolSelector
 }
@@ -147,22 +160,34 @@ func (s *Service) loadSettings(ctx context.Context, db *sql.DB) {
 		_, _ = db.ExecContext(ctx, `INSERT INTO opencode_settings (id, data) VALUES (1, ?)`, data)
 		return
 	}
-	var cfg Settings
+	// 先还原明文（可能加密），供 key 存在性判断与两次反序列化复用。
+	plain := raw
 	if secure.IsEncrypted(raw) {
-		if err := secure.DecryptJSON(raw, &cfg); err != nil {
-			cfg = defaultSettings()
-		}
+		plain = secure.SecureDecrypt(raw)
+	}
+	var cfg Settings
+	if json.Unmarshal([]byte(plain), &cfg) != nil {
+		cfg = defaultSettings()
 	} else {
 		// 兼容存量明文行（升级前以明文 JSON 存储）：解密失败路径由 EncryptJSON 归位明文时覆盖。
-		if err := json.Unmarshal([]byte(raw), &cfg); err != nil {
-			cfg = defaultSettings()
+		if !secure.IsEncrypted(raw) {
+			if enc, err := secure.EncryptJSON(cfg); err == nil {
+				_, _ = db.ExecContext(ctx, `UPDATE opencode_settings SET data = ? WHERE id = 1`, enc)
+			}
 		}
-		if enc, err := secure.EncryptJSON(cfg); err == nil {
-			_, _ = db.ExecContext(ctx, `UPDATE opencode_settings SET data = ? WHERE id = 1`, enc)
+	}
+	// 遗留行没有 autoDetect 字段：按默认开启处理（新行由 defaultSettings 兜底）。
+	var keyMap map[string]json.RawMessage
+	if json.Unmarshal([]byte(plain), &keyMap) == nil {
+		if _, ok := keyMap["autoDetect"]; !ok {
+			cfg.AutoDetect = true
 		}
 	}
 	if cfg.DisabledModels == nil {
 		cfg.DisabledModels = []string{}
+	}
+	if cfg.DiscoveredModels == nil {
+		cfg.DiscoveredModels = []DiscoveredModel{}
 	}
 	s.mu.Lock()
 	s.settings = cfg
@@ -178,10 +203,14 @@ func (s *Service) Settings() Settings {
 	return out
 }
 
-// SaveSettings 校验并持久化设置。前缀变化时同步已接入网关端点的模型名单。
+// SaveSettings 校验并持久化设置。目录变化（含自动发现的模型增删）时同步已接入
+// 网关端点的模型名单。
 func (s *Service) SaveSettings(ctx context.Context, next Settings) error {
 	if next.DisabledModels == nil {
 		next.DisabledModels = []string{}
+	}
+	if next.DiscoveredModels == nil {
+		next.DiscoveredModels = []DiscoveredModel{}
 	}
 	next.APIKey = strings.TrimSpace(next.APIKey)
 	session := strings.TrimSpace(next.Session.XSessionID)
@@ -189,7 +218,7 @@ func (s *Service) SaveSettings(ctx context.Context, next Settings) error {
 		next.Session.XSessionID = session
 	}
 	s.mu.RLock()
-	oldPrefix := s.settings.ModelPrefix
+	old := s.settings
 	s.mu.RUnlock()
 
 	db, err := s.open(ctx)
@@ -210,7 +239,9 @@ func (s *Service) SaveSettings(ctx context.Context, next Settings) error {
 	s.settings = next
 	s.mu.Unlock()
 
-	if next.ModelPrefix != oldPrefix {
+	// 对外暴露的模型集合变化（前缀/开关/发现增删/退役切换）才同步端点 models 列；
+	// 仅探测时间戳/可用性状态变化不触发。
+	if !reflect.DeepEqual(effectiveIDsFrom(old), effectiveIDsFrom(next)) {
 		s.writeLinkedEndpointModels(ctx, s.allModelIDs())
 	}
 	s.syncLinkedEndpointDisabledModels(ctx)
@@ -257,8 +288,9 @@ func (s *Service) handleSettings(w http.ResponseWriter, r *http.Request) {
 	case http.MethodGet:
 		responseJSON(w, map[string]interface{}{"success": true, "settings": s.publicSettings()})
 	case http.MethodPut, http.MethodPost:
+		rawBody, _ := io.ReadAll(io.LimitReader(r.Body, 1<<20))
 		var body Settings
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		if json.Unmarshal(rawBody, &body) != nil {
 			responseJSON(w, http.StatusBadRequest, map[string]interface{}{"success": false, "error": "请求体解析失败"})
 			return
 		}
@@ -267,6 +299,16 @@ func (s *Service) handleSettings(w http.ResponseWriter, r *http.Request) {
 		body.DisabledModels = current.DisabledModels
 		if body.Session.UserAgent == "" {
 			body.Session.UserAgent = current.Session.UserAgent
+		}
+		// 内部发现字段由后台维护，不回传覆盖。
+		body.DiscoveredModels = current.DiscoveredModels
+		body.LastCatalogSync = current.LastCatalogSync
+		// 未显式提交 autoDetect 时保留当前值（前端设置对象总会带该字段，兼容旧客户端）。
+		var rawMap map[string]json.RawMessage
+		if json.Unmarshal(rawBody, &rawMap) == nil {
+			if _, ok := rawMap["autoDetect"]; !ok {
+				body.AutoDetect = current.AutoDetect
+			}
 		}
 		if err := s.SaveSettings(r.Context(), body); err != nil {
 			responseJSON(w, http.StatusInternalServerError, map[string]interface{}{"success": false, "error": err.Error()})
@@ -292,18 +334,35 @@ func (s *Service) publicSettings() map[string]interface{} {
 		"modelPrefix":    st.ModelPrefix,
 		"proxyPoolId":    st.ProxyPoolID,
 		"disabledModels": st.DisabledModels,
+		"autoDetect":     st.AutoDetect,
 	}
 }
 
 func (s *Service) handleStatus(w http.ResponseWriter, r *http.Request) {
 	st := s.Settings()
 	sessionOK := strings.TrimSpace(st.Session.XSessionID) != ""
+	discovered := st.DiscoveredModels
+	verified, excluded := 0, 0
+	for _, d := range discovered {
+		if d.Available {
+			verified++
+		}
+		if d.Excluded {
+			excluded++
+		}
+	}
 	responseJSON(w, map[string]interface{}{
-		"enabled":       st.Enabled,
-		"upstreamReady": upstreamImplemented,
-		"sessionReady":  sessionOK,
-		"modelCount":    len(s.catalog()),
-		"linkBaseUrl":   s.linkBaseURL(),
+		"enabled":         st.Enabled,
+		"upstreamReady":   upstreamImplemented,
+		"sessionReady":    sessionOK,
+		"modelCount":      len(s.catalog()),
+		"linkBaseUrl":     s.linkBaseURL(),
+		"autoDetect":      st.AutoDetect,
+		"lastCatalogSync": st.LastCatalogSync,
+		"discoveredCount": len(discovered),
+		"verifiedCount":   verified,
+		"excludedCount":   excluded,
+		"probeEnabled":    sessionOK && st.AutoDetect,
 	})
 }
 

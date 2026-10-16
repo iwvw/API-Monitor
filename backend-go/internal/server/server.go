@@ -271,6 +271,8 @@ func newServer(cfg config.Config) (*Server, error) {
 	server.antigravity.SetProxyPoolSelector(server.proxypool)
 	// OpenCode 插件可引用独立代理池作为出网出口。
 	server.opencode.SetProxyPoolSelector(server.proxypool)
+	// OpenCode 插件后台自动发现免费模型并探测可用性（开关由前端控制，关闭时静默跳过）。
+	server.opencode.StartDiscovery(warmupCtx)
 	// Antigravity 插件配额刷新检测：上报事件走统一通知中心。
 	server.antigravity.SetNotifier(notifyService)
 	// DS2API 插件可引用独立代理池作为出网出口。
