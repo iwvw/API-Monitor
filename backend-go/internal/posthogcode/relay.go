@@ -106,6 +106,11 @@ func (s *Service) serveChatCompletions(w http.ResponseWriter, r *http.Request) {
 		}
 
 		target := relayTarget{account: acc, token: gt.Token, url: chatCompletionsURL(gt.GatewayURL)}
+		if target.url == "" {
+			lastLocal = fmt.Errorf("铸造返回的网关地址不受信任（非 https 或非 *.posthog.com），已拒绝转发")
+			s.markCooldown(acc.ID, lastLocal.Error())
+			continue
+		}
 		err = s.forwardOnce(r.Context(), w, target, payload, stream)
 		if err == nil {
 			s.recordCall(acc.ID)

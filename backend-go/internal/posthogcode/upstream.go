@@ -191,8 +191,23 @@ type relayTarget struct {
 }
 
 // chatCompletionsURL 由铸造返回的 gateway_url 构造对话地址（无产品路径段）。
+// 仅接受 https 且 host 属 *.posthog.com 的网关地址：铸造响应来自受信任的
+// PostHog，但为防上游响应被篡改/组织被攻破时把 phe_ token 与对话内容外发给
+// 不可信主机（SSRF/凭据外发），非白名单 host 一律返回空串。
 func chatCompletionsURL(gatewayURL string) string {
-	return strings.TrimRight(gatewayURL, "/") + "/v1/chat/completions"
+	raw := strings.TrimRight(strings.TrimSpace(gatewayURL), "/")
+	u, err := url.Parse(raw)
+	if err != nil || !strings.EqualFold(u.Scheme, "https") || !isPostHogGatewayHost(u.Hostname()) {
+		return ""
+	}
+	return raw + "/v1/chat/completions"
+}
+
+// isPostHogGatewayHost 判断 host 是否为 PostHog 官方 AI 网关域名
+// （posthog.com 或其子域，如 ai-gateway.us.posthog.com / ai-gateway.eu.posthog.com）。
+func isPostHogGatewayHost(host string) bool {
+	h := strings.ToLower(strings.TrimSpace(host))
+	return h == "posthog.com" || strings.HasSuffix(h, ".posthog.com")
 }
 
 // upstreamError 是一次上游失败的分类结果。
