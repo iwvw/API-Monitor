@@ -246,7 +246,12 @@ func (s *Service) handleUpdateAccount(w http.ResponseWriter, r *http.Request, id
 		responseJSON(w, http.StatusNotFound, map[string]interface{}{"success": false, "error": "账号不存在"})
 		return
 	}
-	acc.Nickname = strings.TrimSpace(body.Nickname)
+	// 前端编辑框回填的是打码值（maskNickname 的「首字符+*」）。若提交值恰好就是
+	// 当前真名的打码形态且未改动，视为「保持原名」，不落库打码串，避免用户仅点
+	// 保存就把真实姓名永久覆盖成「首字符+*」。
+	if name := strings.TrimSpace(body.Nickname); name != maskNickname(acc.Nickname) {
+		acc.Nickname = name
+	}
 	if err := s.upsertAccount(r.Context(), acc); err != nil {
 		responseJSON(w, http.StatusInternalServerError, map[string]interface{}{"success": false, "error": err.Error()})
 		return
