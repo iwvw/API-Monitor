@@ -190,6 +190,22 @@ func TestLookupModelKeyResolvesOfficialName(t *testing.T) {
 	}
 }
 
+// TestIsModelEnabledShortKeyBypass 验证停用名单以官方名存储后，经上游短 key
+// 别名请求也会被拦截（修复：短 key 反查官方名核对停用名单）。
+func TestIsModelEnabledShortKeyBypass(t *testing.T) {
+	s := newTestService(t)
+	s.settings = Settings{DisabledModels: []string{"DeepSeek-Flash"}}
+	if s.isModelEnabled("dfmodel") {
+		t.Fatalf("short key for a disabled official model should be blocked")
+	}
+	if s.isModelEnabled("DeepSeek-Flash") {
+		t.Fatalf("official name should be blocked")
+	}
+	if !s.isModelEnabled("custom-model") {
+		t.Fatalf("unrelated model should stay enabled")
+	}
+}
+
 func TestLegacyEncodeRoundTrip(t *testing.T) {
 	// legacyEncode 是自定义字母表变换；验证空输入与可逆性（与官方一致的标准前缀）。
 	got := legacyEncode([]byte(""))

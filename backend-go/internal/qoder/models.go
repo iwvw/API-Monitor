@@ -360,6 +360,16 @@ func (s *Service) isModelEnabled(model string) bool {
 			return false
 		}
 	}
+	// 入参是上游短 key（或带前缀）时，反查其官方名集合并核对停用名单，避免
+	// 停用名单以官方名存储后，经短 key 别名把已停用模型重新「复活」。
+	bare := strings.TrimSpace(s.stripModelPrefix(model))
+	if names := keyToNames[strings.ToLower(bare)]; len(names) > 0 {
+		for _, n := range names {
+			if disabled[n] || disabled[s.prefixModel(n)] {
+				return false
+			}
+		}
+	}
 	return true
 }
 
