@@ -22,7 +22,8 @@ backend-go/internal/qoder/
 ├── service.go    Settings/Account、建表、选号、调用计数、ServeHTTP 入口、站点时区
 ├── upstream.go   设备登录、身份加密与签名、加密 SSE 对话、auth JSON 解析、token 刷新
 ├── auth.go       账号脱敏、CRUD、选号与失败冷却、导入导出、签到/余额入口
-├── models.go     静态模型目录、逐模型启停
+├── models.go     模型目录对外视图、逐模型启停、停用名单别名归一
+├── catalog.go    模型目录动态发现（签名 GET model/list + 按区域缓存 + 静态兜底）
 ├── relay.go      中继面：请求转发、换号重试、流式透传
 ├── billing.go    余额查询与每日签到（openapi 控制面）
 ├── link.go       网关端点接入（接入/断开/状态）
@@ -72,11 +73,20 @@ Qoder 对话走**加密 SSE**，不是标准 Bearer：
 - 刷新 token：`POST {openapi}/api/v1/deviceToken/refresh`，body `{refresh_token}`，
   返回 `{token, refresh_token, expires_in}`。
 
-### 3.4 模型目录（`models.go`）
+### 3.4 模型目录（`models.go` / `catalog.go`）
 
-Qoder 无公开动态模型目录接口（`/algo/api/v2/model/list` 需 COSY 签名），目录以
-**按区域各自维护的静态表**为准，取自官方客户端目录缓存 `catalog-v6`
-（HKDF-SHA256(uid) + AES-256-GCM 解密）实测记录，含 `price_factor` 倍率：
+模型目录分**动态发现**与**静态兜底**两层：
+
+- **动态发现**（`catalog.go`）：用已登录账号的 COSY 签名会话调
+  `GET /algo/api/v2/model/list?Encode=1`（区域基址：国内版 `gateway.qoder.com.cn`、
+  国际版 `api1.qoder.sh`；GET 无 body，签名 body 段为空、path 剥去 `/algo` 前缀），
+  按分组返回，只取 `chat` 分组。条目 `display_name` 作对外 id、`key` 作上游短 key。
+  按区域缓存（`modelCacheTTL` 10 分钟），`StartModelRefresh` 后台定期回源，
+  `handleModels` 读取时按 TTL 惰性回源；回源失败保留上一份快照，首次成功前回退静态表。
+  这是对外 id 与路由的**权威来源**，能跟上上游增删/改名（参考实现 `cli-proxy/qoder`）。
+- **静态兜底**（`cnStaticModels`/`intlStaticModels`）：仅在动态目录首次拉取成功前使用，
+  取自官方客户端目录缓存 `catalog-v6` 实测记录，并提供动态目录不带的元数据
+  （`price_factor` 倍率、厂商标识），按上游短 key 回填到动态条目上：
 
 - 国内版 14 个：`Auto`/`Qwen3.8-Max`/`Qwen3.8-Flash`/`Qwen3.7-Max`/`Qwen3.7-Plus`/
   `Qwen3.7-Flash`/`DeepSeek-V4-Pro`/`DeepSeek-Flash`/`GLM-5.3`/`GLM-5.3-Flash`/
@@ -103,9 +113,17 @@ Qoder 无公开动态模型目录接口（`/algo/api/v2/model/list` 需 COSY 签
 显示「通用/国内/国际」徽标，并展示 `price_factor` 倍率列。选号按 `accountServesModel`
 过滤：账号所属区域不提供目标模型时跳过（官方名与短 key 均可命中）。
 
+**停用采用白名单语义（关键）**：`isModelEnabled` 只放行**当前目录内**且未被停用的
+模型名，目录外的任意别名一律拒绝。停用判定经 `disabledMatchTokens` 做**别名闭包归一**
+（`modelAliasClosure` 在「静态表 + 动态目录」的 id↔key 连通图上展开）：即使上游把
+`DeepSeek-Flash` 改名为 `DeepSeek-V4.1-Flash`（沿用短 key `dfmodel`），按旧名停用
+依然生效，杜绝改名/别名绕过停用。网关端点 `models` 列与中继 `/v1/models` 都写
+**启用中的**模型名（`enabledModelIDs`），从路由索引源头收敛。
+
 **停用名单迁移**：模型对外 id 由短 key 改为官方名后，加载/保存设置时经
 `migrateDisabledModels` 把旧名单里的短 key 归一化为官方名（保持前缀），避免用户
-已停用的模型「复活」。
+已停用的模型「复活」；启用某模型时（`setModelsEnabled`）用同一别名闭包清掉指向
+该模型的旧名/短 key 残留。
 
 ### 3.6 错峰折扣（`offpeak.go`）
 
@@ -174,6 +192,8 @@ Qoder 分国内版与国际版，两套域名、client_id、登录参数完全�
 
 - 单测 `qoder_test.go`：加密 SSE 信封解析（含直接 chunk 兼容）、模型 key 归一化、
   自定义字母表变换、过期时间归一化、选号策略归一化、签到领取与幂等、余额解析、token 刷新、
-  区域归一化 / 域名自证 / 区域配置。
+  区域归一化 / 域名自证 / 区域配置；动态目录解析（`parseUpstreamCatalog`，display_name
+  作 id / key 作短 key / 静态倍率回填）、签名 GET 目录（`fetchUpstreamCatalog`）、
+  回源失败回退静态兜底、停用白名单语义与改名后的别名闭包归一。
 - 接线自检：`npm run governance:check`、`npm run ui:governance`、`node tools/three-side-governance-check.mjs`。
 - 上线前建议：真实账号跑通「登录 → 中继转发 → 签到 → 余额」全链路。
