@@ -52,6 +52,10 @@ const (
 	legacyChatPath = "/algo/api/v2/service/pro/sse/agent_chat_generation"
 	// legacyPathNoHost 是签名时使用的路径（不含 host）。
 	legacyPathNoHost = "/api/v2/service/pro/sse/agent_chat_generation"
+	// legacyModelListPath 是模型目录接口路径（不含 host；host 按区域派生）。
+	legacyModelListPath = "/algo/api/v2/model/list"
+	// legacyModelListSigPath 是模型目录接口签名时使用的路径（剥去 /algo，不含 query）。
+	legacyModelListSigPath = "/api/v2/model/list"
 	// legacyServerPubKey 是包裹 tempKey 的内置 RSA 公钥。
 	legacyServerPubKey = "-----BEGIN PUBLIC KEY-----\nMIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQDA8iMH5c02LilrsERw9t6Pv5Nc\n4k6Pz1EaDicBMpdpxKduSZu5OANqUq8er4GM95omAGIOPOh+Nx0spthYA2BqGz+l\n6HRkPJ7S236FZz73In/KVuLnwI8JJ2CbuJap8kvheCCZpmAWpb/cPx/3Vr/J6I17\nXcW+ML9FoCI6AOvOzwIDAQAB\n-----END PUBLIC KEY-----"
 
@@ -61,12 +65,14 @@ const (
 	tokenExpiringWindow = 30 * time.Minute
 )
 
-// openAPIBaseOverride / loginBaseOverride / gatewayOverride 仅供测试把 openapi、
-// 登录域与对话网关指向本地 mock；为空时按区域配置派生（生产路径不变）。
+// openAPIBaseOverride / loginBaseOverride / gatewayOverride / modelAPIBaseOverride
+// 仅供测试把 openapi、登录域、对话网关与模型目录接口指向本地 mock；
+// 为空时按区域配置派生（生产路径不变）。
 var (
-	openAPIBaseOverride string
-	loginBaseOverride   string
-	gatewayOverride     string
+	openAPIBaseOverride  string
+	loginBaseOverride    string
+	gatewayOverride      string
+	modelAPIBaseOverride string
 )
 
 // -----------------------------------------------------------------------------

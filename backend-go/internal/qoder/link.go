@@ -94,7 +94,9 @@ func (s *Service) linkCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	models := s.allModelIDs()
+	// models 列写**启用中的**对外模型名（白名单）：网关据此建路由索引，
+	// 目录外或已停用的模型不会出现在索引里，从源头阻止用任意名路由到本端点。
+	models := s.enabledModelIDs()
 	modelsJSON, _ := json.Marshal(models)
 	disabled := s.Settings().DisabledModels
 	if disabled == nil {

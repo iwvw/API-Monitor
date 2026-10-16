@@ -324,6 +324,9 @@ func newServer(cfg config.Config) (*Server, error) {
 	server.qoder.StartCallStatsFlush(warmupCtx)
 	server.qoder.StartAutoRefresh(warmupCtx)
 	server.qoder.StartCheckinScheduler(warmupCtx)
+	// Qoder 模型目录动态发现：定期用签名账号拉取上游真实目录（display_name/key），
+	// 取代过期的静态表，并在目录变化后同步端点 models 列。
+	server.qoder.StartModelRefresh(warmupCtx)
 	// 启动时对账已接入端点的 models 列：旧行停在接入时的旧目录，需按当前
 	// 启用名单收敛，否则端点模型列表长期显示过期内容。
 	server.qoder.ReconcileLinkedEndpoint(warmupCtx)

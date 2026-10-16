@@ -43,11 +43,10 @@ func (s *Service) serveRelay(w http.ResponseWriter, r *http.Request, stripped st
 // serveRelayModels 输出带前缀、且过滤掉停用项的模型列表。
 func (s *Service) serveRelayModels(w http.ResponseWriter, r *http.Request) {
 	models := s.catalog()
-	disabled := s.disabledSet()
 	out := make([]map[string]interface{}, 0, len(models))
 	for _, m := range models {
 		id := s.prefixModel(m.ID)
-		if disabled[id] {
+		if !s.isModelEnabled(m.ID) {
 			continue
 		}
 		out = append(out, map[string]interface{}{

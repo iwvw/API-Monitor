@@ -201,7 +201,44 @@ func TestIsModelEnabledShortKeyBypass(t *testing.T) {
 	if s.isModelEnabled("DeepSeek-Flash") {
 		t.Fatalf("official name should be blocked")
 	}
-	if !s.isModelEnabled("custom-model") {
+	if !s.isModelEnabled("Qwen3.8-Flash") {
+		t.Fatalf("unrelated catalog model should stay enabled")
+	}
+}
+
+// TestIsModelEnabledWhitelist 验证白名单语义：目录外的模型名一律拒绝，
+// 防止上游改名后旧名/任意别名绕过停用名单。
+func TestIsModelEnabledWhitelist(t *testing.T) {
+	s := newTestService(t)
+	// 无账号 → 默认国内版静态兜底目录。
+	if !s.isModelEnabled("DeepSeek-Flash") {
+		t.Fatalf("catalog model should be enabled by default")
+	}
+	if s.isModelEnabled("custom-model") {
+		t.Fatalf("off-catalog model should be rejected")
+	}
+	if s.isModelEnabled("totally-made-up") {
+		t.Fatalf("off-catalog model should be rejected")
+	}
+}
+
+// TestModelAliasesSurviveRename 验证上游改名后，按旧名/短 key 停用依然生效：
+// 用动态目录把 DeepSeek-Flash 的对外名改成 DeepSeek-V4.1-Flash（沿用短 key dfmodel），
+// 停用名单里的旧官方名应通过短 key 关联到新条目。
+func TestModelAliasesSurviveRename(t *testing.T) {
+	s := newTestService(t)
+	s.settings = Settings{DisabledModels: []string{"DeepSeek-Flash"}}
+	s.storeRegionCatalog(regionCN, []ModelInfo{
+		{ID: "DeepSeek-V4.1-Flash", Key: "dfmodel", Provider: "deepseek"},
+		{ID: "Qwen3.8-Flash", Key: "qfmodel", Provider: "qwen"},
+	})
+	if s.isModelEnabled("DeepSeek-V4.1-Flash") {
+		t.Fatalf("renamed model sharing the disabled short key should stay blocked")
+	}
+	if s.isModelEnabled("dfmodel") {
+		t.Fatalf("short key should stay blocked")
+	}
+	if !s.isModelEnabled("Qwen3.8-Flash") {
 		t.Fatalf("unrelated model should stay enabled")
 	}
 }
@@ -409,6 +446,36 @@ func TestReconcileLinkedEndpointSyncsModels(t *testing.T) {
 	}
 }
 
+// TestEnableClearsDisabledAliases 验证「启用」某模型时，停用名单里指向同一模型的
+// 旧名/短 key 残留也会被清掉，避免启用后仍被别名拦截。
+func TestEnableClearsDisabledAliases(t *testing.T) {
+	s := newTestService(t)
+	ctx := context.Background()
+	s.storeRegionCatalog(regionCN, []ModelInfo{
+		{ID: "DeepSeek-V4.1-Flash", Key: "dfmodel", Provider: "deepseek"},
+	})
+	// 旧名 + 短 key 都在停用名单里。
+	if err := s.setModelsEnabled(ctx, []string{"DeepSeek-V4.1-Flash"}, false); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.setModelsEnabled(ctx, []string{"dfmodel"}, false); err != nil {
+		t.Fatal(err)
+	}
+	if s.isModelEnabled("DeepSeek-V4.1-Flash") {
+		t.Fatalf("model should be disabled")
+	}
+	// 按对外名重新启用：应一并清掉短 key 别名残留。
+	if err := s.setModelsEnabled(ctx, []string{"DeepSeek-V4.1-Flash"}, true); err != nil {
+		t.Fatal(err)
+	}
+	if !s.isModelEnabled("DeepSeek-V4.1-Flash") {
+		t.Fatalf("model should be enabled after toggle-on")
+	}
+	if !s.isModelEnabled("dfmodel") {
+		t.Fatalf("short-key alias should be cleared too")
+	}
+}
+
 func TestStrategyNormalization(t *testing.T) {
 	if normalizeStrategy("round-robin") != accountpick.RoundRobin {
 		t.Fatalf("round-robin")
@@ -421,7 +488,130 @@ func TestStrategyNormalization(t *testing.T) {
 	}
 }
 
-// TestDailyCheckinClaimsAndIdempotent 验证签到：列出活动 → 领取可领取项；已领取幂等。
+// TestParseUpstreamCatalog 验证动态目录解析：display_name 作对外 id、key 作上游 key，
+// 静态表已知的倍率/厂商标识按 key 回填。
+func TestParseUpstreamCatalog(t *testing.T) {
+	raw := []byte(`{
+		"chat": [
+			{"key":"qmodel_38max","display_name":"Qwen3.8-Max","enable":true,"is_reasoning":true,"max_input_tokens":180000},
+			{"key":"dfmodel","display_name":"DeepSeek-V4.1-Flash","enable":true,"max_input_tokens":180000},
+			{"key":"brand_new_key","display_name":"Brand-New-Model","enable":true}
+		],
+		"embedding": [
+			{"key":"embedding-1","display_name":"Embedding-1","enable":true}
+		]
+	}`)
+	models, err := parseUpstreamCatalog(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	byID := map[string]ModelInfo{}
+	for _, m := range models {
+		byID[m.ID] = m
+	}
+	if _, ok := byID["Embedding-1"]; ok {
+		t.Fatalf("only chat group should be published")
+	}
+	m, ok := byID["Qwen3.8-Max"]
+	if !ok || m.Key != "qmodel_38max" {
+		t.Fatalf("Qwen3.8-Max missing or wrong key: %+v", m)
+	}
+	// 静态表已知 key → 回填倍率与厂商。
+	if m.Provider != "qwen" || m.CreditsMultiplier != 0.5 || !m.CreditsParsed {
+		t.Fatalf("static metadata not backfilled: %+v", m)
+	}
+	// 静态表已知 key（dfmodel）但上游改了 display_name：对外 id 用上游新名，
+	// 倍率仍按短 key 回填（同一上游 key，计费不变）。
+	d, ok := byID["DeepSeek-V4.1-Flash"]
+	if !ok || d.Key != "dfmodel" {
+		t.Fatalf("renamed model not parsed from upstream: %+v", d)
+	}
+	if !d.CreditsParsed || d.Provider != "deepseek" {
+		t.Fatalf("known short key should still backfill static metadata: %+v", d)
+	}
+	// 静态表完全未知的 key → 倍率未解析（前端显示「—」）。
+	u, ok := byID["Brand-New-Model"]
+	if !ok || u.Key != "brand_new_key" || u.CreditsParsed {
+		t.Fatalf("unknown-key model should be marked unparsed: %+v", u)
+	}
+}
+
+// TestFetchUpstreamCatalog 验证签名 GET 模型目录：命中 mock 并按 chat 分组解析。
+func TestFetchUpstreamCatalog(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			t.Errorf("model list should be GET, got %s", r.Method)
+		}
+		if r.URL.Path != legacyModelListPath {
+			t.Errorf("unexpected path %s", r.URL.Path)
+		}
+		// 签名头必须存在，否则上游会拒绝（这里只验证已构造）。
+		if !strings.HasPrefix(r.Header.Get("authorization"), "Bearer COSY.") {
+			t.Errorf("missing COSY authorization")
+		}
+		if r.Header.Get("cosy-user") == "" {
+			t.Errorf("missing cosy-user")
+		}
+		_, _ = w.Write([]byte(`{"chat":[{"key":"qmodel","display_name":"Qwen3.7-Plus","enable":true}]}`))
+	}))
+	defer srv.Close()
+	prev := modelAPIBaseOverride
+	modelAPIBaseOverride = srv.URL
+	t.Cleanup(func() { modelAPIBaseOverride = prev })
+
+	s := newTestService(t)
+	acc := Account{ID: "u1", AccessToken: "tok", ExpiresAt: time.Now().Add(time.Hour).Unix()}
+	models, err := s.fetchUpstreamCatalog(context.Background(), regionCN, acc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(models) != 1 || models[0].ID != "Qwen3.7-Plus" || models[0].Key != "qmodel" {
+		t.Fatalf("catalog = %+v", models)
+	}
+	// 区域标记由 storeRegionCatalog 统一补（fetchUpstreamCatalog 只解析上游条目）。
+	s.storeRegionCatalog(regionCN, models)
+	if got := s.regionModels(regionCN); len(got) != 1 || len(got[0].Regions) != 1 || got[0].Regions[0] != regionCN {
+		t.Fatalf("region tag missing after store: %+v", got)
+	}
+}
+
+// TestEnsureCatalogFallsBackToStatic 验证回源失败时目录回退静态兜底，不返回空。
+func TestEnsureCatalogFallsBackToStatic(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadGateway)
+	}))
+	defer srv.Close()
+	prev := modelAPIBaseOverride
+	modelAPIBaseOverride = srv.URL
+	t.Cleanup(func() { modelAPIBaseOverride = prev })
+
+	s := newTestService(t)
+	if err := s.SaveSettings(context.Background(), Settings{Enabled: true, Accounts: []Account{
+		{ID: "c1", Region: regionCN, AccessToken: "tok", ExpiresAt: time.Now().Add(time.Hour).Unix()},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	s.ensureCatalog(context.Background())
+	if len(s.catalog()) != len(cnStaticModels) {
+		t.Fatalf("catalog should fall back to static table, got %d", len(s.catalog()))
+	}
+}
+
+// TestCatalogUsesDynamicSnapshot 验证动态目录已缓存时对外视图用动态条目。
+func TestCatalogUsesDynamicSnapshot(t *testing.T) {
+	s := newTestService(t)
+	s.storeRegionCatalog(regionCN, []ModelInfo{
+		{ID: "DeepSeek-V4.1-Flash", Key: "dfmodel", Provider: "deepseek"},
+	})
+	got := s.catalog()
+	if len(got) != 1 || got[0].ID != "DeepSeek-V4.1-Flash" {
+		t.Fatalf("catalog should use dynamic snapshot, got %+v", got)
+	}
+	if got[0].Regions[0] != regionCN {
+		t.Fatalf("dynamic snapshot should be region-tagged: %+v", got[0])
+	}
+}
+
 func TestDailyCheckinClaimsAndIdempotent(t *testing.T) {
 	var claimed atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

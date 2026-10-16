@@ -26,6 +26,8 @@ type regionConfig struct {
 	openAPI string
 	// gateway 是对话流式网关基址。
 	gateway string
+	// modelAPI 是模型目录接口基址（GET /algo/api/v2/model/list，需 COSY 签名）。
+	modelAPI string
 	// website 是官网基址（Origin/Referer 用）。
 	website string
 	// clientID 是设备授权 client_id。
@@ -45,6 +47,7 @@ var regionConfigs = map[string]regionConfig{
 		loginBase:    "https://qoder.cn/device/selectAccounts",
 		openAPI:      "https://openapi.qoder.com.cn",
 		gateway:      "https://gateway.qoder.com.cn",
+		modelAPI:     "https://gateway.qoder.com.cn",
 		website:      "https://qoder.cn",
 		clientID:     "732aef47-9cf2-46a2-95fe-4cebb5d0d1fa",
 		nonceDashed:  true,
@@ -56,6 +59,7 @@ var regionConfigs = map[string]regionConfig{
 		loginBase:    "https://qoder.com/device/selectAccounts",
 		openAPI:      "https://openapi.qoder.sh",
 		gateway:      "https://api3.qoder.sh",
+		modelAPI:     "https://api1.qoder.sh",
 		website:      "https://qoder.com",
 		clientID:     "e883ade2-e6e3-4d6d-adf7-f92ceff5fdcb",
 		nonceDashed:  false,
@@ -104,6 +108,14 @@ func (s *Service) gatewayFor(region string) string {
 		return strings.TrimRight(v, "/")
 	}
 	return strings.TrimRight(regionConfigFor(region).gateway, "/")
+}
+
+// modelAPIBaseFor 返回区域模型目录接口基址（去尾部斜杠）。
+func (s *Service) modelAPIBaseFor(region string) string {
+	if v := strings.TrimSpace(modelAPIBaseOverride); v != "" {
+		return strings.TrimRight(v, "/")
+	}
+	return strings.TrimRight(regionConfigFor(region).modelAPI, "/")
 }
 
 // chatStreamURLFor 返回区域对话流式端点完整 URL。

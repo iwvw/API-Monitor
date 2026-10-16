@@ -114,6 +114,19 @@ type Service struct {
 	// rr 是 round-robin 策略的轮询游标（按原始列表下标锚定）。
 	rr accountpick.Cursor
 
+	// modelMu 保护模型目录动态发现缓存：modelCacheByRegion 是「区域 → 目录快照」，
+	// modelCacheAt 是各区域最近一次成功回源时刻，modelFetchFailAt 记录各区域最近一次
+	// 失败时刻（用于回源失败退避）。目录由 catalog.go 的 ensureCatalog/StartModelRefresh
+	// 负责刷新。
+	modelMu            sync.Mutex
+	modelCacheByRegion map[string][]ModelInfo
+	modelCacheAt       map[string]time.Time
+	modelFetchFailAt   map[string]time.Time
+
+	// refreshMu / refreshRunning 保证面板触发的后台目录回源同一时刻只跑一次。
+	refreshMu      sync.Mutex
+	refreshRunning bool
+
 	// 每日签到调度器（cron + 站点时区 watcher）。
 	schedStart sync.Once
 	schedMu    sync.Mutex
@@ -135,13 +148,16 @@ func (s *Service) SetProxyPoolSelector(sel ProxyPoolSelector) {
 // New 构造服务并加载持久化设置。
 func New(cfg config.Config) *Service {
 	s := &Service{
-		cfg:           cfg,
-		store:         database.New(cfg),
-		loginStates:   map[string]*loginState{},
-		callBase:      map[string]int64{},
-		callPending:   map[string]int64{},
-		cooldownUntil: map[string]time.Time{},
-		usagePending:  map[usageKey]*usageDelta{},
+		cfg:                cfg,
+		store:              database.New(cfg),
+		loginStates:        map[string]*loginState{},
+		callBase:           map[string]int64{},
+		callPending:        map[string]int64{},
+		cooldownUntil:      map[string]time.Time{},
+		usagePending:       map[usageKey]*usageDelta{},
+		modelCacheByRegion: map[string][]ModelInfo{},
+		modelCacheAt:       map[string]time.Time{},
+		modelFetchFailAt:   map[string]time.Time{},
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()

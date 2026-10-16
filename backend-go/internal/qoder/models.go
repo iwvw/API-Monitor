@@ -1,14 +1,24 @@
 package qoder
 
-// 本文件实现模型目录与逐模型启停。
+// 本文件实现模型目录的对外视图与逐模型启停。
 //
-// Qoder 没有公开的动态模型目录接口（`/algo/api/v2/model/list` 需 COSY 签名），
-// 目录以静态表为准：按区域各自维护，取自官方客户端目录缓存 `catalog-v6`
-// （HKDF-SHA256(uid) + AES-256-GCM 解密）实测记录，含 price_factor 倍率。
+// 目录来源分两层：
+//   - **动态发现**（catalog.go）：用已登录账号的签名会话调上游
+//     `GET /algo/api/v2/model/list`，按区域缓存真实模型目录。这是对外 id 与
+//     路由的权威来源，能跟上上游增删/改名（参考实现 cli-proxy/qoder）。
+//   - **静态兜底**（本文件 cnStaticModels/intlStaticModels）：仅在动态目录首次
+//     拉取成功前使用，取自某次客户端目录缓存实测。它同时提供动态目录不带的
+//     元数据（price_factor 倍率、厂商标识），按上游短 key 回填到动态条目上。
 //
-// 两区域目录不同：国际版有 Ultimate/Performance/Efficient/Sonus/Cantus，
-// 国内版没有；国内版有 Qwen3.7-Flash/GLM-5.2，国际版没有。模型 key 直接透传给
-// 上游 `model_config.key` / `x-model-key`。
+// ModelInfo 的两个命名空间**不要混用**：
+//   - ID 是对外模型名（上游 display_name，如 "Qwen3.8-Max"），网关端点 models 列、
+//     停用名单、中继 /v1/models 都用它。
+//   - Key 是上游短 key（如 "qmodel_38max"），只在构造上游请求时写入
+//     `model_config.key` / `x-model-key`。转发时把对外名（或短 key）解析回 Key。
+//
+// 停用（DisabledModels）采用**白名单**语义：不在当前目录内的模型名一律拒绝，
+// 杜绝上游改名后旧名/别名绕过停用名单；停用判定同时按 ID 与 Key 归一，
+// 历史短 key 写法与跨区域同 key 型号都能命中。
 
 import (
 	"context"
@@ -53,9 +63,9 @@ type ModelInfo struct {
 	InternationalOnly bool `json:"internationalOnly,omitempty"`
 }
 
-// cnStaticModels 是国内版目录（取自本机 .qoder-cn catalog-v6）。
-// ID=官方模型名、Key=上游短 key；CreditsMultiplier 是**标准倍率**（错峰折扣前的
-// price_factor），与 offpeak.go 的 Standard 一致。
+// cnStaticModels 是国内版目录（取自本机 .qoder-cn catalog-v6），仅作动态目录
+// 拉取前的兜底。ID=官方模型名、Key=上游短 key；CreditsMultiplier 是**标准倍率**
+// （错峰折扣前的 price_factor），与 offpeak.go 的 Standard 一致。
 var cnStaticModels = []ModelInfo{
 	{ID: "Auto", Key: "auto", Provider: "qoder", CreditsMultiplier: 0.5, CreditsParsed: true},
 	{ID: "Qwen3.8-Max", Key: "qmodel_38max", Provider: "qwen", CreditsMultiplier: 0.5, CreditsParsed: true},
@@ -73,7 +83,8 @@ var cnStaticModels = []ModelInfo{
 	{ID: "MiniMax-M2.7", Key: "mmodel", Provider: "minimax", CreditsMultiplier: 0.2, CreditsParsed: true},
 }
 
-// intlStaticModels 是国际版目录（取自本机 .qoder catalog-v6，仅 chat 相关档位）。
+// intlStaticModels 是国际版目录（取自本机 .qoder catalog-v6，仅 chat 相关档位），
+// 同样仅作动态目录拉取前的兜底。
 var intlStaticModels = []ModelInfo{
 	{ID: "Auto", Key: "auto", Provider: "qoder", CreditsMultiplier: 0.5, CreditsParsed: true},
 	{ID: "Ultimate", Key: "ultimate", Provider: "qoder", CreditsMultiplier: 2.0, CreditsParsed: true},
@@ -94,12 +105,26 @@ var intlStaticModels = []ModelInfo{
 	{ID: "MiniMax-M3", Key: "mmodel", Provider: "minimax", CreditsMultiplier: 0.2, CreditsParsed: true},
 }
 
-// staticModelsFor 返回区域的静态目录。
+// staticModelsFor 返回区域的静态兜底目录。
 func staticModelsFor(region string) []ModelInfo {
 	if normalizeRegion(region) == regionIntl {
 		return intlStaticModels
 	}
 	return cnStaticModels
+}
+
+// staticModelByKey 按上游短 key 在静态表里查条目（用于回填倍率/厂商标识）。
+func staticModelByKey(key string) (ModelInfo, bool) {
+	k := strings.ToLower(strings.TrimSpace(key))
+	if k == "" {
+		return ModelInfo{}, false
+	}
+	for _, m := range append(append([]ModelInfo{}, cnStaticModels...), intlStaticModels...) {
+		if strings.ToLower(m.Key) == k {
+			return m, true
+		}
+	}
+	return ModelInfo{}, false
 }
 
 // normalizeModelName 归一化型号名用于跨区域对齐：小写、去空白。
@@ -179,28 +204,34 @@ func (s *Service) activeRegions() map[string]bool {
 	return out
 }
 
-// catalog 返回模型目录快照，**只包含当前有账号的区域**的模型：
+// catalogModels 返回当前对外模型目录快照（合并视图，未加前缀）：
 //   - 只有国内版账号 → 仅国内版模型；
 //   - 只有国际版账号 → 仅国际版模型；
-//   - 两区域都有 → 合并视图（带区域标记）。
+//   - 两区域都有 → 合并视图（带区域标记）；
+//   - 无账号 → 国内版目录（默认区域），保证首次接入前列表非空。
 //
-// 无账号时返回国内版目录（默认区域），保证首次接入前列表非空。
-func (s *Service) catalog() []ModelInfo {
+// 各区域目录优先取动态发现缓存，未就绪时回退静态兜底（见 catalog.go regionModels）。
+func (s *Service) catalogModels() []ModelInfo {
 	regions := s.activeRegions()
 	hasCN := regions[regionCN]
 	hasIntl := regions[regionIntl]
 	switch {
 	case hasCN && hasIntl:
 		return mergeCatalogs(map[string][]ModelInfo{
-			regionCN:   cnStaticModels,
-			regionIntl: intlStaticModels,
+			regionCN:   s.regionModels(regionCN),
+			regionIntl: s.regionModels(regionIntl),
 		})
 	case hasIntl:
-		return withRegion(intlStaticModels, regionIntl)
+		return s.regionModels(regionIntl)
 	default:
 		// 只有国内版，或无账号（默认国内版）。
-		return withRegion(cnStaticModels, regionCN)
+		return s.regionModels(regionCN)
 	}
+}
+
+// catalog 是 catalogModels 的别名，保持与同类插件一致的调用命名。
+func (s *Service) catalog() []ModelInfo {
+	return s.catalogModels()
 }
 
 // withRegion 给一组模型补上单一区域标记（供只显示单区域时使用）。
@@ -216,9 +247,10 @@ func withRegion(models []ModelInfo, region string) []ModelInfo {
 	return out
 }
 
-// keyToNames 是「上游短 key → 官方模型名集合」映射（忽略大小写）。
+// keyToNames 是「上游短 key → 官方模型名集合」映射（忽略大小写），取自静态表。
 // 同一短 key 跨区域可能对应不同型号（如 mmodel = MiniMax-M2.7 国内 / MiniMax-M3
-// 国际），故一个 key 可能映射到多个官方名；迁移时全部保留，避免任一侧被误开。
+// 国际），故一个 key 可能映射到多个官方名；停用归一化时全部保留，避免任一侧被误开。
+// 动态目录里的新别名不在静态表内，运行时由 disabledMatchTokens 按当前目录补齐。
 var keyToNames = func() map[string][]string {
 	out := map[string][]string{}
 	seen := map[string]map[string]bool{}
@@ -276,9 +308,10 @@ func migrateDisabledModels(names []string, prefix string) []string {
 
 // regionModelSetFor 返回某区域的模型名集合（供选号过滤）。
 // 同时收录对外官方名（ID）与上游短 key（Key），客户端用任一种写法都能命中。
+// 目录取动态发现缓存，未就绪时回退静态兜底。
 func (s *Service) regionModelSetFor(region string) map[string]bool {
 	set := map[string]bool{}
-	for _, m := range staticModelsFor(region) {
+	for _, m := range s.regionModels(region) {
 		set[m.ID] = true
 		if m.Key != "" {
 			set[m.Key] = true
@@ -288,7 +321,7 @@ func (s *Service) regionModelSetFor(region string) map[string]bool {
 }
 
 // accountServesModel 报告账号所属区域是否提供该模型（选号过滤）。
-// model 为空时放行；目录按静态表判定（始终已知）。接受官方名或上游短 key。
+// model 为空时放行；目录按当前区域目录判定。接受官方名或上游短 key。
 func (s *Service) accountServesModel(acc Account, model string) bool {
 	if model == "" {
 		return true
@@ -296,18 +329,30 @@ func (s *Service) accountServesModel(acc Account, model string) bool {
 	return s.regionModelSetFor(acc.Region)[model]
 }
 
-// allModelIDs 返回对外（带前缀）的模型名列表（官方模型名 ID）。
-func (s *Service) allModelIDs() []string {
-	models := s.catalog()
-	out := make([]string, 0, len(models))
-	for _, m := range models {
-		out = append(out, s.prefixModel(m.ID))
+// resolveCatalogEntries 把对外模型名（官方名或上游短 key，可带前缀）解析为
+// 当前目录里的全部命中条目（跨区域同 key 可能多条）。大小写不敏感。
+func (s *Service) resolveCatalogEntries(model string) []ModelInfo {
+	name := strings.TrimSpace(s.stripModelPrefix(strings.TrimSpace(model)))
+	if name == "" {
+		return nil
+	}
+	var out []ModelInfo
+	seen := map[string]bool{}
+	for _, m := range s.catalog() {
+		if strings.EqualFold(m.ID, name) || (m.Key != "" && strings.EqualFold(m.Key, name)) {
+			k := strings.ToLower(m.ID)
+			if seen[k] {
+				continue
+			}
+			seen[k] = true
+			out = append(out, m)
+		}
 	}
 	return out
 }
 
 // lookupModelKey 把对外模型名（官方名或上游短 key，可带前缀）解析为上游短 key。
-// 未命中时原样返回，保证自定义/直通模型仍然可用。
+// 未命中时原样返回（理论上不会发生：中继面已用 isModelEnabled 白名单拦截目录外模型）。
 func (s *Service) lookupModelKey(model string) string {
 	name := strings.TrimSpace(s.stripModelPrefix(strings.TrimSpace(model)))
 	if name == "" {
@@ -324,50 +369,101 @@ func (s *Service) lookupModelKey(model string) string {
 	return name
 }
 
+// modelAliasClosure 从一个或多个种子名出发，计算「同一模型」的别名闭包（全小写）。
+//
+// 每个目录条目（静态表 + 当前动态目录）都被视为一条 id ↔ key 双向边；同名/同 key
+// 的条目自然连通，因此在合并图上按连通分量展开即可。这样：
+//   - 静态表把官方名与其短 key 连起来；
+//   - 动态目录把上游新 display_name 与其（可能沿用旧短 key 的）key 连起来；
+//   - 共享短 key 的旧名与新名也连通（如静态 DeepSeek-Flash 与动态
+//     DeepSeek-V4.1-Flash 都用 dfmodel）。
+//
+// 用途：停用判定与「启用时清理别名」共用同一套连通性，保证二者语义一致。
+func (s *Service) modelAliasClosure(seeds []string) map[string]bool {
+	tokens := map[string]bool{}
+	add := func(v string) {
+		v = strings.ToLower(strings.TrimSpace(v))
+		if v != "" {
+			tokens[v] = true
+		}
+	}
+	for _, raw := range seeds {
+		add(s.stripModelPrefix(strings.TrimSpace(raw)))
+	}
+	edges := append(append([]ModelInfo{}, cnStaticModels...), intlStaticModels...)
+	edges = append(edges, s.catalog()...)
+	for changed := true; changed; {
+		changed = false
+		for _, m := range edges {
+			id := strings.ToLower(strings.TrimSpace(m.ID))
+			key := strings.ToLower(strings.TrimSpace(m.Key))
+			if !tokens[id] && !(key != "" && tokens[key]) {
+				continue
+			}
+			if id != "" && !tokens[id] {
+				tokens[id] = true
+				changed = true
+			}
+			if key != "" && !tokens[key] {
+				tokens[key] = true
+				changed = true
+			}
+		}
+	}
+	return tokens
+}
+
+// disabledMatchTokens 返回一组「停用匹配 token」（全小写）：只要某个目录条目的
+// ID 或 Key 落在集合里，就视为被停用。
+//
+// 为什么不能只按字面比对：停用名单是历史累积的（可能存官方名、短 key、甚至上游
+// 改名前的旧名）。这里对全部停用项做一次**闭包归一**，这样「停用了 DeepSeek-Flash
+// （短 key dfmodel）」在上游把它改名为 DeepSeek-V4.1-Flash 后依然生效，
+// 杜绝改名绕过停用。
+func (s *Service) disabledMatchTokens() map[string]bool {
+	raw := s.Settings().DisabledModels
+	seeds := make([]string, 0, len(raw))
+	for _, d := range raw {
+		seeds = append(seeds, strings.TrimSpace(s.stripModelPrefix(strings.TrimSpace(d))))
+	}
+	tokens := s.modelAliasClosure(seeds)
+	delete(tokens, "")
+	return tokens
+}
+
 // enabledModelIDs 返回对外（带前缀）且未被停用的模型 ID 列表，
 // 作为已接入网关端点 models 列的权威值（与中继面 /v1/models 口径一致）。
 func (s *Service) enabledModelIDs() []string {
-	disabled := s.disabledSet()
-	all := s.allModelIDs()
-	out := make([]string, 0, len(all))
-	for _, id := range all {
-		if !disabled[id] {
-			out = append(out, id)
+	models := s.catalog()
+	disabled := s.disabledMatchTokens()
+	out := make([]string, 0, len(models))
+	for _, m := range models {
+		if entryEnabled([]ModelInfo{m}, disabled) {
+			out = append(out, s.prefixModel(m.ID))
 		}
-	}
-	return out
-}
-
-// disabledSet 返回被停用模型（对外名）的集合。
-func (s *Service) disabledSet() map[string]bool {
-	out := map[string]bool{}
-	for _, d := range s.Settings().DisabledModels {
-		out[d] = true
 	}
 	return out
 }
 
 // isModelEnabled 判断给定模型名（对外名或上游短 key，可带前缀）是否启用。
-// 停用名单以对外名为准；兼容旧名单里的上游短 key 写法。
+// **白名单语义**：不在当前目录内的模型名一律视为停用（返回 false），
+// 防止上游改名后旧名/任意别名绕过停用名单。停用判定按 ID 与 Key 归一。
 func (s *Service) isModelEnabled(model string) bool {
-	disabled := s.disabledSet()
-	model = strings.TrimSpace(model)
-	if disabled[model] || disabled[s.prefixModel(model)] {
+	return entryEnabled(s.resolveCatalogEntries(model), s.disabledMatchTokens())
+}
+
+// entryEnabled 判断一组（同一模型跨区域命中的）目录条目是否启用：
+// 任一条目的 ID 或 Key 落在停用 token 集合里即视为停用。
+func entryEnabled(entries []ModelInfo, disabled map[string]bool) bool {
+	if len(entries) == 0 {
 		return false
 	}
-	if key := s.lookupModelKey(model); key != "" && key != model {
-		if disabled[key] || disabled[s.prefixModel(key)] {
+	for _, m := range entries {
+		if disabled[strings.ToLower(m.ID)] {
 			return false
 		}
-	}
-	// 入参是上游短 key（或带前缀）时，反查其官方名集合并核对停用名单，避免
-	// 停用名单以官方名存储后，经短 key 别名把已停用模型重新「复活」。
-	bare := strings.TrimSpace(s.stripModelPrefix(model))
-	if names := keyToNames[strings.ToLower(bare)]; len(names) > 0 {
-		for _, n := range names {
-			if disabled[n] || disabled[s.prefixModel(n)] {
-				return false
-			}
+		if m.Key != "" && disabled[strings.ToLower(m.Key)] {
+			return false
 		}
 	}
 	return true
@@ -380,8 +476,10 @@ func (s *Service) handleModels(w http.ResponseWriter, r *http.Request) {
 		responseJSON(w, http.StatusMethodNotAllowed, map[string]interface{}{"success": false, "error": "method not allowed"})
 		return
 	}
+	// 面板读取时后台触发一次目录回源（不阻塞本次响应），目录新鲜时为空操作。
+	s.refreshCatalogAsync()
 	models := s.catalog()
-	disabled := s.disabledSet()
+	disabled := s.disabledMatchTokens()
 	now := time.Now()
 	out := make([]map[string]interface{}, 0, len(models))
 	for _, m := range models {
@@ -400,7 +498,7 @@ func (s *Service) handleModels(w http.ResponseWriter, r *http.Request) {
 			"regions":             m.Regions,
 			"idRegions":           m.IDRegions,
 			"internationalOnly":   m.InternationalOnly,
-			"enabled":             !disabled[id],
+			"enabled":             entryEnabled([]ModelInfo{m}, disabled),
 		})
 	}
 	responseJSON(w, map[string]interface{}{
@@ -470,7 +568,14 @@ func (s *Service) setModelsEnabled(ctx context.Context, ids []string, enabled bo
 			continue
 		}
 		if enabled {
-			delete(disabled, id)
+			// 启用：把停用名单里指向同一模型的所有写法一并移除（含旧名/短 key 残留）。
+			aliases := s.modelAliasClosure([]string{id})
+			for existing := range disabled {
+				bare := strings.ToLower(strings.TrimSpace(s.stripModelPrefix(strings.TrimSpace(existing))))
+				if aliases[bare] {
+					delete(disabled, existing)
+				}
+			}
 		} else {
 			disabled[id] = true
 		}
