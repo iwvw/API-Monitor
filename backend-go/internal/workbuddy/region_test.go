@@ -11,10 +11,11 @@ import (
 )
 
 // 办公版（wb）转发请求必须补桌面端指纹头与租户头；国内版不带这些，避免行为漂移。
+// 三套区域都必须带会话头族（缺了会触发上游渠道抽样校验 400 / code 11128）。
 func TestBackendHeadersOfficeVersionExtras(t *testing.T) {
 	wb := Account{ID: "wb-u1", Region: regionWB, AccessToken: "t", UID: "u1", EnterpriseID: "ent1"}
 	req, _ := http.NewRequest(http.MethodPost, "https://www.workbuddy.cn/v2/chat/completions", nil)
-	backendHeaders(req, &wb)
+	backendHeaders(req, &wb, "")
 	if req.Header.Get("X-Tenant-Id") != "ent1" {
 		t.Errorf("wb 应带 X-Tenant-Id=ent1，得到 %q", req.Header.Get("X-Tenant-Id"))
 	}
@@ -30,12 +31,42 @@ func TestBackendHeadersOfficeVersionExtras(t *testing.T) {
 
 	cn := Account{ID: "u1", Region: regionCN, AccessToken: "t", UID: "u1", EnterpriseID: "ent1"}
 	req2, _ := http.NewRequest(http.MethodPost, "https://copilot.tencent.com/v2/chat/completions", nil)
-	backendHeaders(req2, &cn)
+	backendHeaders(req2, &cn, "")
 	if req2.Header.Get("X-Tenant-Id") != "" {
 		t.Error("国内版不应带 X-Tenant-Id")
 	}
 	if req2.Header.Get("X-IDE-Type") != "" {
 		t.Error("国内版不应带桌面端 IDE 指纹头")
+	}
+
+	// 会话头族对三套身份都必需：否则上游渠道校验回 400 / code 11128。
+	for _, r := range []*http.Request{req, req2} {
+		for _, k := range []string{
+			"X-Conversation-ID", "X-Conversation-Request-ID",
+			"X-Root-Request-ID", "X-Conversation-Message-ID", "X-Request-ID",
+			"X-Agent-Type", "X-Agent-Purpose", "X-Agent-Intent",
+			"X-Trace-ID", "traceparent", "b3", "X-B3-TraceId", "X-B3-SpanId", "X-B3-Sampled",
+		} {
+			if r.Header.Get(k) == "" {
+				t.Errorf("%s 头缺失（渠道校验需要）", k)
+			}
+		}
+		if r.Header.Get("X-Root-Request-ID") != r.Header.Get("X-Conversation-Request-ID") {
+			t.Error("X-Root-Request-ID 应等于 X-Conversation-Request-ID")
+		}
+		if r.Header.Get("X-Conversation-Message-ID") != r.Header.Get("X-Request-ID") {
+			t.Error("X-Conversation-Message-ID 应等于 X-Request-ID")
+		}
+		if conv := r.Header.Get("X-Conversation-ID"); len(conv) != 36 || strings.Count(conv, "-") != 4 {
+			t.Errorf("X-Conversation-ID 应为带连字符 UUID，得到 %q", conv)
+		}
+	}
+
+	// 传入的会话 id 必须原样复用（换号重试沿用同一会话）。
+	req3, _ := http.NewRequest(http.MethodPost, "https://copilot.tencent.com/v2/chat/completions", nil)
+	backendHeaders(req3, &cn, "fixed-conv-id")
+	if req3.Header.Get("X-Conversation-ID") != "fixed-conv-id" {
+		t.Errorf("应复用传入会话 id，得到 %q", req3.Header.Get("X-Conversation-ID"))
 	}
 }
 
@@ -139,6 +170,16 @@ func TestRegionWBHostsAndPlatform(t *testing.T) {
 	uas := map[string]bool{regionUA(regionCN): true, regionUA(regionWB): true, regionUA(regionIntl): true}
 	if len(uas) != 3 {
 		t.Error("三个区域的 UA 应互不相同")
+	}
+	// 国际版对齐 5.8.4 抓包：UA 与桌面端版本号都不得再是过时的 5.5.x。
+	if !strings.Contains(regionUA(regionIntl), "5.8.4") {
+		t.Errorf("intl UA 应对齐 5.8.4，得到 %q", regionUA(regionIntl))
+	}
+	if regionDesktopVersion(regionIntl) != "5.8.4" {
+		t.Errorf("intl X-IDE-Version 应为 5.8.4，得到 %q", regionDesktopVersion(regionIntl))
+	}
+	if regionDesktopVersion(regionWB) != "5.8.2" {
+		t.Errorf("wb X-IDE-Version 应为 5.8.2，得到 %q", regionDesktopVersion(regionWB))
 	}
 }
 

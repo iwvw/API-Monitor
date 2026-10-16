@@ -38,9 +38,18 @@ var regionReferers = map[string]string{
 
 // regionUserAgents 是各区域对应的客户端标识（上游按 UA 识别终端类型）。
 var regionUserAgents = map[string]string{
-	regionCN:   "CLI/2.63.2 CodeBuddy/2.63.2",
-	regionWB:   "WorkBuddy/5.8.2",
-	regionIntl: "WorkBuddy/5.5.6 WorkBuddy/5.5.6 CLI/2.137.1",
+	regionCN: "CLI/2.63.2 CodeBuddy/2.63.2",
+	regionWB: "WorkBuddy/5.8.2",
+	// 国际版对齐 2026-10-16 对客户端 5.8.4 的 mitmproxy 抓包（UA 末段是内置 CLI 版本）。
+	regionIntl: "WorkBuddy/5.8.4 workbuddy-ai/5.8.4 CLI/2.161.0",
+}
+
+// regionDesktopVersions 是桌面端（WorkBuddy）身份头用的 X-IDE-Version / extVersion。
+// 国内版（cn）走 CLI 身份，不使用这些头，故不在此表内。
+// 办公版（wb）无对应抓包，沿用与其 UA 一致的 5.8.2；国际版按 5.8.4 抓包对齐。
+var regionDesktopVersions = map[string]string{
+	regionWB:   "5.8.2",
+	regionIntl: "5.8.4",
 }
 
 // regionPlatforms 是各区域登录 auth/state 的 platform 查询参数。
@@ -109,6 +118,14 @@ func regionBillingHost(region string) string {
 // regionUA 返回区域客户端标识。
 func regionUA(region string) string {
 	return regionUserAgents[normalizeRegion(region)]
+}
+
+// regionDesktopVersion 返回桌面端身份的 X-IDE-Version（无配置时回落到办公版默认值）。
+func regionDesktopVersion(region string) string {
+	if v := regionDesktopVersions[normalizeRegion(region)]; v != "" {
+		return v
+	}
+	return regionDesktopVersions[regionWB]
 }
 
 // regionPlatform 返回区域登录 auth/state 的 platform 参数。

@@ -93,6 +93,9 @@ func (s *Service) serveChatCompletions(w http.ResponseWriter, r *http.Request) {
 	var lastErr error
 	// 本请求期间见过的「最晚恢复时刻」：用于最后把「还要等多久」告诉调用方。
 	var lastLimitUntil time.Time
+	// 本轮会话 id（X-Conversation-ID）：同一请求的换号重试沿用同一值，
+	// 从「一轮 send」的角度贴近官方客户端（上游不拿它存历史，复用只为形态一致）。
+	conversationID := newUUIDv7()
 	// attempted 记录本轮是否真的打过上游：没打过（全被限流拦下）与「打完全部失败」
 	// 是两种截然不同的情形，报错也该不同。
 	attempted := false
@@ -106,10 +109,11 @@ func (s *Service) serveChatCompletions(w http.ResponseWriter, r *http.Request) {
 		tried[acc.ID] = true
 		attempted = true
 		if err := s.chatCompletions(r.Context(), w, &chatRequest{
-			Account: acc,
-			Body:    payload,
-			Model:   model,
-			Stream:  s.clientWantsStream(body),
+			Account:        acc,
+			Body:           payload,
+			Model:          model,
+			Stream:         s.clientWantsStream(body),
+			ConversationID: conversationID,
 		}); err == nil {
 			return
 		} else {

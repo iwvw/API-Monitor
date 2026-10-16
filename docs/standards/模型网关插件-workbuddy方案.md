@@ -53,11 +53,13 @@
 | Token 刷新 | `POST /v2/plugin/auth/token/refresh`，头 `X-Refresh-Token`，可选 `X-Enterprise-Id` |
 | 聊天转发 | `POST /v2/chat/completions`，头 `Authorization: Bearer <accessToken>` / `X-User-Id` / `X-Enterprise-Id` / `X-Refresh-Token` / `X-Domain` / `X-Product: SaaS` |
 | 空值约定 | 上述头为空时改用 `X-No-Authorization` / `X-No-User-Id` / `X-No-Enterprise-Id` / `X-No-Department-Info` 置 `1` |
+| **会话头族（必需）** | `X-Conversation-ID`（带连字符 UUIDv7）/ `X-Conversation-Request-ID` / `X-Conversation-Message-ID` / `X-Root-Request-ID`（后三者为 32 位无连字符 hex；`-Message-ID` 与 `X-Request-ID` 同值，`-Request-ID` 与 `X-Root-Request-ID` 同值），加 `X-Agent-Type: main` / `X-Agent-Purpose: conversation` / `X-Agent-Intent: craft` 与链路头族（`X-Trace-ID` / `traceparent` / `b3` / `X-B3-*`）。**缺失触发上游渠道抽样校验：HTTP 400 + 业务码 11128**（见下「渠道抽样校验」） |
 | 非流式被拒 | 上游对非流式返回业务码 `11101`，**必须强制 `stream:true` 再聚合** |
 | 模型目录 | `GET /v3/config`，只需 **`X-User-Id` 存在**（值不校验）即从匿名 `models:null` 切到完整目录；目录与账号无关，可登录前获取 |
 | 目录字段 | `id` / `name` / `maxInputTokens` / `maxOutputTokens` / `supportsImages` / `supportsReasoning`；`maxInputTokens <= 0` 的条目（如 `hunyuan-image-v3.0-art`）不能服务对话，需跳过 |
 | 登录态隔离 | 一个 state 一个 cookie jar，**不可共用**（浏览器登录与 state 绑定） |
 | 内容审核 | 两句 Claude Code 固定 system 模板被逐字拉黑，需最小改写：`official CLI for Claude` → `official CLI tool for Claude`、`Main branch` → `Default branch`（精确匹配，非语义） |
+| **渠道抽样校验** | 上游自 2026-10 起对出站接口加**抽样**校验（约 0.05%，集中在数分钟窗口）：抽中时回 HTTP 400 + 业务码 `11128`，`msg` 形如 `request illegal` / `conversation id missing`，`displayMsg`「请求被拦截，请重新发送」，`displayTips`「这次调用没通过渠道校验，可能不是官方客户端发出的」。**非 payload 语法错误**，换号/重发常能通过 → 标记可重试（见 §14「失败换号」）。参 workbuddy2api-hub issue #380/#392、PR #381 |
 | 思考模式 | `hy3` / `hy4` 前缀模型自动置 `reasoning_effort=high`（上游只认 `high`） |
 | SSE 分帧 | `/v1/chat/completions`、`/v1/completions` 入口的 chunk **不带** `data: ` 前缀；其它跨协议翻译入口**必须带** |
 
@@ -531,7 +533,10 @@ CREATE TABLE IF NOT EXISTS workbuddy_usage_daily (
 - 可重试判定通过 `*upstreamError` 类型化错误携带 `retryable` 标记；`chatCompletions`
   保证错误发生在写出任何下游字节之前，因此换号重试不会破坏已下发的响应。
 - 400/401/403 等 4xx 不换号：那是请求或凭据侧问题，换号重发同样会失败（401 走既有 token 刷新路径）。
-  **例外**：4xx 正文里若带**模型级限流**文案，则视为可重试（见下节）。
+  **例外 1**：4xx 正文里若带**模型级限流**文案，则视为可重试（见下节）。
+  **例外 2**：4xx 正文为**渠道抽样校验拦截**（业务码 `11128`，文案 `request illegal` /
+  `conversation id missing` / `displayTips` 含「没通过渠道校验」）则视为可重试 —— 它不是
+  payload 语法错误，只是上游抽样抽查，换号/重发常能通过。判定见 `isChannelVerificationBlock`。
 
 ### 模型级限流：账号 × 模型，不是账号（已实现）
 

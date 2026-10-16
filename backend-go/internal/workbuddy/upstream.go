@@ -362,9 +362,72 @@ func commonHeaders(req *http.Request, region string) {
 	req.Header.Set("User-Agent", regionUA(region))
 }
 
+// newUUIDv7 生成带连字符的 UUIDv7（RFC 9562：48 位毫秒时间戳打头）。
+// 形态对齐官方客户端 5.8.4 抓包里的 X-Conversation-ID；上游不校验版本号，
+// 只求形态贴近（v4/v7 都被接受）。
+func newUUIDv7() string {
+	var b [16]byte
+	_, _ = rand.Read(b[:])
+	ms := uint64(time.Now().UnixMilli()) & ((1 << 48) - 1)
+	b[0] = byte(ms >> 40)
+	b[1] = byte(ms >> 32)
+	b[2] = byte(ms >> 24)
+	b[3] = byte(ms >> 16)
+	b[4] = byte(ms >> 8)
+	b[5] = byte(ms)
+	b[6] = (b[6] & 0x0f) | 0x70 // version 7
+	b[8] = (b[8] & 0x3f) | 0x80 // RFC 4122 variant
+	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:16])
+}
+
+// newRandHex32 生成 32 位无连字符 hex（官方客户端请求/消息 id 的实测形态）。
+func newRandHex32() string {
+	var b [16]byte
+	_, _ = rand.Read(b[:])
+	return hex.EncodeToString(b[:])
+}
+
+// applyConversationHeaders 补上官方客户端的会话头族与链路头族。
+//
+// 为什么必需：腾讯自 2026-10 起对出站接口加了**渠道抽样校验**，看的就是这套
+// 会话头。缺失时上游返回 HTTP 400 + 业务码 11128（msg 形如 "request illegal"
+// 或 "conversation id missing"，displayMsg「请求被拦截，请重新发送」，
+// displayTips「这次调用没通过渠道校验，可能不是官方客户端发出的」）。官方桌面端 /
+// CLI / VSCode 三套身份都带，只有本插件此前一个都没带，故被抽样命中时被拦。
+//
+// conversationID 为空时现生成；调用方传入同一值可在换号重试间保持会话不变
+// （上游不拿该 id 存历史，稳定与否不影响语义，复用只是更贴近「一轮 send」）。
+func applyConversationHeaders(req *http.Request, conversationID string) {
+	conv := strings.TrimSpace(conversationID)
+	if conv == "" {
+		conv = newUUIDv7()
+	}
+	convReqID := newRandHex32()
+	msgID := newRandHex32()
+	req.Header.Set("X-Conversation-ID", conv)
+	req.Header.Set("X-Conversation-Request-ID", convReqID)
+	req.Header.Set("X-Root-Request-ID", convReqID)
+	req.Header.Set("X-Conversation-Message-ID", msgID)
+	req.Header.Set("X-Request-ID", msgID)
+	req.Header.Set("X-Agent-Type", "main")
+	req.Header.Set("X-Agent-Purpose", "conversation")
+	req.Header.Set("X-Agent-Intent", "craft")
+	// 链路头族（5.8.4 抓包实测）。main 请求还带 X-B3-ParentSpanId，那需要真实的
+	// 父子调用关系，网关没有，不伪造。
+	trace := newRandHex32()
+	span := newRandHex32()[:16]
+	req.Header.Set("X-Trace-ID", trace)
+	req.Header.Set("traceparent", "00-"+trace+"-"+span+"-01")
+	req.Header.Set("b3", trace+"-"+span+"-1")
+	req.Header.Set("X-B3-TraceId", trace)
+	req.Header.Set("X-B3-SpanId", span)
+	req.Header.Set("X-B3-Sampled", "1")
+}
+
 // backendHeaders 施加凭据派生头。空字段按上游的 X-No-* 约定标注，
 // 不能简单省略（"显式为空"与"不发送"在上游语义不同）。区域取自账号自身。
-func backendHeaders(req *http.Request, acc *Account) {
+// conversationID 用于跨换号重试复用同一条会话（留空则每次现生成）。
+func backendHeaders(req *http.Request, acc *Account, conversationID string) {
 	commonHeaders(req, acc.Region)
 	if acc.AccessToken != "" {
 		req.Header.Set("Authorization", "Bearer "+acc.AccessToken)
@@ -394,14 +457,18 @@ func backendHeaders(req *http.Request, acc *Account) {
 		req.Header.Set("X-No-Department-Info", "1")
 	}
 	req.Header.Set("X-Product", "SaaS")
-	// 办公版桌面端的客户端指纹：上游据此把请求归到 WorkBuddy 客户端通道。
-	if normalizeRegion(acc.Region) == regionWB {
+	// 桌面端（办公版 wb / 国际版 intl）的客户端指纹：上游据此把请求归到
+	// WorkBuddy 客户端通道。国内版（cn）走 CLI 身份，不设这组头。
+	if region := normalizeRegion(acc.Region); region == regionWB || region == regionIntl {
 		req.Header.Set("X-IDE-Type", "WorkBuddy")
 		req.Header.Set("X-IDE-Name", "WorkBuddy")
-		req.Header.Set("X-IDE-Version", "5.8.2")
+		req.Header.Set("X-IDE-Version", regionDesktopVersion(region))
 		req.Header.Set("X-Private-Data", "true")
 		req.Header.Set("X-Codebuddy-Request", "1")
 	}
+	// 会话头族 + 链路头族：缺失会触发上游渠道抽样校验（400 / code 11128），
+	// 三套身份都必须带。故放在最后、对所有区域的 chat 请求统一施加。
+	applyConversationHeaders(req, conversationID)
 }
 
 // doEnvelope 发送请求并解析 {code,msg,data} 包装，但**不**因业务码非 0 返回错误：
@@ -747,6 +814,9 @@ type chatRequest struct {
 	Model string
 	// Stream 是客户端是否要求流式；上游一律按流式发，非流式在本层聚合。
 	Stream bool
+	// ConversationID 是本轮会话 id（X-Conversation-ID）。同一请求的换号重试沿用
+	// 同一值；为空时 chatCompletions 现生成一个。
+	ConversationID string
 }
 
 // upstreamError 表示一次上游失败的分类结果。
@@ -779,6 +849,43 @@ func isRetryableHTTP(code int) bool {
 	return false
 }
 
+// channelVerificationCode 是腾讯**渠道抽样校验**的业务码。
+//
+// 上游自 2026-10 起对出站接口加了抽样校验：抽中时回 HTTP 400 + 该业务码，
+// msg 形如 "request illegal" 或 "conversation id missing"，displayTips 写
+// 「这次调用没通过渠道校验，可能不是官方客户端发出的」。它是**非 payload 语法
+// 错误**：同账号同请求重发/换号常能通过（实测成功率 >99.9%，只是抽样命中）。
+// 参 workbuddy2api-hub issue #380/#392、PR #381。
+const channelVerificationCode = 11128
+
+// isChannelVerificationBlock 判断一段上游正文是否为「渠道校验拦截」。
+//
+// 仅在已判定为失败的路径调用（HTTP >= 400 或错误信封），因此措辞匹配是安全的。
+// 判据：业务码 `11128`（权威——只要正文能解析出非 0 业务码，就据它判定，不再看
+// 文案，避免 11133「参数被模型提供方拒绝」这类 payload 错误因带了通用 displayMsg
+// 被误判为可重试）；解析不出业务码时（如纯文本错误页）才回退到文案匹配。
+func isChannelVerificationBlock(text string) bool {
+	if text == "" {
+		return false
+	}
+	if code, _, ok := envelopeError(text); ok {
+		return code == channelVerificationCode
+	}
+	lower := strings.ToLower(text)
+	for _, sig := range []string{
+		"conversation id missing",
+		"channel verification",
+		"not sent from an official client",
+		"这次调用没通过渠道校验",
+		"不是官方客户端发出的",
+	} {
+		if strings.Contains(lower, strings.ToLower(sig)) {
+			return true
+		}
+	}
+	return false
+}
+
 // classifyUpstreamPayload 判断上游一段正文是不是「错误」，返回分类后的 *upstreamError。
 //
 // 为什么不能只看 HTTP 状态码：上游在部分失败场景用 **HTTP 200 + {code,msg} 信封**下发，
@@ -804,7 +911,12 @@ func (s *Service) classifyUpstreamPayload(text string, loc *time.Location) *upst
 				rateLimitUntil: until,
 			}
 		}
-		return &upstreamError{msg: fmt.Sprintf("上游业务错误 code=%d: %s", code, msg)}
+		// 渠道校验抽样拦截（多为 HTTP 400，但也可能以 200+信封下发）：
+		// 非 payload 语法错误，换号/重发常能通过，标记可重试。
+		return &upstreamError{
+			msg:       fmt.Sprintf("上游业务错误 code=%d: %s", code, msg),
+			retryable: code == channelVerificationCode,
+		}
 	}
 	if strings.Contains(text, `"choices"`) {
 		return nil
@@ -838,7 +950,7 @@ func (s *Service) chatCompletions(ctx context.Context, w http.ResponseWriter, re
 	if err != nil {
 		return err
 	}
-	backendHeaders(httpReq, &req.Account)
+	backendHeaders(httpReq, &req.Account, req.ConversationID)
 	resp, err := s.httpClientFor(req.Account.ID).Do(httpReq)
 	if err != nil {
 		return &upstreamError{msg: fmt.Sprintf("上游请求失败: %v", err), retryable: true}
@@ -860,7 +972,7 @@ func (s *Service) chatCompletions(ctx context.Context, w http.ResponseWriter, re
 		}
 		return &upstreamError{
 			msg:       fmt.Sprintf("上游 HTTP %d: %s", resp.StatusCode, truncate(text, 200)),
-			retryable: isRetryableHTTP(resp.StatusCode),
+			retryable: isRetryableHTTP(resp.StatusCode) || isChannelVerificationBlock(text),
 		}
 	}
 
