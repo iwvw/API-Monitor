@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
-	"crypto/sha256"
 	"crypto/subtle"
 	"database/sql"
 	"encoding/base64"
@@ -245,9 +244,6 @@ func (s *Service) rotateAIAgentKey(r *http.Request) (map[string]interface{}, err
 		('ai_agent_key_created_at', ?, 'AI access bearer key creation time', ?)`, key, now, now, now); err != nil {
 		return nil, err
 	}
-	s.aiAgentKeyMu.Lock()
-	s.aiAgentKeyCache = key
-	s.aiAgentKeyMu.Unlock()
 	_ = s.insertAIAudit(r.Context(), db, "admin", "rotate_key", "ai_agent_key", "success", 0, "AI 接入密钥已轮换", s.clientIP(r), r.UserAgent())
 	return s.aiAccessOverview(r)
 }
@@ -372,94 +368,6 @@ func (s *Service) ValidateAIAgentRequest(r *http.Request) bool {
 	return s.validateAIAgent(r, db)
 }
 
-// mcpDescribePayload 返回 MCP 元数据探测的静态响应体，首次构建后缓存复用，
-// 供高频 describe 轮询避免每次重建工具/资源清单。
-func (s *Service) mcpDescribePayload() map[string]interface{} {
-	s.aiDescribeOnce.Do(func() {
-		s.aiDescribePayload = map[string]interface{}{
-			"server":    "api-monitor",
-			"protocol":  "mcp-json-rpc",
-			"tools":     s.aiTools(),
-			"resources": s.mcpResources(),
-		}
-		// 内容固定：ETag 只算一次。带上版本号，升级后自然失效。
-		if encoded, err := json.Marshal(s.aiDescribePayload); err == nil {
-			s.aiDescribeETag = aiCacheETag(string(encoded), s.cfg.Version)
-		}
-	})
-	return s.aiDescribePayload
-}
-
-// mcpDescribeETag 返回 describe payload 的 ETag（同时确保 payload 已构建）。
-// 第二个返回值为 false 表示 ETag 不可用（序列化失败），调用方应退回普通响应。
-func (s *Service) mcpDescribeETag(*http.Request) (string, bool) {
-	s.mcpDescribePayload()
-	if s.aiDescribeETag == "" {
-		return "", false
-	}
-	return s.aiDescribeETag, true
-}
-
-// aiCacheETag 计算内容强 ETag，供高频只读轮询走 304。
-func aiCacheETag(parts ...string) string {
-	h := sha256.New()
-	for _, p := range parts {
-		_, _ = h.Write([]byte(p))
-		_, _ = h.Write([]byte{0})
-	}
-	return `"` + hex.EncodeToString(h.Sum(nil)[:16]) + `"`
-}
-
-// ifNoneMatchMatches 判断请求的 If-None-Match 是否命中给定 ETag。
-// 支持 `*`、逗号分隔多值，以及弱校验前缀 W/。
-func ifNoneMatchMatches(r *http.Request, etag string) bool {
-	raw := strings.TrimSpace(r.Header.Get("If-None-Match"))
-	if raw == "" {
-		return false
-	}
-	if raw == "*" {
-		return true
-	}
-	for _, candidate := range strings.Split(raw, ",") {
-		candidate = strings.TrimSpace(candidate)
-		candidate = strings.TrimPrefix(candidate, "W/")
-		if candidate == etag {
-			return true
-		}
-	}
-	return false
-}
-
-// validateCachedAgentKey 用内存缓存的 Agent Key 做常量时间校验，避免高频
-// describe 轮询每次都打开数据库。缓存未命中（含密钥轮换后）返回 false，
-// 由调用方回退到完整校验链路。
-func (s *Service) validateCachedAgentKey(r *http.Request) bool {
-	authHeader := r.Header.Get("Authorization")
-	if !strings.HasPrefix(authHeader, "Bearer ") {
-		return false
-	}
-	provided := strings.TrimSpace(strings.TrimPrefix(authHeader, "Bearer "))
-	s.aiAgentKeyMu.Lock()
-	cached := s.aiAgentKeyCache
-	s.aiAgentKeyMu.Unlock()
-	if len(cached) == 0 || len(cached) != len(provided) {
-		return false
-	}
-	return subtle.ConstantTimeCompare([]byte(cached), []byte(provided)) == 1
-}
-
-// refreshAgentKeyCache 从数据库读取（必要时创建）Agent Key 并写入内存缓存，
-// 供完整校验通过后回填，让后续 describe 轮询走快速路径。
-func (s *Service) refreshAgentKeyCache(ctx context.Context, db *sql.DB) {
-	key, _, err := s.getOrCreateAIAgentKey(ctx, db)
-	if err != nil {
-		return
-	}
-	s.aiAgentKeyMu.Lock()
-	s.aiAgentKeyCache = key
-	s.aiAgentKeyMu.Unlock()
-}
-
 func (s *Service) aiManifest(r *http.Request) (map[string]interface{}, error) {
 	db, err := s.store.Open(r.Context())
 	if err != nil {
@@ -495,28 +403,8 @@ func (s *Service) aiManifestPayload(r *http.Request) map[string]interface{} {
 }
 
 func (s *Service) handleMCP(r *http.Request) (interface{}, int, error) {
-	// describe 元数据探测是纯只读高频轮询（客户端可每秒一次）：走缓存快速路径，
-	// 不落库、不写审计，仅按缓存的 Agent Key 常量时间校验；首次或密钥变化时回退完整链路。
-	if r.Method == http.MethodGet {
-		if s.validateCachedAgentKey(r) {
-			return s.mcpDescribePayload(), http.StatusOK, nil
-		}
-		db, err := s.store.Open(r.Context())
-		if err != nil {
-			return nil, http.StatusInternalServerError, err
-		}
-		defer db.Close()
-		if err := s.ensureAIAccessSchema(r.Context(), db); err != nil {
-			return nil, http.StatusInternalServerError, err
-		}
-		start := time.Now()
-		if !s.validateAIAgent(r, db) {
-			_ = s.insertAIAudit(r.Context(), db, "external", "mcp", "/api/ai/mcp", "denied", time.Since(start).Milliseconds(), "invalid key", s.clientIP(r), r.UserAgent())
-			return nil, http.StatusUnauthorized, errUnauthorizedAI
-		}
-		s.refreshAgentKeyCache(r.Context(), db)
-		return s.mcpDescribePayload(), http.StatusOK, nil
-	}
+	// 注意：GET 已在 ServeHTTP 层按 MCP 规范统一返回 405（本服务不提供
+	// server→client SSE 流），因此这里只会收到 POST。
 	db, err := s.store.Open(r.Context())
 	if err != nil {
 		return nil, http.StatusInternalServerError, err

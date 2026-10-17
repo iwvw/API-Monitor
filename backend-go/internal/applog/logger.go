@@ -317,8 +317,8 @@ func shouldSkipRequestLog(r *http.Request, status int) bool {
 	if status < http.StatusBadRequest && r.URL.Path == "/api/system/host-metrics" {
 		return true
 	}
-	// MCP describe 元数据探测（GET /api/ai/mcp）可高达每秒一次，成功响应不记日志避免刷屏；
-	// 真正的工具调用走 POST，仍照常记录，失败也照常记录。
+	// MCP 端点只支持 POST（GET 按 MCP 规范返回 405）；真正的工具调用仍照常记录。
+	// 405 属于客户端错误，status>=400 不会命中本分支，无需额外处理。
 	if status < http.StatusBadRequest && r.Method == http.MethodGet && r.URL.Path == "/api/ai/mcp" {
 		return true
 	}

@@ -147,43 +147,21 @@ func TestAIAccessOverviewAndMCP(t *testing.T) {
 		t.Fatal("expected MCP tools")
 	}
 
-	// GET 是客户端的高频元数据探测：带 If-None-Match 命中时应返回 304 且无响应体。
-	etag, ok := service.mcpDescribeETag(nil)
-	if !ok || etag == "" {
-		t.Fatalf("expected describe ETag, got %q ok=%v", etag, ok)
+	// GET 按 MCP Streamable HTTP 规范必须返回 405（本服务不提供 server→client SSE）。
+	// 此前返回 200 + 完整工具清单，导致 opencode 等客户端无限重连（实测每秒 4~5 次）。
+	getReq := httptest.NewRequest(http.MethodGet, "http://example.test/api/ai/mcp", nil)
+	getReq.Header.Set("Authorization", "Bearer "+agentKey)
+	getRes := httptest.NewRecorder()
+	service.ServeHTTP(getRes, getReq)
+	if getRes.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("GET /api/ai/mcp = %d, want 405 (body=%s)", getRes.Code, getRes.Body.String())
 	}
-	probe := httptest.NewRequest(http.MethodGet, "http://example.test/api/ai/mcp", nil)
-	probe.Header.Set("Authorization", "Bearer "+agentKey)
-	probe.Header.Set("If-None-Match", etag)
-	probeRes := httptest.NewRecorder()
-	service.ServeHTTP(probeRes, probe)
-	if probeRes.Code != http.StatusNotModified {
-		t.Fatalf("GET with If-None-Match = %d, want 304 (body=%s)", probeRes.Code, probeRes.Body.String())
+	if got := getRes.Header().Get("Allow"); got != http.MethodPost {
+		t.Fatalf("Allow = %q, want POST", got)
 	}
-	if probeRes.Body.Len() != 0 {
-		t.Fatalf("304 must have empty body, got %d bytes", probeRes.Body.Len())
-	}
-
-	// 不带 If-None-Match 时必须返回 200 且带 ETag。
-	probe2 := httptest.NewRequest(http.MethodGet, "http://example.test/api/ai/mcp", nil)
-	probe2.Header.Set("Authorization", "Bearer "+agentKey)
-	probeRes2 := httptest.NewRecorder()
-	service.ServeHTTP(probeRes2, probe2)
-	if probeRes2.Code != http.StatusOK {
-		t.Fatalf("GET without If-None-Match = %d, want 200", probeRes2.Code)
-	}
-	if got := probeRes2.Header().Get("ETag"); got != etag {
-		t.Fatalf("ETag = %q, want %q", got, etag)
-	}
-
-	// 安全回归：未授权请求即使携带匹配的 ETag 也必须 401，不能靠 ETag 命中
-	// 绕过 Agent Key 鉴权拿到 304。
-	unauthorizedProbe := httptest.NewRequest(http.MethodGet, "http://example.test/api/ai/mcp", nil)
-	unauthorizedProbe.Header.Set("If-None-Match", etag)
-	unauthorizedRes := httptest.NewRecorder()
-	service.ServeHTTP(unauthorizedRes, unauthorizedProbe)
-	if unauthorizedRes.Code != http.StatusUnauthorized {
-		t.Fatalf("unauthorized GET with matching ETag = %d, want 401", unauthorizedRes.Code)
+	// 405 不能带工具清单，否则客户端仍可能当成正常响应继续重连。
+	if strings.Contains(getRes.Body.String(), "list_apis") {
+		t.Fatalf("405 body must not contain tool catalog: %s", getRes.Body.String())
 	}
 }
 

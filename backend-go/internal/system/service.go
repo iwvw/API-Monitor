@@ -76,16 +76,6 @@ type Service struct {
 	hostMetricsMu      sync.Mutex
 	hostMetricsSamples []hostMetricSample
 
-	// AI 接入 describe 元数据轮询缓存：GET /api/ai/mcp 探测可高达每秒一次，
-	// 属只读静态响应，用内存缓存避免每次开库、重建 payload 与落审计。
-	aiDescribeOnce    sync.Once
-	aiDescribePayload map[string]interface{}
-	// aiDescribeETag 是 describe payload 的强 ETag：内容在进程生命周期内
-	// 固定（工具/资源清单是编译期常量），因此只需计算一次，供 GET 轮询
-	// 走 If-None-Match → 304。
-	aiDescribeETag  string
-	aiAgentKeyMu    sync.Mutex
-	aiAgentKeyCache string
 }
 
 type hostMetricSample struct {
@@ -551,7 +541,20 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		response.OK(w, payload)
 	case "/api/ai/mcp":
-		if r.Method != http.MethodGet && r.Method != http.MethodPost {
+		// 按 MCP Streamable HTTP 规范（2025-06-18）：GET 用于「打开服务端→客户端的
+		// SSE 流」，本服务不提供主动推送，因此必须返回 405（规范原文：server MUST
+		// either return Content-Type: text/event-stream ... or else return HTTP 405
+		// Method Not Allowed）。
+		//
+		// 此前 GET 返回 application/json + 完整工具清单，既不是 SSE 也不是 405，
+		// 导致 opencode 等客户端判定流异常并无限重连（实测每秒 4~5 次、约 1.7GB/天）。
+		if r.Method == http.MethodGet {
+			w.Header().Set("Allow", http.MethodPost)
+			response.Error(w, http.StatusMethodNotAllowed, "MCP endpoint only supports POST (no server-initiated SSE stream)")
+			return
+		}
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", http.MethodPost)
 			response.Error(w, http.StatusMethodNotAllowed, "method not allowed")
 			return
 		}
@@ -567,20 +570,6 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if payload == nil && status == http.StatusAccepted {
 			w.WriteHeader(http.StatusAccepted)
 			return
-		}
-		// GET 是客户端的元数据探测（opencode 等会高频轮询）。响应体是完整的
-		// 工具/资源清单，内容在进程生命周期内固定，故用固定 ETag 支持
-		// If-None-Match → 304（零响应体）。必须放在 handleMCP 之后：
-		// 那里已完成 Agent Key 鉴权，避免未授权请求靠命中 ETag 拿到 304。
-		if r.Method == http.MethodGet && status == http.StatusOK {
-			if etag, ok := s.mcpDescribeETag(r); ok {
-				w.Header().Set("ETag", etag)
-				w.Header().Set("Cache-Control", "no-cache")
-				if ifNoneMatchMatches(r, etag) {
-					w.WriteHeader(http.StatusNotModified)
-					return
-				}
-			}
 		}
 		response.JSON(w, status, payload)
 	default:
