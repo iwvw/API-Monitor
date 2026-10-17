@@ -52,6 +52,12 @@ type Settings struct {
 	//   first          —— 固定用列表首个可用账号（主备，行为最可预期）
 	//   round-robin    —— 依次轮询，请求均匀分摊
 	AccountStrategy string `json:"accountStrategy"`
+	// CompressUpstream 控制「本插件 → 上游」的请求体是否 gzip 压缩。
+	// 长上下文对话的请求体常达数百 KB ~ 数 MB，而这类文本（代码/日志/JSON）
+	// 压缩比普遍在 10x 以上；上游会照常解压（已实测 gzip/deflate 行为，见
+	// upstream_compress.go）。指针语义：nil 视为开启（缺省开启），
+	// 显式 false 才关闭——上游若某天改校验口径可就地关掉，不必发版。
+	CompressUpstream *bool `json:"compressUpstream,omitempty"`
 	// Accounts 扫码登录产生的账号凭据。含 token，仅服务端可见，
 	// 下发前端前必须经 toAccountView() 脱敏。
 	Accounts []Account `json:"accounts"`
@@ -80,12 +86,13 @@ func normalizeStrategy(v string) string {
 func defaultSettings() Settings {
 	enabled := true
 	return Settings{
-		Enabled:         false,
-		DisabledModels:  []string{},
-		AutoCheckin:     &enabled,
-		AutoActivity:    &enabled,
-		AccountStrategy: strategyLeastConsumed,
-		Accounts:        []Account{},
+		Enabled:          false,
+		DisabledModels:   []string{},
+		AutoCheckin:      &enabled,
+		AutoActivity:     &enabled,
+		AccountStrategy:  strategyLeastConsumed,
+		CompressUpstream: &enabled,
+		Accounts:         []Account{},
 	}
 }
 
@@ -103,6 +110,14 @@ func (s *Settings) autoActivityEnabled() bool {
 		return true
 	}
 	return *s.AutoActivity
+}
+
+// compressUpstreamEnabled 判定上游请求体压缩是否开启（缺省视为开启）。
+func (s *Settings) compressUpstreamEnabled() bool {
+	if s.CompressUpstream == nil {
+		return true
+	}
+	return *s.CompressUpstream
 }
 
 // Service 是 WorkBuddy 插件后端。
@@ -678,6 +693,12 @@ func (s *Service) handleSettings(w http.ResponseWriter, r *http.Request) {
 		current := s.Settings()
 		body.Accounts = current.Accounts
 		body.DisabledModels = current.DisabledModels
+		// 旧前端不认识 compressUpstream，整对象 PUT 时该字段缺失（nil）。
+		// nil 的语义是「缺省开启」，直接写回会把用户显式关闭的开关悄悄打开，
+		// 故仅在请求里确实带了该字段时才覆盖。
+		if body.CompressUpstream == nil {
+			body.CompressUpstream = current.CompressUpstream
+		}
 		if err := s.SaveSettings(r.Context(), body); err != nil {
 			responseJSON(w, http.StatusInternalServerError, map[string]interface{}{"success": false, "error": err.Error()})
 			return
@@ -700,14 +721,15 @@ func (s *Service) publicSettings() map[string]interface{} {
 		views = append(views, s.toAccountView(a))
 	}
 	return map[string]interface{}{
-		"enabled":         st.Enabled,
-		"modelPrefix":     st.ModelPrefix,
-		"proxyPoolId":     st.ProxyPoolID,
-		"disabledModels":  st.DisabledModels,
-		"autoCheckin":     st.autoCheckinEnabled(),
-		"autoActivity":    st.autoActivityEnabled(),
-		"accountStrategy": normalizeStrategy(st.AccountStrategy),
-		"accounts":        views,
+		"enabled":          st.Enabled,
+		"modelPrefix":      st.ModelPrefix,
+		"proxyPoolId":      st.ProxyPoolID,
+		"disabledModels":   st.DisabledModels,
+		"autoCheckin":      st.autoCheckinEnabled(),
+		"autoActivity":     st.autoActivityEnabled(),
+		"accountStrategy":  normalizeStrategy(st.AccountStrategy),
+		"compressUpstream": st.compressUpstreamEnabled(),
+		"accounts":         views,
 	}
 }
 

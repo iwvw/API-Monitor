@@ -946,7 +946,8 @@ func (s *Service) chatCompletions(ctx context.Context, w http.ResponseWriter, re
 	if strings.TrimSpace(req.Account.AccessToken) == "" {
 		return fmt.Errorf("账号 %s 缺少 access token", req.Account.ID)
 	}
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, endpointChat(req.Account.Region), bytesReader(req.Body))
+	settings := s.Settings()
+	httpReq, err := newUpstreamRequest(ctx, endpointChat(req.Account.Region), req.Body, settings.compressUpstreamEnabled())
 	if err != nil {
 		return err
 	}

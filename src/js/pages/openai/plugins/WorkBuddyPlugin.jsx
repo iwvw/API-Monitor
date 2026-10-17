@@ -721,6 +721,9 @@ export function WorkBuddyPlugin() {
               disabled={saving}
             />
           </FieldRow>
+          <FieldRow title={<span title="转发给上游前把请求体 gzip 压缩（超过 4KB 才压）。长上下文对话的代码/日志/JSON 实测可压缩 10~37 倍，能大幅降低本机上行流量；上游会自动解压，对回答无影响。若上游日后改校验口径导致异常，可关掉此开关回退">上游请求压缩</span>}>
+            <Switch checked={settings?.compressUpstream !== false} onCheckedChange={v => update({ compressUpstream: v })} />
+          </FieldRow>
           <FieldRow title={<span title="站点时区 9 点与 21 点自动签到（含连登档位兑换与抽奖）。仅国内版账号参与，国际版无签到体系。账号级签到开关独立于转发开关：转发停用的账号只要签到开关开启就照常签到，token 过期会自动刷新。">每日自动签到</span>}>
             <Switch checked={settings?.autoCheckin !== false} onCheckedChange={v => update({ autoCheckin: v })} />
           </FieldRow>
