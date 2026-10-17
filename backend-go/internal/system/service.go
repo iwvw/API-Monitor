@@ -555,21 +555,6 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			response.Error(w, http.StatusMethodNotAllowed, "method not allowed")
 			return
 		}
-		// GET 是客户端的元数据探测（opencode 等会高频轮询）。响应体是完整的
-		// 工具/资源清单，内容在进程生命周期内基本不变，因此用固定 ETag 支持
-		// If-None-Match → 304（零响应体），把高频探测的流量压到最低。
-		if r.Method == http.MethodGet {
-			if etag, ok := s.mcpDescribeETag(r); ok {
-				if ifNoneMatchMatches(r, etag) {
-					w.Header().Set("ETag", etag)
-					w.Header().Set("Cache-Control", "no-cache")
-					w.WriteHeader(http.StatusNotModified)
-					return
-				}
-				w.Header().Set("ETag", etag)
-				w.Header().Set("Cache-Control", "no-cache")
-			}
-		}
 		payload, status, err := s.handleMCP(r)
 		if errors.Is(err, errUnauthorizedAI) {
 			response.Error(w, http.StatusUnauthorized, "AI 接入密钥无效")
@@ -582,6 +567,20 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if payload == nil && status == http.StatusAccepted {
 			w.WriteHeader(http.StatusAccepted)
 			return
+		}
+		// GET 是客户端的元数据探测（opencode 等会高频轮询）。响应体是完整的
+		// 工具/资源清单，内容在进程生命周期内固定，故用固定 ETag 支持
+		// If-None-Match → 304（零响应体）。必须放在 handleMCP 之后：
+		// 那里已完成 Agent Key 鉴权，避免未授权请求靠命中 ETag 拿到 304。
+		if r.Method == http.MethodGet && status == http.StatusOK {
+			if etag, ok := s.mcpDescribeETag(r); ok {
+				w.Header().Set("ETag", etag)
+				w.Header().Set("Cache-Control", "no-cache")
+				if ifNoneMatchMatches(r, etag) {
+					w.WriteHeader(http.StatusNotModified)
+					return
+				}
+			}
 		}
 		response.JSON(w, status, payload)
 	default:

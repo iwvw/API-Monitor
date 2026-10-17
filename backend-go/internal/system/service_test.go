@@ -175,6 +175,16 @@ func TestAIAccessOverviewAndMCP(t *testing.T) {
 	if got := probeRes2.Header().Get("ETag"); got != etag {
 		t.Fatalf("ETag = %q, want %q", got, etag)
 	}
+
+	// 安全回归：未授权请求即使携带匹配的 ETag 也必须 401，不能靠 ETag 命中
+	// 绕过 Agent Key 鉴权拿到 304。
+	unauthorizedProbe := httptest.NewRequest(http.MethodGet, "http://example.test/api/ai/mcp", nil)
+	unauthorizedProbe.Header.Set("If-None-Match", etag)
+	unauthorizedRes := httptest.NewRecorder()
+	service.ServeHTTP(unauthorizedRes, unauthorizedProbe)
+	if unauthorizedRes.Code != http.StatusUnauthorized {
+		t.Fatalf("unauthorized GET with matching ETag = %d, want 401", unauthorizedRes.Code)
+	}
 }
 
 func TestAIAuditPage(t *testing.T) {
