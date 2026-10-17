@@ -28,6 +28,11 @@ type Config struct {
 	// 小内存主机上全量读入 body 会放大 3 倍内存，超限请求直接 413。
 	// 环境变量 GATEWAY_BODY_MAX_MB（默认 16）配置。
 	GatewayBodyMaxBytes int64
+	// RequestDecompressMaxBytes 是「解压后」请求体的上限：客户端可用
+	// Content-Encoding: gzip/br/zstd 压缩上传（大 prompt 常压 5~10 倍），
+	// 解压后超过该值按 413 处理，用于防解压炸弹。
+	// 环境变量 REQUEST_DECOMPRESS_MAX_MB（默认 32）配置。
+	RequestDecompressMaxBytes int64
 	// AgentFileRoots 是下发给 Agent 的额外文件白名单根目录（逗号分隔）。
 	// 注入到安装脚本后，Agent 以 API_MONITOR_FILE_ROOTS 读取，仅这些目录
 	// 可与默认沙箱一并被面板文件管理访问；为空时不注入，保持历史行为。
@@ -39,22 +44,23 @@ func Load(version string) Config {
 	root := repoRoot()
 	environment := strings.ToLower(envString("APP_ENV", envString("NODE_ENV", "development")))
 	return Config{
-		Version:              version,
-		Environment:          environment,
-		Host:                 envString("GO_HOST", "0.0.0.0"),
-		Port:                 envInt("GO_PORT", envInt("PORT", 3000)),
-		LegacyBaseURL:        strings.TrimRight(os.Getenv("NODE_LEGACY_URL"), "/"),
-		DistDir:              envPath(root, "DIST_DIR", filepath.Join(root, "dist")),
-		PublicDir:            envPath(root, "PUBLIC_DIR", filepath.Join(root, "public")),
-		DataDir:              envPath(root, "DATA_DIR", filepath.Join(root, "data")),
-		DBName:               envString("DB_NAME", "data.db"),
-		SecureCookies:        envBool("SECURE_COOKIES", environment == "production"),
-		AllowLocalShellTasks: envBool("ALLOW_LOCAL_SHELL_TASKS", environment != "production"),
-		CORSAllowedOrigins:   envList("CORS_ALLOWED_ORIGINS"),
-		TrustedProxyCIDRs:    trustedProxyCIDRs(),
-		AdminAIDefaultModel:  envString("ADMIN_AI_DEFAULT_MODEL", ""),
-		GatewayBodyMaxBytes:  int64(envInt("GATEWAY_BODY_MAX_MB", 16)) * 1024 * 1024,
-		AgentFileRoots:       envList("API_MONITOR_AGENT_FILE_ROOTS"),
+		Version:                   version,
+		Environment:               environment,
+		Host:                      envString("GO_HOST", "0.0.0.0"),
+		Port:                      envInt("GO_PORT", envInt("PORT", 3000)),
+		LegacyBaseURL:             strings.TrimRight(os.Getenv("NODE_LEGACY_URL"), "/"),
+		DistDir:                   envPath(root, "DIST_DIR", filepath.Join(root, "dist")),
+		PublicDir:                 envPath(root, "PUBLIC_DIR", filepath.Join(root, "public")),
+		DataDir:                   envPath(root, "DATA_DIR", filepath.Join(root, "data")),
+		DBName:                    envString("DB_NAME", "data.db"),
+		SecureCookies:             envBool("SECURE_COOKIES", environment == "production"),
+		AllowLocalShellTasks:      envBool("ALLOW_LOCAL_SHELL_TASKS", environment != "production"),
+		CORSAllowedOrigins:        envList("CORS_ALLOWED_ORIGINS"),
+		TrustedProxyCIDRs:         trustedProxyCIDRs(),
+		AdminAIDefaultModel:       envString("ADMIN_AI_DEFAULT_MODEL", ""),
+		GatewayBodyMaxBytes:       int64(envInt("GATEWAY_BODY_MAX_MB", 16)) * 1024 * 1024,
+		RequestDecompressMaxBytes: int64(envInt("REQUEST_DECOMPRESS_MAX_MB", 32)) * 1024 * 1024,
+		AgentFileRoots:            envList("API_MONITOR_AGENT_FILE_ROOTS"),
 	}
 }
 

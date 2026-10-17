@@ -98,6 +98,21 @@ func TestGatewayBodyMaxConfig(t *testing.T) {
 	}
 }
 
+// REQUEST_DECOMPRESS_MAX_MB 配置解压后请求体上限；未配置时默认 32MB。
+func TestRequestDecompressMaxConfig(t *testing.T) {
+	t.Setenv("REQUEST_DECOMPRESS_MAX_MB", "64")
+	cfg := Load("test")
+	if cfg.RequestDecompressMaxBytes != 64*1024*1024 {
+		t.Fatalf("RequestDecompressMaxBytes = %d, want %d", cfg.RequestDecompressMaxBytes, 64*1024*1024)
+	}
+
+	t.Setenv("REQUEST_DECOMPRESS_MAX_MB", "")
+	cfg = Load("test")
+	if cfg.RequestDecompressMaxBytes != 32*1024*1024 {
+		t.Fatalf("默认 RequestDecompressMaxBytes = %d, want %d", cfg.RequestDecompressMaxBytes, 32*1024*1024)
+	}
+}
+
 func TestProductionSecurityDefaults(t *testing.T) {
 	t.Setenv("APP_ENV", "production")
 	t.Setenv("NODE_ENV", "")
