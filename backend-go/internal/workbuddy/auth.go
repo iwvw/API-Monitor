@@ -224,6 +224,8 @@ func (s *Service) handleDeleteAccount(w http.ResponseWriter, r *http.Request, id
 		responseJSON(w, http.StatusInternalServerError, map[string]interface{}{"success": false, "error": err.Error()})
 		return
 	}
+	// 账号没了，它的限流记录也失去了主人：留着只会在库里积垃圾。
+	s.clearModelLimitRow(id)
 	responseJSON(w, map[string]interface{}{"success": true})
 }
 

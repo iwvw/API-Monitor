@@ -222,6 +222,7 @@ func New(cfg config.Config) *Service {
 	defer cancel()
 	if db, err := s.open(ctx); err == nil {
 		s.loadSettings(ctx, db)
+		s.loadModelLimits(ctx, db)
 		db.Close()
 	}
 	return s
@@ -270,6 +271,10 @@ func (s *Service) open(ctx context.Context) (*sql.DB, error) {
 	)`); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("workbuddy ensure diagnostics schema: %w", err)
+	}
+	if err := ensureModelLimitTable(ctx, db); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("workbuddy ensure model limit schema: %w", err)
 	}
 	return db, nil
 }

@@ -235,12 +235,16 @@ func (s *Service) markModelLimit(accountID, model string, until time.Time, reaso
 	}
 	s.rateLimitSample = truncated
 	s.rateLimitSampleAt = now.UTC().Format(time.RFC3339)
+	record := s.modelLimits[modelLimitKey(accountID, model)]
 	s.modelLimitMu.Unlock()
 	applog.Warn(context.Background(), "workbuddy", "model rate limited for account",
 		"account", label,
 		"model", model,
 		"until", until.UTC().Format(time.RFC3339),
 		"reason", truncated)
+	// 落库以便重启后仍能跳过这个账号：否则每次部署/重启都要重新撞一遍 429，
+	// 每撞一次就把完整请求体再发给上游一次（见 ratelimit_store.go 开头的量化说明）。
+	s.persistModelLimit(record)
 }
 
 // noteRateLimit 只留痕最近的限流原文（不进冷却簿）。
