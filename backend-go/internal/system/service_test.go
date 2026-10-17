@@ -146,6 +146,35 @@ func TestAIAccessOverviewAndMCP(t *testing.T) {
 	if len(result["tools"].([]map[string]interface{})) == 0 {
 		t.Fatal("expected MCP tools")
 	}
+
+	// GET 是客户端的高频元数据探测：带 If-None-Match 命中时应返回 304 且无响应体。
+	etag, ok := service.mcpDescribeETag(nil)
+	if !ok || etag == "" {
+		t.Fatalf("expected describe ETag, got %q ok=%v", etag, ok)
+	}
+	probe := httptest.NewRequest(http.MethodGet, "http://example.test/api/ai/mcp", nil)
+	probe.Header.Set("Authorization", "Bearer "+agentKey)
+	probe.Header.Set("If-None-Match", etag)
+	probeRes := httptest.NewRecorder()
+	service.ServeHTTP(probeRes, probe)
+	if probeRes.Code != http.StatusNotModified {
+		t.Fatalf("GET with If-None-Match = %d, want 304 (body=%s)", probeRes.Code, probeRes.Body.String())
+	}
+	if probeRes.Body.Len() != 0 {
+		t.Fatalf("304 must have empty body, got %d bytes", probeRes.Body.Len())
+	}
+
+	// 不带 If-None-Match 时必须返回 200 且带 ETag。
+	probe2 := httptest.NewRequest(http.MethodGet, "http://example.test/api/ai/mcp", nil)
+	probe2.Header.Set("Authorization", "Bearer "+agentKey)
+	probeRes2 := httptest.NewRecorder()
+	service.ServeHTTP(probeRes2, probe2)
+	if probeRes2.Code != http.StatusOK {
+		t.Fatalf("GET without If-None-Match = %d, want 200", probeRes2.Code)
+	}
+	if got := probeRes2.Header().Get("ETag"); got != etag {
+		t.Fatalf("ETag = %q, want %q", got, etag)
+	}
 }
 
 func TestAIAuditPage(t *testing.T) {

@@ -80,8 +80,12 @@ type Service struct {
 	// 属只读静态响应，用内存缓存避免每次开库、重建 payload 与落审计。
 	aiDescribeOnce    sync.Once
 	aiDescribePayload map[string]interface{}
-	aiAgentKeyMu      sync.Mutex
-	aiAgentKeyCache   string
+	// aiDescribeETag 是 describe payload 的强 ETag：内容在进程生命周期内
+	// 固定（工具/资源清单是编译期常量），因此只需计算一次，供 GET 轮询
+	// 走 If-None-Match → 304。
+	aiDescribeETag  string
+	aiAgentKeyMu    sync.Mutex
+	aiAgentKeyCache string
 }
 
 type hostMetricSample struct {
@@ -550,6 +554,21 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet && r.Method != http.MethodPost {
 			response.Error(w, http.StatusMethodNotAllowed, "method not allowed")
 			return
+		}
+		// GET 是客户端的元数据探测（opencode 等会高频轮询）。响应体是完整的
+		// 工具/资源清单，内容在进程生命周期内基本不变，因此用固定 ETag 支持
+		// If-None-Match → 304（零响应体），把高频探测的流量压到最低。
+		if r.Method == http.MethodGet {
+			if etag, ok := s.mcpDescribeETag(r); ok {
+				if ifNoneMatchMatches(r, etag) {
+					w.Header().Set("ETag", etag)
+					w.Header().Set("Cache-Control", "no-cache")
+					w.WriteHeader(http.StatusNotModified)
+					return
+				}
+				w.Header().Set("ETag", etag)
+				w.Header().Set("Cache-Control", "no-cache")
+			}
 		}
 		payload, status, err := s.handleMCP(r)
 		if errors.Is(err, errUnauthorizedAI) {

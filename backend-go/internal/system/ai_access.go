@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"crypto/subtle"
 	"database/sql"
 	"encoding/base64"
@@ -381,8 +382,52 @@ func (s *Service) mcpDescribePayload() map[string]interface{} {
 			"tools":     s.aiTools(),
 			"resources": s.mcpResources(),
 		}
+		// 内容固定：ETag 只算一次。带上版本号，升级后自然失效。
+		if encoded, err := json.Marshal(s.aiDescribePayload); err == nil {
+			s.aiDescribeETag = aiCacheETag(string(encoded), s.cfg.Version)
+		}
 	})
 	return s.aiDescribePayload
+}
+
+// mcpDescribeETag 返回 describe payload 的 ETag（同时确保 payload 已构建）。
+// 第二个返回值为 false 表示 ETag 不可用（序列化失败），调用方应退回普通响应。
+func (s *Service) mcpDescribeETag(*http.Request) (string, bool) {
+	s.mcpDescribePayload()
+	if s.aiDescribeETag == "" {
+		return "", false
+	}
+	return s.aiDescribeETag, true
+}
+
+// aiCacheETag 计算内容强 ETag，供高频只读轮询走 304。
+func aiCacheETag(parts ...string) string {
+	h := sha256.New()
+	for _, p := range parts {
+		_, _ = h.Write([]byte(p))
+		_, _ = h.Write([]byte{0})
+	}
+	return `"` + hex.EncodeToString(h.Sum(nil)[:16]) + `"`
+}
+
+// ifNoneMatchMatches 判断请求的 If-None-Match 是否命中给定 ETag。
+// 支持 `*`、逗号分隔多值，以及弱校验前缀 W/。
+func ifNoneMatchMatches(r *http.Request, etag string) bool {
+	raw := strings.TrimSpace(r.Header.Get("If-None-Match"))
+	if raw == "" {
+		return false
+	}
+	if raw == "*" {
+		return true
+	}
+	for _, candidate := range strings.Split(raw, ",") {
+		candidate = strings.TrimSpace(candidate)
+		candidate = strings.TrimPrefix(candidate, "W/")
+		if candidate == etag {
+			return true
+		}
+	}
+	return false
 }
 
 // validateCachedAgentKey 用内存缓存的 Agent Key 做常量时间校验，避免高频

@@ -1347,6 +1347,87 @@ func TestPreferencesHTTPRequiresBearer(t *testing.T) {
 	}
 }
 
+// TestPreferencesHTTPETagNotModified 覆盖高频轮询优化：GET 首次返回 ETag，
+// 携带同一 If-None-Match 再次请求时必须是 304 且响应体为空。
+func TestPreferencesHTTPETagNotModified(t *testing.T) {
+	service := newTestService(t)
+	ctx := context.Background()
+	db, err := service.open(ctx)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	defer db.Close()
+
+	user, err := service.createUser(ctx, db, "grace", "secret-pass-1", "")
+	if err != nil {
+		t.Fatalf("createUser: %v", err)
+	}
+	plain, _, err := service.issueToken(ctx, db, user.ID, "desktop", "")
+	if err != nil {
+		t.Fatalf("issueToken: %v", err)
+	}
+
+	put := httptest.NewRequest(http.MethodPut, "/api/aiagent/preferences",
+		strings.NewReader(`{"values":{"theme-preset":"\"ocean\""}}`))
+	put.Header.Set("Content-Type", "application/json")
+	put.Header.Set("Authorization", "Bearer "+plain)
+	putRes := httptest.NewRecorder()
+	service.ServeHTTP(putRes, put)
+	if putRes.Code != http.StatusOK {
+		t.Fatalf("put = %d body=%s", putRes.Code, putRes.Body.String())
+	}
+
+	get := func(ifNoneMatch string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodGet, "/api/aiagent/preferences", nil)
+		req.Header.Set("Authorization", "Bearer "+plain)
+		if ifNoneMatch != "" {
+			req.Header.Set("If-None-Match", ifNoneMatch)
+		}
+		res := httptest.NewRecorder()
+		service.ServeHTTP(res, req)
+		return res
+	}
+
+	first := get("")
+	if first.Code != http.StatusOK {
+		t.Fatalf("first GET = %d body=%s", first.Code, first.Body.String())
+	}
+	etag := first.Header().Get("ETag")
+	if etag == "" {
+		t.Fatal("first GET must set ETag")
+	}
+	if first.Header().Get("Cache-Control") != "no-cache" {
+		t.Fatalf("Cache-Control = %q", first.Header().Get("Cache-Control"))
+	}
+
+	second := get(etag)
+	if second.Code != http.StatusNotModified {
+		t.Fatalf("second GET with If-None-Match = %d, want 304 (body=%s)", second.Code, second.Body.String())
+	}
+	if second.Body.Len() != 0 {
+		t.Fatalf("304 must have empty body, got %d bytes", second.Body.Len())
+	}
+
+	// 偏好变化后 ETag 必须改变，客户端才会重新拿到内容。
+	put2 := httptest.NewRequest(http.MethodPut, "/api/aiagent/preferences",
+		strings.NewReader(`{"values":{"theme-preset":"\"forest\""}}`))
+	put2.Header.Set("Content-Type", "application/json")
+	put2.Header.Set("Authorization", "Bearer "+plain)
+	put2Res := httptest.NewRecorder()
+	service.ServeHTTP(put2Res, put2)
+	if put2Res.Code != http.StatusOK {
+		t.Fatalf("second put = %d body=%s", put2Res.Code, put2Res.Body.String())
+	}
+
+	third := get(etag)
+	if third.Code != http.StatusOK {
+		t.Fatalf("after change, GET with stale ETag = %d, want 200", third.Code)
+	}
+	if third.Header().Get("ETag") == etag {
+		t.Fatal("ETag must change when preference content changes")
+	}
+}
+
 // TestPreferencesHTTPAcceptsPerKeyTimestamps 是线上 400 的回归用例：客户端
 // 按逐键上报 updatedAt（对象形态），服务端曾把它声明为 string，导致
 // json.Unmarshal 类型不符、整个 PUT 被拒为 invalid JSON body。

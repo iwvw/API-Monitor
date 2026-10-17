@@ -1452,6 +1452,10 @@ func (s *Service) handleInstanceMeta(w http.ResponseWriter, r *http.Request, id 
 // ---------- 用户偏好（多端同步） ----------
 
 // handleListPreferences 返回当前用户的全部偏好。
+//
+// 客户端（桌面端）会以较高频率轮询本接口，返回体是全部偏好键值（数十 KB）。
+// 因此这里支持 ETag + If-None-Match：内容未变直接 304（零响应体），
+// 把轮询流量压到最低，同时不改动客户端行为。
 func (s *Service) handleListPreferences(w http.ResponseWriter, r *http.Request) {
 	auth, ok := s.requireAuth(w, r)
 	if !ok {
@@ -1468,6 +1472,19 @@ func (s *Service) handleListPreferences(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusInternalServerError, CodeChannelError, err.Error())
 		return
 	}
+	// ETag 由「键 + 更新时间 + 值」逐项拼接后哈希：任一项变化都会改变 ETag，
+	// 无需额外版本列或触发器。
+	parts := make([]string, 0, len(items)*3)
+	for _, item := range items {
+		parts = append(parts, item.Key, item.UpdatedAt, string(item.Value))
+	}
+	etag := etagFor(parts...)
+	if ifNoneMatchMatches(r, etag) {
+		writeNotModified(w, etag)
+		return
+	}
+	w.Header().Set("ETag", etag)
+	w.Header().Set("Cache-Control", "no-cache")
 	writeOK(w, items)
 }
 
