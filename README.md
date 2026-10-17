@@ -99,6 +99,7 @@ npm run backend-go:build
 | `NODE_LEGACY_URL` | 可选 | - | 旧 Node sidecar 后端地址（迁移期兼容用，当前版本无需设置） |
 | `ADMIN_AI_DEFAULT_MODEL` | 可选 | - | 管理 AI 默认模型名，留空则面板内手动选择 |
 | `GATEWAY_BODY_MAX_MB` | 可选 | `16` | 模型网关转发入口可接受的请求体上限（MB），小内存主机可调小 |
+| `REQUEST_DECOMPRESS_MAX_MB` | 可选 | `32` | 客户端压缩上传（`Content-Encoding: gzip/br/zstd`）时**解压后**请求体上限（MB），用于防解压炸弹 |
 
 ### 安全与网络（均可选）
 
