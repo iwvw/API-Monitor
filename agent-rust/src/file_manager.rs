@@ -864,7 +864,9 @@ mod tests {
 
         let target = base.join("moved-away").join("docker-compose.yml");
         let resolved = canonicalize_missing_tail(&target, "无法访问父目录").unwrap();
-        assert_eq!(resolved, target);
+        // 已存在祖先会被 canonicalize（Windows 下带 `\\?\` 前缀、展开 8.3 短名），
+        // 因此只断言解析成功且保留了缺失尾段，不比较字面前缀。
+        assert!(resolved.ends_with("moved-away/docker-compose.yml"));
 
         let _ = std::fs::remove_dir_all(&base);
     }
