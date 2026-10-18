@@ -74,16 +74,17 @@
 
 ## 归档（`archive/`）
 
-以下文档为历史巡检、审查、交接或迁移记录，仅作回溯参考，不视为现行标准，也不转为 GitHub Issue：
+以下文档为历史巡检、审查、交接或迁移记录，仅作回溯参考，不视为现行标准，也不转为 GitHub Issue。
+`archive/` 目录被 `.gitignore` 忽略、只存在于本地，因此这里只列名称，不做链接：
 
-- [接口巡检报告-本地](./archive/接口巡检报告-本地.md) / [接口巡检报告-生产](./archive/接口巡检报告-生产.md)（一次性全量接口巡检）
-- [生产环境流程审查](./archive/生产环境流程审查.md)（一次性审查）
-- [修复审查清单](./archive/修复审查清单.md) / [Bug审计与修复交接文档](./archive/Bug审计与修复交接文档.md)（一次性交接）
-- [kumo-design-违规审计清单](./archive/kumo-design-违规审计清单.md) / [frontend组件一致性分析报告](./archive/frontend组件一致性分析报告.md)（一次性审计）
-- [Go后端迁移状态](./archive/Go后端迁移状态.md)（迁移历史，迁移已完成）
-- [handoff-zcode-ask-ai-sidebar](./archive/handoff-zcode-ask-ai-sidebar.md)（交接）
-- [多Agent协作登记](./archive/多Agent协作登记.md)（已废弃，协作改由 GitHub Issues 跟踪，见 `CONTEXT.md`）
-- [Cloudflare看板设计分析](./archive/Cloudflare看板设计分析.md)（一次性分析，建议已随卡片库/看板落地）
+- 接口巡检报告-本地 / 接口巡检报告-生产（一次性全量接口巡检）
+- 生产环境流程审查（一次性审查）
+- 修复审查清单 / Bug审计与修复交接文档（一次性交接）
+- kumo-design-违规审计清单 / frontend组件一致性分析报告（一次性审计）
+- Go后端迁移状态（迁移历史，迁移已完成）
+- handoff-zcode-ask-ai-sidebar（交接）
+- 多Agent协作登记（已废弃，协作改由 GitHub Issues 跟踪，见 `CONTEXT.md`）
+- Cloudflare看板设计分析（一次性分析，建议已随卡片库/看板落地）
 
 `prd/` 下已实现上线的历史需求文档（按需回溯原始需求）：
 

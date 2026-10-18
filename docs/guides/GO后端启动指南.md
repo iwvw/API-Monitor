@@ -151,4 +151,4 @@ npm run audit:fast
 npm run clean:check
 ```
 
-完整状态见 [Go 后端迁移状态](../archive/Go后端迁移状态.md)（历史记录，迁移已完成）。
+完整状态见 `archive/Go后端迁移状态.md`（本地归档目录，未纳入版本库；历史记录，迁移已完成）。
