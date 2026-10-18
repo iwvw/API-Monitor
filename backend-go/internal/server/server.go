@@ -983,6 +983,13 @@ func joinStaticPath(rootDir, relPath string) (string, bool) {
 	return candidate, true
 }
 
+// allowHeadersAgent 是跨域客户端（OCC 网页/桌面）会用到的请求头白名单。
+//
+// 必须显式列出 `Authorization`：Chromium 只有在 Access-Control-Allow-Headers 里
+// 明确出现这个头名时才会复用缓存的预检结果（`*` 永远不覆盖它），否则每个 API
+// 调用前都会重新发一次 OPTIONS。
+const allowHeadersAgent = "Content-Type,Authorization,X-API-Key,X-Agent-Key,X-Server-ID,X-Filebox-Password,X-Lightweight,If-None-Match,If-Modified-Since"
+
 func (s *Server) applySecurityHeaders(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	if strings.HasPrefix(r.URL.Path, "/vendor/drawio/") {
@@ -1005,10 +1012,13 @@ func (s *Server) applySecurityHeaders(w http.ResponseWriter, r *http.Request) {
 		if origin := strings.TrimRight(strings.TrimSpace(r.Header.Get("Origin")), "/"); origin != "" {
 			w.Header().Set("Access-Control-Allow-Origin", origin)
 			w.Header().Set("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS")
-			w.Header().Set("Access-Control-Allow-Headers", "Content-Type,Authorization,X-API-Key,X-Agent-Key,X-Server-ID,X-Filebox-Password,X-Lightweight,If-None-Match,If-Modified-Since")
+			w.Header().Set("Access-Control-Allow-Headers", allowHeadersAgent)
 			// 暴露自定义响应头：浏览器跨域下默认读不到 CORS 安全列表以外的响应头，
 			// 客户端据 X-Lightweight 判定主机 Agent 是否支持消息轻量投影，故须显式暴露。
 			w.Header().Set("Access-Control-Expose-Headers", "X-Lightweight,X-Next-Cursor,Link,ETag")
+			// 预检缓存：Chromium 未收到 Max-Age 时只缓存 5 秒，等于每个 API 调用前都多
+			// 一次 OPTIONS 往返（经隧道时约 1.1s）。上限 7200 由浏览器自身封顶。
+			w.Header().Set("Access-Control-Max-Age", "7200")
 			w.Header().Add("Vary", "Origin")
 		}
 		return
@@ -1018,7 +1028,8 @@ func (s *Server) applySecurityHeaders(w http.ResponseWriter, r *http.Request) {
 		if origin != "" && origin == allowed {
 			w.Header().Set("Access-Control-Allow-Origin", origin)
 			w.Header().Set("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS")
-			w.Header().Set("Access-Control-Allow-Headers", "Content-Type,Authorization,X-API-Key,X-Agent-Key,X-Server-ID,X-Filebox-Password,X-Lightweight,If-None-Match,If-Modified-Since")
+			w.Header().Set("Access-Control-Allow-Headers", allowHeadersAgent)
+			w.Header().Set("Access-Control-Max-Age", "7200")
 			w.Header().Add("Vary", "Origin")
 			break
 		}

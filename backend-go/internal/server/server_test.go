@@ -804,7 +804,8 @@ func TestPluginCompatibleRelayRoutesAreInternalOnly(t *testing.T) {
 	}
 }
 
-func TestM365PublicRegistrationRoutesBypassSessionAuth(t *testing.T) {	handler := testServer(t)
+func TestM365PublicRegistrationRoutesBypassSessionAuth(t *testing.T) {
+	handler := testServer(t)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/m365/public/register?code=missing", nil)
 	res := httptest.NewRecorder()
@@ -1305,6 +1306,16 @@ func TestAIAgentRoutesEchoRequestOrigin(t *testing.T) {
 	// 该模块鉴权依赖 Bearer 令牌，绝不能放开凭证，否则跨来源请求会带上会话 Cookie。
 	if got := res.Header().Get("Access-Control-Allow-Credentials"); got != "" {
 		t.Fatalf("ACAC must stay unset, got %q", got)
+	}
+	// 预检缓存：Chromium 未收到 Max-Age 时只缓存 5 秒，经隧道时每次 API 调用前
+	// 都多一个 OPTIONS 往返。缺少该头就说明预检优化被回退了。
+	if got := res.Header().Get("Access-Control-Max-Age"); got != "7200" {
+		t.Fatalf("preflight Max-Age = %q, want 7200", got)
+	}
+	// 允许头必须逐项列出（点名 Authorization），`*` 不被 Chromium 用于授权头，
+	// 会导致预检缓存无法复用。
+	if got := res.Header().Get("Access-Control-Allow-Headers"); strings.Contains(got, "*") {
+		t.Fatalf("allow-headers must list headers explicitly, got %q", got)
 	}
 
 	for _, path := range []string{"/api/aiagent/instances", "/api/aiagent/gw/inst_1/global/health"} {
