@@ -774,11 +774,7 @@ fn validate_within_allowed_root(path: &Path, roots: &[PathBuf]) -> Result<PathBu
     let canonical = if path.exists() {
         fs::canonicalize(path).map_err(|e| format!("无法访问路径: {}", e))?
     } else {
-        let parent = path.parent().ok_or_else(|| "无效的路径".to_string())?;
-        let parent_canonical =
-            fs::canonicalize(parent).map_err(|e| format!("无法访问父目录: {}", e))?;
-        let file_name = path.file_name().ok_or_else(|| "无效的文件名".to_string())?;
-        parent_canonical.join(file_name)
+        canonicalize_missing_tail(path, "无法访问父目录")?
     };
 
     if matched_root(&canonical, roots).is_none() {
@@ -793,6 +789,35 @@ fn validate_within_allowed_root(path: &Path, roots: &[PathBuf]) -> Result<PathBu
     }
 
     Ok(canonical)
+}
+
+/// 规范化尚未落盘的路径：从自身向上找到第一个已存在的祖先并 canonicalize，
+/// 再把缺失的相对尾段原样拼回。
+/// 允许只拼一层父目录的做法在「父目录本身也不存在」时直接报错
+/// （例如 Compose 配置所在目录被整体移走），因此改为逐级回退。
+fn canonicalize_missing_tail(path: &Path, missing_error: &str) -> Result<PathBuf, String> {
+    let mut current = path;
+    let mut tail: Vec<&std::ffi::OsStr> = Vec::new();
+    loop {
+        if current.exists() {
+            let mut resolved = fs::canonicalize(current).map_err(|e| {
+                if tail.is_empty() {
+                    format!("{}: {}", missing_error, e)
+                } else {
+                    format!("无法访问路径 {}: {}", current.display(), e)
+                }
+            })?;
+            for part in tail.iter().rev() {
+                resolved.push(part);
+            }
+            return Ok(resolved);
+        }
+        let Some(name) = current.file_name() else {
+            return Err(format!("{}: No such file or directory", missing_error));
+        };
+        tail.push(name);
+        current = current.parent().ok_or_else(|| "无效的路径".to_string())?;
+    }
 }
 
 fn format_permissions(meta: &fs::Metadata) -> String {
@@ -823,4 +848,24 @@ fn format_permissions(meta: &fs::Metadata) -> String {
         }
     }
     s
+}
+
+#[cfg(test)]
+mod tests {
+    use super::canonicalize_missing_tail;
+
+    /// 父目录整体不存在时不应直接失败，而是回退到最近的已存在祖先再拼回尾段。
+    #[test]
+    fn missing_tail_falls_back_to_existing_ancestor() {
+        let base =
+            std::env::temp_dir().join(format!("api-monitor-missing-tail-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(&base).unwrap();
+
+        let target = base.join("moved-away").join("docker-compose.yml");
+        let resolved = canonicalize_missing_tail(&target, "无法访问父目录").unwrap();
+        assert_eq!(resolved, target);
+
+        let _ = std::fs::remove_dir_all(&base);
+    }
 }
