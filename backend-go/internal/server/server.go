@@ -1005,10 +1005,10 @@ func (s *Server) applySecurityHeaders(w http.ResponseWriter, r *http.Request) {
 		if origin := strings.TrimRight(strings.TrimSpace(r.Header.Get("Origin")), "/"); origin != "" {
 			w.Header().Set("Access-Control-Allow-Origin", origin)
 			w.Header().Set("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS")
-			w.Header().Set("Access-Control-Allow-Headers", "Content-Type,Authorization,X-API-Key,X-Agent-Key,X-Server-ID,X-Filebox-Password,X-Lightweight")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type,Authorization,X-API-Key,X-Agent-Key,X-Server-ID,X-Filebox-Password,X-Lightweight,If-None-Match,If-Modified-Since")
 			// 暴露自定义响应头：浏览器跨域下默认读不到 CORS 安全列表以外的响应头，
 			// 客户端据 X-Lightweight 判定主机 Agent 是否支持消息轻量投影，故须显式暴露。
-			w.Header().Set("Access-Control-Expose-Headers", "X-Lightweight,X-Next-Cursor,Link")
+			w.Header().Set("Access-Control-Expose-Headers", "X-Lightweight,X-Next-Cursor,Link,ETag")
 			w.Header().Add("Vary", "Origin")
 		}
 		return
@@ -1018,7 +1018,7 @@ func (s *Server) applySecurityHeaders(w http.ResponseWriter, r *http.Request) {
 		if origin != "" && origin == allowed {
 			w.Header().Set("Access-Control-Allow-Origin", origin)
 			w.Header().Set("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS")
-			w.Header().Set("Access-Control-Allow-Headers", "Content-Type,Authorization,X-API-Key,X-Agent-Key,X-Server-ID,X-Filebox-Password,X-Lightweight")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type,Authorization,X-API-Key,X-Agent-Key,X-Server-ID,X-Filebox-Password,X-Lightweight,If-None-Match,If-Modified-Since")
 			w.Header().Add("Vary", "Origin")
 			break
 		}

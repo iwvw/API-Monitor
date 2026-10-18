@@ -1286,6 +1286,18 @@ func TestAIAgentRoutesEchoRequestOrigin(t *testing.T) {
 			t.Fatalf("preflight allow-headers missing %q, got %q", want, res.Header().Get("Access-Control-Allow-Headers"))
 		}
 	}
+	// 偏好同步走 ETag 条件请求：浏览器预检只放行白名单内的请求头，缺了
+	// If-None-Match 会让整个 GET 直接以 CORS 失败；响应侧还要暴露 ETag，
+	// 否则客户端读不到缓存值，304 优化等于失效。
+	for _, want := range []string{"if-none-match", "if-modified-since"} {
+		if !strings.Contains(allowHeaders, want) {
+			t.Fatalf("preflight allow-headers missing %q, got %q", want, res.Header().Get("Access-Control-Allow-Headers"))
+		}
+	}
+	exposedHeaders := strings.ToLower(res.Header().Get("Access-Control-Expose-Headers"))
+	if !strings.Contains(exposedHeaders, "etag") {
+		t.Fatalf("expose-headers missing etag, got %q", res.Header().Get("Access-Control-Expose-Headers"))
+	}
 	// 回显 Origin 必须声明 Vary，避免共享缓存把某个来源的响应发给另一个来源。
 	if !strings.Contains(res.Header().Get("Vary"), "Origin") {
 		t.Fatalf("preflight Vary = %q, want Origin", res.Header().Get("Vary"))
