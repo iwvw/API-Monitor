@@ -1012,6 +1012,10 @@ const getComposeWorkingDir = (project = {}) =>
 
 const getComposeStatus = (project = {}) => String(project.Status || project.status || '-');
 
+// 项目快照里的配置文件路径在上次扫描后可能已失效（目录被移走/重命名）。
+// Agent 回传 configFiles 为空即代表该路径无法再访问。
+const isComposeConfigMissing = (project = {}) => getComposeConfigFileList(project).length === 0;
+
 const getDockerImageRepository = (image = {}) => {
   const repoTags = Array.isArray(image.RepoTags || image.repoTags)
     ? image.RepoTags || image.repoTags
@@ -6307,7 +6311,7 @@ function ServerPage() {
       saving: false,
       saved: false,
       updating: false,
-      error: path ? '' : '未找到 Compose 配置文件路径',
+      error: path ? '' : '配置文件已不存在（上次扫描时的路径已失效）',
     };
     setDockerComposeEditor(baseEditor);
     if (!path) return;
@@ -10693,6 +10697,15 @@ function ServerPage() {
                                                 >
                                                   {statusLabel}
                                                 </Badge>
+                                                {isComposeConfigMissing(proj) && (
+                                                  <Badge
+                                                    variant="warning"
+                                                    appearance="dot"
+                                                    title="配置文件路径已失效，查看/修改配置会失败；可执行 down 或忽略该项目"
+                                                  >
+                                                    配置缺失
+                                                  </Badge>
+                                                )}
                                               </div>
                                               <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-kumo-subtle">
                                                 <span
