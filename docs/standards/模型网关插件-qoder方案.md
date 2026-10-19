@@ -120,6 +120,24 @@ data:{"headers":{"Content-Type":["application/json"]},
 但签到窗口与计费限流是两套机制，**不能确定完全一致**，因此 `inferPoolResetAt`
 只把它当「下一个 UTC+8 10:00」的推断值，并在接口与 UI 上明确标注 `inferred=true`。
 
+⚠️ **推断值必须配硬上限**（`poolLimitMaxDuration` = 30 分钟）：推断偏晚时
+（例如真实重置在 09:00 而我们按 10:00 算）若直接用推断时刻做锁定，最坏会锁到
+近一整天——**整个账号池对所有模型都不可用**。故 `poolLimitWindow` 取
+「推断的重置时刻」与「now + 30 分钟」中的**较早者**：推断值只兜底，硬上限保证
+即使推断错了也只多锁半小时，到期自动失效并重新探测（最多浪费一次换号重试）。
+UI 上因此显示「最迟 X 重试」而不是「预计 X 恢复」。
+
+**额度类错误的判定要精确**（`quotaExhausted`）：只认「billing / daily count /
+daily request / quota / insufficient / credit」这几类明确信号，并**排除**
+「rate limit / too many requests」。速率限制一旦被误判成「每日次数用尽」，
+账号会被冷却 30 分钟（而非 60 秒），还可能把账号池拖进池级限流——代价远大于
+漏判（漏判最多多试几个账号）。
+
+**预读首事件的已知取舍**：响应头的写出时机被推迟到第一个 SSE 事件到达。正常
+对话里上游几乎立即发第一个 chunk，感知不到；若上游迟迟不发首事件，客户端在拿到
+响应头前会一直等待。保留预读是因为它修掉的是更严重的问题（错误藏在 200 里 →
+干等 120s 超时）。
+
 账号级冷却：额度类错误设 30 分钟（`quotaCooldownDuration`），其余 60 秒；
 `AccountView.cooldownSeconds` 下发剩余秒数供前端展示。
 
