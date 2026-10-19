@@ -1288,12 +1288,24 @@ type upstreamEnvelopeError struct {
 func (e *upstreamEnvelopeError) Error() string { return e.message }
 
 // quotaExhausted 报告该错误是否属于「额度/次数用尽」这类需要换号或提示充值的情形。
+//
+// 匹配要**精确**：一旦把「速率限制」误判成「每日次数用尽」，账号会被冷却
+// 30 分钟（而不是 60 秒），还可能把整个账号池锁进池级限流状态——代价远大于
+// 漏判。漏判的代价只是多试几个账号，因此宁可漏判。
 func (e *upstreamEnvelopeError) quotaExhausted() bool {
 	msg := strings.ToLower(e.message)
+	// 速率限制不是「额度用尽」，先排除。
+	if strings.Contains(msg, "rate limit") || strings.Contains(msg, "too many requests") {
+		return false
+	}
+	// 只认「计费 / 每日次数 / 额度 / 余额」这几类明确信号。
+	// 注意不匹配裸的 "limit" / "exceeded"：上游的速率限制文案也带这两个词。
 	return strings.Contains(msg, "billing") ||
+		strings.Contains(msg, "daily count") ||
+		strings.Contains(msg, "daily request") ||
 		strings.Contains(msg, "quota") ||
-		strings.Contains(msg, "exceeded") ||
-		strings.Contains(msg, "limit")
+		strings.Contains(msg, "insufficient") ||
+		strings.Contains(msg, "credit")
 }
 
 // legacyEnvelope 是 Qoder SSE 的外层信封。
@@ -1488,6 +1500,11 @@ func (p *peekedStream) Read(b []byte) (int, error) {
 // 无法换号重试。预读后调用方可以：
 //   - 首事件是错误 → 给该账号设冷却、换下一个账号（客户端完全无感）；
 //   - 首事件正常   → 用返回的流把「首事件 + 剩余内容」原样转发。
+//
+// **代价（已知取舍）**：响应头的写出时机被推迟到第一个 SSE 事件到达。正常对话
+// 里上游几乎立即发第一个 chunk，感知不到；但若上游迟迟不发首事件，客户端在拿到
+// 响应头前会一直等待（中间层若按「无响应头」计时可能先超时）。这里选择保留预读：
+// 它修掉的是「错误藏在 200 里 → 干等 120s 超时」这个更严重的问题。
 //
 // 返回 (可回放的流, 首个事件载荷, 错误)。载荷为 "[DONE]" 表示上游直接结束。
 // 调用方负责 Close 原始 rc。

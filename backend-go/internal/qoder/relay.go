@@ -144,7 +144,8 @@ func (s *Service) rejectIfPoolLimited(w http.ResponseWriter) bool {
 	if msg != "" {
 		detail += "：" + msg
 	}
-	detail += "。预计 " + until.In(cstZone).Format("2006-01-02 15:04") + " (UTC+8) 后恢复（该时间由上游每日重置规则推断，非上游下发）"
+	detail += "。本状态最迟持续到 " + until.In(cstZone).Format("2006-01-02 15:04") +
+		" (UTC+8)，之后会自动重新探测（上游每日重置时刻为推断值，非上游下发）"
 	writeOpenAIError(w, http.StatusTooManyRequests, detail, "insufficient_quota")
 	return true
 }
@@ -217,11 +218,12 @@ func (s *Service) proxyNonStream(ctx context.Context, w http.ResponseWriter, mod
 		lastErr = errors.New("没有可用账号")
 	}
 	if allQuota && tried > 0 {
-		until := inferPoolResetAt(time.Now())
+		until := poolLimitWindow(time.Now())
 		s.markPoolLimited(lastErr.Error(), until)
 		writeOpenAIError(w, http.StatusTooManyRequests,
 			"所有可用账号的额度均已用尽（账号池级限制，换号无效）："+lastErr.Error()+
-				"。预计 "+until.In(cstZone).Format("2006-01-02 15:04")+" (UTC+8) 后恢复（该时间由上游每日重置规则推断，非上游下发）",
+				"。本状态最迟持续到 "+until.In(cstZone).Format("2006-01-02 15:04")+
+				" (UTC+8)，之后会自动重新探测（上游每日重置时刻为推断值，非上游下发）",
 			"insufficient_quota")
 		return
 	}
@@ -324,11 +326,12 @@ func (s *Service) proxyStream(ctx context.Context, w http.ResponseWriter, model 
 	}
 	// 所有尝试都因额度用尽失败：标记池级限流（后续请求直接短路），并返回 429。
 	if allQuota && tried > 0 {
-		until := inferPoolResetAt(time.Now())
+		until := poolLimitWindow(time.Now())
 		s.markPoolLimited(lastErr.Error(), until)
 		writeOpenAIError(w, http.StatusTooManyRequests,
 			"所有可用账号的额度均已用尽（账号池级限制，换号无效）："+lastErr.Error()+
-				"。预计 "+until.In(cstZone).Format("2006-01-02 15:04")+" (UTC+8) 后恢复（该时间由上游每日重置规则推断，非上游下发）",
+				"。本状态最迟持续到 "+until.In(cstZone).Format("2006-01-02 15:04")+
+				" (UTC+8)，之后会自动重新探测（上游每日重置时刻为推断值，非上游下发）",
 			"insufficient_quota")
 		return
 	}

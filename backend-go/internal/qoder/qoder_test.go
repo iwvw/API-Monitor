@@ -1398,3 +1398,49 @@ func TestPeekFirstEventReplays(t *testing.T) {
 		t.Fatalf("replay should reproduce the stream byte-for-byte\n got=%q\nwant=%q", string(all), stream)
 	}
 }
+
+// TestPoolLimitWindowCapsInferredReset 验证池级限流有**硬上限**：
+// 推断出来的日重置时刻最坏可能近一整天，若不设上限，推断偏晚就会让整个账号池
+// 对所有模型长时间不可用（而文件头注释写的是「用它作为冷却上限（避免整天弃用）」）。
+func TestPoolLimitWindowCapsInferredReset(t *testing.T) {
+	// 11:00 UTC+8 → 推断的重置是次日 10:00（近 23 小时后），必须被硬上限截断。
+	now := time.Date(2026, 10, 20, 11, 0, 0, 0, cstZone)
+	got := poolLimitWindow(now)
+	want := now.Add(poolLimitMaxDuration)
+	if !got.Equal(want) {
+		t.Fatalf("poolLimitWindow(%s) = %s, want %s (capped)", now, got, want)
+	}
+	if got.Sub(now) > poolLimitMaxDuration {
+		t.Fatalf("pool limit window must not exceed %s, got %s", poolLimitMaxDuration, got.Sub(now))
+	}
+	// 09:50 UTC+8 → 推断的重置是当天 10:00（10 分钟后），早于硬上限，保持推断值。
+	now = time.Date(2026, 10, 20, 9, 50, 0, 0, cstZone)
+	got = poolLimitWindow(now)
+	want = time.Date(2026, 10, 20, 10, 0, 0, 0, cstZone)
+	if !got.Equal(want) {
+		t.Fatalf("near reset hour should keep inferred time, got %s want %s", got, want)
+	}
+}
+
+// TestQuotaExhaustedDoesNotMatchRateLimit 验证「速率限制」不会被误判成
+// 「每日次数用尽」：误判会让账号被冷却 30 分钟，还可能把账号池锁进池级限流。
+func TestQuotaExhaustedDoesNotMatchRateLimit(t *testing.T) {
+	cases := []struct {
+		name string
+		msg  string
+		want bool
+	}{
+		{"每日次数用尽", "code=110: Billing daily count exceeded: HTTP 403", true},
+		{"额度用尽", "code=123: Quota exceeded: HTTP 403", true},
+		{"余额不足", "insufficient balance", true},
+		{"速率限制", "code=429: Rate limit exceeded: HTTP 429", false},
+		{"请求过多", "Too Many Requests: HTTP 429", false},
+		{"普通上游错误", "code=500: internal error: HTTP 500", false},
+	}
+	for _, c := range cases {
+		e := &upstreamEnvelopeError{message: c.msg}
+		if got := e.quotaExhausted(); got != c.want {
+			t.Errorf("%s: quotaExhausted() = %v, want %v (msg=%q)", c.name, got, c.want, c.msg)
+		}
+	}
+}

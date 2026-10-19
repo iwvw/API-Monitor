@@ -28,6 +28,17 @@ import (
 //   - 前端明确标注「推断」，不冒充权威时间。
 const dailyResetHourUTC8 = 10
 
+// poolLimitMaxDuration 是池级限流状态的**最长**生效时长（硬上限）。
+//
+// 为什么必须有上限：dailyResetHourUTC8 是**推断值**（上游错误信封里根本没有任何
+// 时间字段），推断一旦偏晚（例如真实重置在 09:00、我们按 10:00 算），锁定就会
+// 一直持续到那个推断时刻——最坏接近一整天，**整个账号池对所有模型都不可用**。
+//
+// 本文件头注释写的「用它作为冷却上限（避免整天弃用）」正是这个意思：推断值只作
+// 兜底，真正决定生效时长的是这个硬上限。到期后状态自动失效并重新探测，
+// 最多浪费一次换号重试。
+const poolLimitMaxDuration = 30 * time.Minute
+
 // cstZone 是 UTC+8 固定时区（不依赖宿主 tzdata）。
 var cstZone = time.FixedZone("UTC+8", 8*60*60)
 
@@ -39,6 +50,18 @@ func inferPoolResetAt(now time.Time) time.Time {
 		next = next.AddDate(0, 0, 1)
 	}
 	return next
+}
+
+// poolLimitWindow 返回池级限流状态的**生效**结束时刻。
+//
+// 取「推断的日重置时刻」与「now + poolLimitMaxDuration」中的较早者：推断值
+// 只兜底，硬上限保证推断偏晚时也不会长时间不可用（见 poolLimitMaxDuration）。
+func poolLimitWindow(now time.Time) time.Time {
+	inferred := inferPoolResetAt(now)
+	if max := now.Add(poolLimitMaxDuration); inferred.After(max) {
+		return max
+	}
+	return inferred
 }
 
 // markPoolLimited 记录「所有账号都被额度限制」及其恢复时刻。
