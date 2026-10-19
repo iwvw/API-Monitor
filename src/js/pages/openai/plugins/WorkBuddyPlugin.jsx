@@ -1,10 +1,11 @@
 import { Fragment, useEffect, useRef, useState } from 'react';
 import QRCode from 'qrcode';
-import { Button, Switch, Loader, Dialog, LayerCard, Input, Badge, Table, Toolbar, Select, Popover } from '@cloudflare/kumo';
+import { Button, Switch, Loader, Dialog, LayerCard, Input, Badge, Table, Toolbar, Select, Popover, Tabs } from '@cloudflare/kumo';
 import { SectionCard, FieldRow, EmptyState, AppTable } from '../../../components/ui/AppPrimitives.jsx';
 import { CodeBuddyBrand, Rocket, Users, Layers, TrendingUp, RefreshCw, Plus, Trash, Edit, Upload, Download } from '../../../components/Icons.jsx';
 import { toast } from '../../../modules/toast.js';
 import { useConfirmPress } from '../../../hooks/useConfirmPress.js';
+import { TOOL_TABS_PROPS } from '../../../modules/kumoTabs.js';
 import { getAuthHeaders, formatCompact } from '../utils.js';
 
 const API = '/api/workbuddy';
@@ -144,11 +145,52 @@ const fmtCredits = m => {
     if (base > 0) return `x${(base * Number(promo.factor)).toFixed(2)}`;
   }
   if (m?.creditsParsed) return `x${Number(m.creditsMultiplier).toFixed(2)}`;
-  return m?.creditsLabel || '—';
+  if (m?.creditsLabel) return m.creditsLabel;
+  // 上游没下发倍率：办公版（wb）整份目录都没有 credits 字段，这不是拉取失败，
+  // 需要在表头提示里区分开（见 creditsColumnHint）。
+  return '—';
 };
 
-// creditsTitle 生成倍率列的悬浮说明：原价、促销详情、到期时间。
-const creditsTitle = m => {
+// creditsBorrowedInRegion 判断某模型在当前区域展示的倍率是否为「借自其它区域」。
+//
+// 办公版（wb）的 /v3/config 完全不返回 credits（实测 37/37），但同 id 的模型在
+// 国内版（cn）有值，合并时沿用了 cn 的倍率。对办公版用户来说那个数字不是本区域
+// 上游给的，必须标注，否则会被当成办公版的权威倍率。
+// 判据：当前区域视角下，该模型的 idRegions 里除了本区域还有别的区域（说明值可能
+// 来自那些区域），且本区域目录自己没下发倍率（用 creditsUnavailable 已判断过）。
+const creditsBorrowedInRegion = (m, region) => {
+  if (!m?.creditsParsed) return false;
+  const idRegions = Array.isArray(m.idRegions) ? m.idRegions : [];
+  if (idRegions.length < 2) return false;
+  // 只有「本区域目录不提供倍率」时才谈得上借用。
+  return idRegions.includes(region) && region === 'wb';
+};
+
+// creditsUnavailable 判断某区域上游是否**根本不提供** credits。
+//
+// 不能只看「所有模型都缺倍率」：办公版（wb）实测 37/37 缺该字段，但与国内版（cn）
+// 同 id 的模型在合并时会继承 cn 的倍率，于是 tab 里一半有值一半「—」，
+// 「全都缺」的判定永远为 false，提示出不来。
+//
+// 正确判据是该区域内**存在任何**仅属于它自己的模型（idRegions 只有本区域）
+// 却没有倍率——那说明本区域目录没下发，而不是个别模型没定价。
+const creditsUnavailable = (models, region) => {
+  if (!models?.length || !region) return false;
+  const ownOnly = models.filter(m => {
+    const idRegions = Array.isArray(m.idRegions) ? m.idRegions : [];
+    return idRegions.length === 1 && idRegions[0] === region;
+  });
+  if (!ownOnly.length) {
+    // 该区域没有独有模型（目录与其它区域完全重合）：退回「整份都缺」判定。
+    return models.every(m => !m.creditsParsed && !m.creditsLabel && !m.promotion);
+  }
+  return ownOnly.every(m => !m.creditsParsed && !m.creditsLabel && !m.promotion);
+};
+
+// creditsTitle 生成倍率列的悬浮说明：原价、促销详情、到期时间、区域来源。
+// 上游缺该字段时明确说明「办公版不提供」，并指向官方查看位置。
+// region 是当前 tab 的区域：办公版展示的值可能借自国内版，必须写明。
+const creditsTitle = (m, region) => {
   const parts = [];
   if (m?.creditsLabel) parts.push(`上游原始值：${m.creditsLabel}`);
   const promo = m?.promotion;
@@ -157,7 +199,20 @@ const creditsTitle = m => {
     if (promo.text) parts.push(promo.text);
     if (promo.validUntil) parts.push(`活动截止 ${promo.validUntil}`);
   }
-  if (!parts.length) parts.push('上游未提供倍率');
+  if (!parts.length) {
+    parts.push('上游未提供倍率');
+    // 当前 tab 的区域上游不返回 credits 字段：说明去向，避免误判为拉取失败。
+    if (region === 'wb') {
+      parts.push('办公版 /v3/config 不返回 credits，请到官网「个人中心 → 套餐与用量 → 积分消耗明细」查看');
+    }
+  } else if (region === 'wb') {
+    // 值存在但当前是办公版 tab：这个数字来自与办公版共用的其它区域目录。
+    const idRegions = Array.isArray(m?.idRegions) ? m.idRegions : [];
+    const sources = idRegions.filter(r => r !== 'wb');
+    if (sources.length) {
+      parts.push(`办公版目录不返回倍率，此处显示的是其它区域（${sources.join('/')}）的值，仅供横向参考`);
+    }
+  }
   return parts.join(' · ');
 };
 
@@ -178,6 +233,38 @@ const thinkingMeta = m => {
   return { label: `${efforts.length} 档`, title: `${detail} · ${toggle}` };
 };
 
+// regionModelGroups 把合并后的模型目录按**账号区域**拆成三份，供模型区 tab 使用。
+//
+// 为什么要拆：三个区域的目录差异很大，混在一张表里有两类问题——
+//   1) 办公版（wb）的 /v3/config 完全不返回 credits（实测 37/37 缺失），
+//      混排时同一列里既有权威倍率又有「—」，看不出是哪个区域缺；
+//   2) 型号级 regions 是「共用」的，而 idRegions 才说明当前这行属于哪个区域。
+//
+// 归属规则：按 idRegions（该 id 自身所属区域）。一个 id 若同属多区域
+// （如 deepseek-v4-flash 在 cn 与 wb 都有），会同时出现在多个 tab —— 这是
+// 正确的，因为它在每个区域都是独立可选、独立计费的上游条目。
+const MODEL_REGION_TABS = [
+  { value: 'cn', label: '国内版' },
+  { value: 'wb', label: '办公版' },
+  { value: 'intl', label: '国际版' },
+];
+
+const modelsByRegion = models => {
+  const groups = { cn: [], wb: [], intl: [] };
+  for (const m of models || []) {
+    const regions = Array.isArray(m.idRegions) && m.idRegions.length
+      ? m.idRegions
+      : Array.isArray(m.regions) && m.regions.length
+        ? m.regions
+        : ['cn'];
+    for (const raw of regions) {
+      const region = normalizeRegion(raw);
+      groups[region].push(m);
+    }
+  }
+  return groups;
+};
+
 // WorkBuddyPlugin：模型网关「插件中心」卡片——腾讯 CodeBuddy / WorkBuddy 转 OpenAI 兼容 API。
 // 添加国内版/国际版账号后，插件把上游模型目录与对话转发包装成 OpenAI 兼容端点，
 // 可一键接入网关端点列表，由网关统一路由/计费/日志。
@@ -188,6 +275,8 @@ export function WorkBuddyPlugin() {
   const [accounts, setAccounts] = useState([]);
   const [models, setModels] = useState([]);
   const [modelsReady, setModelsReady] = useState(true);
+  // 模型区分区域展示：三个区域目录差异大（办公版无倍率字段），混排会误导。
+  const [modelRegionTab, setModelRegionTab] = useState('cn');
   const [linkState, setLinkState] = useState(null);
   const [usage, setUsage] = useState(null);
   const [usageDays, setUsageDays] = useState(7);
@@ -611,16 +700,21 @@ export function WorkBuddyPlugin() {
     }
   };
 
-  const toggleAllModels = async enabled => {
+  // toggleModelsBulk 按**给定模型列表**批量启停。模型区按区域分 tab 后，
+  // 表头的全选开关只作用于当前 tab 的模型，因此不能再无脑提交全部模型。
+  const toggleModelsBulk = async (targets, enabled) => {
+    const ids = (targets || []).map(m => m.id);
+    if (!ids.length) return;
     try {
       const res = await fetch(`${API}/models/toggle-batch`, {
         method: 'POST',
         headers: getAuthHeaders(),
-        body: JSON.stringify({ enabled, models: models.map(m => m.id) }),
+        body: JSON.stringify({ enabled, models: ids }),
       });
       const data = await res.json();
       if (!res.ok || !data?.success) throw new Error(data?.error || '操作失败');
-      applyModels(models.map(m => ({ ...m, enabled })));
+      const touched = new Set(ids);
+      applyModels(models.map(m => (touched.has(m.id) ? { ...m, enabled } : m)));
     } catch (e) {
       toast.error(e.message);
     }
@@ -678,7 +772,27 @@ export function WorkBuddyPlugin() {
     );
   }
 
-  const allEnabled = models.length > 0 && models.every(m => m.enabled);
+  // 按区域拆分模型，并提供当前 tab 的列表与 tab 项（带数量徽标）。
+  const modelGroups = modelsByRegion(models);
+  const regionTabItems = MODEL_REGION_TABS.map(t => ({
+    value: t.value,
+    label: (
+      <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
+        {t.label}
+        <span className="font-mono text-[0.9em] text-kumo-subtle">{modelGroups[t.value].length}</span>
+      </span>
+    ),
+  }));
+  // 当前 tab 无模型时（例如只导入了国内版账号）自动落到第一个非空区域，
+  // 避免用户看到空白表却不知道为什么。
+  const activeRegionKey =
+    modelGroups[modelRegionTab]?.length || !models.length
+      ? modelRegionTab
+      : MODEL_REGION_TABS.map(t => t.value).find(k => modelGroups[k].length) || modelRegionTab;
+  const activeRegionModels = modelGroups[activeRegionKey] || [];
+  const activeRegionEnabled = activeRegionModels.length > 0 && activeRegionModels.every(m => m.enabled);
+  // 当前区域目录是否整份缺倍率（决定表头提示与是否显示「上游不提供」徽标）。
+  const activeRegionNoCredits = creditsUnavailable(activeRegionModels, activeRegionKey);
 
   // 账号按区域分组（国内在上、办公居中、国际在下），表格内上下分开显示。
   const accountGroups = [
@@ -1390,143 +1504,191 @@ export function WorkBuddyPlugin() {
           bodyPadding="none"
         >
           {models.length ? (
-            <div className="overflow-x-auto">
-              <AppTable tableId="workbuddy-models" columns={WORKBUDDY_MODEL_COLUMNS} className="w-full min-w-[52rem] text-xs">
-                <Table.Header variant="compact">
-                  <Table.Row className="h-8">
-                    <Table.Head className="!px-2 !py-1.5 text-center">
-                      <div className="flex justify-center">
-                        <Switch
-                          size="sm"
-                          checked={allEnabled}
-                          onCheckedChange={toggleAllModels}
-                          title={allEnabled ? '全部停用' : '全部启用'}
-                          aria-label="全选模型"
-                        />
-                      </div>
-                    </Table.Head>
-                    <Table.Head className="!px-2 !py-1.5 text-center">区域</Table.Head>
-                    <Table.Head className="!px-2.5 !py-1.5">模型</Table.Head>
-                    <Table.Head className="!px-2 !py-1.5 text-center">
-                      <span title="上游积分倍率（/v3/config 的 credits），CodeBuddy 计费体系内的相对倍数，不含货币单价">倍率</span>
-                    </Table.Head>
-                    <Table.Head className="!px-2 !py-1.5 text-center">上下文</Table.Head>
-                    <Table.Head className="!px-2 !py-1.5 text-center">输出上限</Table.Head>
-                    <Table.Head className="!px-2 !py-1.5 text-center">
-                      <span title="思考能力（/v3/config 的 reasoning）：可用档位与是否可关闭；调用方用 reasoning_effort 指定，自动归一到上游档位">思考</span>
-                    </Table.Head>
-                    <Table.Head className="!px-2 !py-1.5 text-center">图像</Table.Head>
-                  </Table.Row>
-                </Table.Header>
-                <Table.Body>
-                  {models.map(m => (
-                    <Table.Row key={m.id} className="h-9">
-                      <Table.Cell className="!px-2 !py-1.5 text-center">
+            <>
+              {/* 三个区域目录差异很大（办公版不返回 credits、国际版有促销/套餐门槛），
+                  分开 tab 展示：混排时同一列既有权威倍率又有「—」，看不出是哪个区域缺。 */}
+              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-kumo-line px-3 py-2">
+                <div className="flex min-w-0 items-center gap-2">
+                  <Tabs
+                    {...TOOL_TABS_PROPS}
+                    value={activeRegionKey}
+                    onValueChange={value => setModelRegionTab(String(value))}
+                    tabs={regionTabItems}
+                    className="min-w-max shrink-0"
+                    listClassName="max-w-full overflow-x-auto whitespace-nowrap scrollbar-thin"
+                  />
+                  <Badge variant={regionMeta(activeRegionKey).badge} className="!text-[0.72em] shrink-0">
+                    {regionMeta(activeRegionKey).tag}
+                  </Badge>
+                </div>
+                {activeRegionNoCredits ? (
+                  <Badge
+                    variant="warning"
+                    className="shrink-0 !text-[0.72em]"
+                    title="该区域上游 /v3/config 目录不返回 credits 字段，倍率列无法显示——这不是解析失败"
+                  >
+                    上游未提供倍率
+                  </Badge>
+                ) : null}
+              </div>
+              <div className="overflow-x-auto">
+                <AppTable tableId="workbuddy-models" columns={WORKBUDDY_MODEL_COLUMNS} className="w-full min-w-[52rem] text-xs">
+                  <Table.Header variant="compact">
+                    <Table.Row className="h-8">
+                      <Table.Head className="!px-2 !py-1.5 text-center">
                         <div className="flex justify-center">
                           <Switch
                             size="sm"
-                            checked={!!m.enabled}
-                            onCheckedChange={v => toggleModel(m, v)}
-                            title={
-                              m.enabled
-                                ? '停用：写入网关端点停用名单（网关不再路由该模型），直连中继也会被拒'
-                                : '启用：从网关端点停用名单移除，恢复路由'
-                            }
-                            aria-label={`${m.enabled ? '停用' : '启用'} ${m.id}`}
+                            checked={activeRegionEnabled}
+                            onCheckedChange={v => toggleModelsBulk(activeRegionModels, v)}
+                            title={activeRegionEnabled ? `停用${regionMeta(activeRegionKey).label}版全部模型` : `启用${regionMeta(activeRegionKey).label}版全部模型`}
+                            aria-label={`全选${regionMeta(activeRegionKey).label}版模型`}
                           />
                         </div>
-                      </Table.Cell>
-                      <Table.Cell className="!px-2 !py-1.5 text-center">
-                        <Badge
-                          variant={modelRegionMeta(m).variant}
-                          className="!text-[0.72em]"
-                          title={modelRegionMeta(m).title}
+                      </Table.Head>
+                      <Table.Head className="!px-2 !py-1.5 text-center">区域</Table.Head>
+                      <Table.Head className="!px-2.5 !py-1.5">模型</Table.Head>
+                      <Table.Head className="!px-2 !py-1.5 text-center">
+                        <span
+                          title={
+                            activeRegionNoCredits
+                              ? '该区域上游 /v3/config 目录不返回 credits 字段，因此无法显示倍率——这不是解析失败。带 * 的值来自与其它区域共用的同 id 条目，仅供横向参考；该区域的积分消耗请到官网「个人中心 → 套餐与用量 → 积分消耗明细」查看'
+                              : '上游积分倍率（/v3/config 的 credits），CodeBuddy 计费体系内的相对倍数，不含货币单价'
+                          }
                         >
-                          {modelRegionMeta(m).label}
-                        </Badge>
-                      </Table.Cell>
-                      <Table.Cell className="!px-2.5 !py-1.5">
-                        <div className="flex min-w-0 items-center gap-1.5">
-                          <span className="truncate font-mono text-kumo-strong" title={m.id}>
-                            {m.id}
-                          </span>
-                          {m.isDefault ? (
-                            <Badge variant="info" className="!text-[0.7em] shrink-0" title="上游默认模型">
-                              默认
-                            </Badge>
-                          ) : null}
-                          {m.tier ? (
-                            <Badge
-                              variant="purple"
-                              className="!text-[0.7em] shrink-0"
-                              title={[m.tier.label, m.tier.text, m.tier.action].filter(Boolean).join(' · ')}
-                            >
-                              {m.tier.label || '需订阅'}
-                            </Badge>
-                          ) : null}
-                          {/* 模型级限流：并排在模型名之后，不单独占行。allLimited = 当前所有
-                              可用账号都在该模型上限流（此刻真的打不通，中继直接回 429 且不打上游）。 */}
-                          {m.limit && (
-                            <Badge
-                              variant={m.limit.allLimited ? 'danger' : 'warning'}
-                              className="!text-[0.7em] shrink-0"
-                              title={
-                                (m.limit.allLimited
-                                  ? `当前所有可用账号（${m.limit.limited} 个）都在该模型上被上游限流，此刻完全打不通`
-                                  : `${m.limit.limited} 个账号在该模型上被限流，另有 ${m.limit.usable} 个账号可用（转发会自动选到可用账号）`) +
-                                (m.limit.nextRecoveryAt ? `；最早 ${fmtUntil(m.limit.nextRecoveryAt)} 恢复` : '')
-                              }
-                            >
-                              {m.limit.allLimited ? '限流中' : `限流 ${m.limit.limited}/${m.limit.limited + m.limit.usable}`}
-                              {m.limit.nextRecoveryAt ? ` · ${fmtUntil(m.limit.nextRecoveryAt)}` : ''}
-                            </Badge>
-                          )}
-                        </div>
-                        <div className="truncate text-kumo-subtle">
-                          {[m.displayName && m.displayName !== m.id ? m.displayName : '', m.vendor ? `vendor ${m.vendor}` : '']
-                            .filter(Boolean)
-                            .join(' · ') || ' '}
-                        </div>
-                      </Table.Cell>
-                      <Table.Cell className="!px-2 !py-1.5 text-center">
-                        <div className="flex flex-col items-center gap-0.5">
-                          <span className="font-mono text-xs text-kumo-strong" title={creditsTitle(m)}>
-                            {fmtCredits(m)}
-                          </span>
-                          {m.promotion ? (
-                            <Badge
-                              variant={Number(m.promotion.factor) === 0 ? 'success' : 'warning'}
-                              className="!text-[0.7em]"
-                              title={creditsTitle(m)}
-                            >
-                              {m.promotion.label || (Number(m.promotion.factor) === 0 ? '免费' : '折扣')}
-                            </Badge>
-                          ) : null}
-                        </div>
-                      </Table.Cell>
-                      <Table.Cell className="!px-2 !py-1.5 text-center">
-                        <span className="font-mono text-xs text-kumo-subtle">{fmtContext(m.contextLength)}</span>
-                      </Table.Cell>
-                      <Table.Cell className="!px-2 !py-1.5 text-center">
-                        <span className="font-mono text-xs text-kumo-subtle">{fmtContext(m.maxOutputTokens)}</span>
-                      </Table.Cell>
-                      <Table.Cell className="!px-2 !py-1.5 text-center">
-                        <span className="font-mono text-xs text-kumo-strong" title={thinkingMeta(m).title}>
-                          {thinkingMeta(m).label}
+                          倍率{activeRegionNoCredits ? ' *' : ''}
                         </span>
-                      </Table.Cell>
-                      <Table.Cell className="!px-2 !py-1.5 text-center">
-                        {m.supportsImages && !m.disabledMultimodal ? (
-                          <Badge variant="success" className="text-xs">支持</Badge>
-                        ) : (
-                          <span className="text-xs text-kumo-subtle">—</span>
-                        )}
-                      </Table.Cell>
+                      </Table.Head>
+                      <Table.Head className="!px-2 !py-1.5 text-center">上下文</Table.Head>
+                      <Table.Head className="!px-2 !py-1.5 text-center">输出上限</Table.Head>
+                      <Table.Head className="!px-2 !py-1.5 text-center">
+                        <span title="思考能力（/v3/config 的 reasoning）：可用档位与是否可关闭；调用方用 reasoning_effort 指定，自动归一到上游档位">思考</span>
+                      </Table.Head>
+                      <Table.Head className="!px-2 !py-1.5 text-center">图像</Table.Head>
                     </Table.Row>
-                  ))}
-                </Table.Body>
-              </AppTable>
-            </div>
+                  </Table.Header>
+                  <Table.Body>
+                    {activeRegionModels.map(m => (
+                      <Table.Row key={`${activeRegionKey}-${m.id}`} className="h-9">
+                        <Table.Cell className="!px-2 !py-1.5 text-center">
+                          <div className="flex justify-center">
+                            <Switch
+                              size="sm"
+                              checked={!!m.enabled}
+                              onCheckedChange={v => toggleModel(m, v)}
+                              title={
+                                m.enabled
+                                  ? '停用：写入网关端点停用名单（网关不再路由该模型），直连中继也会被拒'
+                                  : '启用：从网关端点停用名单移除，恢复路由'
+                              }
+                              aria-label={`${m.enabled ? '停用' : '启用'} ${m.id}`}
+                            />
+                          </div>
+                        </Table.Cell>
+                        <Table.Cell className="!px-2 !py-1.5 text-center">
+                          <Badge
+                            variant={modelRegionMeta(m).variant}
+                            className="!text-[0.72em]"
+                            title={modelRegionMeta(m).title}
+                          >
+                            {modelRegionMeta(m).label}
+                          </Badge>
+                        </Table.Cell>
+                        <Table.Cell className="!px-2.5 !py-1.5">
+                          <div className="flex min-w-0 items-center gap-1.5">
+                            <span className="truncate font-mono text-kumo-strong" title={m.id}>
+                              {m.id}
+                            </span>
+                            {m.isDefault ? (
+                              <Badge variant="info" className="!text-[0.7em] shrink-0" title="上游默认模型">
+                                默认
+                              </Badge>
+                            ) : null}
+                            {m.tier ? (
+                              <Badge
+                                variant="purple"
+                                className="!text-[0.7em] shrink-0"
+                                title={[m.tier.label, m.tier.text, m.tier.action].filter(Boolean).join(' · ')}
+                              >
+                                {m.tier.label || '需订阅'}
+                              </Badge>
+                            ) : null}
+                            {/* 模型级限流：并排在模型名之后，不单独占行。allLimited = 当前所有
+                                可用账号都在该模型上限流（此刻真的打不通，中继直接回 429 且不打上游）。 */}
+                            {m.limit && (
+                              <Badge
+                                variant={m.limit.allLimited ? 'danger' : 'warning'}
+                                className="!text-[0.7em] shrink-0"
+                                title={
+                                  (m.limit.allLimited
+                                    ? `当前所有可用账号（${m.limit.limited} 个）都在该模型上被上游限流，此刻完全打不通`
+                                    : `${m.limit.limited} 个账号在该模型上被限流，另有 ${m.limit.usable} 个账号可用（转发会自动选到可用账号）`) +
+                                  (m.limit.nextRecoveryAt ? `；最早 ${fmtUntil(m.limit.nextRecoveryAt)} 恢复` : '')
+                                }
+                              >
+                                {m.limit.allLimited ? '限流中' : `限流 ${m.limit.limited}/${m.limit.limited + m.limit.usable}`}
+                                {m.limit.nextRecoveryAt ? ` · ${fmtUntil(m.limit.nextRecoveryAt)}` : ''}
+                              </Badge>
+                            )}
+                          </div>
+                          <div className="truncate text-kumo-subtle">
+                            {[m.displayName && m.displayName !== m.id ? m.displayName : '', m.vendor ? `vendor ${m.vendor}` : '']
+                              .filter(Boolean)
+                              .join(' · ') || ' '}
+                          </div>
+                        </Table.Cell>
+                        <Table.Cell className="!px-2 !py-1.5 text-center">
+                          <div className="flex flex-col items-center gap-0.5">
+                            <span
+                              className={`font-mono text-xs ${creditsBorrowedInRegion(m, activeRegionKey) ? 'text-kumo-subtle italic' : 'text-kumo-strong'}`}
+                              title={creditsTitle(m, activeRegionKey)}
+                            >
+                              {fmtCredits(m)}
+                              {creditsBorrowedInRegion(m, activeRegionKey) ? '*' : ''}
+                            </span>
+                            {m.promotion ? (
+                              <Badge
+                                variant={Number(m.promotion.factor) === 0 ? 'success' : 'warning'}
+                                className="!text-[0.7em]"
+                                title={creditsTitle(m, activeRegionKey)}
+                              >
+                                {m.promotion.label || (Number(m.promotion.factor) === 0 ? '免费' : '折扣')}
+                              </Badge>
+                            ) : null}
+                          </div>
+                        </Table.Cell>
+                        <Table.Cell className="!px-2 !py-1.5 text-center">
+                          <span className="font-mono text-xs text-kumo-subtle">{fmtContext(m.contextLength)}</span>
+                        </Table.Cell>
+                        <Table.Cell className="!px-2 !py-1.5 text-center">
+                          <span className="font-mono text-xs text-kumo-subtle">{fmtContext(m.maxOutputTokens)}</span>
+                        </Table.Cell>
+                        <Table.Cell className="!px-2 !py-1.5 text-center">
+                          <span className="font-mono text-xs text-kumo-strong" title={thinkingMeta(m).title}>
+                            {thinkingMeta(m).label}
+                          </span>
+                        </Table.Cell>
+                        <Table.Cell className="!px-2 !py-1.5 text-center">
+                          {m.supportsImages && !m.disabledMultimodal ? (
+                            <Badge variant="success" className="text-xs">支持</Badge>
+                          ) : (
+                            <span className="text-xs text-kumo-subtle">—</span>
+                          )}
+                        </Table.Cell>
+                      </Table.Row>
+                    ))}
+                  </Table.Body>
+                </AppTable>
+              </div>
+              {activeRegionModels.length === 0 ? (
+                <div className="px-4 py-8">
+                  <EmptyState
+                    title={`${regionMeta(activeRegionKey).label}版暂无模型`}
+                    description={`上游 ${regionMeta(activeRegionKey).tag.split('· ')[1]} 的目录未返回该区域模型，或该区域账号尚未添加。`}
+                  />
+                </div>
+              ) : null}
+            </>
           ) : (
             <div className="p-4">
               <EmptyState

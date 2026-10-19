@@ -169,8 +169,13 @@ type ModelInfo struct {
 	CreditsMultiplier float64 `json:"creditsMultiplier,omitempty"`
 	// CreditsLabel 是倍率原始串，解析失败时供前端原样展示。
 	CreditsLabel string `json:"creditsLabel,omitempty"`
-	// CreditsParsed 表示倍率是否解析成功（false 时前端显示「—」而不是 0）。
+	// CredentialsParsed 表示倍率是否解析成功（false 时前端显示「—」而不是 0）。
 	CreditsParsed bool `json:"creditsParsed,omitempty"`
+	// CreditsFromElsewhere 表示这个倍率**不是该模型所属区域上游下发的**，
+	// 而是从同 id 的其它区域目录借来的。实测办公版（wb）的 /v3/config 完全不返回
+	// credits 字段，同 id 条目会继承国内版的值；前端据此标注来源，避免用户
+	// 把别的区域的数字当成办公版的权威倍率。
+	CreditsFromElsewhere bool `json:"creditsFromElsewhere,omitempty"`
 
 	// Regions 是该模型**型号**可用的区域列表（cn / wb / intl），按 displayName 判定：
 	// 同一型号在两个区域可能用不同 id（如 Kimi-K3 = kimi-k3-1 / kimi-k3），

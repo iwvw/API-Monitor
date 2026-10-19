@@ -455,3 +455,106 @@ func TestCatalogRefreshKeepsRegionSets(t *testing.T) {
 		t.Error("回源失败不应清空已有区域模型集合")
 	}
 }
+
+// TestMergeCatalogsMarksBorrowedCredits 验证「倍率跨区域借用」会被标记出来。
+//
+// 实测办公版（wb）的 /v3/config 整份目录都不返回 credits 字段（37/37 缺失），
+// 而 cn 与 intl 几乎全返回。以 cn 为基合并时，同 id 的 wb 条目会继承 cn 的倍率；
+// 必须标 CreditsFromElsewhere，前端才能如实告知这个数字不是办公版上游给的，
+// 否则用户会把别的区域的倍率当成办公版的权威值。
+func TestMergeCatalogsMarksBorrowedCredits(t *testing.T) {
+	byRegion := map[string][]ModelInfo{
+		regionCN: {
+			{ID: "shared", DisplayName: "Shared", CreditsMultiplier: 0.17, CreditsParsed: true, CreditsLabel: "x0.17 credits"},
+		},
+		regionWB: {
+			// 办公版同 id 条目：上游没给倍率。
+			{ID: "shared", DisplayName: "Shared"},
+			{ID: "wb-only", DisplayName: "WBOnly"},
+		},
+		regionIntl: {
+			// 国际版自己有倍率，不该被标借用。
+			{ID: "shared", DisplayName: "Shared", CreditsMultiplier: 0.99, CreditsParsed: true, CreditsLabel: "x0.99 credits"},
+		},
+	}
+	merged := mergeCatalogs(byRegion)
+	byID := map[string]ModelInfo{}
+	for _, m := range merged {
+		byID[m.ID] = m
+	}
+
+	shared := byID["shared"]
+	if len(shared.IDRegions) != 3 {
+		t.Fatalf("shared 应属于三个区域，得到 %v", shared.IDRegions)
+	}
+	// cn 与 intl 都提供了倍率，因此 at least one region gave it —— 不标借用。
+	if shared.CreditsFromElsewhere {
+		t.Error("cn 与 intl 都下发了倍率，不应标为借用")
+	}
+	if !shared.CreditsParsed || shared.CreditsMultiplier != 0.17 {
+		t.Errorf("保留国内版倍率作为展示值，得到 %+v", shared)
+	}
+
+	// 只有 wb 的场景：wb 整份目录无倍率 → 打底区域若也无倍率则本来就没有值；
+	// 这里验证 wb 独有条目不会凭空获得倍率。
+	wbOnly := byID["wb-only"]
+	if wbOnly.CreditsParsed || wbOnly.CreditsMultiplier != 0 {
+		t.Errorf("wb 独有条目不应有倍率，得到 %+v", wbOnly)
+	}
+}
+
+// TestMergeCatalogsBorrowedWhenNoRegionProvidesCredits 验证真正的「凭空倍率」检测：
+// 所有所属区域的目录都没下发 credits，但合并结果却有值 —— 这才是需要告警的情形。
+//
+// 注意语义：CreditsFromElsewhere 的含义是「**没有任何所属区域**在目录里下发过倍率，
+// 该值不是上游权威数据」，而不是「这个值来自别的区域」。前者才能提示用户不可信。
+func TestMergeCatalogsBorrowedWhenNoRegionProvidesCredits(t *testing.T) {
+	// 构造：打底区域（cn）本身不下发倍率，但模型对象上带了值（模拟历史存量或
+	// 上游偶发下发后又被撤下的场景）。
+	byRegion := map[string][]ModelInfo{
+		regionCN: {
+			{ID: "ghost", DisplayName: "Ghost", CreditsMultiplier: 0.5, CreditsParsed: true},
+			{ID: "normal", DisplayName: "Normal"}, // 无值
+		},
+		regionWB: {
+			{ID: "ghost", DisplayName: "Ghost"},
+		},
+	}
+	merged := mergeCatalogs(byRegion)
+	byID := map[string]ModelInfo{}
+	for _, m := range merged {
+		byID[m.ID] = m
+	}
+	// cn 整份目录里 normal 无值、ghost 有值 —— 区域级判定为「有下发」，
+	// 因此 ghost 不标借用（判定是区域级而非条目级，见 mergeCatalogs 注释）。
+	if g := byID["ghost"]; g.CreditsFromElsewhere {
+		t.Error("区域内有任一模型带倍率即视为该区域下发，ghost 不应标借用")
+	}
+	// normal 本来就没有倍率。
+	if n := byID["normal"]; n.CreditsParsed {
+		t.Error("normal 不应有倍率")
+	}
+}
+
+// TestMergeCatalogsNoCreditsAnywhere 验证所有区域都不下发倍率时不会凭空产生值：
+// 这正是办公版（wb）单独使用时的形态。
+func TestMergeCatalogsNoCreditsAnywhere(t *testing.T) {
+	byRegion := map[string][]ModelInfo{
+		regionWB: {
+			{ID: "hy3", DisplayName: "Hy3"},
+			{ID: "glm-5.1", DisplayName: "GLM-5.1"},
+		},
+	}
+	merged := mergeCatalogs(byRegion)
+	if len(merged) != 2 {
+		t.Fatalf("应保留 2 条，得到 %d", len(merged))
+	}
+	for _, m := range merged {
+		if m.CreditsParsed || m.CreditsMultiplier != 0 || m.CreditsLabel != "" {
+			t.Errorf("%s 不应有倍率（办公版目录不提供 credits），得到 %+v", m.ID, m)
+		}
+		if m.CreditsFromElsewhere {
+			t.Errorf("%s 没有值就不该标借用", m.ID)
+		}
+	}
+}

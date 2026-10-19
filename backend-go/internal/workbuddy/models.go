@@ -149,6 +149,24 @@ func mergeCatalogs(byRegion map[string][]ModelInfo) []ModelInfo {
 	}
 
 	// 首个区域（国内版）打底，其余区域同 id 合并区域标记、独有 id 追加。
+	//
+	// **倍率需要标注区域来源**（关键）：实测办公版（wb）的 /v3/config 目录完全不返回
+	// credits 字段（37/37 缺失），而 cn 与 intl 几乎全返回。以 cn 为基保留元数据时，
+	// 同 id 的 wb 条目会「继承」cn 的倍率。这个数字**可能**可用（wb 与 cn 同域同
+	// 模型命名空间，见 buildRegionModelSet 的说明），但它是从别的区域的目录借来的，
+	// 不能当作该区域上游的权威值。
+	//
+	// 因此：保留该值以免用户完全没有参考，但记录 CreditsSourceRegions 让前端如实
+	// 标注「倍率来自哪些区域」，缺失的区域用户能看出「这里上游没给」。
+	regionHasCredits := make(map[string]bool, len(regionOrder))
+	for _, region := range regionOrder {
+		for _, m := range byRegion[region] {
+			if m.CreditsParsed || m.CreditsLabel != "" {
+				regionHasCredits[region] = true
+				break
+			}
+		}
+	}
 	for i, region := range regionOrder {
 		for _, m := range byRegion[region] {
 			if i > 0 {
@@ -158,6 +176,27 @@ func mergeCatalogs(byRegion map[string][]ModelInfo) []ModelInfo {
 				}
 			}
 			add(m, region)
+		}
+	}
+	// 合并完成后统一判定「借来的倍率」：看该模型的**全部**所属区域里，
+	// 是否有任一区域在目录中实际下发了倍率。全都缺、但值却存在，才是借来的。
+	//
+	// 为什么不在合并循环里逐区域标：wb 位于 regionOrder 中间，它的「缺倍率」若直接
+	// 置位，会被后续 intl 的「有倍率」覆盖成不确定状态；必须先攒齐区域信息再判。
+	for i := range merged {
+		m := &merged[i]
+		if !m.CreditsParsed {
+			continue
+		}
+		provided := false
+		for _, region := range m.IDRegions {
+			if regionHasCredits[region] {
+				provided = true
+				break
+			}
+		}
+		if !provided {
+			m.CreditsFromElsewhere = true
 		}
 	}
 	return merged
@@ -262,24 +301,25 @@ func (s *Service) handleModels(w http.ResponseWriter, r *http.Request) {
 	for _, m := range models {
 		id := s.prefixModel(m.ID)
 		entry := map[string]interface{}{
-			"id":                id,
-			"displayName":       m.DisplayName,
-			"contextLength":     m.ContextLength,
-			"maxOutputTokens":   m.MaxOutputTokens,
-			"maxAllowedSize":    m.MaxAllowedSize,
-			"supportsImages":    m.SupportsImages,
-			"supportsReasoning": m.SupportsReasoning,
-			"supportsToolCall":  m.SupportsToolCall,
-			"onlyReasoning":     m.OnlyReasoning,
-			"vendor":            m.Vendor,
-			"description":       m.Description,
-			"creditsLabel":      m.CreditsLabel,
-			"creditsParsed":     m.CreditsParsed,
-			"creditsMultiplier": m.CreditsMultiplier,
-			"regions":           m.Regions,
-			"idRegions":         m.IDRegions,
-			"internationalOnly": m.InternationalOnly,
-			"enabled":           !disabled[id],
+			"id":                   id,
+			"displayName":          m.DisplayName,
+			"contextLength":        m.ContextLength,
+			"maxOutputTokens":      m.MaxOutputTokens,
+			"maxAllowedSize":       m.MaxAllowedSize,
+			"supportsImages":       m.SupportsImages,
+			"supportsReasoning":    m.SupportsReasoning,
+			"supportsToolCall":     m.SupportsToolCall,
+			"onlyReasoning":        m.OnlyReasoning,
+			"vendor":               m.Vendor,
+			"description":          m.Description,
+			"creditsLabel":         m.CreditsLabel,
+			"creditsParsed":        m.CreditsParsed,
+			"creditsMultiplier":    m.CreditsMultiplier,
+			"creditsFromElsewhere": m.CreditsFromElsewhere,
+			"regions":              m.Regions,
+			"idRegions":            m.IDRegions,
+			"internationalOnly":    m.InternationalOnly,
+			"enabled":              !disabled[id],
 			// 能力与运营情报：思考档位、默认模型、限时促销、套餐门槛、多模态禁用。
 			"thinking":           m.Thinking,
 			"isDefault":          m.IsDefault,

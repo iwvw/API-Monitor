@@ -207,9 +207,17 @@ backend-go/internal/workbuddy/
 
 1. **WorkBuddy**（配置）：启用中继、接入模型网关、模型前缀。
 2. **账号**：`Table`（启用 / 账号 / 调用 / 状态 / 操作），顶部「扫码登录」按钮 + 刷新。
-3. **模型**：`Table`（启用 / 模型 / 倍率 / 上下文 / 输出上限 / 思考 / 图像），顶部批量开关。
-   倍率列在有促销时显示「免费」或折后价（原价与活动截止进 tooltip）；思考列显示档位数量
-   （tooltip 列出全部档位与是否可关闭）；模型名旁标「默认」「Pro Only」「限流」徽标。
+3. **模型**：按区域分 **三个 tab**（国内 / 办公 / 国际，各带数量徽标）展示，避免混排。
+   每行：启用 / 区域 / 模型 / 倍率 / 上下文 / 输出上限 / 思考 / 图像；
+   倍率在有促销时显示「免费」或折后价（原价与活动截止进 tooltip）；
+   思考列显示档位数量（tooltip 列出全部档位与是否可关闭）；
+   模型名旁标「默认」「Pro Only」「限流」徽标。表头全选只作用于当前 tab。
+
+   **为什么必须分 tab**：三个区域目录差异很大——办公版（wb）的 `/v3/config`
+   完全不返回 `credits` 字段（实测 37/37 缺失），国内版 33/35、国际版 27/27 都返回。
+   混排时同一列既有权威倍率又有「—」，看不出是哪个区域缺。分 tab 后办公版页签
+   显示「上游未提供倍率」徽标，倍率列表头带 `*`，借自其它区域的同 id 值以斜体 +
+   星号标注（tooltip 说明来源区域），指向官网「个人中心 → 套餐与用量 → 积分消耗明细」查看。
 
 对话框：扫码登录（二维码 + 轮询状态 + 过期重取）、删除账号（`useConfirmPress` 二次确认）。
 
@@ -368,6 +376,7 @@ backend-go/internal/workbuddy/
 | **思考档位** | ✅ | 同接口 `models[].reasoning`，三种形态（见 §11.1） | **已接入**：`ModelInfo.Thinking`，请求按能力归一 |
 | **限时促销** | ✅（目前仅国际版） | 同接口 `data.modelPromotions[]`：`discount.factor` / `schedule.validFrom~validUntil` / `badge.label` / `hover.textZh` | **已接入**：按时间窗与 `enabled` 过滤后回填到模型的 `Promotion` |
 | **套餐门槛** | ✅（目前仅国际版） | 同接口 `data.modelTiers[]`：`tier` / `modelIds` / `badge.label` / `hover` | **已接入**：`ModelInfo.Tier`，前端标「Pro Only」 |
+| **办公版倍率** | ❌ | — | `/v3/config` 的 `models[]` **完全不返回 `credits`**（2026-10-20 实测 37/37 缺失，带真实企业账号 `Authorization` 复核仍为 0/37）。企业计费接口 `get-enterprise-user-usage` 只返回账号总额度（`credit` / `limitNum`），无模型维度。官方文档也只说「不同模型消耗不同」，明细需登录官网查看。前端因此把办公版单列一个 tab 并明确标注「上游未提供」 |
 | 账号剩余额度 / 已用积分 | ❌（CLI 侧无公开接口） | — | `/v2/plugin/*` 与 `/v3/config` 都不返回；实测探测 8 个候选额度路径（`/v2/plugin/user/credit`、`/v2/plugin/usage`、`/v2/plugin/quota`、`/v2/credit/balance` 等）**全部 404** |
 | 单次请求 token 用量 | ✅ | `POST /v2/chat/completions` 的 SSE 流末 `usage` | 实测需 `stream_options.include_usage: true`（本插件已自动注入）；含 `prompt_cache_hit_tokens` / `prompt_cache_miss_tokens` |
 | **单次请求实际扣费（credit）** | ✅ | 同上，`usage.credit` | 实测未命中约 0.45、命中约 0.13~0.21（GLM-5.3）。比「倍率」更直接；目前透传给网关但未落库 |
