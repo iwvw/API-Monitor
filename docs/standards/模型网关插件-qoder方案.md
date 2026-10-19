@@ -213,10 +213,16 @@ Qoder 对话走**加密 SSE**，不是标准 Bearer：
 
 上游发布 `{"1M":{"token_count":1000000},"200K":{"token_count":200000,"is_default":true}}`，
 键名（1M/200K）不可靠，以 `token_count` 为准；解析后升序存入
-`ModelInfo.ContextWindows`。转发前用 `CountPromptTokens`（tiktoken，与网关其它模块
-同口径）估算输入 token，超限直接返回 400 `context_length_exceeded`，不再绕一圈等
-上游报错（换号重试还会白耗额度）。请求可用 `context_window` / `max_input_tokens`
-指定较小档位；未指定时按该模型最大档位判。
+`ModelInfo.ContextWindows`。转发前估算输入 token，超限直接返回 400
+`context_length_exceeded`，不再绕一圈等上游报错（换号重试还会白耗额度）。
+请求可用 `context_window` / `max_input_tokens` 指定较小档位；未指定时按该模型
+最大档位判。
+
+⚠️ **估算必须用纯字符启发式，不要用 tiktoken**：实测 `go-tiktoken` 在本项目
+调用方式下耗时超线性——20000 字符 350ms、40000 字符 1.8s，一条普通对话就会让
+每次请求多等一秒以上（曾用 `CountPromptTokens` 实现，5MB 请求直接挂死到超时）。
+现在用 `util.EstimateTokens`（ASCII 约 4 字符/token、CJK 约 1.3），5MB 请求
+122ms 内返回 400。`qoder_test.go` 的 `TestUsageTokensForCheckIsFast` 守住这条约束。
 
 ⚠️ **不要用 `max_input_tokens` 判上限**：上游这个字段自相矛盾（`Qwen3.8-Max` 给
 180000，`context_config` 却列出 1M 档），仅在无 `context_config` 时作兜底。

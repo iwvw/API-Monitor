@@ -870,6 +870,28 @@ func withMockOpenAPI(t *testing.T, srv *httptest.Server) {
 	t.Cleanup(func() { openAPIBaseOverride = prev })
 }
 
+// TestUsageTokensForCheckIsFast 守住「上下文估算不能成为热路径负担」：
+// 十万字符的请求必须在毫秒级完成。曾用 go-tiktoken 实现，实测 40000 字符要
+// 1.8s（超线性），一条大请求就会把连接挂住，故改为纯字符启发式。
+func TestUsageTokensForCheckIsFast(t *testing.T) {
+	payload := map[string]interface{}{
+		"messages": []interface{}{
+			map[string]interface{}{"role": "user", "content": strings.Repeat("测试内容hello ", 10000)},
+		},
+	}
+	if n := usageTokensForCheck(payload, "qmodel_38max"); n <= 0 {
+		t.Fatalf("estimate should be positive, got %d", n)
+	}
+	start := time.Now()
+	for i := 0; i < 20; i++ {
+		usageTokensForCheck(payload, "qmodel_38max")
+	}
+	elapsed := time.Since(start)
+	if elapsed > 500*time.Millisecond {
+		t.Fatalf("estimate too slow: 20 iterations took %s (single ~%s)", elapsed, elapsed/20)
+	}
+}
+
 func strconvQuote(s string) string {
 	b, _ := json.Marshal(s)
 	return string(b)

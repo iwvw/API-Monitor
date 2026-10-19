@@ -194,26 +194,17 @@ func resolveThinking(m ModelInfo, opt requestOptions) (isReasoning bool, effort 
 
 // usageTokensForCheck 估算请求的输入 token 数，用于上下文校验。
 //
-// 用 ds2api 的 CountPromptTokens（tiktoken，按模型选编码，失败回退启发式），
-// 与网关其它模块口径一致。messages 和 tools 都计入——工具定义往往占数千 token。
+// **不要用 tiktoken**：实测 go-tiktoken 在本项目的调用方式下耗时呈超线性——
+// 20000 字符 350ms、40000 字符 1.8s，上万字符的普通对话就会让每次请求多等
+// 一秒以上，放在转发热路径上不可接受。上下文校验只需要「判定是否明显超限」，
+// 不需要精确值，因此用 ds2api 的 EstimateTokens（纯字符遍历，O(n) 且常数极小，
+// ASCII 约 4 字符/token、CJK 约 1.3 字符/token），对拦截超限足够保守。
 func usageTokensForCheck(payload map[string]interface{}, model string) int64 {
 	text := requestTextForTokenCount(payload)
 	if text == "" {
 		return 0
 	}
-	return int64(util.CountPromptTokens(text, tokenizerModelFor(model)))
-}
-
-// tokenizerModelFor 把 Qoder 模型名映射到 tokenizer 可识别的编码族。
-//
-// Qoder 的模型名（qmodel_38max / dmodel / ...）不在 tiktoken 的模型表里，
-// CountPromptTokens 内部会对未知模型回退启发式估算（EstimateTokens），
-// 那本身可用，但精确度差。这里尽量贴近真实编码：Qwen/GLM/Kimi/MiniMax
-// 的 BPE 更接近 cl100k_base（gpt-4o 族），DeepSeek 同理。
-// 统一返回 gpt-4o，让 tiktoken 走 o200k_base；与上游实际分词仍有差异，
-// 但上下文校验只需保守估计（宁可高估一点点以便尽早拦截明显超限）。
-func tokenizerModelFor(model string) string {
-	return "gpt-4o"
+	return int64(util.EstimateTokens(text))
 }
 
 // requestTextForTokenCount 把 messages 与 tools 拼成待计数的文本。
