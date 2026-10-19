@@ -78,6 +78,8 @@ const QODER_MODEL_COLUMNS = [
   { id: 'enabled', role: 'control' },
   { id: 'region', role: 'type' },
   { id: 'model', role: 'primary', grow: 1 },
+  { id: 'context', role: 'meta', align: 'center' },
+  { id: 'thinking', role: 'meta', align: 'center' },
   { id: 'multiplier', role: 'meta', align: 'center' },
 ];
 
@@ -89,6 +91,41 @@ const modelRegionMeta = m => {
   if (hasCN && hasIntl) return { variant: 'neutral', label: '通用', title: '国内版与国际版均提供' };
   if (hasIntl) return { variant: 'purple', label: '国际', title: '仅国际版提供' };
   return { variant: 'blue', label: '国内', title: '仅国内版提供' };
+};
+
+// fmtTokenWindow 把 token 数渲染成 200K / 1M。
+const fmtTokenWindow = n => {
+  const v = Number(n) || 0;
+  if (v <= 0) return '—';
+  if (v >= 1000000 && v % 1000000 === 0) return `${v / 1000000}M`;
+  if (v % 1000 === 0) return `${v / 1000}K`;
+  return String(v);
+};
+
+// contextMeta 生成上下文列：显示最大档位，悬浮列出全部可选档位。
+const contextMeta = m => {
+  const windows = m?.contextWindows || [];
+  if (!windows.length) return { label: '—', title: '上游未声明上下文档位' };
+  const max = windows[windows.length - 1];
+  const all = windows.map(fmtTokenWindow).join(' / ');
+  return { label: fmtTokenWindow(max), title: `可选上下文档位：${all}` };
+};
+
+// thinkingMeta 生成思考列：档位数量 + 是否可关闭，悬浮列出档位。
+const thinkingMeta = m => {
+  const t = m?.thinking;
+  if (!t) {
+    return m?.isReasoning
+      ? { label: '推理', title: '上游标记为推理模型，但未提供档位（只能开关）' }
+      : { label: '—', title: '该模型不支持思考' };
+  }
+  const efforts = t.efforts || [];
+  if (!efforts.length) {
+    return { label: '开关', title: t.canDisable ? '仅支持开关思考，无可调档位' : '思考恒开，无档位' };
+  }
+  const detail = `档位：${efforts.join(' / ')}（默认 ${t.defaultEffort || efforts[efforts.length - 1]}）`;
+  const toggle = t.canDisable ? '可关闭' : '不可关闭';
+  return { label: `${efforts.length} 档`, title: `${detail} · ${toggle}` };
 };
 
 // fmtMultiplier 格式化上游积分倍率（price_factor，Qoder 计费体系内的相对倍数）。
@@ -1009,6 +1046,12 @@ export function QoderPlugin() {
                     <Table.Head className="!px-2 !py-1.5 text-center">区域</Table.Head>
                     <Table.Head className="!px-2.5 !py-1.5">模型</Table.Head>
                     <Table.Head className="!px-2 !py-1.5 text-center">
+                      <span title="上游发布的上下文窗口档位（context_config），接口会自动选取最大档；请求可用 context_window 指定较小档位">上下文</span>
+                    </Table.Head>
+                    <Table.Head className="!px-2 !py-1.5 text-center">
+                      <span title="思考能力（thinking_config）：可用档位与是否可关闭；调用方用 reasoning_effort 指定，自动归一到上游档位">思考</span>
+                    </Table.Head>
+                    <Table.Head className="!px-2 !py-1.5 text-center">
                       <div className="flex items-center justify-center gap-1">
                         <span title="上游积分倍率（price_factor），Qoder 计费体系内的相对倍数，不含货币单价；倍率与错峰折扣均实时取自上游模型目录">
                           倍率
@@ -1060,14 +1103,38 @@ export function QoderPlugin() {
                           </Badge>
                         </Table.Cell>
                         <Table.Cell className="!px-2.5 !py-1.5">
-                          <div className="truncate text-kumo-strong" title={m.id}>
-                            {m.id}
-                          </div>
-                          {m.key && m.key !== m.id ? (
-                            <div className="truncate font-mono text-kumo-subtle" title={m.key}>
-                              {m.key}
+                          <div className="flex min-w-0 items-center gap-1.5">
+                            <div className="min-w-0 flex-1">
+                              <div className="truncate text-kumo-strong" title={m.id}>
+                                {m.id}
+                              </div>
+                              {m.key && m.key !== m.id ? (
+                                <div className="truncate font-mono text-kumo-subtle" title={m.key}>
+                                  {m.key}
+                                </div>
+                              ) : null}
                             </div>
-                          ) : null}
+                            {m.isNew ? (
+                              <Badge variant="info" className="shrink-0 text-[0.85em]" title="上游标记为新模型">
+                                NEW
+                              </Badge>
+                            ) : null}
+                            {m.isVl ? (
+                              <Badge variant="neutral" className="shrink-0 text-[0.85em]" title="支持图片输入（is_vl）">
+                                视觉
+                              </Badge>
+                            ) : null}
+                          </div>
+                        </Table.Cell>
+                        <Table.Cell className="!px-2 !py-1.5 text-center">
+                          <span className="font-mono text-xs text-kumo-strong" title={contextMeta(m).title}>
+                            {contextMeta(m).label}
+                          </span>
+                        </Table.Cell>
+                        <Table.Cell className="!px-2 !py-1.5 text-center">
+                          <span className="font-mono text-xs text-kumo-strong" title={thinkingMeta(m).title}>
+                            {thinkingMeta(m).label}
+                          </span>
                         </Table.Cell>
                         <Table.Cell className="!px-2 !py-1.5 text-center">
                           <div className="flex flex-col items-center gap-0.5">

@@ -52,6 +52,20 @@ export default defineConfig(({ mode }) => {
     env: { ...process.env, ...env },
   });
 
+  // 代理到后端的统一配置。
+  //
+  // xfwd 必须开启：后端把「带会话 Cookie 但 Origin 与 Host 不一致」的请求判定为
+  // 跨来源并拒绝（CSRF 防线，见 backend-go/internal/server/server.go 的
+  // sameOriginRequest）。changeOrigin 会把 Host 改写成 127.0.0.1:PORT，若不同时
+  // 转发原始 Host，浏览器发来的 Origin（如 http://<公网IP>:5174）就永远对不上，
+  // 每个写操作都会 403「跨来源会话请求已拒绝」。xfwd 会补上 X-Forwarded-Host，
+  // 后端在开发模式下据此还原真实来源（server.go 的 originCheckHost）。
+  const proxyTarget = {
+    target: `http://127.0.0.1:${env.PORT || 3000}`,
+    changeOrigin: true,
+    xfwd: true,
+  };
+
   return {
     root: 'src',
     base: '/',
@@ -173,39 +187,20 @@ export default defineConfig(({ mode }) => {
         ],
       },
       proxy: {
-        '^/health(?:/|$)': {
-          target: `http://127.0.0.1:${env.PORT || 3000}`,
-          changeOrigin: true,
-        },
-        '^/api(?:/|$)': {
-          target: `http://127.0.0.1:${env.PORT || 3000}`,
-          changeOrigin: true,
-        },
-        '^/sub(?:/|$)': {
-          target: `http://127.0.0.1:${env.PORT || 3000}`,
-          changeOrigin: true,
-        },
-        '/v1': {
-          target: `http://127.0.0.1:${env.PORT || 3000}`,
-          changeOrigin: true,
-        },
+        '^/health(?:/|$)': proxyTarget,
+        '^/api(?:/|$)': proxyTarget,
+        '^/sub(?:/|$)': proxyTarget,
+        '/v1': proxyTarget,
         '/socket.io': {
-          target: `http://127.0.0.1:${env.PORT || 3000}`,
+          ...proxyTarget,
           ws: true,
         },
         '/ws': {
-          target: `http://127.0.0.1:${env.PORT || 3000}`,
+          ...proxyTarget,
           ws: true,
-          changeOrigin: true,
         },
-        '/uploads': {
-          target: `http://127.0.0.1:${env.PORT || 3000}`,
-          changeOrigin: true,
-        },
-        '^/site-brand-icons(?:/|$)': {
-          target: `http://127.0.0.1:${env.PORT || 3000}`,
-          changeOrigin: true,
-        },
+        '/uploads': proxyTarget,
+        '^/site-brand-icons(?:/|$)': proxyTarget,
       },
     },
   };

@@ -59,6 +59,20 @@ func (s *Service) serveRelayModels(w http.ResponseWriter, r *http.Request) {
 	responseJSON(w, map[string]interface{}{"object": "list", "data": out})
 }
 
+// catalogEntryFor 按上游短 key（或对外名）返回当前目录条目，供请求前校验用。
+func (s *Service) catalogEntryFor(model string) (ModelInfo, bool) {
+	name := strings.TrimSpace(s.stripModelPrefix(strings.TrimSpace(model)))
+	if name == "" {
+		return ModelInfo{}, false
+	}
+	for _, m := range s.catalog() {
+		if strings.EqualFold(m.Key, name) || strings.EqualFold(m.ID, name) {
+			return m, true
+		}
+	}
+	return ModelInfo{}, false
+}
+
 // serveChatCompletions 转发一次对话请求。
 func (s *Service) serveChatCompletions(w http.ResponseWriter, r *http.Request) {
 	body, err := io.ReadAll(io.LimitReader(r.Body, maxChatBodyBytes))
@@ -85,6 +99,16 @@ func (s *Service) serveChatCompletions(w http.ResponseWriter, r *http.Request) {
 	// 对外名（官方模型名或短 key）解析为上游短 key，转发时写进 model_config.key。
 	upstreamModel := s.lookupModelKey(model)
 	payload["model"] = upstreamModel
+
+	// 请求前校验：上下文超限直接拒绝，避免绕一圈等上游报错（且换号重试会浪费额度）。
+	if entry, ok := s.catalogEntryFor(upstreamModel); ok {
+		opt := parseRequestOptions(payload)
+		if over, reason := contextCheck(entry, usageTokensForCheck(payload, upstreamModel), opt); over {
+			writeOpenAIError(w, http.StatusBadRequest, reason, "context_length_exceeded")
+			return
+		}
+	}
+
 	normalized, err := json.Marshal(payload)
 	if err != nil {
 		writeOpenAIError(w, http.StatusBadRequest, "请求体序列化失败: "+err.Error(), "invalid_request_error")

@@ -707,6 +707,13 @@ func pkcs5Pad(data []byte, blockSize int) []byte {
 
 // buildLegacyRequest 把 OpenAI 请求体映射成 Qoder 上游请求体。
 func buildLegacyRequest(acc Account, rawBody []byte) (map[string]any, error) {
+	return buildLegacyRequestWithModel(acc, rawBody, ModelInfo{}, false)
+}
+
+// buildLegacyRequestWithModel 是 buildLegacyRequest 的完整版本：带上了模型目录
+// 条目（用于把调用方的 reasoning_effort / context_window 落到上游字段）。
+// modelKnown=false 时跳过思考映射，行为与旧版一致。
+func buildLegacyRequestWithModel(acc Account, rawBody []byte, model ModelInfo, modelKnown bool) (map[string]any, error) {
 	var req struct {
 		Model    string `json:"model"`
 		Messages []struct {
@@ -732,6 +739,49 @@ func buildLegacyRequest(acc Account, rawBody []byte) (map[string]any, error) {
 	modelKey := normalizeModelKey(req.Model)
 	if mc, ok := body["model_config"].(map[string]any); ok {
 		mc["key"] = modelKey
+	}
+	// 思考强度与开关：只在知道模型能力时映射，避免给不支持的模型塞无效字段。
+	if modelKnown {
+		var payload map[string]interface{}
+		_ = json.Unmarshal(rawBody, &payload)
+		isReasoning, effort := resolveThinking(model, parseRequestOptions(payload))
+		if model.Thinking != nil {
+			if mc, ok := body["model_config"].(map[string]any); ok {
+				mc["is_reasoning"] = isReasoning
+			}
+			if ctx, ok := body["chat_context"].(map[string]any); ok {
+				if extra, ok := ctx["extra"].(map[string]any); ok {
+					if modelConfig, ok := extra["modelConfig"].(map[string]any); ok {
+						modelConfig["is_reasoning"] = isReasoning
+					}
+				}
+			}
+			if effort != "" {
+				if params, ok := body["parameters"].(map[string]any); ok {
+					params["reasoning_effort"] = effort
+				}
+			}
+		}
+		// 请求带了 max_tokens 时透传输出上限（默认模板是 32768）。
+		if opt := parseRequestOptions(payload); opt.MaxTokens > 0 {
+			if params, ok := body["parameters"].(map[string]any); ok {
+				params["max_tokens"] = opt.MaxTokens
+			}
+		}
+		// 用上游实时声明的 is_vl / max_input_tokens 校正模板默认值。
+		if mc, ok := body["model_config"].(map[string]any); ok {
+			mc["is_vl"] = model.IsVL
+			mc["is_reasoning"] = isReasoning
+			if model.MaxInputTokens > 0 {
+				mc["max_input_tokens"] = model.MaxInputTokens
+			}
+			if model.ID != "" {
+				mc["display_name"] = model.ID
+			}
+			if model.Icon != "" {
+				mc["icon"] = model.Icon
+			}
+		}
 	}
 	prompt := latestPrompt(req.Messages)
 	if biz, ok := body["business"].(map[string]any); ok {
@@ -1047,7 +1097,9 @@ func defaultLegacyTools() []any {
 // ChatStream 发对话请求并返回原始 SSE body 流（调用方负责 Close）。
 // 非 2xx 时 rc 为 nil、status 为上游状态码；只有传输层失败才返回 err。
 func (s *Service) ChatStream(ctx context.Context, acc Account, body []byte) (rc io.ReadCloser, status int, lastBody []byte, err error) {
-	reqBody, err := buildLegacyRequest(acc, body)
+	// 目录条目用于把 reasoning_effort / max_tokens / is_vl 落到上游字段。
+	entry, known := s.catalogEntryFor(modelOf(body))
+	reqBody, err := buildLegacyRequestWithModel(acc, body, entry, known)
 	if err != nil {
 		return nil, 0, nil, err
 	}
@@ -1362,6 +1414,23 @@ func streamAndCapture(r io.Reader, w http.ResponseWriter, flusher http.Flusher, 
 func rawJSONIsEmpty(raw json.RawMessage) bool {
 	trimmed := strings.TrimSpace(string(raw))
 	return trimmed == "" || trimmed == "null" || trimmed == "[]"
+}
+
+// rawJSONIsEmptyValue 判断任意的 JSON 值是否为空（null / 空数组 / 空对象）。
+// 与 rawJSONIsEmpty 的区别：入参是已经解析过的接口值（map 请求体），
+// 不是 json.RawMessage。
+func rawJSONIsEmptyValue(v any) bool {
+	switch value := v.(type) {
+	case nil:
+		return true
+	case []any:
+		return len(value) == 0
+	case map[string]any:
+		return len(value) == 0
+	case string:
+		return strings.TrimSpace(value) == ""
+	}
+	return false
 }
 
 func strValue(v any) string {

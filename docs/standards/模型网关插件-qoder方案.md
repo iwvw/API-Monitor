@@ -25,6 +25,8 @@ backend-go/internal/qoder/
 ├── models.go     模型目录对外视图、逐模型启停、停用名单别名归一
 ├── catalog.go    模型目录动态发现（签名 GET model/list + 按区域缓存 + 实时倍率解析）
 ├── offpeak.go    倍率裁决与错峰促销规则（上游 promotion 驱动 + 静态兜底）
+├── thinking.go   思考能力解析（thinking_config → 档位/可关闭）与强度归一
+├── params.go     OpenAI 请求参数映射（reasoning_effort / context_window）与上下文校验
 ├── relay.go      中继面：请求转发、换号重试、流式透传
 ├── billing.go    余额查询与每日签到（openapi 控制面）
 ├── link.go       网关端点接入（接入/断开/状态）
@@ -112,8 +114,10 @@ Qoder 对话走**加密 SSE**，不是标准 Bearer：
 
 前端模型表：第一行显示官方模型名（对外 id），第二行显示上游短 key；按 `regions`
 显示「通用/国内/国际」徽标，并展示实时倍率列（表头带「实时 / 兜底」徽标，
-悬浮说明含标准价、折后价、窗口时区与来源；免费模型显示「免费」）。选号按
-`accountServesModel` 过滤：账号所属区域不提供目标模型时跳过（官方名与短 key 均可命中）。
+悬浮说明含标准价、折后价、窗口时区与来源；免费模型显示「免费」），以及
+上下文档位、思考档位两列（悬浮展开全部可选值），模型名旁标「NEW」「视觉」徽标。
+选号按 `accountServesModel` 过滤：账号所属区域不提供目标模型时跳过
+（官方名与短 key 均可命中）。
 
 **停用采用白名单语义（关键）**：`isModelEnabled` 只放行**当前目录内**且未被停用的
 模型名，目录外的任意别名一律拒绝。停用判定经 `disabledMatchTokens` 做**别名闭包归一**
@@ -173,6 +177,54 @@ Qoder 对话走**加密 SSE**，不是标准 Bearer：
 **不要把倍率写进 `openai_endpoints.pricing`**：那一列是「每百万 token 的**货币**单价」，
 `price_factor` 是相对倍数、不含货币，硬写会让网关算出假金额。
 
+### 3.6 思考强度与上下文（`thinking.go` / `params.go`）
+
+上游目录里还有两类能力元数据，已接入并映射到 OpenAI 语义：
+
+**思考强度（`thinking_config`）**
+
+| 上游字段 | 语义 |
+| --- | --- |
+| `thinking_config.disabled` 存在 | 允许关闭思考 |
+| `thinking_config.enabled.efforts` | 发布的档位（对象键），如 `{xhigh,low,medium}` |
+| `thinking_config.enabled.efforts.*.is_default` | 默认档位 |
+| 无 `thinking_config` | 无思考能力描述（如 `Auto`、`MiniMax`），只有 `is_reasoning` |
+
+请求侧映射：调用方的 `reasoning_effort`（也接受 `reasoning.effort` / `effort`）
+写进上游 `parameters.reasoning_effort`；开关写进 `model_config.is_reasoning`
+与 `chat_context.extra.modelConfig.is_reasoning`（两处必须同步）。
+`reasoning_effort: "none"` / `thinking.type: "disabled"` / `reasoning.enabled: false`
+表示关闭——仅当上游 `disabled` 存在时真的关闭，否则保持默认（不假装关掉）。
+
+**档位归一向上取**：模型只发布 `high/max` 时请求 `low` → 取 `high`；请求 `xhigh`
+（Qwen 系）→ 截到该模型最高档。为什么向上：静默降级成「不开思考」会明显损失质量。
+
+2026-10-20 实测各模型档位：
+
+| 模型 | 档位 | 默认 |
+| --- | --- | --- |
+| Qwen3.8-Max / Qwen3.8-Flash | low / medium / xhigh | medium |
+| Qwen3.7-Max / Qwen3.7-Plus | 仅开关（无档位） | — |
+| DeepSeek-V4-Pro / GLM-5.2 / GLM-5.3-Flash | high / max | max |
+| DeepSeek-Flash / GLM-5.3 / Kimi-K2.8-Preview / Kimi-K3 | low / high / max | max |
+| Auto / MiniMax-M3.1-Flash / Qwen3.7-Flash | 无 `thinking_config` | — |
+
+**上下文档位（`context_config`）**
+
+上游发布 `{"1M":{"token_count":1000000},"200K":{"token_count":200000,"is_default":true}}`，
+键名（1M/200K）不可靠，以 `token_count` 为准；解析后升序存入
+`ModelInfo.ContextWindows`。转发前用 `CountPromptTokens`（tiktoken，与网关其它模块
+同口径）估算输入 token，超限直接返回 400 `context_length_exceeded`，不再绕一圈等
+上游报错（换号重试还会白耗额度）。请求可用 `context_window` / `max_input_tokens`
+指定较小档位；未指定时按该模型最大档位判。
+
+⚠️ **不要用 `max_input_tokens` 判上限**：上游这个字段自相矛盾（`Qwen3.8-Max` 给
+180000，`context_config` 却列出 1M 档），仅在无 `context_config` 时作兜底。
+
+**其余能力字段**（`is_vl` / `is_new` / `is_default` / `icon` / `is_reasoning`）已随
+`/api/qoder/models` 下发，前端据此打「视觉」「NEW」徽标。`is_default` 当前只有
+`Auto` 为 true。
+
 ### 3.5 区域（`region.go`）
 
 Qoder 分国内版与国际版，两套域名、client_id、登录参数完全独立：
@@ -228,6 +280,7 @@ Qoder 分国内版与国际版，两套域名、client_id、登录参数完全�
   作 id / key 作短 key / 实时 price_factor 优先 / 免费 0 值保留 / 静态兜底回填）、
   签名 GET 目录（`fetchUpstreamCatalog`）、回源失败回退静态兜底、停用白名单语义与改名后的
   别名闭包归一；倍率裁决（`MultiplierAt`：上游已折价 / 未折价 / 促销结束 / 无实时值）、
-  促销窗口按时区与跨午夜判定、错峰状态聚合。
+  促销窗口按时区与跨午夜判定、错峰状态聚合；思考能力解析（三形态）、档位归一向上取、
+  请求参数映射（`reasoning_effort` 各种写法 / 关闭思考 / 输出上限）、上下文超限拦截。
 - 接线自检：`npm run governance:check`、`npm run ui:governance`、`node tools/three-side-governance-check.mjs`。
 - 上线前建议：真实账号跑通「登录 → 中继转发 → 签到 → 余额」全链路。

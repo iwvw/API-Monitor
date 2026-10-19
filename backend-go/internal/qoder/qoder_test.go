@@ -874,3 +874,305 @@ func strconvQuote(s string) string {
 	b, _ := json.Marshal(s)
 	return string(b)
 }
+
+// -----------------------------------------------------------------------------
+// 思考强度（thinking_config → reasoning_effort）
+// -----------------------------------------------------------------------------
+
+// TestThinkingConfigParse 验证上游 thinking_config 的三种形态都能正确解析。
+func TestThinkingConfigParse(t *testing.T) {
+	raw := []byte(`{"chat":[
+		{"key":"qmodel_38max","display_name":"Qwen3.8-Max","enable":true,"is_reasoning":true,
+		 "thinking_config":{"disabled":{},"enabled":{"efforts":{"xhigh":{},"low":{},"medium":{"is_default":true}},"is_default":true}}},
+		{"key":"qmodel_latest","display_name":"Qwen3.7-Max","enable":true,"is_reasoning":true,
+		 "thinking_config":{"disabled":{"description":"Disable thinking"},"enabled":{"description":"Enable thinking","is_default":true}}},
+		{"key":"auto","display_name":"Auto","enable":true,"is_reasoning":true},
+		{"key":"gmodel","display_name":"GLM-5.3","enable":true,"is_reasoning":true,
+		 "thinking_config":{"enabled":{"efforts":{"high":{},"low":{},"max":{"is_default":true}},"is_default":true}}}
+	]}`)
+	models, err := parseUpstreamCatalog(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	byID := map[string]ModelInfo{}
+	for _, m := range models {
+		byID[m.ID] = m
+	}
+
+	// 形态一：可关闭 + 三档，默认 medium。档位必须按强弱升序。
+	q := byID["Qwen3.8-Max"]
+	if q.Thinking == nil || !q.Thinking.CanDisable || len(q.Thinking.Efforts) != 3 {
+		t.Fatalf("thinking = %+v", q.Thinking)
+	}
+	if got := strings.Join(q.Thinking.Efforts, ","); got != "low,medium,xhigh" {
+		t.Fatalf("efforts order = %q", got)
+	}
+	if q.Thinking.DefaultEffort != "medium" {
+		t.Fatalf("default effort = %q", q.Thinking.DefaultEffort)
+	}
+
+	// 形态二：可关闭但无档位（只有开关）。
+	l := byID["Qwen3.7-Max"]
+	if l.Thinking == nil || !l.Thinking.CanDisable || len(l.Thinking.Efforts) != 0 {
+		t.Fatalf("switch-only thinking = %+v", l.Thinking)
+	}
+
+	// 形态三：完全没有 thinking_config → 无思考能力描述。
+	if a := byID["Auto"]; a.Thinking != nil {
+		t.Fatalf("Auto should have no thinking config, got %+v", a.Thinking)
+	}
+
+	// 形态四：不可关闭（无 disabled）+ 三档，默认 max。
+	g := byID["GLM-5.3"]
+	if g.Thinking == nil || g.Thinking.CanDisable {
+		t.Fatalf("GLM thinking = %+v", g.Thinking)
+	}
+	if g.Thinking.DefaultEffort != "max" {
+		t.Fatalf("GLM default = %q", g.Thinking.DefaultEffort)
+	}
+}
+
+// TestThinkingResolveRoundsUp 验证强度档位的归一：向上取最近一档、超上限取最高、
+// 关闭请求按上游是否允许关闭处理。
+func TestThinkingResolveRoundsUp(t *testing.T) {
+	// DeepSeek-V4-Pro 实测只有 high / max。
+	deepseek := &ThinkingConfig{CanDisable: true, Efforts: []string{"high", "max"}, DefaultEffort: "max"}
+	cases := []struct {
+		req     string
+		wantLvl string
+		wantDis bool
+		wantHas bool
+	}{
+		{"", "max", false, true},        // 未指定 → 默认
+		{"max", "max", false, true},     // 命中上限
+		{"xhigh", "max", false, true},   // 超上限 → 最高
+		{"high", "high", false, true},   // 精确命中
+		{"medium", "high", false, true}, // 中间值 → 向上取 high
+		{"low", "high", false, true},    // 低于下限 → 向上取最低档
+		{"none", "", true, false},       // 可关闭 → 关闭
+	}
+	for _, c := range cases {
+		lvl, dis, has := deepseek.Resolve(c.req)
+		if lvl != c.wantLvl || dis != c.wantDis || has != c.wantHas {
+			t.Fatalf("Resolve(%q) = (%q,%v,%v), want (%q,%v,%v)", c.req, lvl, dis, has, c.wantLvl, c.wantDis, c.wantHas)
+		}
+	}
+
+	// 不可关闭：要求关闭时不生效，保持开启。
+	fixed := &ThinkingConfig{Efforts: []string{"high", "max"}, DefaultEffort: "max"}
+	if lvl, dis, _ := fixed.Resolve("none"); dis || lvl != "" {
+		t.Fatalf("cannot-disable model should ignore none, got (%q,%v)", lvl, dis)
+	}
+
+	// 只有开关、无档位：不返回档位。
+	switchOnly := &ThinkingConfig{CanDisable: true}
+	if lvl, dis, has := switchOnly.Resolve("high"); has || dis || lvl != "" {
+		t.Fatalf("switch-only = (%q,%v,%v)", lvl, dis, has)
+	}
+}
+
+// TestResolveThinkingToUpstream 验证落字段：is_reasoning 与 parameters.reasoning_effort。
+func TestResolveThinkingToUpstream(t *testing.T) {
+	qwen := ModelInfo{
+		ID:          "Qwen3.8-Max",
+		IsReasoning: true,
+		Thinking:    &ThinkingConfig{CanDisable: true, Efforts: []string{"low", "medium", "xhigh"}, DefaultEffort: "medium"},
+	}
+	if r, e := resolveThinking(qwen, requestOptions{Effort: "xhigh"}); !r || e != "xhigh" {
+		t.Fatalf("xhigh = (%v,%q)", r, e)
+	}
+	if r, e := resolveThinking(qwen, requestOptions{Effort: "max"}); !r || e != "xhigh" {
+		t.Fatalf("max should clamp to xhigh, got (%v,%q)", r, e)
+	}
+	if r, e := resolveThinking(qwen, requestOptions{DisableThinking: true}); r || e != "" {
+		t.Fatalf("disable = (%v,%q)", r, e)
+	}
+	// 无 thinking_config 时沿用上游 is_reasoning，不写档位。
+	auto := ModelInfo{ID: "Auto", IsReasoning: true}
+	if r, e := resolveThinking(auto, requestOptions{Effort: "high"}); !r || e != "" {
+		t.Fatalf("no-config model = (%v,%q)", r, e)
+	}
+}
+
+// TestParseRequestOptions 验证 OpenAI 侧各种写法的解析。
+func TestParseRequestOptions(t *testing.T) {
+	p := func(raw string) requestOptions {
+		var payload map[string]interface{}
+		if err := json.Unmarshal([]byte(raw), &payload); err != nil {
+			t.Fatal(err)
+		}
+		return parseRequestOptions(payload)
+	}
+
+	if o := p(`{"reasoning_effort":"high"}`); o.Effort != "high" {
+		t.Fatalf("string effort = %q", o.Effort)
+	}
+	if o := p(`{"reasoning_effort":{"effort":"low"}}`); o.Effort != "low" {
+		t.Fatalf("object effort = %q", o.Effort)
+	}
+	if o := p(`{"reasoning":{"effort":"medium","enabled":true}}`); o.Effort != "medium" {
+		t.Fatalf("reasoning.effort = %q", o.Effort)
+	}
+	// reasoning_effort="none" → 关闭思考。
+	if o := p(`{"reasoning_effort":"none"}`); !o.DisableThinking || o.Effort != "" {
+		t.Fatalf("none = %+v", o)
+	}
+	// thinking.type=disabled → 关闭。
+	if o := p(`{"thinking":{"type":"disabled"}}`); !o.DisableThinking {
+		t.Fatalf("thinking disabled = %+v", o)
+	}
+	// reasoning.enabled=false → 关闭。
+	if o := p(`{"reasoning":{"enabled":false}}`); !o.DisableThinking {
+		t.Fatalf("reasoning disabled = %+v", o)
+	}
+	// 上下文与输出上限，注意 max_completion_tokens 优先。
+	if o := p(`{"context_window":400000,"max_tokens":100,"max_completion_tokens":200}`); o.ContextWindow != 400000 || o.MaxTokens != 200 {
+		t.Fatalf("limits = %+v", o)
+	}
+	// 非法/负数忽略。
+	if o := p(`{"context_window":-1,"max_tokens":0}`); o.ContextWindow != 0 || o.MaxTokens != 0 {
+		t.Fatalf("invalid limits = %+v", o)
+	}
+}
+
+// TestContextCheck 验证上下文超限拦截与档位选择。
+func TestContextCheck(t *testing.T) {
+	m := ModelInfo{
+		ID:                   "DeepSeek-V4-Pro",
+		MaxInputTokens:       96000,
+		ContextWindows:       []int64{200000, 400000, 1000000},
+		DefaultContextWindow: 200000,
+	}
+	// 未指定档位：按最大档位 1M 判，90k 远低于上限 → 放行。
+	if over, reason := contextCheck(m, 90000, requestOptions{}); over {
+		t.Fatalf("should pass under 1M: %s", reason)
+	}
+	// 1.1M 超过最大档位 → 拦截。
+	over, reason := contextCheck(m, 1100000, requestOptions{})
+	if !over || !strings.Contains(reason, "1000000") {
+		t.Fatalf("should reject over 1M, got over=%v reason=%q", over, reason)
+	}
+	if !strings.Contains(reason, "200k/400k/1M") {
+		t.Fatalf("reason should list windows: %q", reason)
+	}
+	// 指定 200K 档位时，300k 应被拦截（按用户选择的档位，而不是最大档）。
+	if over, _ := contextCheck(m, 300000, requestOptions{ContextWindow: 200000}); !over {
+		t.Fatalf("should reject 300k against requested 200K window")
+	}
+	// 未指定且模型无档位信息时用 max_input_tokens：100k 超过 96000 → 拦截。
+	noCtx := ModelInfo{ID: "X", MaxInputTokens: 96000}
+	if over, _ := contextCheck(noCtx, 100000, requestOptions{}); !over {
+		t.Fatalf("should fall back to max_input_tokens")
+	}
+	// 完全无信息时不校验（避免误拒）。
+	if over, _ := contextCheck(ModelInfo{ID: "Y"}, 5000000, requestOptions{}); over {
+		t.Fatalf("no limits should never reject")
+	}
+}
+
+// TestParseUpstreamCatalogCapabilities 验证上下文档位与能力元数据的解析。
+func TestParseUpstreamCatalogCapabilities(t *testing.T) {
+	raw := []byte(`{"chat":[
+		{"key":"qmodel_38max","display_name":"Qwen3.8-Max","enable":true,"is_vl":true,"is_reasoning":true,
+		 "is_new":true,"icon":"QoderQwenAiFill","max_input_tokens":180000,
+		 "context_config":{"1M":{"token_count":1000000},"200K":{"token_count":200000,"is_default":true},"400K":{"token_count":400000}}},
+		{"key":"mmodel","display_name":"MiniMax-M3.1-Flash","enable":true,"is_vl":true,"is_reasoning":false,
+		 "max_input_tokens":180000,"context_config":{"200K":{"token_count":200000,"is_default":true}}},
+		{"key":"auto","display_name":"Auto","enable":true,"is_default":true,"is_vl":true,"max_input_tokens":200000}
+	]}`)
+	models, err := parseUpstreamCatalog(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	byID := map[string]ModelInfo{}
+	for _, m := range models {
+		byID[m.ID] = m
+	}
+
+	q := byID["Qwen3.8-Max"]
+	if got := q.ContextWindows; len(got) != 3 || got[0] != 200000 || got[1] != 400000 || got[2] != 1000000 {
+		t.Fatalf("context windows = %v", got)
+	}
+	if q.DefaultContextWindow != 200000 {
+		t.Fatalf("default window = %d", q.DefaultContextWindow)
+	}
+	if !q.IsVL || !q.IsNew || !q.IsReasoning {
+		t.Fatalf("flags = vl:%v new:%v reasoning:%v", q.IsVL, q.IsNew, q.IsReasoning)
+	}
+	if q.Icon != "QoderQwenAiFill" {
+		t.Fatalf("icon = %q", q.Icon)
+	}
+
+	// 单一档位。
+	if m := byID["MiniMax-M3.1-Flash"]; len(m.ContextWindows) != 1 || m.DefaultContextWindow != 200000 {
+		t.Fatalf("MiniMax windows = %v default=%d", m.ContextWindows, m.DefaultContextWindow)
+	}
+	// 无 context_config → 空档位。
+	if a := byID["Auto"]; len(a.ContextWindows) != 0 || !a.IsDefault {
+		t.Fatalf("Auto = %+v", a)
+	}
+}
+
+// TestBuildLegacyRequestWritesThinking 验证请求体里落到上游的字段。
+func TestBuildLegacyRequestWritesThinking(t *testing.T) {
+	acc := Account{UserType: "personal_pro"}
+	model := ModelInfo{
+		ID:             "Qwen3.8-Max",
+		Key:            "qmodel_38max",
+		IsVL:           true,
+		IsReasoning:    true,
+		MaxInputTokens: 180000,
+		Thinking:       &ThinkingConfig{CanDisable: true, Efforts: []string{"low", "medium", "xhigh"}, DefaultEffort: "medium"},
+	}
+	raw := []byte(`{"model":"qmodel_38max","reasoning_effort":"xhigh","max_tokens":4096,
+		"messages":[{"role":"user","content":"hi"}]}`)
+
+	body, err := buildLegacyRequestWithModel(acc, raw, model, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	params := body["parameters"].(map[string]any)
+	if params["reasoning_effort"] != "xhigh" {
+		t.Fatalf("reasoning_effort = %v", params["reasoning_effort"])
+	}
+	if params["max_tokens"] != int64(4096) {
+		t.Fatalf("max_tokens = %v", params["max_tokens"])
+	}
+	mc := body["model_config"].(map[string]any)
+	if mc["is_reasoning"] != true || mc["is_vl"] != true {
+		t.Fatalf("model_config = %+v", mc)
+	}
+	if mc["max_input_tokens"] != int64(180000) {
+		t.Fatalf("max_input_tokens = %v", mc["max_input_tokens"])
+	}
+	if mc["display_name"] != "Qwen3.8-Max" {
+		t.Fatalf("display_name = %v", mc["display_name"])
+	}
+	// chat_context.extra.modelConfig 必须与 model_config 同步。
+	extra := body["chat_context"].(map[string]any)["extra"].(map[string]any)
+	if extra["modelConfig"].(map[string]any)["is_reasoning"] != true {
+		t.Fatalf("chat_context modelConfig not synced")
+	}
+
+	// 关闭思考时：is_reasoning=false 且不写 reasoning_effort。
+	off, err := buildLegacyRequestWithModel(acc, []byte(`{"model":"qmodel_38max","reasoning_effort":"none","messages":[{"role":"user","content":"hi"}]}`), model, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	offMC := off["model_config"].(map[string]any)
+	if offMC["is_reasoning"] != false {
+		t.Fatalf("disabled thinking should set is_reasoning=false, got %v", offMC["is_reasoning"])
+	}
+	if _, ok := off["parameters"].(map[string]any)["reasoning_effort"]; ok {
+		t.Fatalf("disabled thinking should not write reasoning_effort")
+	}
+
+	// modelKnown=false 时保持旧行为（不写思考字段）。
+	plain, err := buildLegacyRequest(acc, raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := plain["parameters"].(map[string]any)["reasoning_effort"]; ok {
+		t.Fatalf("unknown model should not write reasoning_effort")
+	}
+}

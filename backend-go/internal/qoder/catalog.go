@@ -50,6 +50,16 @@ type upstreamCatalogEntry struct {
 	IsReasoning    bool   `json:"is_reasoning"`
 	IsVL           bool   `json:"is_vl"`
 	MaxInputTokens int64  `json:"max_input_tokens"`
+	// ContextConfig 是可选的上下文档位，形如 {"1M":{"token_count":1000000},"200K":{...}}。
+	ContextConfig map[string]struct {
+		TokenCount int64 `json:"token_count"`
+		IsDefault  bool  `json:"is_default"`
+	} `json:"context_config"`
+	// ThinkingConfig 是思考能力（可关闭 / 档位列表）。
+	ThinkingConfig *upstreamThinkingConfig `json:"thinking_config"`
+	// Icon 是上游图标标识；IsNew 用于前端徽标（IsDefault 已在上面声明）。
+	Icon  string `json:"icon"`
+	IsNew bool   `json:"is_new"`
 	// PriceFactor 是**当前标价倍率**。必须用指针：0 是合法值（免费模型），
 	// 只有字段缺失才代表「上游未提供」。
 	PriceFactor *float64 `json:"price_factor"`
@@ -397,8 +407,48 @@ func parseUpstreamCatalog(raw []byte) ([]ModelInfo, error) {
 			m.CreditsParsed = true
 			m.PriceSource = priceStatic
 		}
+		m.Thinking = e.ThinkingConfig.toThinkingConfig()
+		m.ContextWindows, m.DefaultContextWindow = contextWindows(e.ContextConfig)
+		m.MaxInputTokens = e.MaxInputTokens
+		m.IsVL = e.IsVL
+		m.IsReasoning = e.IsReasoning
+		m.IsNew = e.IsNew
+		m.IsDefault = e.IsDefault
+		m.Icon = strings.TrimSpace(e.Icon)
 		out = append(out, m)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
 	return out, nil
+}
+
+// contextWindows 从上游 context_config 提取可选档位（升序）与默认档位。
+//
+// 上游形如 {"1M":{"token_count":1000000},"200K":{"token_count":200000,"is_default":true}}，
+// 键名（1M/200K）不可靠（可能随文案改动），以 token_count 为准。
+func contextWindows(cfg map[string]struct {
+	TokenCount int64 `json:"token_count"`
+	IsDefault  bool  `json:"is_default"`
+}) ([]int64, int64) {
+	if len(cfg) == 0 {
+		return nil, 0
+	}
+	seen := map[int64]bool{}
+	windows := make([]int64, 0, len(cfg))
+	var def int64
+	for _, item := range cfg {
+		n := item.TokenCount
+		if n <= 0 || seen[n] {
+			continue
+		}
+		seen[n] = true
+		windows = append(windows, n)
+		if item.IsDefault {
+			def = n
+		}
+	}
+	sort.Slice(windows, func(i, j int) bool { return windows[i] < windows[j] })
+	if def == 0 && len(windows) > 0 {
+		def = windows[0]
+	}
+	return windows, def
 }

@@ -61,6 +61,27 @@ type ModelInfo struct {
 	// PriceSource 标记倍率来源：live（上游实时）/ static（内置兜底）。
 	PriceSource string `json:"priceSource,omitempty"`
 
+	// Thinking 是思考能力（档位与是否可关闭）；nil 表示不支持思考。
+	Thinking *ThinkingConfig `json:"thinking,omitempty"`
+	// ContextWindows 是上游发布的可选上下文档位（升序 token 数），
+	// 如 [200000, 400000, 1000000]；空表示上游未给出档位。
+	ContextWindows []int64 `json:"contextWindows,omitempty"`
+	// DefaultContextWindow 是上游默认档位（无档位时为 0）。
+	DefaultContextWindow int64 `json:"defaultContextWindow,omitempty"`
+	// MaxInputTokens 是上游声明的单请求输入上限。注意上游这个字段不可靠
+	// （Qwen3.8-Max 给 180000，但 context_config 又列出 1M 档），仅作参考。
+	MaxInputTokens int64 `json:"maxInputTokens,omitempty"`
+	// IsVL 表示支持图片输入。
+	IsVL bool `json:"isVl,omitempty"`
+	// IsReasoning 是上游的推理模型标记（无 thinking_config 时用作默认开/关）。
+	IsReasoning bool `json:"isReasoning,omitempty"`
+	// IsNew 是上游的「新模型」标记，供前端打徽标。
+	IsNew bool `json:"isNew,omitempty"`
+	// IsDefault 是上游默认模型标记（通常只有 Auto）。
+	IsDefault bool `json:"isDefault,omitempty"`
+	// Icon 是上游图标标识（如 QoderQwenAiFill），用于前端厂商图标。
+	Icon string `json:"icon,omitempty"`
+
 	// EffectiveMultiplier 是当前时刻实际生效的倍率（考虑错峰折扣）。
 	EffectiveMultiplier float64 `json:"effectiveMultiplier,omitempty"`
 	// OffPeak 表示该模型当前是否处于错峰折扣中。
@@ -525,6 +546,16 @@ func (s *Service) handleModels(w http.ResponseWriter, r *http.Request) {
 			"idRegions":           m.IDRegions,
 			"internationalOnly":   m.InternationalOnly,
 			"enabled":             entryEnabled([]ModelInfo{m}, disabled),
+			// 能力元数据：思考档位、上下文档位、多模态/推理/新模型标记与厂商图标。
+			"thinking":             m.Thinking,
+			"contextWindows":       m.ContextWindows,
+			"defaultContextWindow": m.DefaultContextWindow,
+			"maxInputTokens":       m.MaxInputTokens,
+			"isVl":                 m.IsVL,
+			"isReasoning":          m.IsReasoning,
+			"isNew":                m.IsNew,
+			"isDefault":            m.IsDefault,
+			"icon":                 m.Icon,
 		})
 	}
 	responseJSON(w, map[string]interface{}{
