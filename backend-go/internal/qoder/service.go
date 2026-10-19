@@ -102,6 +102,19 @@ type Service struct {
 	cooldownMu    sync.Mutex
 	cooldownUntil map[string]time.Time
 
+	// 池级限流：当**所有可用账号**都因「每日次数用尽」失败时记录。
+	//
+	// 为什么要单独记：实测三个账号同时被限（code=110 Billing daily count exceeded），
+	// 换号完全无用，但每次请求仍会依次试 3 个账号（每个 200~600ms），把一次失败
+	// 放大成三倍延迟。记录池级状态后，冷却期内直接返回 429，不再空转。
+	//
+	// 注意与账号级冷却的区别：账号级是「这个号有问题」，池级是「整个池都不行」。
+	// 任一账号成功即清除池级状态。
+	poolLimitMu   sync.Mutex
+	poolLimitTill time.Time
+	// poolLimitMsg 是触发池级限流时的上游原始信息，用于前端展示。
+	poolLimitMsg string
+
 	// 实际用量：内存增量按「站点时区日期 × 账号 × 模型」累加，定期落盘。
 	usagePending map[usageKey]*usageDelta
 	usageMu      sync.Mutex
@@ -613,7 +626,7 @@ func (s *Service) handleStatus(w http.ResponseWriter, r *http.Request) {
 			cooling++
 		}
 	}
-	responseJSON(w, map[string]interface{}{
+	payload := map[string]interface{}{
 		"enabled":        st.Enabled,
 		"upstreamReady":  s.upstreamReady(),
 		"accountCount":   len(st.Accounts),
@@ -621,7 +634,17 @@ func (s *Service) handleStatus(w http.ResponseWriter, r *http.Request) {
 		"coolingCount":   cooling,
 		"modelCount":     len(s.catalog()),
 		"linkBaseUrl":    s.linkBaseURL(),
-	})
+	}
+	// 池级限流状态：前端据此显示「账号池被上游限流」与推断的恢复时刻。
+	// 注意标明 inferred=true —— 该时刻由上游每日重置规则推断，不是上游下发。
+	if limited, until, msg := s.poolLimitStatus(now); limited {
+		payload["poolLimited"] = true
+		payload["poolLimitedUntil"] = until.In(cstZone).Format(time.RFC3339)
+		payload["poolLimitedUntilLocal"] = until.In(cstZone).Format("2006-01-02 15:04")
+		payload["poolLimitedInferred"] = true
+		payload["poolLimitedMessage"] = msg
+	}
+	responseJSON(w, payload)
 }
 
 func (s *Service) handleTest(w http.ResponseWriter, r *http.Request) {

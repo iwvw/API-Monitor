@@ -90,6 +90,39 @@ data:{"headers":{"Content-Type":["application/json"]},
 改用 `writeStreamError` 补一条 `data: {"error":...}` + `[DONE]`，
 并对额度类错误追加「该账号额度已用尽，可换用其它账号或等待额度重置」。
 
+### 3.2.1 池级限流与恢复时刻（`poollimit.go`）
+
+**code=110 是账号池级限制，换号无效。** 2026-10-20 实测：
+
+- 三个账号积分分别 1700 / 1600 / 1600，`quota/usage` 里 `isQuotaExceeded=false`；
+- 但三个账号 × 2 个模型 = **6/6 全部返回 code=110**。
+
+所以「Billing daily count exceeded」不是积分耗尽，而是**每日调用次数**上限，且按账号池判定。
+
+**换号重试仍保留**（万一将来是单账号限流），但加了两层优化：
+
+1. **预读首事件**（`peekFirstEvent`）：上游把错误塞在 HTTP 200 的 SSE 首行，
+   响应头此时还是干净的。先读首事件判断，错误则换号（客户端完全无感），
+   正常才写出响应头。`peekedStream` 把预读字节回放，保证不丢内容。
+2. **池级短路**：全部账号都因额度失败 → 记录 `poolLimited` → 冷却期内直接返回 429，
+   不再依次试满所有账号。实测同一请求 **869ms → 17ms（快 50 倍）**。
+   任一账号成功即清除该状态。
+
+**恢复时刻是推断值，不是上游下发。** 三个来源都不给重置时间：
+
+| 来源 | 有无重置时间 |
+| --- | --- |
+| SSE 错误信封 | ❌ 仅 `body` / `headers` / `statusCode` / `statusCodeValue` 4 个字段 |
+| `quota/usage` | ❌ 只有远期 `expiresAt`（253402214400000） |
+| `campaigns` | ✅ 间接：`startAt`/`endAt` 日窗口 + 文案「每日 10:00（UTC+8）刷新」 |
+
+签到窗口实测 `2026-10-19 10:00` → `2026-10-20 09:59`，正好 UTC+8 的 10:00。
+但签到窗口与计费限流是两套机制，**不能确定完全一致**，因此 `inferPoolResetAt`
+只把它当「下一个 UTC+8 10:00」的推断值，并在接口与 UI 上明确标注 `inferred=true`。
+
+账号级冷却：额度类错误设 30 分钟（`quotaCooldownDuration`），其余 60 秒；
+`AccountView.cooldownSeconds` 下发剩余秒数供前端展示。
+
 ### 3.3 余额与签到（`billing.go`）
 控制面接口**仅需** `Bearer {deviceToken}` + `Cosy-ClientType: 10`，无需 COSY 签名。
 

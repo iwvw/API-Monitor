@@ -31,6 +31,11 @@ func (s *Service) toAccountView(a Account) AccountView {
 		LastCheckinAt: a.LastCheckinAt,
 		LastError:     a.LastError,
 	}
+	if until, cooled := s.cooldownUntilOf(a.ID, time.Now()); cooled {
+		if left := int64(time.Until(until).Seconds()); left > 0 {
+			view.CooldownSeconds = left
+		}
+	}
 	if a.ExpiresAt > 0 {
 		if left := a.ExpiresAt - time.Now().Unix(); left > 0 {
 			view.ExpiresInSeconds = left

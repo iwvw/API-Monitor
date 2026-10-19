@@ -650,8 +650,25 @@ export function QoderPlugin() {
                 可用账号 {status?.availableCount ?? 0}/{status?.accountCount ?? 0}
               </Badge>
               {status?.coolingCount ? (
-                <Badge variant="warning" className="text-xs" title="因上游 429/5xx 被临时冷却的账号数">
+                <Badge variant="warning" className="text-xs" title="因上游 429/5xx 或额度用尽被临时冷却的账号数">
                   冷却 {status.coolingCount}
+                </Badge>
+              ) : null}
+              {status?.poolLimited ? (
+                <Badge
+                  variant="danger"
+                  className="text-xs"
+                  title={[
+                    '上游把「每日调用次数用尽」（code=110 Billing daily count exceeded）按**账号池**判定：实测同一时刻三个账号全部被拒，换号无效。',
+                    status.poolLimitedMessage ? `上游原文：${status.poolLimitedMessage}` : '',
+                    status.poolLimitedInferred
+                      ? '恢复时刻由上游「每日 10:00 (UTC+8) 重置」规则推断，不是上游下发的字段（错误响应里没有任何时间字段）。'
+                      : '',
+                  ]
+                    .filter(Boolean)
+                    .join('\n')}
+                >
+                  池级限流 · {status.poolLimitedUntilLocal} 恢复
                 </Badge>
               ) : null}
               <span className="text-xs text-kumo-subtle" title="模型目录条数">
@@ -662,6 +679,21 @@ export function QoderPlugin() {
               ) : null}
             </div>
           </FieldRow>
+          {status?.poolLimited ? (
+            <div className="mx-4 mb-3 rounded-md border border-kumo-line bg-kumo-warning-tint px-3 py-2 text-xs leading-5 text-kumo-strong">
+              <div className="font-medium">
+                账号池被上游限流：该模型的每日调用次数已用尽，换号无效。
+              </div>
+              <div className="mt-1 text-kumo-subtle">
+                预计 {status.poolLimitedUntilLocal} (UTC+8) 恢复
+                {status.poolLimitedInferred ? '（由上游每日 10:00 重置规则推断，非上游下发）' : ''}
+                。此期间中继直接返回 429，不再逐个尝试账号以免放大延迟。
+              </div>
+              {status.poolLimitedMessage ? (
+                <div className="mt-1 font-mono text-[0.92em] text-kumo-subtle">上游原文：{status.poolLimitedMessage}</div>
+              ) : null}
+            </div>
+          ) : null}
         </SectionCard>
 
         <SectionCard
@@ -833,7 +865,17 @@ export function QoderPlugin() {
                               {a.tokenState === 'expiring' && a.expiresInSeconds ? ` ${fmtLeft(a.expiresInSeconds)}` : ''}
                             </Badge>
                             {a.cooling ? (
-                              <Badge variant="warning" className="text-xs" title="上游返回 429/5xx，暂时跳过该账号">冷却中</Badge>
+                              <Badge
+                                variant="warning"
+                                className="text-xs"
+                                title={
+                                  a.cooldownSeconds
+                                    ? `该账号被上游限流/额度用尽，冷却中，约 ${fmtLeft(a.cooldownSeconds)} 后重试`
+                                    : '上游返回 429/5xx 或额度用尽，暂时跳过该账号'
+                                }
+                              >
+                                冷却中{a.cooldownSeconds ? ` ${fmtLeft(a.cooldownSeconds)}` : ''}
+                              </Badge>
                             ) : null}
                           </div>
                         </Table.Cell>

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -1303,5 +1304,97 @@ func TestStreamAndCaptureStopsOnEnvelopeError(t *testing.T) {
 	}
 	if !strings.Contains(envErr.Error(), "Billing daily count exceeded") {
 		t.Fatalf("message lost: %q", envErr.Error())
+	}
+}
+
+// TestInferPoolResetAt 验证恢复时刻推断：下一个 UTC+8 的 10:00。
+func TestInferPoolResetAt(t *testing.T) {
+	// 05:00 UTC+8 → 当天 10:00。
+	at := time.Date(2026, 10, 20, 5, 0, 0, 0, cstZone)
+	got := inferPoolResetAt(at)
+	want := time.Date(2026, 10, 20, 10, 0, 0, 0, cstZone)
+	if !got.Equal(want) {
+		t.Fatalf("inferPoolResetAt(%s) = %s, want %s", at, got, want)
+	}
+	// 10:00 整 → 次日 10:00（已到点算作下一天）。
+	at = time.Date(2026, 10, 20, 10, 0, 0, 0, cstZone)
+	if got := inferPoolResetAt(at); !got.Equal(time.Date(2026, 10, 21, 10, 0, 0, 0, cstZone)) {
+		t.Fatalf("at reset hour should roll to next day, got %s", got)
+	}
+	// 23:00 UTC+8 → 次日 10:00。
+	at = time.Date(2026, 10, 20, 23, 0, 0, 0, cstZone)
+	if got := inferPoolResetAt(at); !got.Equal(time.Date(2026, 10, 21, 10, 0, 0, 0, cstZone)) {
+		t.Fatalf("late night should roll to tomorrow, got %s", got)
+	}
+	// 传入 UTC 时刻也应正确换算。
+	utcAt := time.Date(2026, 10, 19, 21, 0, 0, 0, time.UTC) // = 10-20 05:00 UTC+8
+	if got := inferPoolResetAt(utcAt); !got.Equal(want) {
+		t.Fatalf("UTC input = %s, want %s", got, want)
+	}
+}
+
+// TestPoolLimitState 验证池级限流的记录/清除/过期。
+func TestPoolLimitState(t *testing.T) {
+	s := newTestService(t)
+	now := time.Now()
+
+	// 初始不限流。
+	if limited, _, _ := s.poolLimitStatus(now); limited {
+		t.Fatal("should not be limited initially")
+	}
+
+	until := now.Add(2 * time.Hour)
+	s.markPoolLimited("code=110: Billing daily count exceeded", until)
+	limited, got, msg := s.poolLimitStatus(now)
+	if !limited {
+		t.Fatal("should be limited after mark")
+	}
+	if !got.Equal(until) {
+		t.Fatalf("until = %s, want %s", got, until)
+	}
+	if !strings.Contains(msg, "Billing") {
+		t.Fatalf("msg = %q", msg)
+	}
+
+	// 更早的恢复时刻不应把已有的更晚时刻覆盖掉。
+	s.markPoolLimited("other", now.Add(time.Minute))
+	if _, got, _ := s.poolLimitStatus(now); !got.Equal(until) {
+		t.Fatalf("earlier until should not override, got %s", got)
+	}
+
+	// 过期后自动解除。
+	if limited, _, _ := s.poolLimitStatus(until.Add(time.Second)); limited {
+		t.Fatal("should expire after until")
+	}
+
+	// 清除。
+	s.clearPoolLimit()
+	if limited, _, _ := s.poolLimitStatus(now); limited {
+		t.Fatal("should be cleared")
+	}
+}
+
+// TestPeekFirstEventReplays 验证预读首事件后仍能完整读回整条流。
+//
+// 这是「先判断再决定是否换号」的基础：预读不能丢字节，否则客户端会少第一段内容。
+func TestPeekFirstEventReplays(t *testing.T) {
+	stream := `data:{"headers":{},"body":"{\"choices\":[{\"delta\":{\"content\":\"A\"}}]}","statusCodeValue":200}` + "\n\n" +
+		`data:{"headers":{},"body":"{\"choices\":[{\"delta\":{\"content\":\"B\"}}]}","statusCodeValue":200}` + "\n\n" +
+		"data: [DONE]\n\n"
+	rc := io.NopCloser(strings.NewReader(stream))
+	replay, first, err := peekFirstEvent(rc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(first, `content`) || !strings.Contains(first, `A`) {
+		t.Fatalf("first event should carry the first chunk, got %q", first)
+	}
+	// 回放必须包含首事件 + 剩余全部内容（按字节比较，最严格）。
+	all, err := io.ReadAll(replay)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(all) != stream {
+		t.Fatalf("replay should reproduce the stream byte-for-byte\n got=%q\nwant=%q", string(all), stream)
 	}
 }

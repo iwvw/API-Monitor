@@ -134,9 +134,12 @@ type AccountView struct {
 	ExpiresInSeconds int64   `json:"expiresInSeconds,omitempty"`
 	Available        bool    `json:"available"`
 	Cooling          bool    `json:"cooling"`
-	CallCount        int64   `json:"callCount"`
-	LastCheckinAt    string  `json:"lastCheckinAt,omitempty"`
-	LastError        string  `json:"lastError,omitempty"`
+	// CooldownSeconds 是剩余冷却秒数（Cooling=true 时有效）。
+	// 实测额度用尽会设 30 分钟冷却，前端需要显示「还需等待多久」。
+	CooldownSeconds int64  `json:"cooldownSeconds,omitempty"`
+	CallCount       int64  `json:"callCount"`
+	LastCheckinAt   string `json:"lastCheckinAt,omitempty"`
+	LastError       string `json:"lastError,omitempty"`
 }
 
 // upstreamError 是分类后的上游错误。
@@ -1191,6 +1194,13 @@ func aggregateSSE(r io.Reader) (map[string]any, error) {
 		if strings.HasPrefix(line, "data:") {
 			payload := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
 			if payload != "" && payload != "[DONE]" {
+				// 与 streamAndCapture 一致：先判信封层错误（额度用尽等），
+				// 否则非流式路径会聚合出一个空响应而不是明确报错。
+				if env, isEnv := parseLegacyEnvelope(payload); isEnv {
+					if msg, isErr := envelopeError(env); isErr {
+						return nil, &upstreamEnvelopeError{message: msg, statusCode: env.StatusCodeValue}
+					}
+				}
 				if chunk := decodeLegacyChunk(payload); chunk != nil {
 					if v, ok := chunk["id"].(string); ok && id == "" {
 						id = v
@@ -1456,12 +1466,53 @@ func mergeToolCallDelta(merged, delta map[string]any) {
 	}
 }
 
-// streamAndCapture 把上游 Qoder SSE 解包成标准 OpenAI chunk 写往 w（每行 flush），
-// 末尾保证至少一个 data: [DONE]。上游每行形如
+// peekedStream 是「预读了一个事件」的流：把预读的字节回放给后续读取。
+type peekedStream struct {
+	prefix []byte
+	rest   io.Reader
+}
+
+func (p *peekedStream) Read(b []byte) (int, error) {
+	if len(p.prefix) > 0 {
+		n := copy(b, p.prefix)
+		p.prefix = p.prefix[n:]
+		return n, nil
+	}
+	return p.rest.Read(b)
+}
+
+// peekFirstEvent 读取上游 SSE 的**第一个有效事件**用于判定，并返回可继续读取的流。
 //
-//	data: {"headers":...,"body":"<openai chunk>","statusCodeValue":200}
+// 为什么需要它：上游把业务错误（额度用尽 code=110）塞在 HTTP 200 的 SSE 首行，
+// 此时响应头还是干净的 —— 若先写出 200 再发现错误，就只能补一条 error 事件、
+// 无法换号重试。预读后调用方可以：
+//   - 首事件是错误 → 给该账号设冷却、换下一个账号（客户端完全无感）；
+//   - 首事件正常   → 用返回的流把「首事件 + 剩余内容」原样转发。
 //
-// 需要取出 body（内层 OpenAI chunk）重新封装，网关才认。
+// 返回 (可回放的流, 首个事件载荷, 错误)。载荷为 "[DONE]" 表示上游直接结束。
+// 调用方负责 Close 原始 rc。
+func peekFirstEvent(rc io.ReadCloser) (io.Reader, string, error) {
+	br := bufio.NewReaderSize(rc, 64*1024)
+	var consumed bytes.Buffer
+	for {
+		line, err := br.ReadString('\n')
+		consumed.WriteString(line)
+		trimmed := strings.TrimRight(line, "\r\n")
+		if strings.HasPrefix(trimmed, "data:") {
+			payload := strings.TrimSpace(strings.TrimPrefix(trimmed, "data:"))
+			if payload != "" {
+				// consumed 已包含这一整行；剩余流继续由 br 读取。
+				return &peekedStream{prefix: consumed.Bytes(), rest: br}, payload, nil
+			}
+		}
+		if err != nil {
+			if err == io.EOF {
+				return &peekedStream{prefix: consumed.Bytes(), rest: br}, "", io.ErrUnexpectedEOF
+			}
+			return &peekedStream{prefix: consumed.Bytes(), rest: br}, "", err
+		}
+	}
+}
 func streamAndCapture(r io.Reader, w http.ResponseWriter, flusher http.Flusher, onChunk func(map[string]any)) error {
 	if flusher == nil {
 		flusher, _ = w.(http.Flusher)
