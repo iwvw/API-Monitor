@@ -662,13 +662,13 @@ export function QoderPlugin() {
                     '上游把「每日调用次数用尽」（code=110 Billing daily count exceeded）按**账号池**判定：实测同一时刻三个账号全部被拒，换号无效。',
                     status.poolLimitedMessage ? `上游原文：${status.poolLimitedMessage}` : '',
                     status.poolLimitedInferred
-                      ? '恢复时刻由上游「每日 10:00 (UTC+8) 重置」规则推断，不是上游下发的字段（错误响应里没有任何时间字段）。'
+                      ? '上游「每日 10:00 (UTC+8) 重置」是推断规则，不是上游下发的字段（错误响应里没有任何时间字段）；因此本状态有最长锁定时长，到期后自动重新探测，避免推断偏差导致长时间不可用。'
                       : '',
                   ]
                     .filter(Boolean)
                     .join('\n')}
                 >
-                  池级限流 · {status.poolLimitedUntilLocal} 恢复
+                  池级限流 · 最迟 {status.poolLimitedUntilLocal} 重试
                 </Badge>
               ) : null}
               <span className="text-xs text-kumo-subtle" title="模型目录条数">
@@ -680,14 +680,15 @@ export function QoderPlugin() {
             </div>
           </FieldRow>
           {status?.poolLimited ? (
-            <div className="mx-4 mb-3 rounded-md border border-kumo-line bg-kumo-warning-tint px-3 py-2 text-xs leading-5 text-kumo-strong">
+            <div className="mx-4 mb-3 rounded-md border border-kumo-warning/30 bg-kumo-warning/8 px-3 py-2 text-xs leading-5 text-kumo-strong">
               <div className="font-medium">
                 账号池被上游限流：该模型的每日调用次数已用尽，换号无效。
               </div>
               <div className="mt-1 text-kumo-subtle">
-                预计 {status.poolLimitedUntilLocal} (UTC+8) 恢复
-                {status.poolLimitedInferred ? '（由上游每日 10:00 重置规则推断，非上游下发）' : ''}
-                。此期间中继直接返回 429，不再逐个尝试账号以免放大延迟。
+                上游每日 10:00 (UTC+8) 重置
+                {status.poolLimitedInferred ? '（由上游每日重置规则推断，非上游下发）' : ''}
+                ；为避免推断偏差导致长时间不可用，本状态最迟持续到 {status.poolLimitedUntilLocal} (UTC+8)
+                ，之后自动重新探测。此期间中继直接返回 429，不再逐个尝试账号以免放大延迟。
               </div>
               {status.poolLimitedMessage ? (
                 <div className="mt-1 font-mono text-[0.92em] text-kumo-subtle">上游原文：{status.poolLimitedMessage}</div>
