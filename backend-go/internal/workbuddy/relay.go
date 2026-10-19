@@ -56,19 +56,42 @@ func (s *Service) serveRelayModels(w http.ResponseWriter) {
 	responseJSON(w, map[string]interface{}{"object": "list", "data": out})
 }
 
-// thinkingFor 返回某模型的思考能力（未加前缀的上游模型名）。
-// 目录未就绪时返回 nil，此时请求体不做思考档位改写（保持透传）。
-func (s *Service) thinkingFor(model string) *ThinkingConfig {
+// thinkingForRegion 返回某模型在**指定区域**的思考能力（未加前缀的上游模型名）。
+//
+// 为什么要按区域取：上游的思考能力是**按区域目录**下发的，同一 id 在不同区域
+// 可能声明不同的档位（实测国际版 hy3 给 ["low","high"]，只认一档的形态在别的
+// 区域也存在）。合并视图按 id 去重，取到的可能是别的区域的声明——用它归一会
+// 写出上游不认的档位（回 11150）。转发到哪个区域，就用哪个区域的声明。
+//
+// 该区域目录未就绪、或该区域没声明思考能力时返回 nil（此时不改写 body）。
+func (s *Service) thinkingForRegion(model, region string) *ThinkingConfig {
 	name := strings.TrimSpace(model)
 	if name == "" {
 		return nil
 	}
 	s.modelMu.Lock()
 	defer s.modelMu.Unlock()
-	for _, m := range s.modelCache {
-		if strings.EqualFold(s.prefixModel(m.ID), name) || strings.EqualFold(m.ID, name) {
+	// 先看该区域自己的目录条目（最权威）。
+	for _, m := range s.modelCacheByRegion[normalizeRegion(region)] {
+		if strings.EqualFold(m.ID, name) {
 			return m.Thinking
 		}
+	}
+	// 该区域没列出/没声明：退回合并视图，优先基座，再按 regionOrder 找任一区域
+	// 声明过的能力（保证不会出现「拿不到能力就不归一」的情况）。
+	for _, m := range s.modelCache {
+		if !strings.EqualFold(s.prefixModel(m.ID), name) && !strings.EqualFold(m.ID, name) {
+			continue
+		}
+		if m.Thinking != nil {
+			return m.Thinking
+		}
+		for _, reg := range regionOrder {
+			if rm, ok := m.RegionMeta[reg]; ok && rm.Thinking != nil {
+				return rm.Thinking
+			}
+		}
+		return nil
 	}
 	return nil
 }
@@ -122,8 +145,10 @@ func (s *Service) serveChatCompletions(w http.ResponseWriter, r *http.Request) {
 	//
 	// 思考档位按**上游声明的能力**归一（见 thinking.go / normalizeThinking）：
 	// 模型只接受某一档时落到该档，有档位列表时映射到不小于请求的最低可用档。
-	payload := forceStreamBody(rewriteForUpstreamWithThinking(body, model, s.thinkingFor(model)))
-
+	//
+	// 归一依赖「转发到哪个区域」——上游的思考能力是按区域目录分别声明的，
+	// 而账号是在下面选出来的。因此 body 的改写放到选号之后按账号区域做。
+	//
 	// 失败换号重试：单次转发最多尝试 maxAccountAttempts 个账号。
 	// 失败分两类，处置**不同**（见 ratelimit.go 开头）：
 	//   - 瞬时故障（429/5xx/网络/流中断）→ 换下一个账号继续尝试（不做账号级冷却）；
@@ -148,6 +173,7 @@ func (s *Service) serveChatCompletions(w http.ResponseWriter, r *http.Request) {
 		}
 		tried[acc.ID] = true
 		attempted = true
+		payload := forceStreamBody(rewriteForUpstreamWithThinking(body, model, s.thinkingForRegion(model, acc.Region)))
 		if err := s.chatCompletions(r.Context(), w, &chatRequest{
 			Account:        acc,
 			Body:           payload,

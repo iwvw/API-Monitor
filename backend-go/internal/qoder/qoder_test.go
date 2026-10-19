@@ -879,12 +879,12 @@ func TestUsageTokensForCheckIsFast(t *testing.T) {
 			map[string]interface{}{"role": "user", "content": strings.Repeat("测试内容hello ", 10000)},
 		},
 	}
-	if n := usageTokensForCheck(payload, "qmodel_38max"); n <= 0 {
+	if n := usageTokensForCheck(payload); n <= 0 {
 		t.Fatalf("estimate should be positive, got %d", n)
 	}
 	start := time.Now()
 	for i := 0; i < 20; i++ {
-		usageTokensForCheck(payload, "qmodel_38max")
+		usageTokensForCheck(payload)
 	}
 	elapsed := time.Since(start)
 	if elapsed > 500*time.Millisecond {
@@ -951,6 +951,39 @@ func TestThinkingConfigParse(t *testing.T) {
 	}
 	if g.Thinking.DefaultEffort != "max" {
 		t.Fatalf("GLM default = %q", g.Thinking.DefaultEffort)
+	}
+}
+
+// TestThinkingNoGuessedDefaultEffort 验证上游**没标记**默认档时不去猜最高档：
+// 调用方没要求档位就不写 reasoning_effort，交给上游自己的默认——猜最高档会
+// 平白拉高思考开销与延迟，属于行为漂移。
+func TestThinkingNoGuessedDefaultEffort(t *testing.T) {
+	raw := []byte(`{"chat":[
+		{"key":"gmodel","display_name":"GLM-5.3","enable":true,
+		 "thinking_config":{"enabled":{"efforts":{"high":{},"low":{}}}}}
+	]}`)
+	models, err := parseUpstreamCatalog(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	byID := map[string]ModelInfo{}
+	for _, m := range models {
+		byID[m.ID] = m
+	}
+	g := byID["GLM-5.3"]
+	if g.Thinking == nil {
+		t.Fatal("应解析出思考能力")
+	}
+	if g.Thinking.DefaultEffort != "" {
+		t.Errorf("上游没标默认档时不应猜一个，得到 %q", g.Thinking.DefaultEffort)
+	}
+	// 调用方没指定档位 → 不写任何档位。
+	if lvl, dis, has := g.Thinking.Resolve(""); has || dis || lvl != "" {
+		t.Errorf("未指定档位时不应产出档位，得到 (%q,%v,%v)", lvl, dis, has)
+	}
+	// 调用方明确要求 → 仍然归一到可用档位（向上取）。
+	if lvl, _, has := g.Thinking.Resolve("medium"); !has || lvl != "high" {
+		t.Errorf("medium 应向上取 high，得到 (%q,%v)", lvl, has)
 	}
 }
 

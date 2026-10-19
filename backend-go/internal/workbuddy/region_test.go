@@ -558,3 +558,105 @@ func TestMergeCatalogsNoCreditsAnywhere(t *testing.T) {
 		}
 	}
 }
+
+// TestMergeCatalogsKeepsPerRegionMetadata 验证合并视图**不会丢掉**非基座区域的
+// 思考能力 / 限时促销 / 套餐门槛。
+//
+// 为什么关键：上游的促销与套餐门槛目前只有国际版下发，而合并基座是国内版——
+// 若合并时按「基座打底、其它区域只记区域名」处理，整条「限时促销」「Pro Only」
+// 信息就永远不可见（实测 hy3 的免费活动就是这么丢的）。思考能力丢掉则请求侧
+// 不归一 reasoning_effort，上游会回 11150。
+func TestMergeCatalogsKeepsPerRegionMetadata(t *testing.T) {
+	intlPromo := &Promotion{ID: "hy3-free-trial", Factor: 0, Label: "Free now"}
+	intlTier := &Tier{ID: "gpt-pro-only", Label: "Pro Only"}
+	intlThinking := &ThinkingConfig{DefaultEffort: "medium", SupportsEfforts: []string{"low", "high"}}
+	byRegion := map[string][]ModelInfo{
+		regionCN: {
+			{ID: "hy3", DisplayName: "Hy3", CreditsMultiplier: 0.5, CreditsParsed: true},
+		},
+		regionWB: {
+			{ID: "hy3", DisplayName: "Hy3"},
+		},
+		regionIntl: {
+			{ID: "hy3", DisplayName: "Hy3", Promotion: intlPromo, Tier: intlTier, Thinking: intlThinking},
+		},
+	}
+	merged := mergeCatalogs(byRegion)
+	if len(merged) != 1 {
+		t.Fatalf("同 id 应合并成一条，得到 %d", len(merged))
+	}
+	m := merged[0]
+	// 顶层字段代表合并基座（国内版）自己的值：国内版没下发促销/门槛/思考能力，
+	// 顶层就不该有——否则国内版 tab 会显示国际版的活动。
+	if m.Promotion != nil || m.Tier != nil || m.Thinking != nil {
+		t.Errorf("顶层字段应只反映基座区域，得到 promo=%v tier=%v thinking=%v", m.Promotion, m.Tier, m.Thinking)
+	}
+	// 按区域保留：前端要按当前 tab 取，不能把国际版的活动错标到国内版。
+	rm := m.RegionMeta[regionIntl]
+	if rm.Promotion == nil || rm.Promotion.ID != "hy3-free-trial" {
+		t.Errorf("国际版的促销应按区域保留，得到 %+v", rm.Promotion)
+	}
+	if rm.Tier == nil || rm.Tier.ID != "gpt-pro-only" {
+		t.Errorf("国际版的套餐门槛应按区域保留，得到 %+v", rm.Tier)
+	}
+	if rm.Thinking == nil || rm.Thinking.DefaultEffort != "medium" {
+		t.Errorf("国际版的思考能力应按区域保留，得到 %+v", rm.Thinking)
+	}
+	if cn := m.RegionMeta[regionCN]; cn.Promotion != nil || cn.Tier != nil || cn.Thinking != nil {
+		t.Errorf("国内版没有下发促销/门槛/思考能力，得到 %+v", cn)
+	}
+}
+
+// TestThinkingForRegionPicksAccountRegion 验证思考能力按**转发到的区域**取：
+// 同一 id 在不同区域声明的档位可能不同，用错区域会写出上游不认的档位（11150）。
+func TestThinkingForRegionPicksAccountRegion(t *testing.T) {
+	s := &Service{
+		modelCacheByRegion: map[string][]ModelInfo{
+			regionCN:   {{ID: "hy3", Thinking: &ThinkingConfig{DefaultEffort: "medium"}}},
+			regionIntl: {{ID: "hy3", Thinking: &ThinkingConfig{DefaultEffort: "high", SupportsEfforts: []string{"low", "high"}}}},
+		},
+		modelCache: []ModelInfo{{
+			ID: "hy3",
+			RegionMeta: map[string]RegionModelMeta{
+				regionCN:   {Thinking: &ThinkingConfig{DefaultEffort: "medium"}},
+				regionIntl: {Thinking: &ThinkingConfig{DefaultEffort: "high", SupportsEfforts: []string{"low", "high"}}},
+			},
+		}},
+	}
+	if got := s.thinkingForRegion("hy3", regionIntl); got == nil || got.DefaultEffort != "high" {
+		t.Errorf("国际版应取国际版声明的思考能力，得到 %+v", got)
+	}
+	if got := s.thinkingForRegion("hy3", regionCN); got == nil || got.DefaultEffort != "medium" {
+		t.Errorf("国内版应取国内版声明的思考能力，得到 %+v", got)
+	}
+	// 该区域没声明时回退到合并视图里任一区域的声明（宁可归一也不要丢能力）。
+	s.modelCacheByRegion[regionCN] = nil
+	if got := s.thinkingForRegion("hy3", regionCN); got == nil {
+		t.Error("区域目录缺声明时应回退到合并视图的思考能力")
+	}
+	// 完全未知 → 不改写 body。
+	if got := s.thinkingForRegion("nope", regionCN); got != nil {
+		t.Errorf("未知模型应返回 nil，得到 %+v", got)
+	}
+}
+
+// TestNormalizeThinkingDisableRemovesReasoningObject 验证关闭思考时**删掉**
+// reasoning 对象：上游只认顶层 reasoning_effort，reasoning 对象留着会触发 11150
+// （实测 reasoning:{effort:medium} 单独存在同样 11150）。
+func TestNormalizeThinkingDisableRemovesReasoningObject(t *testing.T) {
+	thinking := &ThinkingConfig{CanDisable: true, DefaultEffort: "high", SupportsEfforts: []string{"low", "high"}}
+	payload := map[string]any{
+		"messages":         []any{map[string]any{"role": "user", "content": "hi"}},
+		"reasoning":        map[string]any{"effort": "none"},
+		"reasoning_effort": "none",
+	}
+	if !normalizeThinking(thinking, payload) {
+		t.Fatal("关闭思考应发生改写")
+	}
+	if _, ok := payload["reasoning"]; ok {
+		t.Error("reasoning 对象应被删除，否则上游回 11150")
+	}
+	if got, _ := payload["reasoning_effort"].(string); got != "none" {
+		t.Errorf("应显式写 none 关闭思考，得到 %q", got)
+	}
+}

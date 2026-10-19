@@ -103,7 +103,7 @@ func (s *Service) serveChatCompletions(w http.ResponseWriter, r *http.Request) {
 	// 请求前校验：上下文超限直接拒绝，避免绕一圈等上游报错（且换号重试会浪费额度）。
 	if entry, ok := s.catalogEntryFor(upstreamModel); ok {
 		opt := parseRequestOptions(payload)
-		if over, reason := contextCheck(entry, usageTokensForCheck(payload, upstreamModel), opt); over {
+		if over, reason := contextCheck(entry, usageTokensForCheck(payload), opt); over {
 			writeOpenAIError(w, http.StatusBadRequest, reason, "context_length_exceeded")
 			return
 		}

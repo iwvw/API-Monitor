@@ -171,7 +171,7 @@ type ModelInfo struct {
 	CreditsLabel string `json:"creditsLabel,omitempty"`
 	// CredentialsParsed 表示倍率是否解析成功（false 时前端显示「—」而不是 0）。
 	CreditsParsed bool `json:"creditsParsed,omitempty"`
-	// CreditsFromElsewhere 表示这个倍率**不是该模型所属区域上游下发的**，
+	// CreditsFromElsewhere 表示这个倍率**至少在一个所属区域里不是该区域上游下发的**，
 	// 而是从同 id 的其它区域目录借来的。实测办公版（wb）的 /v3/config 完全不返回
 	// credits 字段，同 id 条目会继承国内版的值；前端据此标注来源，避免用户
 	// 把别的区域的数字当成办公版的权威倍率。
@@ -201,6 +201,28 @@ type ModelInfo struct {
 	// DisabledMultimodal 表示上游显式禁用多模态（与 SupportsImages 独立：
 	// 部分模型两者都有值，以显式禁用为准）。
 	DisabledMultimodal bool `json:"disabledMultimodal,omitempty"`
+
+	// RegionMeta 保存同一模型在各区域目录里的**差异化**元数据（key=区域）。
+	//
+	// 为什么必须按区域保留：合并视图按 id 去重（以国内版为基），但上游的
+	// 思考能力 / 限时促销 / 套餐门槛都是**按区域目录下发**的——促销与套餐门槛
+	// 目前只有国际版下发。若合并时直接丢弃非基座区域的数据：
+	//   - 整条「限时促销」「Pro Only」信息永远不可见（合并基座是国内版）；
+	//   - 请求侧拿不到思考能力就不归一 reasoning_effort，上游会回 11150。
+	// 故按区域原样保留，前端按当前 tab 取用，避免把国际版的活动错标到国内版。
+	RegionMeta map[string]RegionModelMeta `json:"regionMeta,omitempty"`
+}
+
+// RegionModelMeta 是单个区域目录里该模型的元数据。
+type RegionModelMeta struct {
+	// Thinking 是该区域声明的思考能力（见 thinking.go）。
+	Thinking *ThinkingConfig `json:"thinking,omitempty"`
+	// Promotion 是该区域下发的限时促销。
+	Promotion *Promotion `json:"promotion,omitempty"`
+	// Tier 是该区域下发的套餐门槛。
+	Tier *Tier `json:"tier,omitempty"`
+	// CreditsParsed 表示该区域自己的目录是否下发了倍率。
+	CreditsParsed bool `json:"creditsParsed,omitempty"`
 }
 
 // Account 是一个 CodeBuddy / WorkBuddy 扫码登录凭据。
@@ -1407,6 +1429,12 @@ func normalizeThinking(thinking *ThinkingConfig, payload map[string]any) bool {
 		changed := false
 		if _, ok := payload["reasoning_effort"]; ok {
 			delete(payload, "reasoning_effort")
+			changed = true
+		}
+		// 上游只认顶层 reasoning_effort；reasoning 对象留着会触发同样的 11150
+		// （见下面「形态一必须显式传该档位」的实测记录）。
+		if _, ok := payload["reasoning"]; ok {
+			delete(payload, "reasoning")
 			changed = true
 		}
 		if thinking.CanDisable {

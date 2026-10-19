@@ -144,6 +144,14 @@ func mergeCatalogs(byRegion map[string][]ModelInfo) []ModelInfo {
 		m.IDRegions = []string{idRegion}
 		m.Regions = regionsFor(m)
 		m.InternationalOnly = len(m.Regions) == 1 && m.Regions[0] == regionIntl
+		m.RegionMeta = map[string]RegionModelMeta{
+			idRegion: {
+				Thinking:      m.Thinking,
+				Promotion:     m.Promotion,
+				Tier:          m.Tier,
+				CreditsParsed: m.CreditsParsed,
+			},
+		}
 		merged = append(merged, m)
 		index[m.ID] = len(merged) - 1
 	}
@@ -156,8 +164,8 @@ func mergeCatalogs(byRegion map[string][]ModelInfo) []ModelInfo {
 	// 模型命名空间，见 buildRegionModelSet 的说明），但它是从别的区域的目录借来的，
 	// 不能当作该区域上游的权威值。
 	//
-	// 因此：保留该值以免用户完全没有参考，但记录 CreditsSourceRegions 让前端如实
-	// 标注「倍率来自哪些区域」，缺失的区域用户能看出「这里上游没给」。
+	// 因此：保留该值以免用户完全没有参考，但记录 CreditsFromElsewhere 让前端如实
+	// 标注「倍率来自其它区域」，缺失的区域用户能看出「这里上游没给」。
 	regionHasCredits := make(map[string]bool, len(regionOrder))
 	for _, region := range regionOrder {
 		for _, m := range byRegion[region] {
@@ -172,6 +180,12 @@ func mergeCatalogs(byRegion map[string][]ModelInfo) []ModelInfo {
 			if i > 0 {
 				if idx, ok := index[m.ID]; ok {
 					merged[idx].IDRegions = append(merged[idx].IDRegions, region)
+					// 同一 id 在不同区域可能带**不同**的思考能力 / 促销 / 套餐门槛：
+					// 促销与套餐门槛目前只有国际版下发，合并时若按「国内版打底、
+					// 其它区域只记区域名」处理，这些信息就永远不可见；思考能力丢掉
+					// 则请求侧不归一 reasoning_effort，上游会回 11150。
+					// 故按区域原样保留（见 mergeRegionMeta）。
+					mergeRegionMeta(&merged[idx], region, m)
 					continue
 				}
 			}
@@ -180,6 +194,10 @@ func mergeCatalogs(byRegion map[string][]ModelInfo) []ModelInfo {
 	}
 	// 合并完成后统一判定「借来的倍率」：看该模型的**全部**所属区域里，
 	// 是否有任一区域在目录中实际下发了倍率。全都缺、但值却存在，才是借来的。
+	//
+	// 判定是**区域级**的（该区域目录里只要有任一模型带倍率即视为该区域有下发），
+	// 不是条目级：否则同一区域里「有倍率的模型」与「没倍率的模型」会得到
+	// 不一致的结论。逐 tab 的「借自其它区域」由前端按当前区域判断。
 	//
 	// 为什么不在合并循环里逐区域标：wb 位于 regionOrder 中间，它的「缺倍率」若直接
 	// 置位，会被后续 intl 的「有倍率」覆盖成不确定状态；必须先攒齐区域信息再判。
@@ -200,6 +218,23 @@ func mergeCatalogs(byRegion map[string][]ModelInfo) []ModelInfo {
 		}
 	}
 	return merged
+}
+
+// mergeRegionMeta 把同 id 的另一个区域条目并入合并视图的按区域元数据。
+//
+// 只写 RegionMeta，**不改顶层字段**：顶层字段代表的是「合并基座（首个区域）
+// 自己的值」，把它换成别的区域的值会让国内版 tab 显示国际版的促销（两个区域
+// 的计费口径不一定一致，属于误导）。各区域的值按区域保留，前端按当前 tab 取用。
+func mergeRegionMeta(dst *ModelInfo, region string, m ModelInfo) {
+	if dst.RegionMeta == nil {
+		dst.RegionMeta = map[string]RegionModelMeta{}
+	}
+	dst.RegionMeta[region] = RegionModelMeta{
+		Thinking:      m.Thinking,
+		Promotion:     m.Promotion,
+		Tier:          m.Tier,
+		CreditsParsed: m.CreditsParsed,
+	}
 }
 
 // buildRegionModelSet 由「区域→目录」构建「区域→模型 id 集合」，供选号过滤。
@@ -357,6 +392,10 @@ func (s *Service) handleModels(w http.ResponseWriter, r *http.Request) {
 			"promotion":          m.Promotion,
 			"tier":               m.Tier,
 			"disabledMultimodal": m.DisabledMultimodal,
+			// 按区域保留的差异化元数据（思考能力 / 促销 / 套餐门槛）：上游这些字段
+			// 是按区域目录下发的，合并视图按 id 去重后必须按区域取，否则国际版的
+			// 促销会被错标到国内版，或因基座缺失而整条丢失。
+			"regionMeta": m.RegionMeta,
 		}
 		if st, ok := limitStats[m.ID]; ok {
 			entry["limit"] = st

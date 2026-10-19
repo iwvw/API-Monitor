@@ -54,7 +54,9 @@ type ThinkingConfig struct {
 	DefaultDisabled bool `json:"defaultDisabled,omitempty"`
 	// Efforts 是上游发布的强度档位，按强弱升序（如 low/medium/xhigh）。
 	Efforts []string `json:"efforts,omitempty"`
-	// DefaultEffort 是上游默认强度（无 efforts 时为空）。
+	// DefaultEffort 是上游标记的默认强度。上游没标记时**保持为空**（不猜）：
+	// 调用方没要求档位时就不写任何档位，交给上游用自己的默认——猜最高档会
+	// 平白拉高思考开销与延迟。
 	DefaultEffort string `json:"defaultEffort,omitempty"`
 }
 
@@ -91,10 +93,11 @@ func (t *ThinkingConfig) Resolve(requested string) (level string, disable bool, 
 		return "", false, false
 	}
 	if requested == "" {
+		// 上游标了默认档就照用；没标就**不写任何档位**（见 DefaultEffort 注释）。
 		if t.DefaultEffort != "" {
 			return t.DefaultEffort, false, true
 		}
-		return t.Efforts[len(t.Efforts)-1], false, true
+		return "", false, false
 	}
 	want := effortRank(requested)
 	if want < 0 {
@@ -111,20 +114,6 @@ func (t *ThinkingConfig) Resolve(requested string) (level string, disable bool, 
 		}
 	}
 	return t.Efforts[len(t.Efforts)-1], false, true
-}
-
-// DefaultLevel 返回上游默认档位（无档位时为空）。
-func (t *ThinkingConfig) DefaultLevel() string {
-	if t == nil {
-		return ""
-	}
-	if t.DefaultEffort != "" {
-		return t.DefaultEffort
-	}
-	if len(t.Efforts) > 0 {
-		return t.Efforts[len(t.Efforts)-1]
-	}
-	return ""
 }
 
 // upstreamThinkingConfig 是上游 thinking_config 的原始结构。
@@ -170,9 +159,7 @@ func (u *upstreamThinkingConfig) toThinkingConfig() *ThinkingConfig {
 					break
 				}
 			}
-			if out.DefaultEffort == "" && len(out.Efforts) > 0 {
-				out.DefaultEffort = out.Efforts[len(out.Efforts)-1]
-			}
+			// 上游没标记默认档时保持 DefaultEffort 为空：不猜最高档。
 		}
 	}
 	if !out.CanDisable && len(out.Efforts) == 0 {

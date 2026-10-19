@@ -199,7 +199,7 @@ func resolveThinking(m ModelInfo, opt requestOptions) (isReasoning bool, effort 
 // 一秒以上，放在转发热路径上不可接受。上下文校验只需要「判定是否明显超限」，
 // 不需要精确值，因此用 ds2api 的 EstimateTokens（纯字符遍历，O(n) 且常数极小，
 // ASCII 约 4 字符/token、CJK 约 1.3 字符/token），对拦截超限足够保守。
-func usageTokensForCheck(payload map[string]interface{}, model string) int64 {
+func usageTokensForCheck(payload map[string]interface{}) int64 {
 	text := requestTextForTokenCount(payload)
 	if text == "" {
 		return 0
