@@ -60,11 +60,14 @@ export default defineConfig(({ mode }) => {
   // 转发原始 Host，浏览器发来的 Origin（如 http://<公网IP>:5174）就永远对不上，
   // 每个写操作都会 403「跨来源会话请求已拒绝」。xfwd 会补上 X-Forwarded-Host，
   // 后端在开发模式下据此还原真实来源（server.go 的 originCheckHost）。
-  const proxyTarget = {
+  //
+  // 用工厂函数而不是共享同一个对象：http-proxy 会**就地改写**传入的 options
+  // （如 options.prependPath = ...），共享对象会让一处改动影响全部代理规则。
+  const proxyTarget = () => ({
     target: `http://127.0.0.1:${env.PORT || 3000}`,
     changeOrigin: true,
     xfwd: true,
-  };
+  });
 
   return {
     root: 'src',
@@ -187,20 +190,20 @@ export default defineConfig(({ mode }) => {
         ],
       },
       proxy: {
-        '^/health(?:/|$)': proxyTarget,
-        '^/api(?:/|$)': proxyTarget,
-        '^/sub(?:/|$)': proxyTarget,
-        '/v1': proxyTarget,
+        '^/health(?:/|$)': proxyTarget(),
+        '^/api(?:/|$)': proxyTarget(),
+        '^/sub(?:/|$)': proxyTarget(),
+        '/v1': proxyTarget(),
         '/socket.io': {
-          ...proxyTarget,
+          ...proxyTarget(),
           ws: true,
         },
         '/ws': {
-          ...proxyTarget,
+          ...proxyTarget(),
           ws: true,
         },
-        '/uploads': proxyTarget,
-        '^/site-brand-icons(?:/|$)': proxyTarget,
+        '/uploads': proxyTarget(),
+        '^/site-brand-icons(?:/|$)': proxyTarget(),
       },
     },
   };
