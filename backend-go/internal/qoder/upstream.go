@@ -1265,6 +1265,115 @@ func decodeLegacyChunk(payload string) map[string]any {
 	return chunk
 }
 
+// upstreamEnvelopeError 表示上游在 HTTP 200 的 SSE 信封里返回的业务错误
+// （如 code=110「Billing daily count exceeded」）。
+//
+// 为什么单独建类型：它发生在「已经写出 200 响应头之后」，不能再改状态码，
+// 但必须让调用方明确看到错误原因，而不是干等超时。
+type upstreamEnvelopeError struct {
+	message    string
+	statusCode int
+}
+
+func (e *upstreamEnvelopeError) Error() string { return e.message }
+
+// quotaExhausted 报告该错误是否属于「额度/次数用尽」这类需要换号或提示充值的情形。
+func (e *upstreamEnvelopeError) quotaExhausted() bool {
+	msg := strings.ToLower(e.message)
+	return strings.Contains(msg, "billing") ||
+		strings.Contains(msg, "quota") ||
+		strings.Contains(msg, "exceeded") ||
+		strings.Contains(msg, "limit")
+}
+
+// legacyEnvelope 是 Qoder SSE 的外层信封。
+//
+// **关键**：上游会把业务错误藏在 HTTP 200 的 SSE 里，信封形如
+//
+//	data:{"headers":{...},"body":"{\"code\":\"110\",\"message\":\"Billing daily count exceeded\"}",
+//	     "statusCodeValue":403,"statusCode":"FORBIDDEN"}
+//
+// 即 HTTP 层是 200，但 statusCodeValue 是 403、body 里是业务错误。
+// 旧实现只解析 body 里的 choices，这类信封因没有 choices 被当空 chunk 丢弃，
+// 于是流永远等不到 [DONE] —— 客户端表现为**超时**，而不是明确的错误。
+type legacyEnvelope struct {
+	Body            string `json:"body"`
+	StatusCodeValue int    `json:"statusCodeValue"`
+	StatusCode      string `json:"statusCode"`
+}
+
+// parseLegacyEnvelope 解析一行 data 载荷的信封层。
+// 返回 (信封, 是否成功解析)；不是信封结构时 ok=false（调用方按普通 chunk 处理）。
+func parseLegacyEnvelope(payload string) (legacyEnvelope, bool) {
+	var env legacyEnvelope
+	if err := json.Unmarshal([]byte(payload), &env); err != nil {
+		return legacyEnvelope{}, false
+	}
+	// 信封必须带 body 或显式状态码；否则可能是直接透传的 OpenAI chunk。
+	if env.Body == "" && env.StatusCodeValue == 0 && env.StatusCode == "" {
+		return legacyEnvelope{}, false
+	}
+	return env, true
+}
+
+// envelopeError 判断信封是否表示上游错误；是则返回可读错误信息。
+//
+// 判据（任一成立）：
+//   - statusCodeValue >= 400
+//   - statusCode 是 FORBIDDEN / UNAUTHORIZED 等错误语义
+//   - body 内层带 code 字段且非 "0"/"200"（Qoder 的业务码，如 110 = 每日额度用尽）
+//
+// 为什么必须识别：这些错误不会让 HTTP 状态变红，也不会有 [DONE]，
+// 不识别就只能等读超时，把「额度用尽」误报成「超时」。
+func envelopeError(env legacyEnvelope) (string, bool) {
+	code := strings.ToUpper(strings.TrimSpace(env.StatusCode))
+	httpErr := env.StatusCodeValue >= 400 ||
+		code == "FORBIDDEN" || code == "UNAUTHORIZED" || code == "TOO_MANY_REQUESTS"
+	// 内层业务码。
+	bizCode, bizMsg := "", ""
+	if env.Body != "" {
+		var inner struct {
+			Code    any    `json:"code"`
+			Message string `json:"message"`
+		}
+		if json.Unmarshal([]byte(env.Body), &inner) == nil {
+			bizMsg = strings.TrimSpace(inner.Message)
+			switch v := inner.Code.(type) {
+			case string:
+				bizCode = strings.TrimSpace(v)
+			case float64:
+				bizCode = fmt.Sprintf("%.0f", v)
+			}
+			// 内层带 choices 说明是正常 chunk，不是错误。
+			var probe map[string]any
+			if json.Unmarshal([]byte(env.Body), &probe) == nil {
+				if _, ok := probe["choices"]; ok {
+					return "", false
+				}
+			}
+		}
+	}
+	bizErr := bizCode != "" && bizCode != "0" && bizCode != "200"
+	if !httpErr && !bizErr {
+		return "", false
+	}
+	// 组装可读信息：业务码 + message 最有诊断价值。
+	parts := make([]string, 0, 3)
+	if bizCode != "" {
+		parts = append(parts, "code="+bizCode)
+	}
+	if bizMsg != "" {
+		parts = append(parts, bizMsg)
+	}
+	if env.StatusCodeValue >= 400 {
+		parts = append(parts, fmt.Sprintf("HTTP %d", env.StatusCodeValue))
+	}
+	if len(parts) == 0 {
+		parts = append(parts, "上游返回未知错误")
+	}
+	return strings.Join(parts, ": "), true
+}
+
 // consumeChoices 累积一个 chunk 的 choices。
 func consumeChoices(chunk map[string]any, content, reasoning *strings.Builder, role *string, finishReason *string, gotAnyContent *bool, toolCalls map[int]map[string]any, toolOrder *[]int) {
 	ch, ok := chunk["choices"].([]any)
@@ -1373,6 +1482,14 @@ func streamAndCapture(r io.Reader, w http.ResponseWriter, flusher http.Flusher, 
 					flusher.Flush()
 				}
 			} else if payload != "" {
+				// 先判信封层错误：上游把业务错误（如额度用尽 code=110）塞在
+				// HTTP 200 的 SSE 里，这类载荷没有 choices、也不会有 [DONE]，
+				// 不在这里拦下就只能等读超时，把「额度用尽」误报成「超时」。
+				if env, isEnv := parseLegacyEnvelope(payload); isEnv {
+					if msg, isErr := envelopeError(env); isErr {
+						return &upstreamEnvelopeError{message: msg, statusCode: env.StatusCodeValue}
+					}
+				}
 				if chunk := decodeLegacyChunk(payload); chunk != nil {
 					if onChunk != nil {
 						onChunk(chunk)

@@ -61,8 +61,36 @@ Qoder 对话走**加密 SSE**，不是标准 Bearer：
 - 响应每行 `data: {"body":"<openai chunk>"}`；`body` 里是标准 OpenAI 流式 chunk。
   聚合时优先取 `choices[].delta`，兼容 `choices[].message`；tool_calls 按 index 合并。
 
-### 3.3 余额与签到（`billing.go`）
+**⚠️ 业务错误藏在 HTTP 200 的 SSE 信封里（关键坑）**
 
+上游出错时不改 HTTP 状态码，而是在 SSE 首行返回：
+
+```
+data:{"headers":{"Content-Type":["application/json"]},
+     "body":"{\"code\":\"110\",\"message\":\"Billing daily count exceeded\"}",
+     "statusCodeValue":403,"statusCode":"FORBIDDEN"}
+```
+
+即 **HTTP 200 + `statusCodeValue: 403` + 内层业务码**，并且**不会再有 `[DONE]`**。
+旧实现只解析 `body` 里的 `choices`，这类载荷因没有 `choices` 被当空 chunk 丢弃，
+于是流一直等不到结束标记 —— 客户端表现为**超时**（实测干等 120s），
+把「当日额度用尽」误报成「网络超时/限流」。
+
+`parseLegacyEnvelope` + `envelopeError` 现在会识别并立即中止（实测 860ms 返回）：
+
+| 判据 | 说明 |
+| --- | --- |
+| `statusCodeValue >= 400` | HTTP 层状态 |
+| `statusCode` ∈ FORBIDDEN / UNAUTHORIZED / TOO_MANY_REQUESTS | 语义状态 |
+| `body` 内层 `code` 非 `0`/`200` | 业务码（110 = 当日额度用尽） |
+
+注意 `body` 内层若带 `choices` 则一定不是错误，不会误判。
+
+因为这时 200 响应头与部分数据可能已写出，`relay.go` 无法改状态码，
+改用 `writeStreamError` 补一条 `data: {"error":...}` + `[DONE]`，
+并对额度类错误追加「该账号额度已用尽，可换用其它账号或等待额度重置」。
+
+### 3.3 余额与签到（`billing.go`）
 控制面接口**仅需** `Bearer {deviceToken}` + `Cosy-ClientType: 10`，无需 COSY 签名。
 
 | 用途 | 方法与路径 | 关键语义 |

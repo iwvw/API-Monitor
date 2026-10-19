@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -203,9 +204,19 @@ func (s *Service) proxyStream(ctx context.Context, w http.ResponseWriter, model 
 		}
 		s.clearCooldown(acc.ID)
 		s.recordCall(acc.ID)
-		usage := s.pipeStreamCounted(ctx, w, rc, acc.ID, model)
+		usage, envErr := s.pipeStreamCounted(ctx, w, rc, acc.ID, model)
 		if usage != nil {
 			s.recordUsageFromOpenAI(acc.ID, model, usage)
+		}
+		if envErr != nil {
+			// 走到这里说明已经写出 200 与部分数据，无法改状态码；
+			// 但要把错误明确传给调用方（而不是静默结束或干等超时）。
+			// 额度类错误额外提示换号/充值方向。
+			msg := envErr.Error()
+			if e, ok := envErr.(*upstreamEnvelopeError); ok && e.quotaExhausted() {
+				msg += "（该账号额度已用尽，可换用其它账号或等待额度重置）"
+			}
+			writeStreamError(w, msg)
 		}
 		return
 	}
@@ -213,6 +224,28 @@ func (s *Service) proxyStream(ctx context.Context, w http.ResponseWriter, model 
 		lastErr = errors.New("没有可用账号")
 	}
 	writeOpenAIError(w, http.StatusBadGateway, lastErr.Error(), "upstream_error")
+}
+
+// writeStreamError 在已经写出 200 SSE 响应头之后，用一条 error 事件告知调用方失败。
+// 不能改 HTTP 状态码，但可以让客户端立即拿到原因而不是等超时。
+func writeStreamError(w http.ResponseWriter, message string) {
+	payload, err := json.Marshal(map[string]interface{}{
+		"error": map[string]interface{}{
+			"message": message,
+			"type":    "upstream_error",
+		},
+	})
+	if err != nil {
+		return
+	}
+	_, _ = fmt.Fprintf(w, "data: %s\n\n", payload)
+	if flusher, ok := w.(http.Flusher); ok {
+		flusher.Flush()
+	}
+	_, _ = io.WriteString(w, "data: [DONE]\n\n")
+	if flusher, ok := w.(http.Flusher); ok {
+		flusher.Flush()
+	}
 }
 
 // noteUpstreamFailure 记录一次上游非 2xx 失败：可重试错误（429/5xx）给账号设冷却。
@@ -234,7 +267,10 @@ func (s *Service) noteUpstreamFailure(acc Account, status int, body string) erro
 }
 
 // pipeStreamCounted 把上游 SSE 透传给下游，同时提取 usage（最后一个非空 usage 为准）。
-func (s *Service) pipeStreamCounted(ctx context.Context, w http.ResponseWriter, rc io.ReadCloser, accountID, model string) map[string]interface{} {
+//
+// 返回 (usage, 信封错误)。信封错误表示上游在 HTTP 200 的流里报了业务错误
+// （如 code=110 额度用尽）——调用方据此决定「换号重试」还是「告诉用户」。
+func (s *Service) pipeStreamCounted(ctx context.Context, w http.ResponseWriter, rc io.ReadCloser, accountID, model string) (map[string]interface{}, error) {
 	defer rc.Close()
 	flusher, _ := w.(http.Flusher)
 	w.Header().Set("Content-Type", "text/event-stream; charset=utf-8")
@@ -252,9 +288,15 @@ func (s *Service) pipeStreamCounted(ctx context.Context, w http.ResponseWriter, 
 		}
 	})
 	if err != nil {
+		var envErr *upstreamEnvelopeError
+		if errors.As(err, &envErr) {
+			// 信封错误：不是读失败，是上游明确报错（额度用尽等）。
+			applog.Warn(ctx, "qoder", "upstream envelope error", "account", accountID, "model", model, "error", envErr.Error())
+			return lastUsage, envErr
+		}
 		applog.Warn(ctx, "qoder", "read upstream stream failed", "error", err.Error())
 	}
-	return lastUsage
+	return lastUsage, nil
 }
 
 // recordUsageFromOpenAI 从聚合后的 OpenAI 响应里取 usage 记账。

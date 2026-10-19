@@ -3,6 +3,7 @@ package qoder
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -1229,5 +1230,78 @@ func TestBuildLegacyRequestWritesThinking(t *testing.T) {
 	}
 	if _, ok := plain["parameters"].(map[string]any)["reasoning_effort"]; ok {
 		t.Fatalf("unknown model should not write reasoning_effort")
+	}
+}
+
+// TestEnvelopeErrorDetectsBusinessError 验证识别「HTTP 200 + SSE 信封里藏业务错误」。
+//
+// 实测（2026-10-20）：额度用尽时上游返回 HTTP 200，但 SSE 首行是
+//
+//	data:{"body":"{\"code\":\"110\",\"message\":\"Billing daily count exceeded\"}",
+//	     "statusCodeValue":403,"statusCode":"FORBIDDEN"}
+//
+// 旧实现只看 HTTP 状态码 → 误判成功 → 流里没有 [DONE] → 客户端表现为超时。
+func TestEnvelopeErrorDetectsBusinessError(t *testing.T) {
+	// 真实样本：额度用尽。
+	quota := `{"headers":{"Content-Type":["application/json"]},"body":"{\"code\":\"110\",\"message\":\"Billing daily count exceeded\"}","statusCodeValue":403,"statusCode":"FORBIDDEN"}`
+	env, ok := parseLegacyEnvelope(quota)
+	if !ok {
+		t.Fatal("should parse as envelope")
+	}
+	msg, isErr := envelopeError(env)
+	if !isErr {
+		t.Fatal("should be detected as error")
+	}
+	if !strings.Contains(msg, "110") || !strings.Contains(msg, "Billing daily count exceeded") {
+		t.Fatalf("error message should carry code and reason, got %q", msg)
+	}
+	// 额度类错误应被识别（用于附加「换号/充值」提示）。
+	e := &upstreamEnvelopeError{message: msg, statusCode: env.StatusCodeValue}
+	if !e.quotaExhausted() {
+		t.Fatalf("should be classified as quota exhausted: %q", msg)
+	}
+
+	// 正常 chunk：内层带 choices，绝不能误判为错误。
+	normal := `{"headers":{},"body":"{\"id\":\"c1\",\"choices\":[{\"delta\":{\"content\":\"hi\"}}]}","statusCodeValue":200}`
+	env, ok = parseLegacyEnvelope(normal)
+	if !ok {
+		t.Fatal("normal chunk should parse as envelope")
+	}
+	if msg, isErr := envelopeError(env); isErr {
+		t.Fatalf("normal chunk must not be an error, got %q", msg)
+	}
+
+	// 直接透传的 OpenAI chunk（非信封）：ok=false，交给 decodeLegacyChunk。
+	if _, ok := parseLegacyEnvelope(`{"choices":[{"delta":{"content":"x"}}]}`); ok {
+		t.Fatal("plain chunk should not be treated as envelope")
+	}
+
+	// 只有 statusCodeValue>=400、body 无 code 时也要报错。
+	onlyStatus := `{"body":"","statusCodeValue":429,"statusCode":"TOO_MANY_REQUESTS"}`
+	env, ok = parseLegacyEnvelope(onlyStatus)
+	if !ok {
+		t.Fatal("should parse")
+	}
+	if _, isErr := envelopeError(env); !isErr {
+		t.Fatal("statusCodeValue 429 should be an error")
+	}
+}
+
+// TestStreamAndCaptureStopsOnEnvelopeError 验证读到信封错误时立即返回，
+// 而不是继续读直到超时。
+func TestStreamAndCaptureStopsOnEnvelopeError(t *testing.T) {
+	// 第一行是错误信封，后面故意不给 [DONE]（真实上游也是这样）。
+	upstream := `data:{"headers":{},"body":"{\"code\":\"110\",\"message\":\"Billing daily count exceeded\"}","statusCodeValue":403,"statusCode":"FORBIDDEN"}` + "\n\n"
+	rec := httptest.NewRecorder()
+	err := streamAndCapture(strings.NewReader(upstream), rec, nil, nil)
+	if err == nil {
+		t.Fatal("should return the envelope error instead of waiting for EOF")
+	}
+	var envErr *upstreamEnvelopeError
+	if !errors.As(err, &envErr) {
+		t.Fatalf("expected upstreamEnvelopeError, got %T: %v", err, err)
+	}
+	if !strings.Contains(envErr.Error(), "Billing daily count exceeded") {
+		t.Fatalf("message lost: %q", envErr.Error())
 	}
 }
