@@ -285,6 +285,25 @@ func (s *Service) disabledSet() map[string]bool {
 	return out
 }
 
+// regionRoutableSnapshot 返回「区域 → 可调用模型 id 集合」的快照。
+//
+// 与 regionModelSet 的区别：后者是选号用的权威集合（后端扩展过 cn ∪ wb），
+// 这里给面板展示用，语义相同但需要加锁拷贝，避免与并发刷新竞争。
+func (s *Service) regionRoutableSnapshot() map[string]map[string]bool {
+	s.modelMu.Lock()
+	defer s.modelMu.Unlock()
+	out := make(map[string]map[string]bool, len(regionOrder))
+	for _, region := range regionOrder {
+		src := s.regionModelSet[region]
+		dst := make(map[string]bool, len(src))
+		for id, ok := range src {
+			dst[id] = ok
+		}
+		out[region] = dst
+	}
+	return out
+}
+
 // handleModels 返回模型目录（带对外前缀）与逐项启停状态。
 func (s *Service) handleModels(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
@@ -293,6 +312,10 @@ func (s *Service) handleModels(w http.ResponseWriter, r *http.Request) {
 	}
 	models := s.catalog(r.Context())
 	disabled := s.disabledSet()
+	// 区域可用集合：回答「这个模型能被哪个区域的账号调用」，而不只是「目录里列出」。
+	// 两者不同：办公版（wb）目录不列 deepseek-v4.1-flash，但办公版账号实测可以
+	// 调用它（wb 与 cn 同域同模型命名空间，见 buildRegionModelSet 的扩展）。
+	routable := s.regionRoutableSnapshot()
 	// 模型维度的限流汇总：账号表回答「谁被限流」，这里回答「这个模型还能不能用」。
 	// 键用**未加前缀**的上游模型名 —— 那正是限流簿与转发层的命名空间
 	// （转发前会剥掉插件前缀再发给上游）。
@@ -300,6 +323,13 @@ func (s *Service) handleModels(w http.ResponseWriter, r *http.Request) {
 	out := make([]map[string]interface{}, 0, len(models))
 	for _, m := range models {
 		id := s.prefixModel(m.ID)
+		// RoutableRegions 是该 id 实际可被调用到的区域（含目录未列出但可路由的）。
+		routableRegions := make([]string, 0, len(regionOrder))
+		for _, region := range regionOrder {
+			if routable[region][m.ID] {
+				routableRegions = append(routableRegions, region)
+			}
+		}
 		entry := map[string]interface{}{
 			"id":                   id,
 			"displayName":          m.DisplayName,
@@ -318,6 +348,7 @@ func (s *Service) handleModels(w http.ResponseWriter, r *http.Request) {
 			"creditsFromElsewhere": m.CreditsFromElsewhere,
 			"regions":              m.Regions,
 			"idRegions":            m.IDRegions,
+			"routableRegions":      routableRegions,
 			"internationalOnly":    m.InternationalOnly,
 			"enabled":              !disabled[id],
 			// 能力与运营情报：思考档位、默认模型、限时促销、套餐门槛、多模态禁用。

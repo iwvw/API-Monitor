@@ -140,7 +140,7 @@ backend-go/internal/workbuddy/
 | POST | `/api/workbuddy/activity` | 全部账号立即活跃上报 |
 | GET | `/api/workbuddy/accounts/export` | 导出账号（**含 token**，仅本机会话可下载） |
 | POST | `/api/workbuddy/accounts/import` | 导入账号（按 `id` 去重合并） |
-| GET | `/api/workbuddy/models` | `{success, upstreamReady, models:[{id, enabled, contextLength, maxOutputTokens, supportsImages, supportsReasoning, thinking, isDefault, promotion, tier, disabledMultimodal, limit?}]}` |
+| GET | `/api/workbuddy/models` | `{success, upstreamReady, models:[{id, enabled, contextLength, maxOutputTokens, supportsImages, supportsReasoning, reasoning, thinking, isDefault, promotion, tier, disabledMultimodal, idRegions, routableRegions, limit?}]}` |
 | POST | `/api/workbuddy/models/toggle/{id}` | 单模型启停 |
 | POST | `/api/workbuddy/models/toggle-batch` | 批量启停 |
 | GET | `/api/workbuddy/link` | 网关接入状态 |
@@ -344,6 +344,18 @@ backend-go/internal/workbuddy/
 归一后写回 `reasoning_effort`；`none` 仅在 `canDisableThinking=true` 时生效，
 否则落到默认档（不假装关掉）。模型无 `reasoning` 字段时**完全不动 body**（保持透传）。
 
+⚠️ **形态 1（只有默认档）必须显式传该档位**，这点反直觉但已实测（2026-10-20，办公版真实账号）：
+
+| glm-5.1 请求 | 结果 |
+| --- | --- |
+| 不带 `reasoning_effort` | **HTTP 400 code 11150** `the reasoning effort value is not supported by the current model` |
+| `reasoning_effort: "medium"` | 200 |
+| `reasoning_effort: "high"` | 200 |
+
+与形态 2/3（有档位列表）相反：后者不传就走默认，前者不传直接报错。
+另外上游**只认顶层 `reasoning_effort`**，`reasoning:{effort:...}` 对象单独存在同样 11150，
+因此改写时会把它转换成顶层字段并删除对象。
+
 实测样例（`intl`）：`kimi-k2.8-preview` = `low/high/max` 可关闭；
 `gpt-5.6-*` = `low/medium/high/xhigh/max` 可关闭；`gpt-5.4` = 不可关闭；
 `hy3` = `["low","high"]` 不可关闭；`hy4-preview` = 只有 `["high"]`。
@@ -377,6 +389,28 @@ backend-go/internal/workbuddy/
 | **限时促销** | ✅（目前仅国际版） | 同接口 `data.modelPromotions[]`：`discount.factor` / `schedule.validFrom~validUntil` / `badge.label` / `hover.textZh` | **已接入**：按时间窗与 `enabled` 过滤后回填到模型的 `Promotion` |
 | **套餐门槛** | ✅（目前仅国际版） | 同接口 `data.modelTiers[]`：`tier` / `modelIds` / `badge.label` / `hover` | **已接入**：`ModelInfo.Tier`，前端标「Pro Only」 |
 | **办公版倍率** | ❌ | — | `/v3/config` 的 `models[]` **完全不返回 `credits`**（2026-10-20 实测 37/37 缺失，带真实企业账号 `Authorization` 复核仍为 0/37）。企业计费接口 `get-enterprise-user-usage` 只返回账号总额度（`credit` / `limitNum`），无模型维度。官方文档也只说「不同模型消耗不同」，明细需登录官网查看。前端因此把办公版单列一个 tab 并明确标注「上游未提供」 |
+
+### 11.2 办公版可路由模型（目录未列出但可调用）
+
+办公版目录只有 29 个模型，但实测办公版账号**可以调用国内版目录里的模型**——
+两者同域、同一模型命名空间，`buildRegionModelSet` 已把 wb 的可用集合扩为 `cn ∪ wb`。
+
+2026-10-20 实测（真实办公版企业账号，走完整中继链路）：`cn` 有而 `wb` 目录未列出的
+19 个模型中，**17 个对话模型全部返回 200**（`deepseek-v4.1-flash` / `deepseek-v4-pro` /
+`minimax-m3` / `glm-5.3` / `kimi-k3-1` / `kimi-k2.8-preview` / `hy4-preview` /
+`mimo-v2.6-pro` / `step-5-preview` / `space-bunny` / `default` 等），
+仅 2 个图像模型（`hunyuan-image-alpha` / `-edit`）失败——它们本就不服务对话。
+
+因此 `/api/workbuddy/models` 下发 `routableRegions`（该 id 实际可被调用的区域，
+与 `idRegions` 的「目录列出」区分开）。前端办公版 tab 据此显示 46 个模型，
+其中 17 个标「目录未列出」徽标。
+
+### 11.3 偶发串味（不是稳定映射）
+
+早先一次 `deepseek-v4.1-flash` + `reasoning_effort=high` 的自述内容变成了「我是 Claude」。
+后续 8 次复测（空/low/high/max + high 连测 4 次）**全部正常**，上游回显的 `model`
+字段始终是 `deepseek-v4.1-flash`，自述也正确。判断为上游偶发路由/缓存污染，
+不是稳定行为，故未做代码处理；若复现可优先排查上游而非本插件。
 | 账号剩余额度 / 已用积分 | ❌（CLI 侧无公开接口） | — | `/v2/plugin/*` 与 `/v3/config` 都不返回；实测探测 8 个候选额度路径（`/v2/plugin/user/credit`、`/v2/plugin/usage`、`/v2/plugin/quota`、`/v2/credit/balance` 等）**全部 404** |
 | 单次请求 token 用量 | ✅ | `POST /v2/chat/completions` 的 SSE 流末 `usage` | 实测需 `stream_options.include_usage: true`（本插件已自动注入）；含 `prompt_cache_hit_tokens` / `prompt_cache_miss_tokens` |
 | **单次请求实际扣费（credit）** | ✅ | 同上，`usage.credit` | 实测未命中约 0.45、命中约 0.13~0.21（GLM-5.3）。比「倍率」更直接；目前透传给网关但未落库 |

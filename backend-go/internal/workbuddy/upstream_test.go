@@ -61,9 +61,11 @@ func TestNormalizeThinking(t *testing.T) {
 		{"hy3 already high", full, map[string]any{"reasoning_effort": "high"}, "high", false},
 		// reasoning:{effort} 形态也要识别并回写到 reasoning_effort。
 		{"hy3 reasoning object", full, map[string]any{"reasoning": map[string]any{"effort": "low"}}, "low", true},
-		// 只有默认档：任何请求都落到该档（这才是上游「只认一档」的真实表达）。
+		// 只有默认档（无 supportedEfforts）：**必须显式传该档位**。
+		// 实测 glm-5.1 不传 reasoning_effort 会 400 / code 11150，传 medium 或 high 均 200。
 		{"default-only low", defaultOnly, map[string]any{"reasoning_effort": "low"}, "high", true},
 		{"default-only empty", defaultOnly, map[string]any{}, "high", true},
+		{"default-only same", defaultOnly, map[string]any{"reasoning_effort": "high"}, "high", false},
 		// 只有 high：结果与旧 forceMaxThinking 一致，但不再靠前缀硬判。
 		{"high-only medium", highOnly, map[string]any{"reasoning_effort": "medium"}, "high", true},
 		// 无 thinking 信息：完全不动 body（保持透传）。
@@ -98,6 +100,34 @@ func TestNormalizeThinking(t *testing.T) {
 	normalizeThinking(noDisable, p2)
 	if p2["reasoning_effort"] != "high" {
 		t.Errorf("cannot-disable: got %v want high", p2["reasoning_effort"])
+	}
+
+	// 只有默认档（无 supportedEfforts）：必须**显式**写入该档位。
+	// 这条反直觉但已实测确认（2026-10-20，办公版真实账号）：
+	//   glm-5.1 不带 reasoning_effort → HTTP 400 code 11150
+	//     "the reasoning effort value is not supported by the current model"
+	//   带 medium 或 high → HTTP 200
+	// 早期实现曾推断反了（以为不能传），导致 glm-5.1 全量 400。
+	defaultOnlyModel := &ThinkingConfig{DefaultEffort: "medium"}
+	for _, tc := range []struct {
+		name    string
+		payload map[string]any
+	}{
+		{"no effort", map[string]any{}},
+		{"other effort", map[string]any{"reasoning_effort": "high"}},
+		{"same effort", map[string]any{"reasoning_effort": "medium"}},
+		// reasoning:{effort:...} 形式也必须被改写为顶层字段：
+		// 上游只认 reasoning_effort，单给 reasoning 对象同样 11150。
+		{"reasoning object", map[string]any{"reasoning": map[string]any{"effort": "medium"}}},
+	} {
+		normalizeThinking(defaultOnlyModel, tc.payload)
+		if got := tc.payload["reasoning_effort"]; got != "medium" {
+			t.Errorf("default-only %s: reasoning_effort = %v, want medium", tc.name, got)
+		}
+		// reasoning 对象在改写后必须被删除（上游不认）。
+		if _, ok := tc.payload["reasoning"]; ok {
+			t.Errorf("default-only %s: reasoning object should be removed", tc.name)
+		}
 	}
 }
 

@@ -233,16 +233,21 @@ const thinkingMeta = m => {
   return { label: `${efforts.length} 档`, title: `${detail} · ${toggle}` };
 };
 
-// regionModelGroups 把合并后的模型目录按**账号区域**拆成三份，供模型区 tab 使用。
+// modelsByRegion 把合并后的模型目录按**账号区域**拆成三份，供模型区 tab 使用。
 //
 // 为什么要拆：三个区域的目录差异很大，混在一张表里有两类问题——
 //   1) 办公版（wb）的 /v3/config 完全不返回 credits（实测 37/37 缺失），
 //      混排时同一列里既有权威倍率又有「—」，看不出是哪个区域缺；
 //   2) 型号级 regions 是「共用」的，而 idRegions 才说明当前这行属于哪个区域。
 //
-// 归属规则：按 idRegions（该 id 自身所属区域）。一个 id 若同属多区域
-// （如 deepseek-v4-flash 在 cn 与 wb 都有），会同时出现在多个 tab —— 这是
-// 正确的，因为它在每个区域都是独立可选、独立计费的上游条目。
+// 归属规则：优先用 routableRegions（该区域账号**实际可调用**的模型 id），
+// 回退到 idRegions / regions。
+//
+// **为什么不是只用 idRegions**：办公版目录不列 deepseek-v4.1-flash 等 19 个模型，
+// 但办公版账号实测可以调用（wb 与 cn 同域同模型命名空间，后端
+// buildRegionModelSet 已把 wb 扩为 cn ∪ wb）。只看目录会让这些可用模型在办公版
+// tab 里凭空消失。一个 id 若可被多区域调用，会同时出现在多个 tab —— 这是正确的，
+// 因为它在每个区域都是独立可选、独立计费的上游条目。
 const MODEL_REGION_TABS = [
   { value: 'cn', label: '国内版' },
   { value: 'wb', label: '办公版' },
@@ -252,17 +257,27 @@ const MODEL_REGION_TABS = [
 const modelsByRegion = models => {
   const groups = { cn: [], wb: [], intl: [] };
   for (const m of models || []) {
-    const regions = Array.isArray(m.idRegions) && m.idRegions.length
-      ? m.idRegions
-      : Array.isArray(m.regions) && m.regions.length
-        ? m.regions
-        : ['cn'];
+    const regions = Array.isArray(m.routableRegions) && m.routableRegions.length
+      ? m.routableRegions
+      : Array.isArray(m.idRegions) && m.idRegions.length
+        ? m.idRegions
+        : Array.isArray(m.regions) && m.regions.length
+          ? m.regions
+          : ['cn'];
     for (const raw of regions) {
       const region = normalizeRegion(raw);
       groups[region].push(m);
     }
   }
   return groups;
+};
+
+// isListedInRegion 判断该模型是否出现在某区域的**上游目录**里（idRegions）。
+// 与 routableRegions 的区别：前者是「目录列出」，后者是「实际可调用」。
+// 办公版有若干模型目录不列但可调用，前端需要把这类标出来。
+const isListedInRegion = (m, region) => {
+  const idRegions = Array.isArray(m.idRegions) ? m.idRegions : [];
+  return idRegions.includes(normalizeRegion(region));
 };
 
 // WorkBuddyPlugin：模型网关「插件中心」卡片——腾讯 CodeBuddy / WorkBuddy 转 OpenAI 兼容 API。
@@ -801,17 +816,18 @@ export function WorkBuddyPlugin() {
     { region: 'intl', label: REGION_META.intl.tag, items: accounts.filter(a => normalizeRegion(a.region) === 'intl') },
   ].filter(g => g.items.length > 0);
 
-  // 模型跨区标记：按 **idRegions**（该 id 自身可用区域）判定，不再用型号级 regions。
+  // 模型跨区标记：按 **routableRegions**（实际可调用的区域）判定。
   //
-  // 为什么改：分 tab 后当前区域已由 tab 表达，再显示「共用」会让人误读成
+  // 分 tab 后当前区域已由 tab 表达，再显示「共用」会让人误读成
   // 「共用了别的区域的数据」。这里真正有用的信息是「这个 id 除了当前区域，
-  // 还在哪些区域可选」——它决定转发时会不会在这些区域的账号间轮询。
-  //
-  // 型号级 regions（按 displayName 对齐）只用于说明「同一型号各区域档位不同」，
-  // 已通过 modelNameHint 放在模型名 tooltip 里，不占独立列。
+  // 还能在哪些区域调用」——它决定转发时会不会在这些区域的账号间轮询。
   const modelCrossRegionMeta = (m, region) => {
-    const idRegions = Array.isArray(m.idRegions) ? m.idRegions : [];
-    const others = idRegions.filter(r => normalizeRegion(r) !== normalizeRegion(region));
+    const routable = Array.isArray(m.routableRegions) && m.routableRegions.length
+      ? m.routableRegions
+      : Array.isArray(m.idRegions) && m.idRegions.length
+        ? m.idRegions
+        : [];
+    const others = routable.filter(r => normalizeRegion(r) !== normalizeRegion(region));
     if (!others.length) return null;
     const labels = others.map(r => regionMeta(r).label);
     return {
@@ -1603,6 +1619,16 @@ export function WorkBuddyPlugin() {
                             <span className="truncate font-mono text-kumo-strong" title={m.id}>
                               {m.id}
                             </span>
+                            {/* 该区域目录未列出、但实测可调用（办公版专属情形）。 */}
+                            {!isListedInRegion(m, activeRegionKey) ? (
+                              <Badge
+                                variant="warning"
+                                className="!text-[0.7em] shrink-0"
+                                title={`${regionMeta(activeRegionKey).label}版上游目录未列出该模型，但已实测可调用（与国内版同域同模型命名空间），转发时会正常路由`}
+                              >
+                                目录未列出
+                              </Badge>
+                            ) : null}
                             {m.isDefault ? (
                               <Badge variant="info" className="!text-[0.7em] shrink-0" title="上游默认模型">
                                 默认

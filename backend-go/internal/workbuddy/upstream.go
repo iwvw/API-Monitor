@@ -1419,9 +1419,32 @@ func normalizeThinking(thinking *ThinkingConfig, payload map[string]any) bool {
 		// 无可归一档位：保留调用方原值（上游可能仍认）。
 		return false
 	}
+	// 只有默认档、没有 supportedEfforts 的模型（如 glm-5.1：{effort:"medium"}）
+	// **必须显式写入该档位**。实测（2026-10-20，办公版真实账号）：
+	//   最简请求（不带 reasoning_effort）→ HTTP 400 code 11150
+	//     "the reasoning effort value is not supported by the current model"
+	//   带 reasoning_effort=medium 或 high → HTTP 200
+	// 也就是说这类模型与「有档位列表」的模型相反：后者不传就走默认，前者不传直接报错。
+	// 上一条注释曾据此推断「不能显式传」，方向搞反了——那个 400 来自目录未加载、
+	// thinking 为 nil、字段压根没写进去的探针缺陷。
+	if len(thinking.SupportsEfforts) == 0 {
+		// 判定「是否已经写入」必须看 payload 里的实际字段，不能只看 requested==effort：
+		// 当调用方用 reasoning:{effort:...} 形式时 requested 来自对象，payload 里
+		// 的 reasoning_effort 仍然缺失，此时必须补写，否则上游照样 11150。
+		cur, has := payload["reasoning_effort"].(string)
+		if has && cur == effort && !fromObject {
+			return false
+		}
+		// 上游只认顶层 reasoning_effort；reasoning 对象留着会触发同样的 11150。
+		delete(payload, "reasoning")
+		payload["reasoning_effort"] = effort
+		return true
+	}
 	if fromObject {
 		// reasoning:{effort} 的取值已归一到目标档，写回标准字段供上游读取。
-		// 已经写过或不改也不影响语义，统一按「改了」上报，避免调用方误判。
+		// 同时删除 reasoning 对象：上游只认 reasoning_effort，留着反而可能触发
+		// 「不支持的档位」判定（实测 reasoning:{effort:medium} 单独存在会 11150）。
+		delete(payload, "reasoning")
 		payload["reasoning_effort"] = effort
 		return true
 	}
