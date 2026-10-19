@@ -28,28 +28,217 @@ func TestRewriteBlockedTemplates(t *testing.T) {
 	}
 }
 
-func TestForceMaxThinking(t *testing.T) {
+// TestNormalizeThinking 验证按上游声明的能力归一思考档位。
+//
+// 取代旧的 TestForceMaxThinking：旧逻辑对 hy3/hy4 前缀无条件强制 high，
+// 但实测 wb/intl 的 hy3 已声明 supportedEfforts ["low","high"]，
+// 用户要 low 是合法的，旧行为会把它改掉。现在按 supportedEfforts 归一。
+func TestNormalizeThinking(t *testing.T) {
+	// 完整的档位能力（仿 kimi-k2.8-preview / gpt-5.6 系列）。
+	full := &ThinkingConfig{
+		CanDisable:      true,
+		DefaultEffort:   "high",
+		SupportsEfforts: []string{"low", "high", "max"},
+	}
+	// 只给默认档、无档位列表（仿旧版 hy3/hy4 的形态）。
+	defaultOnly := &ThinkingConfig{DefaultEffort: "high"}
+	// 不可关闭 + 只有 high（仿 hy4-preview）。
+	highOnly := &ThinkingConfig{DefaultEffort: "high", SupportsEfforts: []string{"high"}}
+
 	cases := []struct {
-		model   string
-		payload map[string]any
-		want    bool
-		expect  string
+		name     string
+		thinking *ThinkingConfig
+		payload  map[string]any
+		want     string
+		wantHas  bool
 	}{
-		{"hy3", map[string]any{}, true, "high"},
-		{"hy3-preview", map[string]any{"reasoning_effort": "low"}, true, "high"},
-		{"hy4-preview", map[string]any{"reasoning_effort": "medium"}, true, "high"},
-		{"hy3", map[string]any{"reasoning_effort": "high"}, false, "high"},
-		{"deepseek-v4-pro", map[string]any{}, false, ""},
-		{"glm-5.2", map[string]any{"reasoning_effort": "low"}, false, "low"},
+		// 有档位列表：合法档位必须原样保留（这是修复的核心）。未改动时 changed=false。
+		{"hy3 wants low", full, map[string]any{"reasoning_effort": "low"}, "low", false},
+		{"hy3 wants max", full, map[string]any{"reasoning_effort": "max"}, "max", false},
+		{"hy3 wants xhigh", full, map[string]any{"reasoning_effort": "xhigh"}, "max", true},
+		{"hy3 wants medium", full, map[string]any{"reasoning_effort": "medium"}, "high", true},
+		{"hy3 no effort", full, map[string]any{}, "high", true},
+		{"hy3 already high", full, map[string]any{"reasoning_effort": "high"}, "high", false},
+		// reasoning:{effort} 形态也要识别并回写到 reasoning_effort。
+		{"hy3 reasoning object", full, map[string]any{"reasoning": map[string]any{"effort": "low"}}, "low", true},
+		// 只有默认档：任何请求都落到该档（这才是上游「只认一档」的真实表达）。
+		{"default-only low", defaultOnly, map[string]any{"reasoning_effort": "low"}, "high", true},
+		{"default-only empty", defaultOnly, map[string]any{}, "high", true},
+		// 只有 high：结果与旧 forceMaxThinking 一致，但不再靠前缀硬判。
+		{"high-only medium", highOnly, map[string]any{"reasoning_effort": "medium"}, "high", true},
+		// 无 thinking 信息：完全不动 body（保持透传）。
+		{"no thinking info", nil, map[string]any{"reasoning_effort": "low"}, "low", false},
 	}
 	for _, c := range cases {
-		changed := forceMaxThinking(c.model, c.payload)
-		if changed != c.want {
-			t.Errorf("model=%s changed=%v want=%v", c.model, changed, c.want)
+		got := normalizeThinking(c.thinking, c.payload)
+		eff, ok := c.payload["reasoning_effort"].(string)
+		if !ok {
+			eff = ""
 		}
-		if got, _ := c.payload["reasoning_effort"].(string); got != c.expect {
-			t.Errorf("model=%s reasoning_effort=%q want=%q", c.model, got, c.expect)
+		if eff != c.want {
+			t.Errorf("%s: reasoning_effort=%q want=%q", c.name, eff, c.want)
 		}
+		if got != c.wantHas {
+			t.Errorf("%s: changed=%v want=%v", c.name, got, c.wantHas)
+		}
+	}
+
+	// 可关闭的模型请求 none → 显式写 none 关闭。
+	disable := &ThinkingConfig{CanDisable: true, DefaultEffort: "high", SupportsEfforts: []string{"low", "high"}}
+	p := map[string]any{"reasoning_effort": "none"}
+	if !normalizeThinking(disable, p) {
+		t.Error("disabling should report change")
+	}
+	if p["reasoning_effort"] != "none" {
+		t.Errorf("disable: got %v want none", p["reasoning_effort"])
+	}
+	// 不可关闭的模型请求 none → 落到默认档，不写 none。
+	noDisable := &ThinkingConfig{DefaultEffort: "high", SupportsEfforts: []string{"high"}}
+	p2 := map[string]any{"reasoning_effort": "none"}
+	normalizeThinking(noDisable, p2)
+	if p2["reasoning_effort"] != "high" {
+		t.Errorf("cannot-disable: got %v want high", p2["reasoning_effort"])
+	}
+}
+
+// TestThinkingConfigParsesUpstreamShapes 验证上游 reasoning 的三种形态。
+func TestThinkingConfigParsesUpstreamShapes(t *testing.T) {
+	// 形态 1：只有 effort + summary（无档位列表）。
+	only := &upstreamReasoning{Effort: "medium", Summary: "auto"}
+	tc := only.toThinkingConfig()
+	if tc == nil || tc.DefaultEffort != "medium" || len(tc.SupportsEfforts) != 0 {
+		t.Fatalf("shape1 = %+v", tc)
+	}
+	if tc.CanDisable {
+		t.Fatal("shape1 should not allow disabling")
+	}
+
+	// 形态 2：完整能力（含 canDisableThinking 与 supportedEfforts）。
+	yes := true
+	full := &upstreamReasoning{
+		CanDisableThinking: &yes,
+		DefaultEffort:      "high",
+		Summary:            "auto",
+		// 故意乱序，验证会被排序。
+		SupportedEfforts: []string{"max", "low", "high"},
+	}
+	tc = full.toThinkingConfig()
+	if tc == nil || !tc.CanDisable || tc.DefaultEffort != "high" {
+		t.Fatalf("shape2 = %+v", tc)
+	}
+	if got := strings.Join(tc.SupportsEfforts, ","); got != "low,high,max" {
+		t.Fatalf("efforts should be sorted, got %q", got)
+	}
+
+	// 形态 3：无 canDisableThinking（视为不可关）。
+	noFlag := &upstreamReasoning{DefaultEffort: "high", SupportedEfforts: []string{"low", "medium", "high", "xhigh"}}
+	tc = noFlag.toThinkingConfig()
+	if tc == nil || tc.CanDisable || len(tc.SupportsEfforts) != 4 {
+		t.Fatalf("shape3 = %+v", tc)
+	}
+
+	// 缺失 reasoning 字段 → nil。
+	var missing *upstreamReasoning
+	if got := missing.toThinkingConfig(); got != nil {
+		t.Fatalf("missing should be nil, got %+v", got)
+	}
+
+	// 默认档不在列表里 → 用最高档兜底。
+	odd := &upstreamReasoning{DefaultEffort: "weird", SupportedEfforts: []string{"low", "high"}}
+	tc = odd.toThinkingConfig()
+	if tc.DefaultEffort != "high" {
+		t.Fatalf("bogus default should fall back to highest, got %q", tc.DefaultEffort)
+	}
+}
+
+// TestPromotionIndex 验证限时促销的解析：时间窗过滤、enabled 过滤、目录类条目排除、
+// priority 取高。
+func TestPromotionIndex(t *testing.T) {
+	enabled := true
+	disabled := false
+	now := time.Date(2026, 10, 20, 0, 0, 0, 0, time.UTC)
+
+	items := []upstreamPromotion{
+		{
+			ID: "active-free", Kind: "discount", Enabled: &enabled, Priority: 200,
+			ModelIDs: []string{"hy3"},
+			Discount: struct {
+				Factor            float64 `json:"factor"`
+				DiscountedCredits string  `json:"discountedCredits"`
+				DisplayMode       string  `json:"displayMode"`
+			}{Factor: 0, DisplayMode: "replace"},
+			Schedule: struct {
+				Timezone   string `json:"timezone"`
+				ValidFrom  string `json:"validFrom"`
+				ValidUntil string `json:"validUntil"`
+			}{ValidFrom: "2026-10-01T00:00:00+08:00", ValidUntil: "2026-11-01T00:00:00+08:00"},
+			Badge: struct {
+				Label string `json:"label"`
+			}{Label: "Free now"},
+		},
+		{
+			// 已过期：不该再生效。
+			ID: "expired", Kind: "discount", Enabled: &enabled, Priority: 300,
+			ModelIDs: []string{"old-model"},
+			Discount: struct {
+				Factor            float64 `json:"factor"`
+				DiscountedCredits string  `json:"discountedCredits"`
+				DisplayMode       string  `json:"displayMode"`
+			}{Factor: 0},
+			Schedule: struct {
+				Timezone   string `json:"timezone"`
+				ValidFrom  string `json:"validFrom"`
+				ValidUntil string `json:"validUntil"`
+			}{ValidFrom: "2026-08-01T00:00:00+08:00", ValidUntil: "2026-09-01T00:00:00+08:00"},
+		},
+		{
+			// 已停用：不该生效。
+			ID: "off", Kind: "discount", Enabled: &disabled, Priority: 400,
+			ModelIDs: []string{"off-model"},
+		},
+		{
+			// 目录类条目（无 kind/discount/schedule）：绝不能当免费。
+			ID: "gpt-image-2.5-sunburst",
+		},
+	}
+	idx := buildPromotionIndex(items, now)
+	if p := idx["hy3"]; p == nil || !p.Free() || p.Label != "Free now" {
+		t.Fatalf("hy3 promotion = %+v", p)
+	}
+	if _, ok := idx["old-model"]; ok {
+		t.Fatal("expired promotion should be filtered out")
+	}
+	if _, ok := idx["off-model"]; ok {
+		t.Fatal("disabled promotion should be filtered out")
+	}
+	if _, ok := idx["gpt-image-2.5-sunburst"]; ok {
+		t.Fatal("catalog entry without discount must not be treated as promotion")
+	}
+}
+
+// TestContextCheckWorkbuddy 验证上下文预检。
+func TestContextCheckWorkbuddy(t *testing.T) {
+	m := ModelInfo{ID: "deepseek-v3-1", ContextLength: 96000}
+	if over, _ := contextCheck(m, 50000); over {
+		t.Fatal("50k should pass under 96k")
+	}
+	over, reason := contextCheck(m, 120000)
+	if !over || !strings.Contains(reason, "96000") || !strings.Contains(reason, "deepseek-v3-1") {
+		t.Fatalf("should reject over limit, got over=%v reason=%q", over, reason)
+	}
+	// 上限未知时不校验。
+	if over, _ := contextCheck(ModelInfo{ID: "x"}, 999999); over {
+		t.Fatal("unknown limit should not reject")
+	}
+	// 估算必须是字符启发式且很快（曾用 tiktoken 会拖慢热路径）。
+	big := strings.Repeat("测试hello ", 20000)
+	start := time.Now()
+	n := estimateTokens(big)
+	if elapsed := time.Since(start); elapsed > 100*time.Millisecond {
+		t.Fatalf("estimate too slow: %s", elapsed)
+	}
+	if n <= 0 {
+		t.Fatalf("estimate = %d", n)
 	}
 }
 
@@ -495,8 +684,9 @@ func TestRewriteForUpstreamHandlesStringAndParts(t *testing.T) {
 	if got := parts[0].(map[string]any)["text"].(string); !contains(got, "Default branch") {
 		t.Errorf("多模态 parts 未改写: %q", got)
 	}
-	if obj["reasoning_effort"] != "high" {
-		t.Errorf("hy3 应强制 reasoning_effort=high，得到 %v", obj["reasoning_effort"])
+	// 无思考能力信息时不写 reasoning_effort（保持透传，改写只做模板清理）。
+	if _, ok := obj["reasoning_effort"]; ok {
+		t.Errorf("thinking 未知时不应写入 reasoning_effort，得到 %v", obj["reasoning_effort"])
 	}
 }
 

@@ -181,6 +181,21 @@ type ModelInfo struct {
 	IDRegions []string `json:"idRegions,omitempty"`
 	// InternationalOnly 表示该型号仅国际版提供（前端据此打「国际」标注）。
 	InternationalOnly bool `json:"internationalOnly,omitempty"`
+
+	// Thinking 是思考能力（档位 / 是否可关闭 / 默认档），来自 /v3/config 的
+	// reasoning 字段。三种上游形态统一成这一种结构（见 thinking.go）。
+	Thinking *ThinkingConfig `json:"thinking,omitempty"`
+	// IsDefault 是上游的默认模型标记（三个区域各有一个，如 wb 的 auto、
+	// intl 的 default-model）。
+	IsDefault bool `json:"isDefault,omitempty"`
+	// Promotion 是该模型当前生效的限时促销（免费/折扣），来自 /v3/config 的
+	// modelPromotions（目前只有国际版下发）并按 schedule 时间窗与 enabled 过滤。
+	Promotion *Promotion `json:"promotion,omitempty"`
+	// Tier 是套餐门槛（如 Pro Only），来自 modelTiers；空表示不限。
+	Tier *Tier `json:"tier,omitempty"`
+	// DisabledMultimodal 表示上游显式禁用多模态（与 SupportsImages 独立：
+	// 部分模型两者都有值，以显式禁用为准）。
+	DisabledMultimodal bool `json:"disabledMultimodal,omitempty"`
 }
 
 // Account 是一个 CodeBuddy / WorkBuddy 扫码登录凭据。
@@ -740,23 +755,33 @@ func (s *Service) fetchCatalog(ctx context.Context, region string) ([]ModelInfo,
 	}
 	var cfg struct {
 		Models []struct {
-			ID                string `json:"id"`
-			Name              string `json:"name"`
-			MaxInputTokens    int64  `json:"maxInputTokens"`
-			MaxOutputTokens   int64  `json:"maxOutputTokens"`
-			MaxAllowedSize    int64  `json:"maxAllowedSize"`
-			SupportsImages    bool   `json:"supportsImages"`
-			SupportsReasoning bool   `json:"supportsReasoning"`
-			SupportsToolCall  bool   `json:"supportsToolCall"`
-			OnlyReasoning     bool   `json:"onlyReasoning"`
-			Vendor            string `json:"vendor"`
-			DescriptionZh     string `json:"descriptionZh"`
-			Credits           string `json:"credits"`
+			ID                 string             `json:"id"`
+			Name               string             `json:"name"`
+			MaxInputTokens     int64              `json:"maxInputTokens"`
+			MaxOutputTokens    int64              `json:"maxOutputTokens"`
+			MaxAllowedSize     int64              `json:"maxAllowedSize"`
+			SupportsImages     bool               `json:"supportsImages"`
+			SupportsReasoning  bool               `json:"supportsReasoning"`
+			SupportsToolCall   bool               `json:"supportsToolCall"`
+			OnlyReasoning      bool               `json:"onlyReasoning"`
+			Vendor             string             `json:"vendor"`
+			DescriptionZh      string             `json:"descriptionZh"`
+			Credits            string             `json:"credits"`
+			IsDefault          bool               `json:"isDefault"`
+			DisabledMultimodal bool               `json:"disabledMultimodal"`
+			Reasoning          *upstreamReasoning `json:"reasoning"`
 		} `json:"models"`
+		// ModelPromotions / ModelTiers 是**目录级**字段（与 models 平级），
+		// 目前只有国际版下发；按模型 id 建索引后回填到各模型上。
+		ModelPromotions []upstreamPromotion `json:"modelPromotions"`
+		ModelTiers      []upstreamTier      `json:"modelTiers"`
 	}
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		return nil, fmt.Errorf("模型目录解析失败: %w", err)
 	}
+	now := time.Now()
+	promotions := buildPromotionIndex(cfg.ModelPromotions, now)
+	tiers := buildTierIndex(cfg.ModelTiers)
 	out := make([]ModelInfo, 0, len(cfg.Models))
 	for _, m := range cfg.Models {
 		if m.ID == "" || m.MaxInputTokens <= 0 {
@@ -764,20 +789,25 @@ func (s *Service) fetchCatalog(ctx context.Context, region string) ([]ModelInfo,
 		}
 		multiplier, parsed := parseCredits(m.Credits)
 		out = append(out, ModelInfo{
-			ID:                m.ID,
-			DisplayName:       firstNonEmpty(m.Name, m.ID),
-			ContextLength:     m.MaxInputTokens,
-			MaxOutputTokens:   m.MaxOutputTokens,
-			SupportsImages:    m.SupportsImages,
-			SupportsReasoning: m.SupportsReasoning,
-			SupportsToolCall:  m.SupportsToolCall,
-			OnlyReasoning:     m.OnlyReasoning,
-			Vendor:            m.Vendor,
-			MaxAllowedSize:    m.MaxAllowedSize,
-			Description:       m.DescriptionZh,
-			CreditsMultiplier: multiplier,
-			CreditsLabel:      strings.TrimSpace(m.Credits),
-			CreditsParsed:     parsed,
+			ID:                 m.ID,
+			DisplayName:        firstNonEmpty(m.Name, m.ID),
+			ContextLength:      m.MaxInputTokens,
+			MaxOutputTokens:    m.MaxOutputTokens,
+			SupportsImages:     m.SupportsImages,
+			SupportsReasoning:  m.SupportsReasoning,
+			SupportsToolCall:   m.SupportsToolCall,
+			OnlyReasoning:      m.OnlyReasoning,
+			Vendor:             m.Vendor,
+			MaxAllowedSize:     m.MaxAllowedSize,
+			Description:        m.DescriptionZh,
+			CreditsMultiplier:  multiplier,
+			CreditsLabel:       strings.TrimSpace(m.Credits),
+			CreditsParsed:      parsed,
+			Thinking:           m.Reasoning.toThinkingConfig(),
+			IsDefault:          m.IsDefault,
+			Promotion:          promotions[m.ID],
+			Tier:               tiers[m.ID],
+			DisabledMultimodal: m.DisabledMultimodal,
 		})
 	}
 	return out, nil
@@ -1341,24 +1371,72 @@ func rewriteBlockedTemplates(s string) string {
 	return s
 }
 
-// forceMaxThinking 对混元系列（hy3 / hy4 前缀）强制 reasoning_effort=high。
-// 上游只对 high 真正开启深度思考，medium / max / xhigh 等档位被直接忽略，
-// 因此这里覆盖客户端传入的任何设置。返回是否发生了改动。
-func forceMaxThinking(model string, payload map[string]any) bool {
-	if !strings.HasPrefix(model, "hy3") && !strings.HasPrefix(model, "hy4") {
+// normalizeThinking 按**上游声明的能力**归一 reasoning_effort。
+//
+// 历史上这里是 forceMaxThinking：对 hy3/hy4 前缀无条件强制 reasoning_effort=high，
+// 因为当时上游只认 high。实测（2026-10-20）混元的能力已经细化：
+//   - wb/intl 的 hy3 给 supportedEfforts ["low","high"] —— 用户要 low 是合法的；
+//   - hy4-preview 只给 ["high"] —— 落到 high，与旧行为一致。
+//
+// 现在改为按 supportedEfforts 归一（见 thinking.go 的 Resolve）：
+//   - 有档位列表 → 映射到「不小于请求的最低可用档」，不覆盖合法档位；
+//   - 只有默认 effort（无列表）→ 用默认档，这才是上游「只认一档」的真实表达。
+//
+// 返回是否发生了改动。模型无思考信息时不动 body（保持透传）。
+func normalizeThinking(thinking *ThinkingConfig, payload map[string]any) bool {
+	if !thinking.Supported() {
 		return false
 	}
-	if eff, _ := payload["reasoning_effort"].(string); eff == "high" {
+	requested, _ := payload["reasoning_effort"].(string)
+	// 也接受 reasoning:{effort} 形态（OpenAI 新版写法）。
+	fromObject := false
+	if requested == "" {
+		if reasoning, ok := payload["reasoning"].(map[string]any); ok {
+			requested, _ = reasoning["effort"].(string)
+			fromObject = requested != ""
+		}
+	}
+	effort, disable := thinking.Resolve(requested)
+	if disable {
+		// 上游允许关闭：清除档位并显式关闭。
+		changed := false
+		if _, ok := payload["reasoning_effort"]; ok {
+			delete(payload, "reasoning_effort")
+			changed = true
+		}
+		if thinking.CanDisable {
+			payload["reasoning_effort"] = "none"
+			changed = true
+		}
+		return changed
+	}
+	if effort == "" {
+		// 无可归一档位：保留调用方原值（上游可能仍认）。
 		return false
 	}
-	payload["reasoning_effort"] = "high"
+	if fromObject {
+		// reasoning:{effort} 的取值已归一到目标档，写回标准字段供上游读取。
+		// 已经写过或不改也不影响语义，统一按「改了」上报，避免调用方误判。
+		payload["reasoning_effort"] = effort
+		return true
+	}
+	if requested == effort {
+		return false
+	}
+	payload["reasoning_effort"] = effort
 	return true
 }
 
 // rewriteForUpstream 在转发前改写请求体：清理 messages 里被拉黑的模板句
-// （字符串与多模态数组两种形态），并按模型覆盖思考档位。
+// （字符串与多模态数组两种形态），并按模型的**上游能力**归一思考档位。
 // 任一步骤失败或无需改动时返回原 body，绝不因改写失败而阻断转发。
 func rewriteForUpstream(body []byte, model string) []byte {
+	return rewriteForUpstreamWithThinking(body, model, nil)
+}
+
+// rewriteForUpstreamWithThinking 是带模型思考能力的版本；thinking 为 nil 时
+// 只做模板清理与模型名写回（与旧行为一致）。
+func rewriteForUpstreamWithThinking(body []byte, model string, thinking *ThinkingConfig) []byte {
 	if len(body) == 0 {
 		return body
 	}
@@ -1400,11 +1478,10 @@ func rewriteForUpstream(body []byte, model string) []byte {
 	} else if cur, _ := payload["model"].(string); cur != model {
 		// 调用方传的是**剥离插件前缀后**的真实模型名，必须写回 body ——
 		// 否则上游会收到带插件前缀的名字（如 wb-hy3）而报未知模型。
-		// 注意 hy3/hy4 的思考档位判定依赖这个 model，写回与判定用同一个值。
 		payload["model"] = model
 		changed = true
 	}
-	if forceMaxThinking(model, payload) {
+	if normalizeThinking(thinking, payload) {
 		changed = true
 	}
 	if !changed {

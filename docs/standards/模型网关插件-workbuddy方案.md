@@ -60,7 +60,7 @@
 | 登录态隔离 | 一个 state 一个 cookie jar，**不可共用**（浏览器登录与 state 绑定） |
 | 内容审核 | 两句 Claude Code 固定 system 模板被逐字拉黑，需最小改写：`official CLI for Claude` → `official CLI tool for Claude`、`Main branch` → `Default branch`（精确匹配，非语义） |
 | **渠道抽样校验** | 上游自 2026-10 起对出站接口加**抽样**校验（约 0.05%，集中在数分钟窗口）：抽中时回 HTTP 400 + 业务码 `11128`，`msg` 形如 `request illegal` / `conversation id missing`，`displayMsg`「请求被拦截，请重新发送」，`displayTips`「这次调用没通过渠道校验，可能不是官方客户端发出的」。**非 payload 语法错误**，换号/重发常能通过 → 标记可重试（见 §14「失败换号」）。参 workbuddy2api-hub issue #380/#392、PR #381 |
-| 思考模式 | `hy3` / `hy4` 前缀模型自动置 `reasoning_effort=high`（上游只认 `high`） |
+| 思考模式 | 按目录里 `models[].reasoning` 声明的能力归一 `reasoning_effort`（见 §3.x 思考档位）。**不再按 hy3/hy4 前缀硬编码 high** —— 实测 2026-10 起混元能力已细化，`wb`/`intl` 的 `hy3` 声明 `supportedEfforts:["low","high"]`，硬改会覆盖用户合法的 low |
 | SSE 分帧 | `/v1/chat/completions`、`/v1/completions` 入口的 chunk **不带** `data: ` 前缀；其它跨协议翻译入口**必须带** |
 
 ## 4. 后端模块
@@ -71,6 +71,9 @@ backend-go/internal/workbuddy/
 ├── upstream.go    ★ 上游协议层：常量、类型、客户端头、登录/刷新/目录/对话四类上游调用
 ├── auth.go        扫码登录 start/poll、token 刷新、账号 CRUD / 启用停用 / 导出导入
 ├── models.go      模型目录读取、缓存、启停（含批量）
+├── thinking.go    思考档位解析（reasoning 三形态）与归一
+├── promotion.go   限时促销与套餐门槛（modelPromotions / modelTiers）
+├── context.go     上下文预检（字符启发式，不用 tiktoken）
 ├── relay.go       /api/workbuddy/v1：模型列表 + chat/completions（流式/非流式）
 ├── usage.go       实际用量与扣费（站点时区日聚合）、选号权重、usage 接口
 ├── diag.go        /_diag 排障面：上游原始 usage 与归一化后实际写往下游的 usage
@@ -137,7 +140,7 @@ backend-go/internal/workbuddy/
 | POST | `/api/workbuddy/activity` | 全部账号立即活跃上报 |
 | GET | `/api/workbuddy/accounts/export` | 导出账号（**含 token**，仅本机会话可下载） |
 | POST | `/api/workbuddy/accounts/import` | 导入账号（按 `id` 去重合并） |
-| GET | `/api/workbuddy/models` | `{success, upstreamReady, models:[{id, enabled, contextLength, maxOutputTokens, supportsImages, supportsReasoning}]}` |
+| GET | `/api/workbuddy/models` | `{success, upstreamReady, models:[{id, enabled, contextLength, maxOutputTokens, supportsImages, supportsReasoning, thinking, isDefault, promotion, tier, disabledMultimodal, limit?}]}` |
 | POST | `/api/workbuddy/models/toggle/{id}` | 单模型启停 |
 | POST | `/api/workbuddy/models/toggle-batch` | 批量启停 |
 | GET | `/api/workbuddy/link` | 网关接入状态 |
@@ -204,7 +207,9 @@ backend-go/internal/workbuddy/
 
 1. **WorkBuddy**（配置）：启用中继、接入模型网关、模型前缀。
 2. **账号**：`Table`（启用 / 账号 / 调用 / 状态 / 操作），顶部「扫码登录」按钮 + 刷新。
-3. **模型**：`Table`（启用 / 模型 / 上下文 / 输出上限 / 图像），顶部批量开关。
+3. **模型**：`Table`（启用 / 模型 / 倍率 / 上下文 / 输出上限 / 思考 / 图像），顶部批量开关。
+   倍率列在有促销时显示「免费」或折后价（原价与活动截止进 tooltip）；思考列显示档位数量
+   （tooltip 列出全部档位与是否可关闭）；模型名旁标「默认」「Pro Only」「限流」徽标。
 
 对话框：扫码登录（二维码 + 轮询状态 + 过期重取）、删除账号（`useConfirmPress` 二次确认）。
 
@@ -312,7 +317,45 @@ backend-go/internal/workbuddy/
 3. **模型前缀默认值**：现默认空串（沿用上游模型名）。是否默认 `wb-` 以免与其它端点重名？
 4. **Claude Code 模板改写**：现无条件改写（同参考实现）。会轻度污染发往上游的 system 提示，
    网关若主要服务非 Claude Code 客户端，可做成开关。
-5. **hy3/hy4 强制 `reasoning_effort=high`**：现无条件覆盖。是否做成可关闭项便于对比排障？
+5. ~~**hy3/hy4 强制 `reasoning_effort=high`**~~ **已定案**：改为按上游
+   `models[].reasoning.supportedEfforts` 归一（见 §11.1）。理由：2026-10 实测混元
+   已声明多档（`wb`/`intl` 的 `hy3` 为 `["low","high"]`），按前缀硬改会把用户明确
+   要的 `low` 改掉。只有「上游只给默认档、无档位列表」的模型才会被收敛到该档。
+
+## 11.1 思考档位与促销（2026-10-20 实测）
+
+上游 `models[].reasoning` 有三种形态，统一解析为 `ThinkingConfig`：
+
+| 形态 | 字段 | 含义 | 归一行为 |
+| --- | --- | --- | --- |
+| 1 | `{effort, summary}` | 只给默认档 | 任何请求都落到该档（上游只认一档） |
+| 2 | `{canDisableThinking, defaultEffort, summary, supportedEfforts[]}` | 完整能力 | 映射到「不小于请求的最低可用档」；可关闭时支持 `none` |
+| 3 | `{defaultEffort, supportedEfforts[]}` | 无 `canDisableThinking` | 同 2，但不可关闭 |
+
+请求侧：调用方 `reasoning_effort`（也接受 `reasoning.effort`）经 `ThinkingConfig.Resolve`
+归一后写回 `reasoning_effort`；`none` 仅在 `canDisableThinking=true` 时生效，
+否则落到默认档（不假装关掉）。模型无 `reasoning` 字段时**完全不动 body**（保持透传）。
+
+实测样例（`intl`）：`kimi-k2.8-preview` = `low/high/max` 可关闭；
+`gpt-5.6-*` = `low/medium/high/xhigh/max` 可关闭；`gpt-5.4` = 不可关闭；
+`hy3` = `["low","high"]` 不可关闭；`hy4-preview` = 只有 `["high"]`。
+
+**限时促销**（`data.modelPromotions[]`，与 `models` 平级，目前只有国际版下发）：
+
+- 折扣类条目带 `kind:"discount"` + `discount.factor`（0 表示免费）+ `schedule` 时间窗。
+- **必须按 `schedule.validFrom~validUntil` 与 `enabled` 过滤**：实测 `hy3` 的免费活动
+  写着 "Aug 6 – Oct 31"，过期就不能再标免费。
+- **目录类条目（图片/视频模型）没有 `discount` 字段，绝不能当免费**，否则会把
+  `gpt-image-2.5-sunburst`、`seedance-2.5` 这类错标成 0 成本。
+- 同一模型被多条命中的取 `priority` 最高者。
+
+**套餐门槛**（`data.modelTiers[]`）：如 `gpt-pro-only` 覆盖一批 GPT/Grok/Gemini 模型，
+前端标「Pro Only」并展示升级提示。
+
+**上下文预检**：`models[].maxInputTokens` 是可靠的输入上限（与 Qoder 不同，这个字段
+在本插件里没有自相矛盾），转发前用字符启发式估算（ASCII 约 4 字符/token、CJK 约 1.3）
+拦截超限请求，返回 400 `context_length_exceeded`。**不用 tiktoken**：实测超线性
+（40000 字符约 1.8s），放热路径会拖慢每次请求。
 
 ## 11. 上游可获取的账号 / 计费信息（实测结论）
 
@@ -320,8 +363,11 @@ backend-go/internal/workbuddy/
 
 | 信息 | 能否获取 | 来源 | 状态 |
 | --- | --- | --- | --- |
-| **模型倍率（credits）** | ✅ | `GET /v3/config` 的 `models[].credits`，形如 `"x0.79 credits"` | **已接入**：解析为 `ModelInfo.CreditsMultiplier`，在插件模型表「倍率」列展示。**不需要登录** |
-| 模型能力元数据 | ✅ | 同接口：`maxInputTokens` / `maxOutputTokens` / `maxAllowedSize` / `supportsImages` / `supportsReasoning` / `supportsToolCall` / `onlyReasoning` / `vendor` / `descriptionZh` | **已接入**（图像类条目 `maxInputTokens <= 0` 会被跳过） |
+| 模型倍率（credits） | ✅ | `GET /v3/config` 的 `models[].credits`，形如 `"x0.79 credits"` | **已接入**：解析为 `ModelInfo.CreditsMultiplier`，在插件模型表「倍率」列展示。**不需要登录** |
+| 模型能力元数据 | ✅ | 同接口：`maxInputTokens` / `maxOutputTokens` / `maxAllowedSize` / `supportsImages` / `supportsReasoning` / `supportsToolCall` / `onlyReasoning` / `vendor` / `descriptionZh` / `isDefault` / `disabledMultimodal` | **已接入**（图像类条目 `maxInputTokens <= 0` 会被跳过） |
+| **思考档位** | ✅ | 同接口 `models[].reasoning`，三种形态（见 §11.1） | **已接入**：`ModelInfo.Thinking`，请求按能力归一 |
+| **限时促销** | ✅（目前仅国际版） | 同接口 `data.modelPromotions[]`：`discount.factor` / `schedule.validFrom~validUntil` / `badge.label` / `hover.textZh` | **已接入**：按时间窗与 `enabled` 过滤后回填到模型的 `Promotion` |
+| **套餐门槛** | ✅（目前仅国际版） | 同接口 `data.modelTiers[]`：`tier` / `modelIds` / `badge.label` / `hover` | **已接入**：`ModelInfo.Tier`，前端标「Pro Only」 |
 | 账号剩余额度 / 已用积分 | ❌（CLI 侧无公开接口） | — | `/v2/plugin/*` 与 `/v3/config` 都不返回；实测探测 8 个候选额度路径（`/v2/plugin/user/credit`、`/v2/plugin/usage`、`/v2/plugin/quota`、`/v2/credit/balance` 等）**全部 404** |
 | 单次请求 token 用量 | ✅ | `POST /v2/chat/completions` 的 SSE 流末 `usage` | 实测需 `stream_options.include_usage: true`（本插件已自动注入）；含 `prompt_cache_hit_tokens` / `prompt_cache_miss_tokens` |
 | **单次请求实际扣费（credit）** | ✅ | 同上，`usage.credit` | 实测未命中约 0.45、命中约 0.13~0.21（GLM-5.3）。比「倍率」更直接；目前透传给网关但未落库 |

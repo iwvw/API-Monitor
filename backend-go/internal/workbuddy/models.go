@@ -280,6 +280,12 @@ func (s *Service) handleModels(w http.ResponseWriter, r *http.Request) {
 			"idRegions":         m.IDRegions,
 			"internationalOnly": m.InternationalOnly,
 			"enabled":           !disabled[id],
+			// 能力与运营情报：思考档位、默认模型、限时促销、套餐门槛、多模态禁用。
+			"thinking":           m.Thinking,
+			"isDefault":          m.IsDefault,
+			"promotion":          m.Promotion,
+			"tier":               m.Tier,
+			"disabledMultimodal": m.DisabledMultimodal,
 		}
 		if st, ok := limitStats[m.ID]; ok {
 			entry["limit"] = st

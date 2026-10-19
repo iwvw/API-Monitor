@@ -56,6 +56,39 @@ func (s *Service) serveRelayModels(w http.ResponseWriter) {
 	responseJSON(w, map[string]interface{}{"object": "list", "data": out})
 }
 
+// thinkingFor 返回某模型的思考能力（未加前缀的上游模型名）。
+// 目录未就绪时返回 nil，此时请求体不做思考档位改写（保持透传）。
+func (s *Service) thinkingFor(model string) *ThinkingConfig {
+	name := strings.TrimSpace(model)
+	if name == "" {
+		return nil
+	}
+	s.modelMu.Lock()
+	defer s.modelMu.Unlock()
+	for _, m := range s.modelCache {
+		if strings.EqualFold(s.prefixModel(m.ID), name) || strings.EqualFold(m.ID, name) {
+			return m.Thinking
+		}
+	}
+	return nil
+}
+
+// catalogEntryFor 返回某模型的目录条目（未加或已加前缀均可）。
+func (s *Service) catalogEntryFor(model string) (ModelInfo, bool) {
+	name := strings.TrimSpace(s.stripModelPrefix(strings.TrimSpace(model)))
+	if name == "" {
+		return ModelInfo{}, false
+	}
+	s.modelMu.Lock()
+	defer s.modelMu.Unlock()
+	for _, m := range s.modelCache {
+		if strings.EqualFold(m.ID, name) {
+			return m, true
+		}
+	}
+	return ModelInfo{}, false
+}
+
 // serveChatCompletions 转发一次对话请求。
 func (s *Service) serveChatCompletions(w http.ResponseWriter, r *http.Request) {
 	body, err := io.ReadAll(io.LimitReader(r.Body, maxChatBodyBytes))
@@ -79,10 +112,17 @@ func (s *Service) serveChatCompletions(w http.ResponseWriter, r *http.Request) {
 	}
 
 	model := s.stripModelPrefix(requested)
+	if reason := s.checkContext(body, model); reason != "" {
+		writeOpenAIError(w, http.StatusBadRequest, reason, "context_length_exceeded")
+		return
+	}
 	// 上游拒绝非流式（业务码 11101）：发给上游的 body 一律强制 stream:true，
 	// 非流式由本层把 SSE 聚合回整包。模型名先剥本插件前缀，
 	// 否则思考档位判定（hy3/hy4 前缀）会被前缀干扰。
-	payload := forceStreamBody(rewriteForUpstream(body, model))
+	//
+	// 思考档位按**上游声明的能力**归一（见 thinking.go / normalizeThinking）：
+	// 模型只接受某一档时落到该档，有档位列表时映射到不小于请求的最低可用档。
+	payload := forceStreamBody(rewriteForUpstreamWithThinking(body, model, s.thinkingFor(model)))
 
 	// 失败换号重试：单次转发最多尝试 maxAccountAttempts 个账号。
 	// 失败分两类，处置**不同**（见 ratelimit.go 开头）：

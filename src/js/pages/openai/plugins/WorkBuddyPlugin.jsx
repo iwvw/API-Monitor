@@ -56,6 +56,7 @@ const WORKBUDDY_MODEL_COLUMNS = [
   { id: 'credits', role: 'meta', align: 'center' },
   { id: 'context', role: 'count', align: 'center' },
   { id: 'maxOutput', role: 'count', align: 'center' },
+  { id: 'thinking', role: 'meta', align: 'center' },
   { id: 'images', role: 'status' },
 ];
 
@@ -134,9 +135,47 @@ const fmtBalance = v => {
 
 // fmtCredits 格式化上游积分倍率（来自 /v3/config 的 credits，形如 "x0.79 credits"）。
 // 解析失败时退回原始串，再退回「—」，绝不显示成 0（会被误读为免费）。
+// 有生效中的促销时显示「免费」/折后价，原价放进 tooltip。
 const fmtCredits = m => {
+  const promo = m?.promotion;
+  if (promo && Number(promo.factor) === 0) return '免费';
+  if (promo && Number(promo.factor) > 0 && Number(promo.factor) < 1) {
+    const base = m?.creditsParsed ? Number(m.creditsMultiplier) : 0;
+    if (base > 0) return `x${(base * Number(promo.factor)).toFixed(2)}`;
+  }
   if (m?.creditsParsed) return `x${Number(m.creditsMultiplier).toFixed(2)}`;
   return m?.creditsLabel || '—';
+};
+
+// creditsTitle 生成倍率列的悬浮说明：原价、促销详情、到期时间。
+const creditsTitle = m => {
+  const parts = [];
+  if (m?.creditsLabel) parts.push(`上游原始值：${m.creditsLabel}`);
+  const promo = m?.promotion;
+  if (promo) {
+    if (promo.label) parts.push(promo.label);
+    if (promo.text) parts.push(promo.text);
+    if (promo.validUntil) parts.push(`活动截止 ${promo.validUntil}`);
+  }
+  if (!parts.length) parts.push('上游未提供倍率');
+  return parts.join(' · ');
+};
+
+// thinkingMeta 生成思考列：档位数量与是否可关闭，悬浮列出全部档位。
+const thinkingMeta = m => {
+  const t = m?.thinking;
+  if (!t) return { label: '—', title: '该模型不支持思考档位' };
+  const efforts = t.supportedEfforts || [];
+  if (!efforts.length) {
+    // 只有默认档（上游未声明档位列表）：只能落到该档。
+    return {
+      label: t.defaultEffort || '固定',
+      title: `上游只接受固定档位 ${t.defaultEffort || '默认'}，调用方的 reasoning_effort 会被归一到该档`,
+    };
+  }
+  const detail = `档位：${efforts.join(' / ')}（默认 ${t.defaultEffort || efforts[efforts.length - 1]}）`;
+  const toggle = t.canDisable ? '可关闭' : '不可关闭';
+  return { label: `${efforts.length} 档`, title: `${detail} · ${toggle}` };
 };
 
 // WorkBuddyPlugin：模型网关「插件中心」卡片——腾讯 CodeBuddy / WorkBuddy 转 OpenAI 兼容 API。
@@ -1352,7 +1391,7 @@ export function WorkBuddyPlugin() {
         >
           {models.length ? (
             <div className="overflow-x-auto">
-              <AppTable tableId="workbuddy-models" columns={WORKBUDDY_MODEL_COLUMNS} className="w-full min-w-[44rem] text-xs">
+              <AppTable tableId="workbuddy-models" columns={WORKBUDDY_MODEL_COLUMNS} className="w-full min-w-[52rem] text-xs">
                 <Table.Header variant="compact">
                   <Table.Row className="h-8">
                     <Table.Head className="!px-2 !py-1.5 text-center">
@@ -1373,6 +1412,9 @@ export function WorkBuddyPlugin() {
                     </Table.Head>
                     <Table.Head className="!px-2 !py-1.5 text-center">上下文</Table.Head>
                     <Table.Head className="!px-2 !py-1.5 text-center">输出上限</Table.Head>
+                    <Table.Head className="!px-2 !py-1.5 text-center">
+                      <span title="思考能力（/v3/config 的 reasoning）：可用档位与是否可关闭；调用方用 reasoning_effort 指定，自动归一到上游档位">思考</span>
+                    </Table.Head>
                     <Table.Head className="!px-2 !py-1.5 text-center">图像</Table.Head>
                   </Table.Row>
                 </Table.Header>
@@ -1408,6 +1450,20 @@ export function WorkBuddyPlugin() {
                           <span className="truncate font-mono text-kumo-strong" title={m.id}>
                             {m.id}
                           </span>
+                          {m.isDefault ? (
+                            <Badge variant="info" className="!text-[0.7em] shrink-0" title="上游默认模型">
+                              默认
+                            </Badge>
+                          ) : null}
+                          {m.tier ? (
+                            <Badge
+                              variant="purple"
+                              className="!text-[0.7em] shrink-0"
+                              title={[m.tier.label, m.tier.text, m.tier.action].filter(Boolean).join(' · ')}
+                            >
+                              {m.tier.label || '需订阅'}
+                            </Badge>
+                          ) : null}
                           {/* 模型级限流：并排在模型名之后，不单独占行。allLimited = 当前所有
                               可用账号都在该模型上限流（此刻真的打不通，中继直接回 429 且不打上游）。 */}
                           {m.limit && (
@@ -1433,12 +1489,20 @@ export function WorkBuddyPlugin() {
                         </div>
                       </Table.Cell>
                       <Table.Cell className="!px-2 !py-1.5 text-center">
-                        <span
-                          className="font-mono text-xs text-kumo-strong"
-                          title={m.creditsLabel ? `上游原始值：${m.creditsLabel}` : '上游未提供倍率'}
-                        >
-                          {fmtCredits(m)}
-                        </span>
+                        <div className="flex flex-col items-center gap-0.5">
+                          <span className="font-mono text-xs text-kumo-strong" title={creditsTitle(m)}>
+                            {fmtCredits(m)}
+                          </span>
+                          {m.promotion ? (
+                            <Badge
+                              variant={Number(m.promotion.factor) === 0 ? 'success' : 'warning'}
+                              className="!text-[0.7em]"
+                              title={creditsTitle(m)}
+                            >
+                              {m.promotion.label || (Number(m.promotion.factor) === 0 ? '免费' : '折扣')}
+                            </Badge>
+                          ) : null}
+                        </div>
                       </Table.Cell>
                       <Table.Cell className="!px-2 !py-1.5 text-center">
                         <span className="font-mono text-xs text-kumo-subtle">{fmtContext(m.contextLength)}</span>
@@ -1447,7 +1511,12 @@ export function WorkBuddyPlugin() {
                         <span className="font-mono text-xs text-kumo-subtle">{fmtContext(m.maxOutputTokens)}</span>
                       </Table.Cell>
                       <Table.Cell className="!px-2 !py-1.5 text-center">
-                        {m.supportsImages ? (
+                        <span className="font-mono text-xs text-kumo-strong" title={thinkingMeta(m).title}>
+                          {thinkingMeta(m).label}
+                        </span>
+                      </Table.Cell>
+                      <Table.Cell className="!px-2 !py-1.5 text-center">
+                        {m.supportsImages && !m.disabledMultimodal ? (
                           <Badge variant="success" className="text-xs">支持</Badge>
                         ) : (
                           <span className="text-xs text-kumo-subtle">—</span>
