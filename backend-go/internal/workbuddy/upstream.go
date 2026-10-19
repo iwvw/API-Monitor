@@ -1455,6 +1455,41 @@ func normalizeThinking(thinking *ThinkingConfig, payload map[string]any) bool {
 	return true
 }
 
+// defaultSystemPrompt 是首条消息不是 system 时补上的占位系统提示。
+//
+// 为什么必须补：上游要求 messages 的**首条必须是 system**，否则返回
+//
+//	HTTP 400 {"code":11128,"msg":"first message is not system prompt"}
+//
+// 实测（2026-10-20，办公版真实账号）该错误**稳定复现**（连续 3 次全中），
+// 不是抽样校验；补一条 system 后立即 200。
+//
+// 这与 §「渠道抽样校验」记录的 11128 是同一个业务码，但触发条件不同：
+// 抽样是随机的，这里是确定性的格式要求。
+//
+// 用中性文案，避免影响模型行为；若调用方自带了 system 则完全不动。
+const defaultSystemPrompt = "You are a helpful assistant."
+
+// ensureSystemPrompt 在 messages 首条不是 system 时插入一条占位 system。
+// 返回是否发生了改动。messages 缺失或为空时不动（交给上游判非法）。
+func ensureSystemPrompt(payload map[string]any) bool {
+	messages, ok := payload["messages"].([]any)
+	if !ok || len(messages) == 0 {
+		return false
+	}
+	if first, ok := messages[0].(map[string]any); ok {
+		if role, _ := first["role"].(string); strings.EqualFold(strings.TrimSpace(role), "system") {
+			return false
+		}
+	}
+	// 插到最前面，保持其余消息顺序不变。
+	next := make([]any, 0, len(messages)+1)
+	next = append(next, map[string]any{"role": "system", "content": defaultSystemPrompt})
+	next = append(next, messages...)
+	payload["messages"] = next
+	return true
+}
+
 // rewriteForUpstream 在转发前改写请求体：清理 messages 里被拉黑的模板句
 // （字符串与多模态数组两种形态），并按模型的**上游能力**归一思考档位。
 // 任一步骤失败或无需改动时返回原 body，绝不因改写失败而阻断转发。
@@ -1507,6 +1542,9 @@ func rewriteForUpstreamWithThinking(body []byte, model string, thinking *Thinkin
 		// 调用方传的是**剥离插件前缀后**的真实模型名，必须写回 body ——
 		// 否则上游会收到带插件前缀的名字（如 wb-hy3）而报未知模型。
 		payload["model"] = model
+		changed = true
+	}
+	if ensureSystemPrompt(payload) {
 		changed = true
 	}
 	if normalizeThinking(thinking, payload) {

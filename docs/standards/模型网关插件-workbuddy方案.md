@@ -60,6 +60,7 @@
 | 登录态隔离 | 一个 state 一个 cookie jar，**不可共用**（浏览器登录与 state 绑定） |
 | 内容审核 | 两句 Claude Code 固定 system 模板被逐字拉黑，需最小改写：`official CLI for Claude` → `official CLI tool for Claude`、`Main branch` → `Default branch`（精确匹配，非语义） |
 | **渠道抽样校验** | 上游自 2026-10 起对出站接口加**抽样**校验（约 0.05%，集中在数分钟窗口）：抽中时回 HTTP 400 + 业务码 `11128`，`msg` 形如 `request illegal` / `conversation id missing`，`displayMsg`「请求被拦截，请重新发送」，`displayTips`「这次调用没通过渠道校验，可能不是官方客户端发出的」。**非 payload 语法错误**，换号/重发常能通过 → 标记可重试（见 §14「失败换号」）。参 workbuddy2api-hub issue #380/#392、PR #381 |
+| **首条必须是 system** | 同一业务码 `11128`，但 `msg` 为 **`first message is not system prompt`**。这是**确定性格式要求，不是抽样**：2026-10-20 实测连续 3 次全中、补一条 system 后立即 200。中继在 `ensureSystemPrompt` 里对「首条非 system」的请求插入一条中性占位 `You are a helpful assistant.`（调用方自带 system 时完全不动）。这条同时解释了网关「健康检测」为何对该端点报 502 —— 检测请求只发一条 user 消息 |
 | 思考模式 | 按目录里 `models[].reasoning` 声明的能力归一 `reasoning_effort`（见 §3.x 思考档位）。**不再按 hy3/hy4 前缀硬编码 high** —— 实测 2026-10 起混元能力已细化，`wb`/`intl` 的 `hy3` 声明 `supportedEfforts:["low","high"]`，硬改会覆盖用户合法的 low |
 | SSE 分帧 | `/v1/chat/completions`、`/v1/completions` 入口的 chunk **不带** `data: ` 前缀；其它跨协议翻译入口**必须带** |
 

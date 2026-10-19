@@ -721,7 +721,9 @@ func TestRewriteForUpstreamHandlesStringAndParts(t *testing.T) {
 }
 
 func TestRewriteForUpstreamNoopWhenNothingToChange(t *testing.T) {
-	body := []byte(`{"model":"deepseek-v4-pro","messages":[{"role":"user","content":"hi"}]}`)
+	// 首条已是 system：此时没有模板句、没有思考档位、模型名无需写回，
+	// 唯一会触发改写的「补 system」也不成立，因此必须原样返回字节。
+	body := []byte(`{"model":"deepseek-v4-pro","messages":[{"role":"system","content":"s"},{"role":"user","content":"hi"}]}`)
 	out := rewriteForUpstream(body, "deepseek-v4-pro")
 	if string(out) != string(body) {
 		// 无改动时必须原样返回，避免无意义的重编码改动上游看到的字节。
@@ -796,4 +798,73 @@ func indexOf(haystack, needle string) int {
 		}
 	}
 	return -1
+}
+
+// TestEnsureSystemPrompt 验证首条消息不是 system 时自动补一条。
+//
+// 上游硬性要求（实测 2026-10-20，连续 3 次稳定复现，不是抽样校验）：
+//
+//	HTTP 400 {"code":11128,"msg":"first message is not system prompt"}
+//
+// 补一条 system 后立即 200。这条验证的正是该补齐逻辑。
+func TestEnsureSystemPrompt(t *testing.T) {
+	// 首条是 user → 插入 system，其余顺序不变。
+	payload := map[string]any{
+		"messages": []any{
+			map[string]any{"role": "user", "content": "hi"},
+			map[string]any{"role": "assistant", "content": "hello"},
+		},
+	}
+	if !ensureSystemPrompt(payload) {
+		t.Fatal("should insert system prompt")
+	}
+	msgs := payload["messages"].([]any)
+	if len(msgs) != 3 {
+		t.Fatalf("messages = %d, want 3", len(msgs))
+	}
+	if role := msgs[0].(map[string]any)["role"]; role != "system" {
+		t.Fatalf("first role = %v, want system", role)
+	}
+	if role := msgs[1].(map[string]any)["role"]; role != "user" {
+		t.Fatalf("second role = %v, want user (原顺序必须保持)", role)
+	}
+
+	// 首条已是 system → 不动。
+	withSystem := map[string]any{
+		"messages": []any{
+			map[string]any{"role": "system", "content": "custom"},
+			map[string]any{"role": "user", "content": "hi"},
+		},
+	}
+	if ensureSystemPrompt(withSystem) {
+		t.Fatal("should not touch existing system prompt")
+	}
+	// 大小写与前后空白也应识别为 system。
+	oddCase := map[string]any{
+		"messages": []any{map[string]any{"role": " System ", "content": "x"}},
+	}
+	if ensureSystemPrompt(oddCase) {
+		t.Fatal("role matching should be case/space insensitive")
+	}
+	// 空 messages / 缺失 messages → 不动（交上游判非法）。
+	if ensureSystemPrompt(map[string]any{}) {
+		t.Fatal("missing messages should be untouched")
+	}
+	if ensureSystemPrompt(map[string]any{"messages": []any{}}) {
+		t.Fatal("empty messages should be untouched")
+	}
+}
+
+// TestRewriteAddsSystemPrompt 验证改写链路里确实会补 system。
+func TestRewriteAddsSystemPrompt(t *testing.T) {
+	body := []byte(`{"model":"deepseek-v4.1-flash","messages":[{"role":"user","content":"hi"}]}`)
+	out := rewriteForUpstreamWithThinking(body, "deepseek-v4.1-flash", nil)
+	var obj map[string]any
+	if err := json.Unmarshal(out, &obj); err != nil {
+		t.Fatal(err)
+	}
+	msgs := obj["messages"].([]any)
+	if len(msgs) != 2 || msgs[0].(map[string]any)["role"] != "system" {
+		t.Fatalf("expected injected system prompt, got %v", msgs)
+	}
 }

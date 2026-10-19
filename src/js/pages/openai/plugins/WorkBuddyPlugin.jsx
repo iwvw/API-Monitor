@@ -1518,17 +1518,28 @@ export function WorkBuddyPlugin() {
           {models.length ? (
             <>
               {/* 三个区域目录差异很大（办公版不返回 credits、国际版有促销/套餐门槛），
-                  分开 tab 展示：混排时同一列既有权威倍率又有「—」，看不出是哪个区域缺。 */}
-              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-kumo-line px-3 py-2">
+                  分开 tab 展示：混排时同一列既有权威倍率又有「—」，看不出是哪个区域缺。
+
+                  注意：不要给 Tabs 加 overflow-x-auto。segmented 变体自带 rounded-lg + ring，
+                  而 SectionCard 外层是 overflow-hidden；overflow-x-auto 会把 overflow-y
+                  隐式变成 auto，等于在 tab 自己的圆角/描边外面再套一层裁剪框，
+                  tab 的下边界会被切掉。Kumo 的 TabsList 内部已有 overflow-x-auto 与
+                  溢出滚动按钮，横向滚动不需要外层再管。 */}
+              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-kumo-line px-3 py-2.5">
                 <div className="flex min-w-0 items-center gap-2">
-                  <Tabs
-                    {...TOOL_TABS_PROPS}
-                    value={activeRegionKey}
-                    onValueChange={value => setModelRegionTab(String(value))}
-                    tabs={regionTabItems}
-                    className="min-w-max shrink-0"
-                    listClassName="max-w-full overflow-x-auto whitespace-nowrap scrollbar-thin"
-                  />
+                  {/* 外层只负责布局，不设 overflow：给 segmented Tabs 的 rounded-lg + ring
+                      留出完整绘制空间，避免下边界被任何祖先裁剪掉。 */}
+                  <div className="flex min-w-0 items-center py-0.5">
+                    <Tabs
+                      {...TOOL_TABS_PROPS}
+                      value={activeRegionKey}
+                      onValueChange={value => setModelRegionTab(String(value))}
+                      tabs={regionTabItems}
+                      // 覆盖 TOOL_TABS_PROPS 的 w-full：外层是 flex 行，撑满会把右侧徽标挤走。
+                      // 注意不要加 overflow-x-auto（会把 overflow-y 隐式变 auto，切掉 tab 下边界）。
+                      className="min-w-max shrink-0"
+                    />
+                  </div>
                   <Badge variant={regionMeta(activeRegionKey).badge} className="!text-[0.72em] shrink-0">
                     {regionMeta(activeRegionKey).tag}
                   </Badge>

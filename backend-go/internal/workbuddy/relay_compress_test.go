@@ -100,6 +100,7 @@ func TestRelaySendsGzipAndUpstreamSeesFullContent(t *testing.T) {
 	var got struct {
 		Model    string `json:"model"`
 		Messages []struct {
+			Role    string `json:"role"`
 			Content string `json:"content"`
 		} `json:"messages"`
 	}
@@ -109,8 +110,17 @@ func TestRelaySendsGzipAndUpstreamSeesFullContent(t *testing.T) {
 	if got.Model != "hy3" {
 		t.Fatalf("模型名应原样到达上游，得到 %q", got.Model)
 	}
-	if len(got.Messages) != 1 || got.Messages[0].Content != longText {
-		t.Fatalf("消息内容在上游侧不一致（长度 %d vs 原文 %d）", len(got.Messages[0].Content), len(longText))
+	// 中继会给「首条非 system」的请求补一条占位 system（上游硬性要求），
+	// 因此这里按 user 消息定位原文，而不是假设只有一条。
+	userText := ""
+	for _, m := range got.Messages {
+		if m.Role == "user" {
+			userText = m.Content
+			break
+		}
+	}
+	if userText != longText {
+		t.Fatalf("消息内容在上游侧不一致（长度 %d vs 原文 %d）", len(userText), len(longText))
 	}
 }
 
@@ -147,13 +157,22 @@ func TestRelaySendsPlainBodyWhenCompressionDisabled(t *testing.T) {
 	}
 	var got struct {
 		Messages []struct {
+			Role    string `json:"role"`
 			Content string `json:"content"`
 		} `json:"messages"`
 	}
 	if err := json.Unmarshal(body, &got); err != nil {
 		t.Fatalf("上游收到非 JSON: %v", err)
 	}
-	if len(got.Messages) != 1 || got.Messages[0].Content != longText {
+	// 同 TestRelaySendsGzip...：中继会补占位 system，按 user 消息定位原文。
+	userText := ""
+	for _, m := range got.Messages {
+		if m.Role == "user" {
+			userText = m.Content
+			break
+		}
+	}
+	if userText != longText {
 		t.Fatal("关闭压缩后内容仍应完整到达上游")
 	}
 }
