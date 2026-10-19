@@ -801,26 +801,22 @@ export function WorkBuddyPlugin() {
     { region: 'intl', label: REGION_META.intl.tag, items: accounts.filter(a => normalizeRegion(a.region) === 'intl') },
   ].filter(g => g.items.length > 0);
 
-  // 模型区域标签：按**型号名**判定（后端已按 displayName 对齐各区域）。
-  // 国内=蓝、办公=青、国际=紫，与账号表保持一致。仅一个区域提供时打「国内/办公/国际」，
-  // 多区域提供则「共用」；若该 id 自身不是多区域都有（如 Kimi-K3 的国内档 kimi-k3-1），
-  // tooltip 里补充说明。
-  const modelRegionMeta = m => {
-    const idOnly = Array.isArray(m.idRegions) && m.idRegions.length === 1 ? m.idRegions[0] : '';
-    const idHint = idOnly ? `（此档位仅${regionMeta(idOnly).label}版提供）` : '';
-    const regions = Array.isArray(m.regions) ? m.regions : [];
-    if (regions.length === 1) {
-      const meta = regionMeta(regions[0]);
-      return {
-        label: meta.label,
-        variant: meta.badge,
-        title: `仅${meta.label}版提供（${meta.tag.split('· ')[1]}），转发只会在此区域的账号上选号${idHint}`,
-      };
-    }
+  // 模型跨区标记：按 **idRegions**（该 id 自身可用区域）判定，不再用型号级 regions。
+  //
+  // 为什么改：分 tab 后当前区域已由 tab 表达，再显示「共用」会让人误读成
+  // 「共用了别的区域的数据」。这里真正有用的信息是「这个 id 除了当前区域，
+  // 还在哪些区域可选」——它决定转发时会不会在这些区域的账号间轮询。
+  //
+  // 型号级 regions（按 displayName 对齐）只用于说明「同一型号各区域档位不同」，
+  // 已通过 modelNameHint 放在模型名 tooltip 里，不占独立列。
+  const modelCrossRegionMeta = (m, region) => {
+    const idRegions = Array.isArray(m.idRegions) ? m.idRegions : [];
+    const others = idRegions.filter(r => normalizeRegion(r) !== normalizeRegion(region));
+    if (!others.length) return null;
+    const labels = others.map(r => regionMeta(r).label);
     return {
-      label: '共用',
-      variant: 'outline',
-      title: `该型号多区域提供，在所有账号间轮询选号${idHint}`,
+      label: `跨${labels.join('/')}`,
+      title: `该模型在${labels.join('、')}版也可调用（同一 id），转发时会在这些区域的账号间轮询选号`,
     };
   };
 
@@ -1546,7 +1542,9 @@ export function WorkBuddyPlugin() {
                           />
                         </div>
                       </Table.Head>
-                      <Table.Head className="!px-2 !py-1.5 text-center">区域</Table.Head>
+                      <Table.Head className="!px-2 !py-1.5 text-center">
+                        <span title="该模型除本区域外还可在哪些区域调用（同一 id）。转发时会在这些区域的账号间轮询选号；空白表示仅本区域可用">跨区</span>
+                      </Table.Head>
                       <Table.Head className="!px-2.5 !py-1.5">模型</Table.Head>
                       <Table.Head className="!px-2 !py-1.5 text-center">
                         <span
@@ -1586,13 +1584,19 @@ export function WorkBuddyPlugin() {
                           </div>
                         </Table.Cell>
                         <Table.Cell className="!px-2 !py-1.5 text-center">
-                          <Badge
-                            variant={modelRegionMeta(m).variant}
-                            className="!text-[0.72em]"
-                            title={modelRegionMeta(m).title}
-                          >
-                            {modelRegionMeta(m).label}
-                          </Badge>
+                          {(() => {
+                            const cross = modelCrossRegionMeta(m, activeRegionKey);
+                            if (!cross) {
+                              return (
+                                <span className="text-xs text-kumo-subtle" title="仅本区域提供">—</span>
+                              );
+                            }
+                            return (
+                              <Badge variant="outline" className="!text-[0.72em]" title={cross.title}>
+                                {cross.label}
+                              </Badge>
+                            );
+                          })()}
                         </Table.Cell>
                         <Table.Cell className="!px-2.5 !py-1.5">
                           <div className="flex min-w-0 items-center gap-1.5">
