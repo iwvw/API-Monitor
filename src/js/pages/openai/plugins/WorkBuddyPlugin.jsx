@@ -134,11 +134,44 @@ const fmtBalance = v => {
   return Number.isInteger(n) ? String(n) : n.toFixed(2);
 };
 
+// scopedRegionMeta 取某模型在指定区域的元数据（后端按区域保留思考能力/促销/套餐门槛）。
+//
+// 为什么必须按区域取：上游的这些字段是**按区域目录**分别下发的（促销与套餐门槛
+// 目前只有国际版下发），而模型目录是按 id 合并的视图。直接用顶层的 promotion/tier
+// 会把国际版的活动错标到国内版头上；反之合并时若丢掉非基座区域，整条促销信息
+// 就永远不可见。
+const scopedRegionMeta = (m, region) => m?.regionMeta?.[region] || null;
+
+// regionPromotion 取当前 tab 区域的限时促销。
+//
+// 有按区域元数据时**只用该区域自己的值**（没有就是没有，不跨区域借用）：
+// 顶层字段代表的是合并基座区域的值，借用它会把别的区域的促销错标过来。
+// 只有完全没有按区域元数据时（老后端）才退回顶层字段。
+const regionPromotion = (m, region) => {
+  const scoped = scopedRegionMeta(m, region);
+  if (scoped) return scoped.promotion || null;
+  return m?.promotion || null;
+};
+
+// regionTier 取当前 tab 区域的套餐门槛（规则同 regionPromotion）。
+const regionTier = (m, region) => {
+  const scoped = scopedRegionMeta(m, region);
+  if (scoped) return scoped.tier || null;
+  return m?.tier || null;
+};
+
+// regionThinking 取当前 tab 区域的思考能力（规则同 regionPromotion）。
+const regionThinking = (m, region) => {
+  const scoped = scopedRegionMeta(m, region);
+  if (scoped) return scoped.thinking || null;
+  return m?.thinking || null;
+};
+
 // fmtCredits 格式化上游积分倍率（来自 /v3/config 的 credits，形如 "x0.79 credits"）。
 // 解析失败时退回原始串，再退回「—」，绝不显示成 0（会被误读为免费）。
 // 有生效中的促销时显示「免费」/折后价，原价放进 tooltip。
-const fmtCredits = m => {
-  const promo = m?.promotion;
+const fmtCredits = (m, region) => {
+  const promo = regionPromotion(m, region);
   if (promo && Number(promo.factor) === 0) return '免费';
   if (promo && Number(promo.factor) > 0 && Number(promo.factor) < 1) {
     const base = m?.creditsParsed ? Number(m.creditsMultiplier) : 0;
@@ -182,9 +215,9 @@ const creditsUnavailable = (models, region) => {
   });
   if (!ownOnly.length) {
     // 该区域没有独有模型（目录与其它区域完全重合）：退回「整份都缺」判定。
-    return models.every(m => !m.creditsParsed && !m.creditsLabel && !m.promotion);
+    return models.every(m => !m.creditsParsed && !m.creditsLabel && !regionPromotion(m, region));
   }
-  return ownOnly.every(m => !m.creditsParsed && !m.creditsLabel && !m.promotion);
+  return ownOnly.every(m => !m.creditsParsed && !m.creditsLabel && !regionPromotion(m, region));
 };
 
 // creditsTitle 生成倍率列的悬浮说明：原价、促销详情、到期时间、区域来源。
@@ -193,7 +226,7 @@ const creditsUnavailable = (models, region) => {
 const creditsTitle = (m, region) => {
   const parts = [];
   if (m?.creditsLabel) parts.push(`上游原始值：${m.creditsLabel}`);
-  const promo = m?.promotion;
+  const promo = regionPromotion(m, region);
   if (promo) {
     if (promo.label) parts.push(promo.label);
     if (promo.text) parts.push(promo.text);
@@ -217,8 +250,9 @@ const creditsTitle = (m, region) => {
 };
 
 // thinkingMeta 生成思考列：档位数量与是否可关闭，悬浮列出全部档位。
-const thinkingMeta = m => {
-  const t = m?.thinking;
+// 按当前 tab 区域取思考能力（上游按区域目录分别声明）。
+const thinkingMeta = (m, region) => {
+  const t = regionThinking(m, region);
   if (!t) return { label: '—', title: '该模型不支持思考档位' };
   const efforts = t.supportedEfforts || [];
   if (!efforts.length) {
@@ -254,17 +288,21 @@ const MODEL_REGION_TABS = [
   { value: 'intl', label: '国际版' },
 ];
 
+// modelRegionsOf 返回该模型归属的区域列表（按优先级回退）。
+// 优先 routableRegions（该区域账号实际可调用的模型 id），再退 idRegions / regions。
+// fallback 用于三者都缺失时的兜底（不同用途的兜底不同，故做成参数）。
+const modelRegionsOf = (m, fallback = []) => {
+  const candidates = [m?.routableRegions, m?.idRegions, m?.regions];
+  for (const list of candidates) {
+    if (Array.isArray(list) && list.length) return list;
+  }
+  return fallback;
+};
+
 const modelsByRegion = models => {
   const groups = { cn: [], wb: [], intl: [] };
   for (const m of models || []) {
-    const regions = Array.isArray(m.routableRegions) && m.routableRegions.length
-      ? m.routableRegions
-      : Array.isArray(m.idRegions) && m.idRegions.length
-        ? m.idRegions
-        : Array.isArray(m.regions) && m.regions.length
-          ? m.regions
-          : ['cn'];
-    for (const raw of regions) {
+    for (const raw of modelRegionsOf(m, ['cn'])) {
       const region = normalizeRegion(raw);
       groups[region].push(m);
     }
@@ -822,11 +860,7 @@ export function WorkBuddyPlugin() {
   // 「共用了别的区域的数据」。这里真正有用的信息是「这个 id 除了当前区域，
   // 还能在哪些区域调用」——它决定转发时会不会在这些区域的账号间轮询。
   const modelCrossRegionMeta = (m, region) => {
-    const routable = Array.isArray(m.routableRegions) && m.routableRegions.length
-      ? m.routableRegions
-      : Array.isArray(m.idRegions) && m.idRegions.length
-        ? m.idRegions
-        : [];
+    const routable = modelRegionsOf(m);
     const others = routable.filter(r => normalizeRegion(r) !== normalizeRegion(region));
     if (!others.length) return null;
     const labels = others.map(r => regionMeta(r).label);
@@ -1645,13 +1679,13 @@ export function WorkBuddyPlugin() {
                                 默认
                               </Badge>
                             ) : null}
-                            {m.tier ? (
+                            {regionTier(m, activeRegionKey) ? (
                               <Badge
                                 variant="purple"
                                 className="!text-[0.7em] shrink-0"
-                                title={[m.tier.label, m.tier.text, m.tier.action].filter(Boolean).join(' · ')}
+                                title={[regionTier(m, activeRegionKey).label, regionTier(m, activeRegionKey).text, regionTier(m, activeRegionKey).action].filter(Boolean).join(' · ')}
                               >
-                                {m.tier.label || '需订阅'}
+                                {regionTier(m, activeRegionKey).label || '需订阅'}
                               </Badge>
                             ) : null}
                             {/* 模型级限流：并排在模型名之后，不单独占行。allLimited = 当前所有
@@ -1684,16 +1718,16 @@ export function WorkBuddyPlugin() {
                               className={`font-mono text-xs ${creditsBorrowedInRegion(m, activeRegionKey) ? 'text-kumo-subtle italic' : 'text-kumo-strong'}`}
                               title={creditsTitle(m, activeRegionKey)}
                             >
-                              {fmtCredits(m)}
+                              {fmtCredits(m, activeRegionKey)}
                               {creditsBorrowedInRegion(m, activeRegionKey) ? '*' : ''}
                             </span>
-                            {m.promotion ? (
+                            {regionPromotion(m, activeRegionKey) ? (
                               <Badge
-                                variant={Number(m.promotion.factor) === 0 ? 'success' : 'warning'}
+                                variant={Number(regionPromotion(m, activeRegionKey).factor) === 0 ? 'success' : 'warning'}
                                 className="!text-[0.7em]"
                                 title={creditsTitle(m, activeRegionKey)}
                               >
-                                {m.promotion.label || (Number(m.promotion.factor) === 0 ? '免费' : '折扣')}
+                                {regionPromotion(m, activeRegionKey).label || (Number(regionPromotion(m, activeRegionKey).factor) === 0 ? '免费' : '折扣')}
                               </Badge>
                             ) : null}
                           </div>
@@ -1705,8 +1739,8 @@ export function WorkBuddyPlugin() {
                           <span className="font-mono text-xs text-kumo-subtle">{fmtContext(m.maxOutputTokens)}</span>
                         </Table.Cell>
                         <Table.Cell className="!px-2 !py-1.5 text-center">
-                          <span className="font-mono text-xs text-kumo-strong" title={thinkingMeta(m).title}>
-                            {thinkingMeta(m).label}
+                          <span className="font-mono text-xs text-kumo-strong" title={thinkingMeta(m, activeRegionKey).title}>
+                            {thinkingMeta(m, activeRegionKey).label}
                           </span>
                         </Table.Cell>
                         <Table.Cell className="!px-2 !py-1.5 text-center">
