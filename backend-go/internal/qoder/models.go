@@ -44,10 +44,23 @@ type ModelInfo struct {
 	// Provider 是厂商标识（qwen/deepseek/zhipu/...）。
 	Provider string `json:"provider,omitempty"`
 	// CreditsMultiplier 是标准积分倍率（price_factor），Qoder 计费体系内的相对
-	// 倍数，不含货币单价，只能横向比较。
+	// 倍数，不含货币单价，只能横向比较。动态目录未给出实时倍率时取静态表。
 	CreditsMultiplier float64 `json:"creditsMultiplier,omitempty"`
 	// CreditsParsed 表示倍率是否解析成功（false 时前端显示「—」而不是 0）。
 	CreditsParsed bool `json:"creditsParsed,omitempty"`
+	// LiveMultiplier 是上游**实时**下发的主倍率（price_factor）。用指针是为了
+	// 区分「上游明确给了 0（免费）」与「上游没给」——0 是合法值。
+	LiveMultiplier *float64 `json:"liveMultiplier,omitempty"`
+	// OriginalMultiplier 是上游的原价倍率（original_price_factor），限时免费
+	// 模型会给出「现价 0 / 原价 0.1」。
+	OriginalMultiplier *float64 `json:"originalMultiplier,omitempty"`
+	// Free 表示上游把该模型标为免费（price_factor 为 0 或 is_free=true）。
+	Free bool `json:"free,omitempty"`
+	// Promotion 是上游下发的促销（错峰折扣）规则；nil 表示该模型没有促销。
+	Promotion *Promotion `json:"promotion,omitempty"`
+	// PriceSource 标记倍率来源：live（上游实时）/ static（内置兜底）。
+	PriceSource string `json:"priceSource,omitempty"`
+
 	// EffectiveMultiplier 是当前时刻实际生效的倍率（考虑错峰折扣）。
 	EffectiveMultiplier float64 `json:"effectiveMultiplier,omitempty"`
 	// OffPeak 表示该模型当前是否处于错峰折扣中。
@@ -65,7 +78,8 @@ type ModelInfo struct {
 
 // cnStaticModels 是国内版目录（取自本机 .qoder-cn catalog-v6），仅作动态目录
 // 拉取前的兜底。ID=官方模型名、Key=上游短 key；CreditsMultiplier 是**标准倍率**
-// （错峰折扣前的 price_factor），与 offpeak.go 的 Standard 一致。
+// （错峰折扣前的 price_factor），与 offpeak.go 的静态兜底规则一致。
+// 注意：上游调价后这些值会过期，动态目录里的实时 price_factor 优先。
 var cnStaticModels = []ModelInfo{
 	{ID: "Auto", Key: "auto", Provider: "qoder", CreditsMultiplier: 0.5, CreditsParsed: true},
 	{ID: "Qwen3.8-Max", Key: "qmodel_38max", Provider: "qwen", CreditsMultiplier: 0.5, CreditsParsed: true},
@@ -106,11 +120,19 @@ var intlStaticModels = []ModelInfo{
 }
 
 // staticModelsFor 返回区域的静态兜底目录。
+// 兜底条目也附上静态促销规则，保证首次回源成功前错峰倍率展示与历史一致。
 func staticModelsFor(region string) []ModelInfo {
+	src := cnStaticModels
 	if normalizeRegion(region) == regionIntl {
-		return intlStaticModels
+		src = intlStaticModels
 	}
-	return cnStaticModels
+	out := make([]ModelInfo, 0, len(src))
+	for _, m := range src {
+		m.Promotion = staticPromotionFor(m.Key)
+		m.PriceSource = priceStatic
+		out = append(out, m)
+	}
+	return out
 }
 
 // staticModelByKey 按上游短 key 在静态表里查条目（用于回填倍率/厂商标识）。
@@ -484,17 +506,21 @@ func (s *Service) handleModels(w http.ResponseWriter, r *http.Request) {
 	out := make([]map[string]interface{}, 0, len(models))
 	for _, m := range models {
 		id := s.prefixModel(m.ID)
-		eff, offPeak := effectiveMultiplier(m.Key, m.CreditsMultiplier, now)
-		_, hasOffPeak := offPeakDiscounts[m.Key]
+		eff, offPeak := m.MultiplierAt(now)
 		out = append(out, map[string]interface{}{
 			"id":                  id,
 			"key":                 m.Key,
 			"provider":            m.Provider,
 			"creditsMultiplier":   m.CreditsMultiplier,
 			"creditsParsed":       m.CreditsParsed,
+			"liveMultiplier":      m.LiveMultiplier,
+			"originalMultiplier":  m.OriginalMultiplier,
+			"free":                m.Free,
+			"priceSource":         m.PriceSource,
+			"promotion":           m.Promotion,
 			"effectiveMultiplier": eff,
 			"offPeak":             offPeak,
-			"hasOffPeak":          hasOffPeak,
+			"hasOffPeak":          m.Promotion != nil && m.Promotion.Discount > 0,
 			"regions":             m.Regions,
 			"idRegions":           m.IDRegions,
 			"internationalOnly":   m.InternationalOnly,
@@ -504,7 +530,7 @@ func (s *Service) handleModels(w http.ResponseWriter, r *http.Request) {
 	responseJSON(w, map[string]interface{}{
 		"success":       true,
 		"upstreamReady": s.upstreamReady(),
-		"offPeak":       isOffPeak(now),
+		"offPeak":       anyOffPeak(models, now),
 		"models":        out,
 	})
 }

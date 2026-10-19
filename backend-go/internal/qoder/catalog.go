@@ -40,7 +40,7 @@ const modelRetryBackoff = time.Minute
 // 必须由 context 兜底，避免上游挂起把面板请求（handleModels 会惰性回源）拖死。
 const modelFetchTimeout = 30 * time.Second
 
-// upstreamCatalogEntry 是上游模型目录里的单项（只取对话所需的字段）。
+// upstreamCatalogEntry 是上游模型目录里的单项（只取对话与计费所需的字段）。
 type upstreamCatalogEntry struct {
 	Key            string `json:"key"`
 	DisplayName    string `json:"display_name"`
@@ -50,6 +50,58 @@ type upstreamCatalogEntry struct {
 	IsReasoning    bool   `json:"is_reasoning"`
 	IsVL           bool   `json:"is_vl"`
 	MaxInputTokens int64  `json:"max_input_tokens"`
+	// PriceFactor 是**当前标价倍率**。必须用指针：0 是合法值（免费模型），
+	// 只有字段缺失才代表「上游未提供」。
+	PriceFactor *float64 `json:"price_factor"`
+	// OriginalPriceFactor 是原价倍率（限时免费模型给出 0.0 + 原价 0.1）。
+	OriginalPriceFactor *float64 `json:"original_price_factor"`
+	// Promotion 是促销（错峰折扣）规则。
+	Promotion *upstreamPromotion `json:"promotion"`
+}
+
+// upstreamPromotion 是上游 promotion 字段的原始结构。
+type upstreamPromotion struct {
+	Active          bool    `json:"active"`
+	RuleID          string  `json:"rule_id"`
+	DiscountFactor  float64 `json:"discount_factor"`
+	BeforePromotion float64 `json:"before_promotion_price_factor"`
+	WindowStart     string  `json:"window_start"`
+	WindowEnd       string  `json:"window_end"`
+	Timezone        string  `json:"timezone"`
+	Badge           struct {
+		Zh string `json:"zh"`
+		En string `json:"en"`
+	} `json:"badge"`
+	LinkURL struct {
+		Zh string `json:"zh"`
+		En string `json:"en"`
+	} `json:"link_url"`
+}
+
+// toPromotion 把上游结构转成对外的 Promotion；折扣非法时返回 nil。
+//
+// 注意：Active 只是上游的生效标记，**不参与过滤**。促销窗口由 Window* 判定，
+// 上游在窗口外可能把 Active 置 false，此时仍要保留规则才能展示「标准价 + 低峰档」。
+func (u *upstreamPromotion) toPromotion() *Promotion {
+	if u == nil || u.DiscountFactor <= 0 {
+		return nil
+	}
+	p := &Promotion{
+		RuleID:      strings.TrimSpace(u.RuleID),
+		Standard:    u.BeforePromotion,
+		Discount:    u.DiscountFactor,
+		WindowStart: strings.TrimSpace(u.WindowStart),
+		WindowEnd:   strings.TrimSpace(u.WindowEnd),
+		Timezone:    strings.TrimSpace(u.Timezone),
+		Active:      u.Active,
+	}
+	if badge := firstNonEmpty(u.Badge.Zh, u.Badge.En); badge != "" {
+		p.Badge = strings.TrimSpace(badge)
+	}
+	if link := firstNonEmpty(u.LinkURL.Zh, u.LinkURL.En); link != "" {
+		p.LinkURL = strings.TrimSpace(link)
+	}
+	return p
 }
 
 // regionOrder 是区域在模型目录合并与前端展示时的固定顺序（第一个为合并打底区域）。
@@ -290,7 +342,8 @@ func (s *Service) fetchUpstreamCatalog(ctx context.Context, region string, acc A
 }
 
 // parseUpstreamCatalog 解析上游目录响应：按分组返回，只取 chat 分组用于对话。
-// 条目 display_name 作对外 id，key 作上游短 key；倍率/厂商标识回填静态表已知值。
+// 条目 display_name 作对外 id，key 作上游短 key；倍率取**上游实时值**，
+// 上游未给出时才回填静态表（并标记来源 static）。
 func parseUpstreamCatalog(raw []byte) ([]ModelInfo, error) {
 	var groups map[string][]upstreamCatalogEntry
 	if err := json.Unmarshal(raw, &groups); err != nil {
@@ -318,12 +371,31 @@ func parseUpstreamCatalog(raw []byte) ([]ModelInfo, error) {
 			id = key
 		}
 		m := ModelInfo{ID: id, Key: key}
-		// 倍率与厂商标识静态表已知则回填（动态目录不带 price_factor），
-		// 否则标记为未解析，前端显示「—」。
+		// 厂商标识只能来自静态表（动态目录不带 vendor）。
 		if st, ok := staticModelByKey(key); ok {
 			m.Provider = st.Provider
+		}
+		m.LiveMultiplier = e.PriceFactor
+		m.OriginalMultiplier = e.OriginalPriceFactor
+		m.Free = e.IsFree || (e.PriceFactor != nil && *e.PriceFactor == 0)
+		m.Promotion = e.Promotion.toPromotion()
+		if m.Promotion == nil {
+			// 上游没下发促销规则时用静态兜底，保持错峰折扣展示不缺失。
+			m.Promotion = staticPromotionFor(key)
+		}
+		if e.PriceFactor != nil {
+			// 实时倍率为准；但若上游把「折后价」写进 price_factor，标准倍率
+			// 仍以促销规则里的原价为准（见 offpeak.go 的裁决顺序）。
+			m.CreditsMultiplier = *e.PriceFactor
+			m.CreditsParsed = true
+			m.PriceSource = priceLive
+			if m.Promotion != nil && m.Promotion.Standard > 0 {
+				m.CreditsMultiplier = m.Promotion.Standard
+			}
+		} else if st, ok := staticModelByKey(key); ok {
 			m.CreditsMultiplier = st.CreditsMultiplier
-			m.CreditsParsed = st.CreditsParsed
+			m.CreditsParsed = true
+			m.PriceSource = priceStatic
 		}
 		out = append(out, m)
 	}

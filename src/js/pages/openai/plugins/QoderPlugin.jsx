@@ -92,11 +92,36 @@ const modelRegionMeta = m => {
 };
 
 // fmtMultiplier 格式化上游积分倍率（price_factor，Qoder 计费体系内的相对倍数）。
-// 优先显示当前生效倍率（考虑错峰折扣）；折扣中额外标「低峰」。
+// 优先显示当前生效倍率（后端已按上游 promotion 规则裁决）；折扣中额外标「低峰」。
 const fmtMultiplier = m => {
   if (!m?.creditsParsed) return '—';
+  if (m.free) return '免费';
   const v = m.offPeak ? m.effectiveMultiplier : m.creditsMultiplier;
   return `x${Number(v).toFixed(2)}`;
+};
+
+// multiplierTitle 生成倍率列的悬浮说明：标准价 / 折后价 / 窗口 / 来源 / 原价。
+const multiplierTitle = m => {
+  if (!m?.creditsParsed) return '上游未提供倍率';
+  const parts = [];
+  const promo = m.promotion;
+  if (m.free) {
+    parts.push('上游标记为免费');
+    if (Number(m.originalMultiplier) > 0 && Number(m.originalMultiplier) !== Number(m.creditsMultiplier)) {
+      parts.push(`原价 x${Number(m.originalMultiplier).toFixed(2)}`);
+    }
+  } else if (promo && Number(promo.discount) > 0) {
+    const std = Number(promo.standard || m.creditsMultiplier).toFixed(2);
+    const off = (Number(promo.standard || m.creditsMultiplier) * Number(promo.discount)).toFixed(2);
+    parts.push(`标准 x${std}，${promo.badge || '错峰'} x${off}`);
+    const win = promo.windowStart && promo.windowEnd ? `${promo.windowStart}–${promo.windowEnd}` : '';
+    if (win) parts.push(`${win}${promo.timezone ? ` (${promo.timezone})` : ''} 自动折扣`);
+    if (m.offPeak) parts.push('当前生效中');
+  } else {
+    parts.push('上游 price_factor（相对倍数）');
+  }
+  parts.push(m.priceSource === 'live' ? '实时取自上游模型目录' : '内置兜底值（上游目录未拉取成功）');
+  return parts.join(' · ');
 };
 
 // QoderPlugin：模型网关「插件中心」卡片——Qoder 反代。
@@ -508,6 +533,8 @@ export function QoderPlugin() {
   }
 
   const allEnabled = models.length > 0 && models.every(m => m.enabled);
+  // modelsLive：本列倍率是否来自上游实时目录（任一模型有 live 来源即认为目录已回源成功）。
+  const modelsLive = models.some(m => m.priceSource === 'live');
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3 cq-sm:gap-4">
@@ -982,7 +1009,28 @@ export function QoderPlugin() {
                     <Table.Head className="!px-2 !py-1.5 text-center">区域</Table.Head>
                     <Table.Head className="!px-2.5 !py-1.5">模型</Table.Head>
                     <Table.Head className="!px-2 !py-1.5 text-center">
-                      <span title="上游积分倍率（price_factor），Qoder 计费体系内的相对倍数，不含货币单价">倍率</span>
+                      <div className="flex items-center justify-center gap-1">
+                        <span title="上游积分倍率（price_factor），Qoder 计费体系内的相对倍数，不含货币单价；倍率与错峰折扣均实时取自上游模型目录">
+                          倍率
+                        </span>
+                        {modelsLive ? (
+                          <Badge
+                            variant="success"
+                            className="text-[0.8em]"
+                            title="本列倍率实时取自上游模型目录接口（price_factor 与 promotion 规则）"
+                          >
+                            实时
+                          </Badge>
+                        ) : (
+                          <Badge
+                            variant="warning"
+                            className="text-[0.8em]"
+                            title="上游模型目录尚未拉取成功，本列为内置兜底值，可能已过期"
+                          >
+                            兜底
+                          </Badge>
+                        )}
+                      </div>
                     </Table.Head>
                   </Table.Row>
                 </Table.Header>
@@ -1023,20 +1071,15 @@ export function QoderPlugin() {
                         </Table.Cell>
                         <Table.Cell className="!px-2 !py-1.5 text-center">
                           <div className="flex flex-col items-center gap-0.5">
-                            <span
-                              className="font-mono text-xs text-kumo-strong"
-                              title={
-                                m.creditsParsed
-                                  ? m.hasOffPeak
-                                    ? `标准 x${Number(m.creditsMultiplier).toFixed(2)}，错峰 x${Number(m.effectiveMultiplier).toFixed(2)}（每日 22:00–08:00 自动折扣）`
-                                    : '上游 price_factor（相对倍数）'
-                                  : '上游未提供倍率'
-                              }
-                            >
+                            <span className="font-mono text-xs text-kumo-strong" title={multiplierTitle(m)}>
                               {fmtMultiplier(m)}
                             </span>
                             {m.hasOffPeak && m.offPeak ? (
-                              <Badge variant="success" className="text-[0.85em]" title="错峰折扣生效中（每日 22:00–08:00）">
+                              <Badge
+                                variant="success"
+                                className="text-[0.85em]"
+                                title={`${m.promotion?.badge || '错峰折扣'}生效中`}
+                              >
                                 低峰
                               </Badge>
                             ) : null}

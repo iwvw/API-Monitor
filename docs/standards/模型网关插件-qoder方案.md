@@ -23,7 +23,8 @@ backend-go/internal/qoder/
 ├── upstream.go   设备登录、身份加密与签名、加密 SSE 对话、auth JSON 解析、token 刷新
 ├── auth.go       账号脱敏、CRUD、选号与失败冷却、导入导出、签到/余额入口
 ├── models.go     模型目录对外视图、逐模型启停、停用名单别名归一
-├── catalog.go    模型目录动态发现（签名 GET model/list + 按区域缓存 + 静态兜底）
+├── catalog.go    模型目录动态发现（签名 GET model/list + 按区域缓存 + 实时倍率解析）
+├── offpeak.go    倍率裁决与错峰促销规则（上游 promotion 驱动 + 静态兜底）
 ├── relay.go      中继面：请求转发、换号重试、流式透传
 ├── billing.go    余额查询与每日签到（openapi 控制面）
 ├── link.go       网关端点接入（接入/断开/状态）
@@ -86,7 +87,7 @@ Qoder 对话走**加密 SSE**，不是标准 Bearer：
   这是对外 id 与路由的**权威来源**，能跟上上游增删/改名（参考实现 `cli-proxy/qoder`）。
 - **静态兜底**（`cnStaticModels`/`intlStaticModels`）：仅在动态目录首次拉取成功前使用，
   取自官方客户端目录缓存 `catalog-v6` 实测记录，并提供动态目录不带的元数据
-  （`price_factor` 倍率、厂商标识），按上游短 key 回填到动态条目上：
+  （厂商标识），按上游短 key 回填到动态条目上：
 
 - 国内版 14 个：`Auto`/`Qwen3.8-Max`/`Qwen3.8-Flash`/`Qwen3.7-Max`/`Qwen3.7-Plus`/
   `Qwen3.7-Flash`/`DeepSeek-V4-Pro`/`DeepSeek-Flash`/`GLM-5.3`/`GLM-5.3-Flash`/
@@ -110,8 +111,9 @@ Qoder 对话走**加密 SSE**，不是标准 Bearer：
 无账号时默认国内版。因此前端模型表不会把两区域盲目混在一起。
 
 前端模型表：第一行显示官方模型名（对外 id），第二行显示上游短 key；按 `regions`
-显示「通用/国内/国际」徽标，并展示 `price_factor` 倍率列。选号按 `accountServesModel`
-过滤：账号所属区域不提供目标模型时跳过（官方名与短 key 均可命中）。
+显示「通用/国内/国际」徽标，并展示实时倍率列（表头带「实时 / 兜底」徽标，
+悬浮说明含标准价、折后价、窗口时区与来源；免费模型显示「免费」）。选号按
+`accountServesModel` 过滤：账号所属区域不提供目标模型时跳过（官方名与短 key 均可命中）。
 
 **停用采用白名单语义（关键）**：`isModelEnabled` 只放行**当前目录内**且未被停用的
 模型名，目录外的任意别名一律拒绝。停用判定经 `disabledMatchTokens` 做**别名闭包归一**
@@ -125,21 +127,51 @@ Qoder 对话走**加密 SSE**，不是标准 Bearer：
 已停用的模型「复活」；启用某模型时（`setModelsEnabled`）用同一别名闭包清掉指向
 该模型的旧名/短 key 残留。
 
-### 3.6 错峰折扣（`offpeak.go`）
+### 3.5 倍率与错峰折扣（`catalog.go` / `offpeak.go`）
 
-官方错峰规则（`docs.qoder.com/events/offpeakrate`）：错峰窗口以 **UTC** 为准，
-每日 14:00–00:00 UTC（本地北京时间 22:00–08:00）；常规时段 00:00–14:00 UTC。
-仅两个模型享折扣：
+**倍率全部来自上游实时目录，不再硬编码。** 实测（2026-10-20，国内版账号）
+`GET /algo/api/v2/model/list?Encode=1` 的 `chat` 分组逐项带：
 
-| 模型 | 标准倍率 | 错峰倍率 |
+| 字段 | 含义 | 备注 |
 | --- | --- | --- |
-| Qwen3.8-Max (`qmodel_38max`) | 0.5x | 0.2x（6 折） |
-| Qwen3.7-Plus (`qmodel`) | 0.1x | 0.04x（6 折） |
+| `price_factor` | 当前标价倍率 | **0 是合法值**（免费模型），必须用指针解析 |
+| `original_price_factor` | 原价倍率 | 限时免费模型给出「现价 0 / 原价 0.1」 |
+| `is_free` | 上游标记免费 | 与 `price_factor == 0` 取或 |
+| `promotion` | 促销规则 | `active`/`rule_id`/`discount_factor`/`before_promotion_price_factor`/`window_start`/`window_end`/`timezone`/`badge`/`link_url` |
 
-`effectiveMultiplier` 按当前时刻计算实际生效倍率，`/api/qoder/models` 下发
-`effectiveMultiplier` / `offPeak` / `hasOffPeak` 字段；前端倍率列显示生效倍率，
-折扣中额外标「低峰」徽标。其余模型全程标准倍率。注意：错峰只改倍率，不改模型质量；
-消耗仍计入套餐额度（非赠送）。
+解析回填优先级：**上游实时 `price_factor` → 静态表 → 未解析（前端显示「—」）**，
+并下发 `priceSource`（`live` / `static`），前端倍率列表头据此显示「实时 / 兜底」徽标。
+
+**关键坑：`price_factor` 与 `promotion` 会互相矛盾。** 实测错峰窗口内
+`qmodel_38max` 的 `price_factor` 已是折后值 `0.2`（= 0.5×0.4），而 `qmodel` 的
+`price_factor` 仍是原价 `0.1`（官方文档与 promo badge 都写明折后应为 `0.04`）。
+因此 `ModelInfo.MultiplierAt` 的裁决顺序是：
+
+1. 实时值已等于 `标准×折扣` → 上游已折价，直接用；
+2. 在窗口内且规则未关停 → 按 `标准×折扣` 计算（覆盖 `qmodel` 这种漏写折扣的情况）；
+3. 其余取实时值；上游没给实时值才退回静态标准倍率。
+
+促销窗口按上游 `timezone` 判定（实测 `Asia/Shanghai 22:00–08:00`，支持跨午夜），
+`offpeak.go` 显式引入 `time/tzdata`，不依赖宿主是否安装时区库。
+`staticPromotions` 只在**上游没下发 promotion** 时兜底，保证首次回源成功前展示与历史一致：
+
+| 模型 | 标准倍率 | 错峰倍率 | 窗口 |
+| --- | --- | --- | --- |
+| Qwen3.8-Max (`qmodel_38max`) | 0.5x | 0.2x（4 折） | Asia/Shanghai 22:00–08:00 |
+| Qwen3.7-Plus (`qmodel`) | 0.1x | 0.04x（4 折） | Asia/Shanghai 22:00–08:00 |
+
+注意：错峰只改倍率，不改模型质量；消耗仍计入套餐额度（非赠送）。
+
+**2026-10-20 实测与旧静态表的差异**（说明为什么必须实时拉取）：
+
+| 模型 | 旧静态表 | 上游实际 |
+| --- | --- | --- |
+| DeepSeek-Flash (`dfmodel`) | 0.10 | **0.00**（`is_free`，原价 0.10） |
+| MiniMax (`mmodel`) | 0.20 / MiniMax-M2.7 | **0.10** / MiniMax-M3.1-Flash |
+| Qwen3.8-Max (`qmodel_38max`) | 0.50 | 窗口内 0.20 |
+
+**不要把倍率写进 `openai_endpoints.pricing`**：那一列是「每百万 token 的**货币**单价」，
+`price_factor` 是相对倍数、不含货币，硬写会让网关算出假金额。
 
 ### 3.5 区域（`region.go`）
 
@@ -193,7 +225,9 @@ Qoder 分国内版与国际版，两套域名、client_id、登录参数完全�
 - 单测 `qoder_test.go`：加密 SSE 信封解析（含直接 chunk 兼容）、模型 key 归一化、
   自定义字母表变换、过期时间归一化、选号策略归一化、签到领取与幂等、余额解析、token 刷新、
   区域归一化 / 域名自证 / 区域配置；动态目录解析（`parseUpstreamCatalog`，display_name
-  作 id / key 作短 key / 静态倍率回填）、签名 GET 目录（`fetchUpstreamCatalog`）、
-  回源失败回退静态兜底、停用白名单语义与改名后的别名闭包归一。
+  作 id / key 作短 key / 实时 price_factor 优先 / 免费 0 值保留 / 静态兜底回填）、
+  签名 GET 目录（`fetchUpstreamCatalog`）、回源失败回退静态兜底、停用白名单语义与改名后的
+  别名闭包归一；倍率裁决（`MultiplierAt`：上游已折价 / 未折价 / 促销结束 / 无实时值）、
+  促销窗口按时区与跨午夜判定、错峰状态聚合。
 - 接线自检：`npm run governance:check`、`npm run ui:governance`、`node tools/three-side-governance-check.mjs`。
 - 上线前建议：真实账号跑通「登录 → 中继转发 → 签到 → 余额」全链路。

@@ -85,41 +85,132 @@ func TestStreamAndCaptureUnwrapsEnvelope(t *testing.T) {
 }
 
 func TestOffPeakWindows(t *testing.T) {
-	// UTC 14:00 起进入错峰；UTC 00:00–14:00 为常规。
+	// 静态兜底规则：Asia/Shanghai 22:00–08:00（等价旧的 UTC 14:00–24:00）。
+	p := staticPromotionFor("qmodel_38max")
+	if p == nil {
+		t.Fatal("static promotion missing")
+	}
+	// 22:30 CST = 14:30 UTC 在窗口内。
 	offPeak := time.Date(2026, 10, 4, 14, 30, 0, 0, time.UTC)
-	regular := time.Date(2026, 10, 4, 10, 0, 0, 0, time.UTC)
-	if !isOffPeak(offPeak) {
-		t.Fatalf("14:30 UTC should be off-peak")
+	// 10:00 CST = 02:00 UTC 在窗口外。
+	regular := time.Date(2026, 10, 4, 2, 0, 0, 0, time.UTC)
+	if !p.InWindow(offPeak) {
+		t.Fatalf("14:30 UTC (22:30 CST) should be off-peak")
 	}
-	if isOffPeak(regular) {
-		t.Fatalf("10:00 UTC should be regular")
+	if p.InWindow(regular) {
+		t.Fatalf("02:00 UTC (10:00 CST) should be regular")
 	}
-	// 边界：13:59 常规，14:00 错峰，23:59 错峰。
-	if isOffPeak(time.Date(2026, 10, 4, 13, 59, 0, 0, time.UTC)) {
-		t.Fatalf("13:59 UTC should be regular")
+	// 边界：21:59 CST 常规，22:00 CST 错峰，07:59 CST 错峰，08:00 CST 常规。
+	cases := []struct {
+		at   time.Time
+		want bool
+	}{
+		{time.Date(2026, 10, 4, 13, 59, 0, 0, time.UTC), false}, // 21:59 CST
+		{time.Date(2026, 10, 4, 14, 0, 0, 0, time.UTC), true},   // 22:00 CST
+		{time.Date(2026, 10, 4, 23, 59, 0, 0, time.UTC), true},  // 07:59 CST
+		{time.Date(2026, 10, 5, 0, 0, 0, 0, time.UTC), false},   // 08:00 CST
 	}
-	if !isOffPeak(time.Date(2026, 10, 4, 14, 0, 0, 0, time.UTC)) {
-		t.Fatalf("14:00 UTC should be off-peak")
+	for _, c := range cases {
+		if got := p.InWindow(c.at); got != c.want {
+			t.Fatalf("InWindow(%s) = %v, want %v", c.at, got, c.want)
+		}
 	}
-	if !isOffPeak(time.Date(2026, 10, 4, 23, 59, 0, 0, time.UTC)) {
-		t.Fatalf("23:59 UTC should be off-peak")
+	// 跨午夜窗口必须支持 24:00 与 00:00 两种写法。
+	if w := p.Window(); w != "22:00–08:00" {
+		t.Fatalf("window = %q", w)
+	}
+	// 非促销模型：窗口内也不打折。
+	if staticPromotionFor("dfmodel") != nil {
+		t.Fatalf("dfmodel should have no static promotion")
 	}
 }
 
-func TestEffectiveMultiplier(t *testing.T) {
+// TestMultiplierAtPrefersLivePrice 验证生效倍率裁决：无促销取实时值、
+// 窗口内折扣计算、以及「上游是否已把折后价写进 price_factor」两种口径。
+func TestMultiplierAtPrefersLivePrice(t *testing.T) {
+	offPeak := time.Date(2026, 10, 4, 15, 0, 0, 0, time.UTC) // 23:00 CST
+	regular := time.Date(2026, 10, 4, 5, 0, 0, 0, time.UTC)  // 13:00 CST
+	f := func(v float64) *float64 { return &v }
+
+	// 1) 无促销规则：直接用实时 price_factor（含 0，表示免费）。
+	m := ModelInfo{Key: "dfmodel", CreditsMultiplier: 0.1, CreditsParsed: true, LiveMultiplier: f(0)}
+	if v, disc := m.MultiplierAt(offPeak); v != 0 || disc {
+		t.Fatalf("free live price = %v/%v, want 0/false", v, disc)
+	}
+
+	// 2) 有促销规则，上游已把折后价写进 price_factor（qmodel_38max 实测 0.2）。
+	m = ModelInfo{Key: "qmodel_38max", CreditsParsed: true, LiveMultiplier: f(0.2), Promotion: staticPromotionFor("qmodel_38max")}
+	if v, disc := m.MultiplierAt(offPeak); v != 0.2 || !disc {
+		t.Fatalf("off-peak = %v/%v, want 0.2/true", v, disc)
+	}
+	if v, disc := m.MultiplierAt(regular); v != 0.5 || disc {
+		t.Fatalf("regular = %v/%v, want 0.5/false", v, disc)
+	}
+
+	// 3) 有促销规则，但上游 price_factor 仍是原价（qmodel 实测 0.1）：按标准×折扣算。
+	m = ModelInfo{Key: "qmodel", CreditsParsed: true, LiveMultiplier: f(0.1), Promotion: staticPromotionFor("qmodel")}
+	if v, disc := m.MultiplierAt(offPeak); !nearlyEqual(v, 0.04) || !disc {
+		t.Fatalf("off-peak = %v/%v, want 0.04/true", v, disc)
+	}
+	if v, disc := m.MultiplierAt(regular); v != 0.1 || disc {
+		t.Fatalf("regular = %v/%v, want 0.1/false", v, disc)
+	}
+
+	// 4) 上游没给实时倍率：退回静态标准倍率，窗口内仍按规则打折。
+	m = ModelInfo{Key: "qmodel_38max", CreditsMultiplier: 0.5, CreditsParsed: true, Promotion: staticPromotionFor("qmodel_38max")}
+	if v, disc := m.MultiplierAt(offPeak); v != 0.2 || !disc {
+		t.Fatalf("static fallback off-peak = %v/%v, want 0.2/true", v, disc)
+	}
+
+	// 5) 促销已结束（active=false）且实时值回到标准价：不再按旧规则打折。
+	ended := &Promotion{Standard: 0.5, Discount: 0.4, WindowStart: "22:00", WindowEnd: "08:00", Timezone: "Asia/Shanghai", Active: false}
+	m = ModelInfo{Key: "qmodel_38max", CreditsParsed: true, LiveMultiplier: f(0.5), Promotion: ended}
+	if v, disc := m.MultiplierAt(offPeak); v != 0.5 || disc {
+		t.Fatalf("ended promotion = %v/%v, want 0.5/false", v, disc)
+	}
+}
+
+// TestPromotionWindowFollowsUpstreamTimezone 验证窗口按上游下发的时区判定，
+// 而不是按 UTC 写死。
+func TestPromotionWindowFollowsUpstreamTimezone(t *testing.T) {
+	p := &Promotion{
+		Standard:    1,
+		Discount:    0.5,
+		WindowStart: "00:00",
+		WindowEnd:   "12:00",
+		Timezone:    "UTC",
+	}
+	// UTC 06:00 在窗口内；同一时刻在 Asia/Shanghai 是 14:00，不在窗口内。
+	at := time.Date(2026, 10, 4, 6, 0, 0, 0, time.UTC)
+	if !p.InWindow(at) {
+		t.Fatalf("UTC window should cover 06:00 UTC")
+	}
+	p.Timezone = "Asia/Shanghai"
+	if p.InWindow(at) {
+		t.Fatalf("Asia/Shanghai window should not cover 14:00 CST")
+	}
+	// 非法时区退回 UTC，不能 panic。
+	p.Timezone = "Not/AZone"
+	if !p.InWindow(at) {
+		t.Fatalf("invalid timezone should fall back to UTC")
+	}
+	// 非法窗口边界不视为打折。
+	p.WindowStart = "25:99"
+	if p.InWindow(at) {
+		t.Fatalf("invalid window should never be off-peak")
+	}
+}
+
+// TestAnyOffPeak 验证面板顶部的错峰状态聚合。
+func TestAnyOffPeak(t *testing.T) {
 	offPeak := time.Date(2026, 10, 4, 15, 0, 0, 0, time.UTC)
 	regular := time.Date(2026, 10, 4, 5, 0, 0, 0, time.UTC)
-
-	// Qwen3.8-Max：标准 0.5，错峰 0.2。
-	if v, disc := effectiveMultiplier("qmodel_38max", 0.5, offPeak); v != 0.2 || !disc {
-		t.Fatalf("qmodel_38max off-peak = %v disc=%v, want 0.2/true", v, disc)
+	models := staticModelsFor(regionCN)
+	if !anyOffPeak(models, offPeak) {
+		t.Fatalf("static catalog should report off-peak at 23:00 CST")
 	}
-	if v, disc := effectiveMultiplier("qmodel_38max", 0.5, regular); v != 0.5 || disc {
-		t.Fatalf("qmodel_38max regular = %v disc=%v, want 0.5/false", v, disc)
-	}
-	// 非折扣模型：任何时段都是标准倍率。
-	if v, disc := effectiveMultiplier("dfmodel", 0.1, offPeak); v != 0.1 || disc {
-		t.Fatalf("dfmodel should stay 0.1/false, got %v/%v", v, disc)
+	if anyOffPeak(models, regular) {
+		t.Fatalf("static catalog should not report off-peak at 13:00 CST")
 	}
 }
 
@@ -489,13 +580,19 @@ func TestStrategyNormalization(t *testing.T) {
 }
 
 // TestParseUpstreamCatalog 验证动态目录解析：display_name 作对外 id、key 作上游 key，
-// 静态表已知的倍率/厂商标识按 key 回填。
+// 倍率优先取上游实时 price_factor，缺失时才回填静态表。
 func TestParseUpstreamCatalog(t *testing.T) {
 	raw := []byte(`{
 		"chat": [
-			{"key":"qmodel_38max","display_name":"Qwen3.8-Max","enable":true,"is_reasoning":true,"max_input_tokens":180000},
-			{"key":"dfmodel","display_name":"DeepSeek-V4.1-Flash","enable":true,"max_input_tokens":180000},
-			{"key":"brand_new_key","display_name":"Brand-New-Model","enable":true}
+			{"key":"qmodel_38max","display_name":"Qwen3.8-Max","enable":true,"is_reasoning":true,
+			 "price_factor":0.2,"max_input_tokens":180000,
+			 "promotion":{"active":true,"rule_id":"idle_time_model_credit_discount","discount_factor":0.4,
+			   "before_promotion_price_factor":0.5,"window_start":"22:00","window_end":"08:00",
+			   "timezone":"Asia/Shanghai","badge":{"zh":"错峰 4 折"}}},
+			{"key":"dfmodel","display_name":"DeepSeek-V4.1-Flash","enable":true,"price_factor":0.0,
+			 "original_price_factor":0.1,"is_free":true,"max_input_tokens":180000},
+			{"key":"brand_new_key","display_name":"Brand-New-Model","enable":true},
+			{"key":"gmodel","display_name":"GLM-5.3","enable":true,"price_factor":0.8}
 		],
 		"embedding": [
 			{"key":"embedding-1","display_name":"Embedding-1","enable":true}
@@ -516,23 +613,81 @@ func TestParseUpstreamCatalog(t *testing.T) {
 	if !ok || m.Key != "qmodel_38max" {
 		t.Fatalf("Qwen3.8-Max missing or wrong key: %+v", m)
 	}
-	// 静态表已知 key → 回填倍率与厂商。
-	if m.Provider != "qwen" || m.CreditsMultiplier != 0.5 || !m.CreditsParsed {
-		t.Fatalf("static metadata not backfilled: %+v", m)
+	// 厂商仍回填静态表；倍率取上游实时值，来源标记 live。
+	if m.Provider != "qwen" || !m.CreditsParsed || m.PriceSource != priceLive {
+		t.Fatalf("live metadata not applied: %+v", m)
 	}
-	// 静态表已知 key（dfmodel）但上游改了 display_name：对外 id 用上游新名，
-	// 倍率仍按短 key 回填（同一上游 key，计费不变）。
+	if m.LiveMultiplier == nil || *m.LiveMultiplier != 0.2 {
+		t.Fatalf("live price_factor missing: %+v", m.LiveMultiplier)
+	}
+	// 促销规则应完整解析（含窗口时区与 badge）。
+	if m.Promotion == nil || m.Promotion.Discount != 0.4 || m.Promotion.Standard != 0.5 {
+		t.Fatalf("promotion not parsed: %+v", m.Promotion)
+	}
+	if m.Promotion.Timezone != "Asia/Shanghai" || m.Promotion.Window() != "22:00–08:00" {
+		t.Fatalf("promotion window = %+v", m.Promotion)
+	}
+	if m.Promotion.Badge != "错峰 4 折" {
+		t.Fatalf("promotion badge = %q", m.Promotion.Badge)
+	}
+
+	// 静态表已知 key（dfmodel）但上游改了 display_name：对外 id 用上游新名；
+	// price_factor 明确为 0（免费）必须保留，不能被当作「缺失」。
 	d, ok := byID["DeepSeek-V4.1-Flash"]
-	if !ok || d.Key != "dfmodel" {
+	if !ok || d.Key != "dfmodel" || d.Provider != "deepseek" {
 		t.Fatalf("renamed model not parsed from upstream: %+v", d)
 	}
-	if !d.CreditsParsed || d.Provider != "deepseek" {
-		t.Fatalf("known short key should still backfill static metadata: %+v", d)
+	if !d.CreditsParsed || !d.Free || d.PriceSource != priceLive {
+		t.Fatalf("free model should keep live zero price: %+v", d)
 	}
-	// 静态表完全未知的 key → 倍率未解析（前端显示「—」）。
+	if d.LiveMultiplier == nil || *d.LiveMultiplier != 0 {
+		t.Fatalf("live zero price lost: %+v", d.LiveMultiplier)
+	}
+	if d.OriginalMultiplier == nil || *d.OriginalMultiplier != 0.1 {
+		t.Fatalf("original price lost: %+v", d.OriginalMultiplier)
+	}
+
+	// 上游给了 price_factor 但静态表无此 key → 仍应视为已解析（live）。
+	g, ok := byID["GLM-5.3"]
+	if !ok || !g.CreditsParsed || g.PriceSource != priceLive || g.CreditsMultiplier != 0.8 {
+		t.Fatalf("live price without static table should still parse: %+v", g)
+	}
+	if g.Promotion != nil {
+		t.Fatalf("model without promotion should have nil promotion: %+v", g.Promotion)
+	}
+
+	// 上游完全未知的 key 且无 price_factor → 倍率未解析（前端显示「—」）。
 	u, ok := byID["Brand-New-Model"]
 	if !ok || u.Key != "brand_new_key" || u.CreditsParsed {
 		t.Fatalf("unknown-key model should be marked unparsed: %+v", u)
+	}
+	if u.PriceSource != "" {
+		t.Fatalf("unknown-key model should have empty price source: %q", u.PriceSource)
+	}
+}
+
+// TestParseUpstreamCatalogFallsBackToStaticPromotion 验证上游未下发 promotion 时，
+// 已知错峰模型仍带静态兜底规则（展示不缺失），未知模型则没有规则。
+func TestParseUpstreamCatalogFallsBackToStaticPromotion(t *testing.T) {
+	raw := []byte(`{"chat":[
+		{"key":"qmodel","display_name":"Qwen3.7-Plus","enable":true},
+		{"key":"dfmodel","display_name":"DeepSeek-Flash","enable":true,"price_factor":0.0}
+	]}`)
+	models, err := parseUpstreamCatalog(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	byID := map[string]ModelInfo{}
+	for _, m := range models {
+		byID[m.ID] = m
+	}
+	if p := byID["Qwen3.7-Plus"].Promotion; p == nil || p.Discount != 0.4 {
+		t.Fatalf("static promotion fallback missing: %+v", p)
+	}
+	// 静态表没有倍率时，上游 price_factor 是唯一来源。
+	d := byID["DeepSeek-Flash"]
+	if !d.CreditsParsed || d.PriceSource != priceLive || d.CreditsMultiplier != 0 {
+		t.Fatalf("live price should win over static: %+v", d)
 	}
 }
 
