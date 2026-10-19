@@ -141,7 +141,7 @@ backend-go/internal/workbuddy/
 | POST | `/api/workbuddy/activity` | 全部账号立即活跃上报 |
 | GET | `/api/workbuddy/accounts/export` | 导出账号（**含 token**，仅本机会话可下载） |
 | POST | `/api/workbuddy/accounts/import` | 导入账号（按 `id` 去重合并） |
-| GET | `/api/workbuddy/models` | `{success, upstreamReady, models:[{id, enabled, contextLength, maxOutputTokens, supportsImages, supportsReasoning, reasoning, thinking, isDefault, promotion, tier, disabledMultimodal, idRegions, routableRegions, limit?}]}` |
+| GET | `/api/workbuddy/models` | `{success, upstreamReady, models:[{id, enabled, contextLength, maxOutputTokens, supportsImages, supportsReasoning, reasoning, thinking, isDefault, promotion, tier, disabledMultimodal, idRegions, routableRegions, regionMeta, limit?}]}`。`regionMeta` = `{区域: {thinking, promotion, tier, creditsParsed}}`，按区域保留该区域目录自己下发的元数据（见 §11.4） |
 | POST | `/api/workbuddy/models/toggle/{id}` | 单模型启停 |
 | POST | `/api/workbuddy/models/toggle-batch` | 批量启停 |
 | GET | `/api/workbuddy/link` | 网关接入状态 |
@@ -345,6 +345,12 @@ backend-go/internal/workbuddy/
 归一后写回 `reasoning_effort`；`none` 仅在 `canDisableThinking=true` 时生效，
 否则落到默认档（不假装关掉）。模型无 `reasoning` 字段时**完全不动 body**（保持透传）。
 
+⚠️ **归一必须按「转发到的区域」取能力**：上游的 `reasoning` 是**按区域目录**分别声明的，
+同一 id 在不同区域可能声明不同档位（国际版 `hy3` 给 `["low","high"]`，形态 1 的模型
+只认一档）。因此 body 的改写放在**选号之后**按账号区域做（`thinkingForRegion`），
+用错区域的声明会写出上游不认的档位（回 11150）。关闭思考时同样要**删掉
+`reasoning` 对象**（上游只认顶层 `reasoning_effort`，留着会触发 11150）。
+
 ⚠️ **形态 1（只有默认档）必须显式传该档位**，这点反直觉但已实测（2026-10-20，办公版真实账号）：
 
 | glm-5.1 请求 | 结果 |
@@ -378,6 +384,27 @@ backend-go/internal/workbuddy/
 拦截超限请求，返回 400 `context_length_exceeded`。**不用 tiktoken**：实测超线性
 （40000 字符约 1.8s），放热路径会拖慢每次请求。
 
+### 11.4 合并视图必须按区域保留差异化元数据
+
+对外的模型目录是**按 id 合并**的视图（`mergeCatalogs`，以国内版为基），但上游的
+**思考能力 / 限时促销 / 套餐门槛都是按区域目录分别下发**的——促销与套餐门槛目前
+只有国际版下发。若合并时按「基座打底、其它区域只记区域名」处理：
+
+- 整条「限时促销」「Pro Only」信息**永远不可见**（合并基座是国内版，国际版的活动
+  被丢掉；实测 hy3 的免费活动就是这么消失的）；
+- 思考能力丢掉则请求侧不归一 `reasoning_effort`，上游回 11150；
+- 反过来，若把国际版的促销直接挂到顶层字段，国内版 tab 会显示「免费」——
+  两个区域的计费口径不一定相同，属于误导。
+
+因此 `ModelInfo` 额外带 `RegionMeta map[区域]{thinking, promotion, tier, creditsParsed}`，
+合并时逐区域保留。**顶层字段只反映合并基座（国内版）自己的值**——把它换成别的
+区域的值会让国内版 tab 显示国际版的促销（两个区域的计费口径不一定相同）。
+前端按**当前 tab 的区域**取用（`regionPromotion` / `regionTier` / `regionThinking`），
+没有按区域元数据时才退回顶层字段。
+
+请求侧的思考归一同理按区域取（`thinkingForRegion`）：转发到哪个区域，就用那个
+区域的目录声明来归一档位。
+
 ## 11. 上游可获取的账号 / 计费信息（实测结论）
 
 2026-09-10 实测（匿名探测 + 一次真实目录拉取）。
@@ -387,8 +414,8 @@ backend-go/internal/workbuddy/
 | 模型倍率（credits） | ✅ | `GET /v3/config` 的 `models[].credits`，形如 `"x0.79 credits"` | **已接入**：解析为 `ModelInfo.CreditsMultiplier`，在插件模型表「倍率」列展示。**不需要登录** |
 | 模型能力元数据 | ✅ | 同接口：`maxInputTokens` / `maxOutputTokens` / `maxAllowedSize` / `supportsImages` / `supportsReasoning` / `supportsToolCall` / `onlyReasoning` / `vendor` / `descriptionZh` / `isDefault` / `disabledMultimodal` | **已接入**（图像类条目 `maxInputTokens <= 0` 会被跳过） |
 | **思考档位** | ✅ | 同接口 `models[].reasoning`，三种形态（见 §11.1） | **已接入**：`ModelInfo.Thinking`，请求按能力归一 |
-| **限时促销** | ✅（目前仅国际版） | 同接口 `data.modelPromotions[]`：`discount.factor` / `schedule.validFrom~validUntil` / `badge.label` / `hover.textZh` | **已接入**：按时间窗与 `enabled` 过滤后回填到模型的 `Promotion` |
-| **套餐门槛** | ✅（目前仅国际版） | 同接口 `data.modelTiers[]`：`tier` / `modelIds` / `badge.label` / `hover` | **已接入**：`ModelInfo.Tier`，前端标「Pro Only」 |
+| **限时促销** | ✅（目前仅国际版） | 同接口 `data.modelPromotions[]`：`discount.factor` / `schedule.validFrom~validUntil` / `badge.label` / `hover.textZh` | **已接入**：按时间窗与 `enabled` 过滤后回填到模型的 `Promotion`，并按区域保留（见 §11.4） |
+| **套餐门槛** | ✅（目前仅国际版） | 同接口 `data.modelTiers[]`：`tier` / `modelIds` / `badge.label` / `hover` | **已接入**：`ModelInfo.Tier`，前端标「Pro Only」，并按区域保留（见 §11.4） |
 | **办公版倍率** | ❌ | — | `/v3/config` 的 `models[]` **完全不返回 `credits`**（2026-10-20 实测 37/37 缺失，带真实企业账号 `Authorization` 复核仍为 0/37）。企业计费接口 `get-enterprise-user-usage` 只返回账号总额度（`credit` / `limitNum`），无模型维度。官方文档也只说「不同模型消耗不同」，明细需登录官网查看。前端因此把办公版单列一个 tab 并明确标注「上游未提供」 |
 
 ### 11.2 办公版可路由模型（目录未列出但可调用）
