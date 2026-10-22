@@ -12,6 +12,7 @@ agent: build
 1. 运行 `git status` 和 `git log --oneline -5`，确认当前分支（必须是 `dev`，否则先切到 `dev`）。
 2. 确认工作区状态：未提交改动（含未跟踪文件）+ 已提交未推送的提交。
 3. **工作区所有未提交改动（含其他窗口/任务留下的、不属于本次代码的文件）一律纳入本次提交推送范围**，不得遗漏、不得视为「他人工作」而跳过；提交信息按各文件实际内容描述。
+4. 顺带判定**本次是否涉及 Agent 改动**（`agent-rust/**` 的 `src`/`vendor`/`Cargo.toml`/`Cargo.lock`），涉及则记录本次 Agent 目标版本 = `agent-rust/Cargo.toml` 的 `[package].version`，供阶段 6.5 升级所有主机使用。
 
 ## 阶段 2：OCR 审查（delegation 模式）
 
@@ -57,6 +58,27 @@ agent: build
      ```
    - 部署后验证：再执行 `docker ps --filter name=api-monitor --format '{{.Names}} {{.Image}} {{.Status}}'`，确认状态为 `Up ... (healthy)` 且镜像是新推的 `iwvw/api-monitor:dev`；如有必要再调用 `/api/system/health` 或等面板页面可访问确认。
 
+## 阶段 6.5：Agent 版本升级（仅当本次改动涉及 agent-rust/）
+
+若阶段 1 判定本次推送改动包含 `agent-rust/**`（`src`/`vendor`/`Cargo.toml`/`Cargo.lock`）——此时 Agent 版本已按 CONTEXT.md 同步递增，滚动 release（built-agents）会产出新二进制——则生产面板部署完成后**必须把所有主机的 Agent 升级到新版本**，否则主机 Agent 会停留在旧版本、永远升不上去。判定与升级全部经 am MCP 完成，禁止把凭据写入本仓库。
+
+1. 判定是否涉及 Agent：对本次各提交 `git diff-tree --no-commit-id --name-only -r <hash>`，任一包含 `agent-rust/` 即视为涉及；目标版本 = 阶段 1 记录的 `agent-rust/Cargo.toml` 的 `[package].version`。
+2. 取全部主机：GET `/api/server/accounts`，收集每台主机的 `id`（serverId）、当前 `agent_version`、`is_online`。
+3. 发起批量升级（一次调用覆盖所有目标主机，不要遗漏）：
+   - POST `/api/server/agent/batch-upgrade?protocol=<http|https>`，请求体：
+     ```json
+     {
+       "serverIds": [<全部在线主机 id>],
+       "protocol": "<面板对外协议 http|https>",
+       "base_url": "<面板公网 base url>",
+       "concurrency": 16,
+       "force_ssh": false,
+       "fallback_ssh": false
+     }
+     ```
+   - 用返回的 batch id（`payload.data.id`）轮询 GET `/api/server/agent/batch/{id}`，直到状态为 `succeeded`；`failed`/`部分失败` 时查看失败详情并对失败主机重试。
+4. **必须更新所有主机的 Agent 版本**：升级完成后再次 GET `/api/server/accounts`，逐一核对**每一台**主机的 `agent_version` 都已等于目标版本。当时离线未升级的主机，需等待其上线上报或稍后补升级；**任何一台 Agent 未升到新版本都视为未完成**，不得提前关闭任务/issue。
+
 ## 阶段 7：关闭本次改动对应的 GitHub Issues
 
 若本次改动对应了已跟踪的 task issue（`backlog`/`in-progress`/`done` 标签），部署通过后逐个闭环。**遵循 `docs/guides/待办任务闭环流程.md` 第 3 步的标准三步：先加 `done` 标签、再移除 `in-progress`/`backlog`、最后关闭附完成说明。**
@@ -91,4 +113,5 @@ done
 - 工作区干净，提交按域分类、无无关文件
 - dev 已推送，Actions 全部通过
 - 生产容器已通过 am MCP（`agent_run_command`）更新为 `iwvw/api-monitor:dev` 并验证 healthy/可访问
+- 若本次涉及 Agent 改动：所有主机 Agent 已经批量升级到 `agent-rust/Cargo.toml` 的新版本，并经 `/api/server/accounts` 核对每台 `agent_version` 一致
 - 本次改动对应的 issue 已闭环（标签为 `done`、非 `backlog`/`in-progress`，且已关闭附验证命令）
