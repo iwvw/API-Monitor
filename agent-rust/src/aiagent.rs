@@ -925,6 +925,25 @@ struct LightweightRequest {
     path: String,
     /// 需带到本机 opencode 的请求头（v2 的 /api/* 强制 Basic 鉴权，由网关注入）。
     authorization: Option<String>,
+    /// 投影档位：
+    /// - `Full`（`X-Lightweight: 1`）：剥大字段，保留每条消息与工具壳（旧行为）；
+    /// - `Skeleton`（`X-Lightweight: skeleton`）：按轮输出骨架，
+    ///   每轮只留用户提问 + 最终回复 + 过程计数（历史记录推荐形态）。
+    mode: ProjectionMode,
+    /**
+     * 是否为「能力探测」请求（`limit=1`）。
+     *
+     * 探测只需要确认「支持哪一档」，不需要数据本身。之前也照样翻页取全，
+     * 于是一次探测要等 36 页串行往返（实测 7.8 秒）——纯浪费。
+     * 判定依据是 limit=1：客户端正常加载永远不会用小到只够探测的页大小。
+     */
+    probe: bool,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ProjectionMode {
+    Full,
+    Skeleton,
 }
 
 /// 判断请求是否为「轻量消息列表」请求：GET + 带 X-Lightweight 头 +
@@ -941,7 +960,7 @@ fn parse_lightweight_request(head: &[u8]) -> Option<LightweightRequest> {
         return None;
     }
 
-    let mut lightweight = false;
+    let mut mode: Option<ProjectionMode> = None;
     let mut authorization: Option<String> = None;
     for line in lines {
         if line.is_empty() {
@@ -950,15 +969,17 @@ fn parse_lightweight_request(head: &[u8]) -> Option<LightweightRequest> {
         if let Some((name, value)) = line.split_once(':') {
             if name.trim().eq_ignore_ascii_case("x-lightweight") {
                 let v = value.trim();
-                lightweight = v == "1" || v.eq_ignore_ascii_case("true");
+                if v.eq_ignore_ascii_case("skeleton") {
+                    mode = Some(ProjectionMode::Skeleton);
+                } else if v == "1" || v.eq_ignore_ascii_case("true") {
+                    mode = Some(ProjectionMode::Full);
+                }
             } else if name.trim().eq_ignore_ascii_case("authorization") {
                 authorization = Some(value.trim().to_string());
             }
         }
     }
-    if !lightweight {
-        return None;
-    }
+    let mode = mode?;
 
     // 路径形如 /session/<id>/message（v1，可带 query）或
     // /api/session/<id>/message（v2）。二者都投影。
@@ -975,7 +996,22 @@ fn parse_lightweight_request(head: &[u8]) -> Option<LightweightRequest> {
     Some(LightweightRequest {
         path: target.to_string(),
         authorization,
+        mode,
+        // `limit=1` 只可能是探测：正常加载不会用小到只够探测的页大小。
+        probe: query_param(target, "limit").map_or(false, |v| v == "1"),
     })
+}
+
+/// 从 URL 查询串里取某个参数的值（不做 percent-decode，只需比对数字）。
+fn query_param<'a>(target: &'a str, name: &str) -> Option<&'a str> {
+    let query = target.split_once('?')?.1;
+    for pair in query.split('&') {
+        let (key, value) = pair.split_once('=')?;
+        if key == name {
+            return Some(value);
+        }
+    }
+    None
 }
 
 /// 判断目标路径是否为 OpenCode 事件流端点。
@@ -983,10 +1019,15 @@ fn parse_lightweight_request(head: &[u8]) -> Option<LightweightRequest> {
 /// 这些端点返回无限 SSE 流。部分客户端（如 Tauri 桥）只带 Authorization、
 /// 不带 Accept: text/event-stream，若仅凭 Accept 判定会误入 keep-alive 隧道，
 /// 响应被整体缓冲后约 60s 超时。因此按路径兜底识别，强制走裸字节管道。
+///
+/// ⚠️ `/api/event` 必须显式列出：OCC 前端（v2 SDK 的 `event.subscribe`）订阅的
+/// 就是它（实测 `packages/client` 里 `path: "/api/event"`）。漏掉它的后果是
+/// SSE 落进 keep-alive 隧道 → 响应被缓冲 → 正文成批到达，用户看到的就是
+/// 「消息不流式、最新消息延迟很高」，而且每次都会卡到隧道空闲超时才结束。
 fn is_sse_path(target: &str) -> bool {
     let path = target.split('?').next().unwrap_or(target);
     let path = path.trim_end_matches('/');
-    if path == "/global/event" || path == "/event" {
+    if path == "/global/event" || path == "/event" || path == "/api/event" {
         return true;
     }
     path.starts_with("/api/session/") && path.ends_with("/event")
@@ -1285,7 +1326,31 @@ async fn handle_reuse_request(
 /// 让客户端只发一次大 limit 请求即可拿到整段压缩对话（与 v1 主机轻量路径对齐）。
 async fn handle_lightweight_request(port: u16, request: &LightweightRequest) -> Result<Vec<u8>, String> {
     if let Some(session_id) = v2_session_id(&request.path) {
-        return handle_v2_lightweight_request(port, session_id, request.authorization.as_deref()).await;
+        // 探测请求（limit=1）只用来确认「支持哪一档」，不需要真的翻页取全。
+        //
+        // 之前无论 limit 多少都走「取全 + 投影」，于是客户端一次探测就要等
+        // 36 页串行往返（实测 7.8 秒），而这只是为了拿一个响应头。
+        // 这里直接短路：回一个极小的占位响应 + X-Lightweight 头。
+        if request.probe {
+            return Ok(build_http_response(
+                200,
+                "application/json",
+                br#"{"data":[],"cursor":{}}"#,
+                &[("X-Lightweight", match request.mode {
+                    ProjectionMode::Skeleton => "skeleton",
+                    ProjectionMode::Full => "1",
+                })],
+            ));
+        }
+        return handle_v2_lightweight_request(
+            port,
+            session_id,
+            request.authorization.as_deref(),
+            request.mode,
+            query_param(&request.path, "cursor"),
+            query_param(&request.path, "pages").and_then(|v| v.parse::<usize>().ok()),
+        )
+        .await;
     }
     let url = format!("http://127.0.0.1:{}{}", port, request.path);
     let client = local_http_client();
@@ -1324,85 +1389,186 @@ async fn handle_lightweight_request(port: u16, request: &LightweightRequest) -> 
 
 /// v2 单次底层请求的 limit 上限（与 v2 服务端一致）。
 const V2_MESSAGE_PAGE_LIMIT: usize = 200;
-/// v2 内部翻页上限：病态超长会话也不至于无限循环（50 * 200 = 10000 条）。
-const V2_MESSAGE_MAX_PAGES: usize = 50;
+/// v2 内部翻页上限：病态超长会话也不至于无限循环（60 * 200 = 12000 条）。
+const V2_MESSAGE_MAX_PAGES: usize = 60;
+/**
+ * 骨架「首屏」默认翻几页就停。
+ *
+ * 这是速度与完整性的权衡点。翻页是串行的（游标依赖上一页末条 id），
+ * 实测每页约 0.22s：
+ *   - 3 页（600 条消息）≈ 0.7s，通常覆盖最近几轮；
+ *   - 36 页（全量 7000 条）≈ 8s，用户要盯着加载动画十秒。
+ *
+ * 所以首屏只翻这么多页，剩下的由客户端按需继续请求（带上 cursor）。
+ */
+const V2_SKELETON_FIRST_SCREEN_PAGES: usize = 3;
+/// 客户端可用 `pages=` 覆盖上面的首屏页数（后台补全 / 上滑继续加载用）。
+const V2_SKELETON_MAX_PAGES: usize = V2_MESSAGE_MAX_PAGES;
+/// 轮次边界对齐时最多额外翻几页（见 `handle_v2_lightweight_request`）。
+const V2_SKELETON_BOUNDARY_MAX_PAGES: usize = 4;
 
 /// v2：内部按 cursor 翻页取全整段会话，逐页投影，拼成单个轻量响应。
 ///
-/// 客户端只发一次带大 limit 的请求；这里忽略其 limit（v2 服务端本就钳到 200），
-/// 从最新端往前翻到最早。响应体仍是 `{"data":[...], "cursor":{...}}` 形状，
-/// 但 `data` 已是整段、`cursor` 置空（无更早页），并带 X-Lightweight 头。
+/// 客户端只发一次请求；这里从最新端往前翻，**翻够就停**（骨架档默认 3 页），
+/// 并把「继续往前的游标」放进响应，客户端可带着它再请求下一段。
+///
+/// `mode` 决定投影档位：
+/// - `Full`：逐条消息剥大字段（保留工具元数据壳），一次取全（旧行为）；
+/// - `Skeleton`：按轮聚合成骨架，默认只取最近若干页以保首屏速度。
 async fn handle_v2_lightweight_request(
     port: u16,
     session_id: &str,
     authorization: Option<&str>,
+    mode: ProjectionMode,
+    start_cursor: Option<&str>,
+    page_budget_override: Option<usize>,
 ) -> Result<Vec<u8>, String> {
-    let client = local_http_client();
     let mut collected: Vec<serde_json::Value> = Vec::new();
-    let mut cursor: Option<String> = None;
+    let mut cursor: Option<String> = start_cursor.map(str::to_string);
     let mut pages = 0usize;
+    // 骨架首屏只要最近若干页；Full 档保持「一次取全」的旧语义。
+    let page_budget = match mode {
+        ProjectionMode::Skeleton => page_budget_override
+            .unwrap_or(V2_SKELETON_FIRST_SCREEN_PAGES)
+            .clamp(1, V2_SKELETON_MAX_PAGES),
+        ProjectionMode::Full => V2_MESSAGE_MAX_PAGES,
+    };
 
     loop {
-        let mut url = format!(
-            "http://127.0.0.1:{}/api/session/{}/message?limit={}",
-            port,
-            session_id,
-            V2_MESSAGE_PAGE_LIMIT
-        );
-        if let Some(c) = &cursor {
-            url.push_str("&cursor=");
-            url.push_str(&urlencoding(c));
-        } else {
-            // 首页显式 desc（最新在前），与官方客户端一致。
-            url.push_str("&order=desc");
-        }
-
-        let mut req = client
-            .get(&url)
-            .header(reqwest::header::ACCEPT_ENCODING, "identity");
-        if let Some(auth) = authorization {
-            req = req.header(reqwest::header::AUTHORIZATION, auth);
-        }
-        let resp = req
-            .send()
-            .await
-            .map_err(|err| format!("请求本机 opencode 失败: {}", err))?;
-
-        let status = resp.status();
-        let body = resp
-            .bytes()
-            .await
-            .map_err(|err| format!("读取本机响应失败: {}", err))?;
-
+        let (items, next_cursor, status, body) =
+            fetch_v2_page(port, session_id, authorization, cursor.as_deref()).await?;
         if !status.is_success() {
             // 第一页就失败：原样回传状态与 body，让客户端按错误路径处理。
             return Ok(build_http_response(status.as_u16(), "application/json", &body, &[]));
         }
-
-        let parsed: serde_json::Value =
-            serde_json::from_slice(&body).map_err(|err| format!("解析 v2 响应失败: {}", err))?;
-        if let Some(items) = parsed.get("data").and_then(serde_json::Value::as_array) {
-            collected.extend(items.iter().cloned());
-        }
-        cursor = parsed
-            .get("cursor")
-            .and_then(|c| c.get("next"))
-            .and_then(serde_json::Value::as_str)
-            .map(str::to_string);
+        collected.extend(items);
+        cursor = next_cursor;
         pages += 1;
-        if cursor.is_none() || pages >= V2_MESSAGE_MAX_PAGES {
+        if cursor.is_none() || pages >= page_budget {
             break;
         }
     }
 
-    let projected = crate::aiagent_projection::project_v2_message_list(&collected)?;
-    // 组装与 v2 同构的响应：data 为整段（desc），cursor.next 置空表示无更早页。
+    /*
+     * 轮次边界对齐：骨架按轮聚合，翻页边界切在一轮中间会**丢内容**。
+     *
+     * 实测形状：最近 200 条消息里 user 只占 7 条，一轮常有几十条助手消息。
+     * 若恰好停在「某轮的助手消息中间」，这一页里那些助手消息找不到 user 锚点，
+     * 按轮聚合时只能丢弃（`project_v2_turn_skeleton` 的游离助手消息分支）；
+     * 而下一页从该轮的 user 消息开始，又拿不到它的回复 —— 这一轮的回复就消失了。
+     *
+     * 所以：只要**已收集的最旧一条不是 user 消息**，就继续往前翻，直到落在轮次
+     * 起点或到达最早。代价是最多多翻几页，换来的是「上滑看到的每一轮都完整」。
+     */
+    let mut boundary_pages = 0usize;
+    while cursor.is_some() && !collected.is_empty() {
+        let oldest_is_user = collected
+            .last()
+            .and_then(|m| m.get("type"))
+            .and_then(serde_json::Value::as_str)
+            == Some("user");
+        if oldest_is_user
+            || pages >= V2_SKELETON_MAX_PAGES
+            || boundary_pages >= V2_SKELETON_BOUNDARY_MAX_PAGES
+        {
+            break;
+        }
+        let (items, next_cursor, status, _) =
+            fetch_v2_page(port, session_id, authorization, cursor.as_deref()).await?;
+        if !status.is_success() || items.is_empty() {
+            cursor = None;
+            break;
+        }
+        collected.extend(items);
+        cursor = next_cursor;
+        pages += 1;
+        boundary_pages += 1;
+    }
+
+    // 收集顺序是 desc（最新在前）；骨架要按时间正序聚合轮次，先反转回来。
+    let (projected, header) = match mode {
+        ProjectionMode::Skeleton => {
+            collected.reverse();
+            let skeleton = crate::aiagent_projection::project_v2_turn_skeleton(&collected)?;
+            (skeleton, "skeleton")
+        }
+        ProjectionMode::Full => (
+            crate::aiagent_projection::project_v2_message_list(&collected)?,
+            "1",
+        ),
+    };
+    // 组装与 v2 同构的响应。
+    //   - `cursor.next` 非空 → 还有更早的页，客户端可带它继续请求；
+    //   - `cursor.next` 为空 → 已到最早。
+    // 骨架档只翻前几页，因此通常会带回 next，这是「渐进加载」的基础。
     let envelope = serde_json::json!({
         "data": serde_json::from_slice::<serde_json::Value>(&projected).unwrap_or(serde_json::Value::Array(collected)),
-        "cursor": {}
+        "cursor": match cursor {
+            Some(next) => serde_json::json!({ "next": next }),
+            None => serde_json::json!({}),
+        }
     });
     let out = serde_json::to_vec(&envelope).map_err(|err| format!("序列化轻量响应失败: {}", err))?;
-    Ok(build_http_response(200, "application/json", &out, &[("X-Lightweight", "1")]))
+    Ok(build_http_response(200, "application/json", &out, &[("X-Lightweight", header)]))
+}
+
+/// 取一页 v2 消息：返回 (data 条目, 下一页游标, HTTP 状态, 原始 body)。
+///
+/// `cursor` 为空时取最新一页（显式 desc），与官方客户端一致。
+async fn fetch_v2_page(
+    port: u16,
+    session_id: &str,
+    authorization: Option<&str>,
+    cursor: Option<&str>,
+) -> Result<(Vec<serde_json::Value>, Option<String>, reqwest::StatusCode, Vec<u8>), String> {
+    let mut url = format!(
+        "http://127.0.0.1:{}/api/session/{}/message?limit={}",
+        port,
+        session_id,
+        V2_MESSAGE_PAGE_LIMIT
+    );
+    match cursor {
+        Some(c) => {
+            url.push_str("&cursor=");
+            url.push_str(&urlencoding(c));
+        }
+        // 首页显式 desc（最新在前），与官方客户端一致。
+        None => url.push_str("&order=desc"),
+    }
+
+    let client = local_http_client();
+    let mut req = client
+        .get(&url)
+        .header(reqwest::header::ACCEPT_ENCODING, "identity");
+    if let Some(auth) = authorization {
+        req = req.header(reqwest::header::AUTHORIZATION, auth);
+    }
+    let resp = req
+        .send()
+        .await
+        .map_err(|err| format!("请求本机 opencode 失败: {}", err))?;
+    let status = resp.status();
+    let body = resp
+        .bytes()
+        .await
+        .map_err(|err| format!("读取本机响应失败: {}", err))?
+        .to_vec();
+    if !status.is_success() {
+        return Ok((Vec::new(), None, status, body));
+    }
+    let parsed: serde_json::Value =
+        serde_json::from_slice(&body).map_err(|err| format!("解析 v2 响应失败: {}", err))?;
+    let items = parsed
+        .get("data")
+        .and_then(serde_json::Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let next = parsed
+        .get("cursor")
+        .and_then(|c| c.get("next"))
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_string);
+    Ok((items, next, status, body))
 }
 
 /// 从 v2 路径 `/api/session/<id>/message` 取出 session id；非该形状返回 None。
@@ -1573,8 +1739,18 @@ Host: 127.0.0.1:0\r\nUser-Agent: Go-http-client/1.1\r\nX-Lightweight: 1\r\nAccep
     }
 
     #[test]
-    fn keepalive_rejects_websocket_upgrade() {
-        let head = b"GET /pty/1 HTTP/1.1\r\nHost: x\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n\r\n";
+    fn keepalive_rejects_v2_api_event_without_accept_header() {
+        // ⚠️ 回归：OCC 前端订阅的是 v2 的 `/api/event`（不是 /global/event），
+        // 且 Tauri/裸 fetch 可能不带 Accept: text/event-stream。
+        //
+        // 漏识别它的后果：SSE 落进 keep-alive 隧道 → 响应被整体缓冲 → 前端
+        // 收到的正文成批到达，表现为「消息不流式、最新消息延迟很高」。
+        let head = b"GET /api/event HTTP/1.1\r\nHost: x\r\nAuthorization: Basic abc\r\n\r\n";
+        assert!(parse_keepalive_request(head).is_none());
+    }
+
+    #[test]
+    fn keepalive_rejects_websocket_upgrade() {        let head = b"GET /pty/1 HTTP/1.1\r\nHost: x\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n\r\n";
         assert!(parse_keepalive_request(head).is_none());
     }
 
