@@ -349,8 +349,13 @@ impl SkeletonTurn {
                 })
                 .unwrap_or_default();
             if let Some(captured) = capture_between(&output, "shell ID: ", ")") {
-                kind = "shell";
-                id = captured;
+                // ⚠️ 必须校验格式：模型经常在命令里**粘贴源码**，而源码里就有
+                // 「Command moved to the background (shell ID: ${shellID})」这样的
+                // 模板字符串。不做校验就会把 `${shellID}` 当成真实任务 id 收进面板。
+                if is_shell_id(&captured) {
+                    kind = "shell";
+                    id = captured;
+                }
             }
         }
         if id.is_empty() {
@@ -547,6 +552,16 @@ impl SkeletonTurn {
         }
         Value::Object(obj)
     }
+}
+
+/// 是否是合法的 shell id（`sh_` + 字母数字）。
+///
+/// 用来挡掉从命令正文里误捕到的模板字符串（`${shellID}`、`<shellID>` 等）。
+fn is_shell_id(value: &str) -> bool {
+    let Some(rest) = value.strip_prefix("sh_") else {
+        return false;
+    };
+    !rest.is_empty() && rest.chars().all(|c| c.is_ascii_alphanumeric())
 }
 
 /// 按字符（不是字节）截断，避免把一个多字节字符切坏。
@@ -1225,6 +1240,45 @@ mod tests {
         assert_eq!(jobs[0]["id"], "sh_real1");
         assert_eq!(jobs[0]["kind"], "shell");
         assert_eq!(jobs[0]["title"], "sleep 120 && echo LONGDONE");
+    }
+
+    /// 命令正文里出现的模板字符串不能被当成后台任务。
+    ///
+    /// 模型经常把源码粘贴进 shell 命令，而源码里就有
+    /// `Command moved to the background (shell ID: ${shellID})` 这样的模板。
+    /// 回退解析（从输出文本里认回执）若不校验格式，就会把 `${shellID}`
+    /// 收成一条任务，面板上出现一条永远点不开的幽灵任务。
+    #[test]
+    fn skeleton_ignores_template_placeholders_in_command_text() {
+        let messages = vec![
+            json!({ "type": "user", "id": "u1", "text": "看下源码", "time": { "created": 1000u64 } }),
+            json!({
+                "type": "assistant", "id": "a1",
+                "time": { "created": 1001u64, "completed": 2000u64 },
+                "content": [
+                    {
+                        "type": "tool",
+                        "name": "bash",
+                        "state": {
+                            "status": "completed",
+                            // 命令里粘贴了含模板字符串的源码，且没有 metadata.shellID
+                            "input": { "command": "grep -n 'shell ID: ' src/foo.ts" },
+                            "content": [{
+                                "type": "text",
+                                "text": "Command moved to the background (shell ID: ${shellID})."
+                            }]
+                        }
+                    },
+                    { "type": "text", "text": "找到了" }
+                ]
+            }),
+        ];
+        let skeleton = skeleton_of(messages);
+        assert!(
+            skeleton[0].get("backgroundJobs").is_none(),
+            "模板占位符不应被当成后台任务: {:?}",
+            skeleton[0].get("backgroundJobs")
+        );
     }
 
     /// 完成通知（synthetic）必须把后台任务状态从 unknown 纠正为终态。
