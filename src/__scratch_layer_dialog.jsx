@@ -44,7 +44,7 @@ function Shell() {
             </div>
           </LayerDialog.Body>
           <LayerDialog.Actions dismissLabel="取消">
-            <LayerDialog.Actions.Primary type="button">保存</LayerDialog.Actions.Primary>
+            <LayerDialog.Action type="button">保存</LayerDialog.Action>
           </LayerDialog.Actions>
         </LayerDialog.Content>
       </LayerDialog.Root>

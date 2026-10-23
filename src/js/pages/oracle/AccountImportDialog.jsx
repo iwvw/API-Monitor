@@ -47,14 +47,14 @@ export default function AccountImportDialog({ open, onOpenChange, accountImportF
           </div>
         </LayerDialog.Body>
         <LayerDialog.Actions dismissLabel="取消">
-          <LayerDialog.Actions.Primary
+          <LayerDialog.Action
             type="button"
             onClick={submitImportAccounts}
             disabled={!accountImportText.trim()}
             loading={importingAccounts}
           >
             导入
-          </LayerDialog.Actions.Primary>
+          </LayerDialog.Action>
         </LayerDialog.Actions>
       </LayerDialog.Content>
     </LayerDialog.Root>

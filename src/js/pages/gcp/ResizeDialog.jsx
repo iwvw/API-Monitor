@@ -19,9 +19,9 @@ export default function ResizeDialog({ open, onOpenChange, resizeTarget, resizeS
           </div>
         </LayerDialog.Body>
         <LayerDialog.Actions dismissLabel="取消">
-          <LayerDialog.Actions.Primary type="button" onClick={onSubmit}>
+          <LayerDialog.Action type="button" onClick={onSubmit}>
             扩容
-          </LayerDialog.Actions.Primary>
+          </LayerDialog.Action>
         </LayerDialog.Actions>
       </LayerDialog.Content>
     </LayerDialog.Root>

@@ -223,9 +223,9 @@ export default function PublicPageDialog({
           </div>
         </LayerDialog.Body>
         <LayerDialog.Actions dismissLabel="取消">
-          <LayerDialog.Actions.Primary type="button" onClick={submitPublicPage} loading={submittingPublicPage}>
+          <LayerDialog.Action type="button" onClick={submitPublicPage} loading={submittingPublicPage}>
             保存
-          </LayerDialog.Actions.Primary>
+          </LayerDialog.Action>
         </LayerDialog.Actions>
       </LayerDialog.Content>
     </LayerDialog.Root>

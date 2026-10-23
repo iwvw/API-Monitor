@@ -236,10 +236,10 @@ export function ChannelDialog({
         </div>
         </LayerDialog.Body>
         <LayerDialog.Actions dismissLabel="取消">
-          <LayerDialog.Actions.Primary type="button" onClick={handleSaveChannel} loading={notificationSaving}>
+          <LayerDialog.Action type="button" onClick={handleSaveChannel} loading={notificationSaving}>
             <Save className="w-3.5 h-3.5" />
             保存渠道
-          </LayerDialog.Actions.Primary>
+          </LayerDialog.Action>
         </LayerDialog.Actions>
       </LayerDialog.Content>
     </LayerDialog.Root>

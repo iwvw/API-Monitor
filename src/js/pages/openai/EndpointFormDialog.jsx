@@ -455,14 +455,14 @@ export function EndpointFormDialog({ endpointsApi, proxypoolPools }) {
           </LayerDialog.Body>
 
           <LayerDialog.Actions dismissLabel="取消">
-            <LayerDialog.Actions.Primary
+            <LayerDialog.Action
               type="button"
               disabled={endpointSaving}
               onClick={saveEndpoint}
               loading={endpointSaving}
             >
               保存端点
-            </LayerDialog.Actions.Primary>
+            </LayerDialog.Action>
           </LayerDialog.Actions>
         </LayerDialog.Content>
       </LayerDialog.Root>

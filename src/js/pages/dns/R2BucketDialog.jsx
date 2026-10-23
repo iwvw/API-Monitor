@@ -21,9 +21,9 @@ function R2BucketDialog({
           </div>
         </LayerDialog.Body>
         <LayerDialog.Actions dismissLabel="取消">
-          <LayerDialog.Actions.Primary type="button" onClick={onCreateR2Bucket} loading={loading.saveR2Bucket}>
+          <LayerDialog.Action type="button" onClick={onCreateR2Bucket} loading={loading.saveR2Bucket}>
             创建
-          </LayerDialog.Actions.Primary>
+          </LayerDialog.Action>
         </LayerDialog.Actions>
       </LayerDialog.Content>
     </LayerDialog.Root>

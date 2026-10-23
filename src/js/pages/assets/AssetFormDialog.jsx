@@ -234,9 +234,9 @@ export default function AssetFormDialog({ open, mode, asset, saving, defaultCate
           </form>
         </LayerDialog.Body>
         <LayerDialog.Actions dismissLabel="取消">
-          <LayerDialog.Actions.Primary type="submit" form="asset-form" loading={saving}>
+          <LayerDialog.Action type="submit" form="asset-form" loading={saving}>
             {mode === 'edit' ? '保存' : '登记'}
-          </LayerDialog.Actions.Primary>
+          </LayerDialog.Action>
         </LayerDialog.Actions>
       </LayerDialog.Content>
     </LayerDialog.Root>

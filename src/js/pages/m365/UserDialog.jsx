@@ -310,14 +310,14 @@ export default function UserDialog({
         </div>
         </LayerDialog.Body>
         <LayerDialog.Actions dismissLabel="取消">
-          <LayerDialog.Actions.Primary
+          <LayerDialog.Action
             type="button"
             onClick={submitUser}
             loading={submittingUser || assigningLicense}
             disabled={loadingUserDialog}
           >
             保存
-          </LayerDialog.Actions.Primary>
+          </LayerDialog.Action>
         </LayerDialog.Actions>
       </LayerDialog.Content>
     </LayerDialog.Root>

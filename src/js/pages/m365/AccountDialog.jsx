@@ -64,13 +64,13 @@ export default function AccountDialog({
           </div>
         </LayerDialog.Body>
         <LayerDialog.Actions dismissLabel="取消">
-          <LayerDialog.Actions.Primary
+          <LayerDialog.Action
             type="button"
             onClick={submitAccount}
             loading={submittingAccount}
           >
             保存
-          </LayerDialog.Actions.Primary>
+          </LayerDialog.Action>
         </LayerDialog.Actions>
       </LayerDialog.Content>
     </LayerDialog.Root>

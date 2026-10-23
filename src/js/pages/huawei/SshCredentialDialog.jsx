@@ -30,9 +30,9 @@ export default function SshCredentialDialog({
           </div>
         </LayerDialog.Body>
         <LayerDialog.Actions dismissLabel="取消">
-          <LayerDialog.Actions.Primary type="button" onClick={saveSshCred} loading={savingSshCred}>
+          <LayerDialog.Action type="button" onClick={saveSshCred} loading={savingSshCred}>
             保存
-          </LayerDialog.Actions.Primary>
+          </LayerDialog.Action>
         </LayerDialog.Actions>
       </LayerDialog.Content>
     </LayerDialog.Root>

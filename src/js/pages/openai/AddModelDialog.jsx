@@ -23,9 +23,9 @@ export function AddModelDialog({
           />
         </LayerDialog.Body>
         <LayerDialog.Actions dismissLabel="取消">
-          <LayerDialog.Actions.Primary type="button" onClick={handleAddModelSubmit} loading={addModelSaving}>
+          <LayerDialog.Action type="button" onClick={handleAddModelSubmit} loading={addModelSaving}>
             保存
-          </LayerDialog.Actions.Primary>
+          </LayerDialog.Action>
         </LayerDialog.Actions>
       </LayerDialog.Content>
     </LayerDialog.Root>

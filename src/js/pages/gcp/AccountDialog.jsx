@@ -83,9 +83,9 @@ export default function AccountDialog({
       </div>
         </LayerDialog.Body>
         <LayerDialog.Actions dismissLabel="取消">
-          <LayerDialog.Actions.Primary type="button" loading={submittingAccount} onClick={onSubmit}>
+          <LayerDialog.Action type="button" loading={submittingAccount} onClick={onSubmit}>
             {editingAccount ? '保存' : '新增'}
-          </LayerDialog.Actions.Primary>
+          </LayerDialog.Action>
         </LayerDialog.Actions>
       </LayerDialog.Content>
     </LayerDialog.Root>

@@ -16,9 +16,9 @@ export default function FlexusOpsDialog({ flexusOps, setFlexusOps, submitFlexusO
           )}
         </LayerDialog.Body>
         <LayerDialog.Actions dismissLabel="取消">
-          <LayerDialog.Actions.Primary type="button" onClick={submitFlexusOps}>
+          <LayerDialog.Action type="button" onClick={submitFlexusOps}>
             确定
-          </LayerDialog.Actions.Primary>
+          </LayerDialog.Action>
         </LayerDialog.Actions>
       </LayerDialog.Content>
     </LayerDialog.Root>

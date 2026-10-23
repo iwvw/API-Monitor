@@ -37,9 +37,9 @@ export default function AccountDialog({ open, onOpenChange, editingAccount, acco
           </div>
         </LayerDialog.Body>
         <LayerDialog.Actions dismissLabel="取消">
-          <LayerDialog.Actions.Primary type="button" onClick={saveAccount} loading={savingAccount}>
+          <LayerDialog.Action type="button" onClick={saveAccount} loading={savingAccount}>
             保存
-          </LayerDialog.Actions.Primary>
+          </LayerDialog.Action>
         </LayerDialog.Actions>
       </LayerDialog.Content>
     </LayerDialog.Root>

@@ -38,9 +38,9 @@ export function PlanDialog({ open, onOpenChange, editingPlanId, planForm, setPla
           </div>
           </LayerDialog.Body>
           <LayerDialog.Actions dismissLabel="取消">
-            <LayerDialog.Actions.Primary type="button" loading={saving} onClick={onSave}>
+            <LayerDialog.Action type="button" loading={saving} onClick={onSave}>
               <Save className="h-3.5 w-3.5" />保存套餐
-            </LayerDialog.Actions.Primary>
+            </LayerDialog.Action>
           </LayerDialog.Actions>
         </LayerDialog.Content>
       </LayerDialog.Root>
@@ -77,9 +77,9 @@ export function InternalNodeDialog({ open, onOpenChange, editingInternalNodeId, 
           </div>
           </LayerDialog.Body>
           <LayerDialog.Actions dismissLabel="取消">
-            <LayerDialog.Actions.Primary type="button" loading={saving} onClick={editingInternalNodeId ? onSave : onCreate}>
+            <LayerDialog.Action type="button" loading={saving} onClick={editingInternalNodeId ? onSave : onCreate}>
               {editingInternalNodeId ? '保存' : '生成节点'}
-            </LayerDialog.Actions.Primary>
+            </LayerDialog.Action>
           </LayerDialog.Actions>
         </LayerDialog.Content>
       </LayerDialog.Root>
@@ -97,7 +97,7 @@ export function TunnelDialog({ open, onOpenChange, tunnelForm, setTunnelForm, cl
 				</div>
 				</LayerDialog.Body>
 				<LayerDialog.Actions dismissLabel="取消">
-					<LayerDialog.Actions.Primary type="button" onClick={() => onDeploy()} disabled={!tunnelTargetServer || !tunnelForm.hostname}>开始部署</LayerDialog.Actions.Primary>
+					<LayerDialog.Action type="button" onClick={() => onDeploy()} disabled={!tunnelTargetServer || !tunnelForm.hostname}>开始部署</LayerDialog.Action>
 				</LayerDialog.Actions>
 			</LayerDialog.Content>
 		</LayerDialog.Root>
@@ -177,9 +177,9 @@ export function SubscriptionDialog({ open, onOpenChange, editingSubscriptionId, 
           </LayerDialog.Body>
 
           <LayerDialog.Actions dismissLabel="取消">
-            <LayerDialog.Actions.Primary type="button" loading={saving} onClick={onSave}>
+            <LayerDialog.Action type="button" loading={saving} onClick={onSave}>
               <Save className="h-3.5 w-3.5" />保存
-            </LayerDialog.Actions.Primary>
+            </LayerDialog.Action>
           </LayerDialog.Actions>
         </LayerDialog.Content>
       </LayerDialog.Root>
@@ -229,9 +229,9 @@ export function NodeDialog({ open, onOpenChange, nodeForm, setNodeForm, saving, 
           </div>
           </LayerDialog.Body>
           <LayerDialog.Actions dismissLabel="取消">
-            <LayerDialog.Actions.Primary type="button" loading={saving} onClick={onSave}>
+            <LayerDialog.Action type="button" loading={saving} onClick={onSave}>
               <Save className="h-3.5 w-3.5" />保存节点
-            </LayerDialog.Actions.Primary>
+            </LayerDialog.Action>
           </LayerDialog.Actions>
         </LayerDialog.Content>
       </LayerDialog.Root>
@@ -337,9 +337,9 @@ export function TemplateDialog({ open, onOpenChange, editingTemplateId, template
           </div>
           </LayerDialog.Body>
           <LayerDialog.Actions dismissLabel="取消">
-            <LayerDialog.Actions.Primary type="button" loading={saving} onClick={onSave}>
+            <LayerDialog.Action type="button" loading={saving} onClick={onSave}>
               <Save className="h-3.5 w-3.5" />保存模板
-            </LayerDialog.Actions.Primary>
+            </LayerDialog.Action>
           </LayerDialog.Actions>
         </LayerDialog.Content>
       </LayerDialog.Root>

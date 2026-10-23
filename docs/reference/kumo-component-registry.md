@@ -39,7 +39,7 @@ Autocomplete — free-form text input with an optional filtered suggestion list.
 
 **Colors (kumo tokens used):**
 
-`bg-kumo-control`, `bg-kumo-line`, `bg-kumo-overlay`, `border-kumo-line`, `ring-kumo-line`, `text-kumo-default`, `text-kumo-strong`
+`bg-kumo-control`, `bg-kumo-line`, `bg-kumo-tint`, `border-kumo-line`, `ring-kumo-line`, `text-kumo-default`, `text-kumo-strong`
 
 **Sub-Components:**
 
@@ -281,7 +281,7 @@ Small status label for categorizing or highlighting content.
   - `"destructive"`: Deprecated. Use red instead.
   - `"info"`: Info badge
   - `"beta"`: Indicates beta or experimental features
-  - `"outline"`: Bordered badge with transparent background
+  - `"outline"`: Bordered badge with base background
   - `"red"`: Red badge
   - `"green"`: Green badge
   - `"neutral"`: Neutral badge
@@ -290,17 +290,19 @@ Small status label for categorizing or highlighting content.
   - `"teal"`: Teal badge
   - `"teal-subtle"`: Subtle teal badge
   - `"blue"`: Blue badge
-- `appearance`: enum [default: filled]
-  - `"filled"`: Filled badge with background color (default)
-  - `"dot"`: Outlined badge with a colored circle dot indicating status
 - `className`: string
   Additional CSS classes merged via `cn()`.
 - `children`: ReactNode
   Content rendered inside the badge.
+- `appearance`: enum [default: filled]
+  - `"filled"`: Filled badge with background color (default)
+  - `"dot"`: Outlined badge with a colored circle dot indicating status
+- `icon`: ReactNode
+  Icon from `@phosphor-icons/react` or a React element. Rendered before children.
 
 **Colors (kumo tokens used):**
 
-`bg-kumo-badge-blue`, `bg-kumo-badge-green`, `bg-kumo-badge-inverted`, `bg-kumo-badge-neutral`, `bg-kumo-badge-orange`, `bg-kumo-badge-purple`, `bg-kumo-badge-red`, `bg-kumo-badge-teal`, `bg-kumo-badge-teal-subtle`, `bg-kumo-danger-tint`, `bg-kumo-fill`, `bg-kumo-info-tint`, `bg-kumo-success`, `bg-kumo-success-tint`, `bg-kumo-warning-tint`, `border-kumo-brand`, `border-kumo-fill`, `ring-kumo-hairline`, `text-kumo-badge-inverted`, `text-kumo-badge-neutral-subtle`, `text-kumo-badge-teal-subtle`, `text-kumo-danger`, `text-kumo-default`, `text-kumo-info`, `text-kumo-link`, `text-kumo-success`, `text-kumo-warning`
+`bg-kumo-badge-blue`, `bg-kumo-badge-green`, `bg-kumo-badge-inverted`, `bg-kumo-badge-neutral`, `bg-kumo-badge-orange`, `bg-kumo-badge-purple`, `bg-kumo-badge-red`, `bg-kumo-badge-teal`, `bg-kumo-badge-teal-subtle`, `bg-kumo-base`, `bg-kumo-danger-tint`, `bg-kumo-fill`, `bg-kumo-info-tint`, `bg-kumo-success`, `bg-kumo-success-tint`, `bg-kumo-warning-tint`, `border-kumo-brand`, `border-kumo-fill`, `ring-kumo-hairline`, `text-kumo-badge-inverted`, `text-kumo-badge-neutral-subtle`, `text-kumo-badge-teal-subtle`, `text-kumo-danger`, `text-kumo-default`, `text-kumo-info`, `text-kumo-link`, `text-kumo-success`, `text-kumo-warning`
 
 **Examples:**
 
@@ -334,6 +336,18 @@ Small status label for categorizing or highlighting content.
       Workers
       <Badge variant="secondary">New</Badge>
     </p>
+```
+
+```tsx
+<Badge icon={CheckCircleIcon} variant="success">
+      Verified
+    </Badge>
+```
+
+```tsx
+<Link href="/changelog" variant="plain">
+      <Badge variant="outline">View changelog</Badge>
+    </Link>
 ```
 
 ```tsx
@@ -940,6 +954,85 @@ Primary action trigger. Supports multiple variants, sizes, shapes, icons, and lo
 
 ---
 
+### ButtonGroup
+
+Joins a small set of tightly-coupled buttons into a single control — most commonly a **split button**: a primary action next to a dropdown trigger for related, secondary actions.
+
+**Type:** component
+
+**Import:** `import { ButtonGroup } from "@cloudflare/kumo";`
+
+**Category:** Action
+
+**Props:**
+
+- `className`: string
+  Additional CSS classes merged via `cn()`. Use kumo semantic tokens only.
+- `id`: string
+- `lang`: string
+- `title`: string
+- `children`: ReactNode
+  The tightly-coupled controls to join. Typically two `Button`s: a primary action and a dropdown trigger (a "split button").
+
+**Examples:**
+
+```tsx
+<ButtonGroup aria-label="Deploy">
+      <Button variant="primary">Deploy</Button>
+      <DropdownMenu>
+        <DropdownMenu.Trigger
+          render={
+            <Button
+              variant="primary"
+              shape="square"
+              aria-label="More deploy options"
+            >
+              <CaretDownIcon />
+            </Button>
+          }
+        />
+        <DropdownMenu.Content>
+          <DropdownMenu.Item>Deploy to staging</DropdownMenu.Item>
+          <DropdownMenu.Item>Deploy and tail logs</DropdownMenu.Item>
+          <DropdownMenu.Item>Schedule deploy…</DropdownMenu.Item>
+        </DropdownMenu.Content>
+      </DropdownMenu>
+    </ButtonGroup>
+```
+
+```tsx
+<div className="flex flex-wrap items-center gap-4">
+      {sizes.map((size) => (
+        <ButtonGroup key={size} aria-label="Deploy">
+          <Button size={size} variant="primary">
+            Deploy
+          </Button>
+          <DropdownMenu>
+            <DropdownMenu.Trigger
+              render={
+                <Button
+                  size={size}
+                  variant="primary"
+                  shape="square"
+                  aria-label="More deploy options"
+                >
+                  <CaretDownIcon />
+                </Button>
+              }
+            />
+            <DropdownMenu.Content>
+              <DropdownMenu.Item>Deploy to staging</DropdownMenu.Item>
+              <DropdownMenu.Item>Schedule deploy…</DropdownMenu.Item>
+            </DropdownMenu.Content>
+          </DropdownMenu>
+        </ButtonGroup>
+      ))}
+    </div>
+```
+
+
+---
+
 ### Chart
 
 Chart — a low-level wrapper around [Apache ECharts](https://echarts.apache.org).
@@ -993,6 +1086,17 @@ Chart — a low-level wrapper around [Apache ECharts](https://echarts.apache.org
       echarts={echarts}
       isDarkMode={isDarkMode}
       data={data}
+      xAxisName="Time (UTC)"
+      yAxisName="Requests"
+      yAxisMinInterval={1}
+    />
+```
+
+```tsx
+<TimeseriesChart
+      echarts={echarts}
+      isDarkMode={isDarkMode}
+      data={data}
       markers={markers}
       xAxisName="Time (UTC)"
       yAxisName="Count"
@@ -1023,15 +1127,25 @@ Chart — a low-level wrapper around [Apache ECharts](https://echarts.apache.org
       data={data}
       xAxisName="Time (UTC)"
       yAxisName="Requests"
-      xAxisTickFormat={(ts) => {
-        const d = new Date(ts);
-        return `${d.getHours().toString().padStart(2, "0")}:${d.getMinutes().toString().padStart(2, "0")}`;
-      }}
+      xAxisTickFormat={(timestamp) =>
+        new Intl.DateTimeFormat(undefined, {
+          timeZone: "UTC",
+          hour: "2-digit",
+          minute: "2-digit",
+        }).format(timestamp)
+      }
       yAxisTickFormat={(value) => {
         if (value >= 1000) return `${value / 1000}k`;
         return value.toString();
       }}
       tooltipValueFormat={(value) => `${(value / 1000).toFixed(1)}k requests`}
+      tooltipTimestampFormat={(timestamp) =>
+        new Intl.DateTimeFormat(undefined, {
+          timeZone: "UTC",
+          dateStyle: "medium",
+          timeStyle: "medium",
+        }).format(timestamp)
+      }
     />
 ```
 
@@ -1234,6 +1348,7 @@ Chart — a low-level wrapper around [Apache ECharts](https://echarts.apache.org
           isDarkMode={isDarkMode}
           data={data}
           height={300}
+          tooltipFooter="Percentiles use a five-minute rolling window."
         />
       </LayerCard.Primary>
     </LayerCard>
@@ -1402,7 +1517,7 @@ Checkbox component
 
 **Colors (kumo tokens used):**
 
-`bg-kumo-base`, `bg-kumo-contrast`, `ring-kumo-brand`, `ring-kumo-contrast`, `ring-kumo-danger`, `ring-kumo-focus`, `ring-kumo-hairline`, `text-kumo-danger`, `text-kumo-default`, `text-kumo-inverse`, `text-kumo-subtle`
+`bg-kumo-base`, `bg-kumo-contrast`, `bg-kumo-elevated`, `bg-kumo-tint`, `border-kumo-danger`, `border-kumo-hairline`, `border-kumo-interact`, `border-kumo-line`, `ring-kumo-brand`, `ring-kumo-contrast`, `ring-kumo-danger`, `ring-kumo-focus`, `ring-kumo-hairline`, `ring-kumo-line`, `text-kumo-danger`, `text-kumo-default`, `text-kumo-inverse`, `text-kumo-subtle`
 
 **Styling:**
 
@@ -1440,7 +1555,9 @@ Props:
 - `value`: string[] - Values of checkboxes that should be checked (controlled)
 - `allValues`: string[] - All possible checkbox values (required for parent checkbox pattern)
 - `disabled`: boolean - Whether all checkboxes in the group are disabled
-- `controlFirst`: boolean - When true (default), checkbox appears before label. When false, label appears before checkbox.
+- `orientation`: "vertical" | "horizontal" - Layout direction of the checkbox items
+- `appearance`: KumoCheckboxAppearance - Visual appearance applied to all Checkbox.Item children. - `"default"` — Standard inline checkbox items - `"card"` — Choice card with border, padding, and highlighted selection state Individual items can override this with their own `appearance` prop.
+- `controlFirst`: boolean - When true, checkbox appears before label. When false, label appears before checkbox. Defaults to true for default appearance and false for card appearance.
 - `className`: string - Additional CSS classes
 
 #### Checkbox.Legend
@@ -1520,6 +1637,67 @@ Props:
     >
       <Checkbox.Item value="email" label="Email" variant="error" />
       <Checkbox.Item value="sms" label="SMS" variant="error" />
+    </Checkbox.Group>
+```
+
+```tsx
+<Checkbox.Group
+      legend="Where should this profile scan?"
+      appearance="card"
+      value={products}
+      onValueChange={setProducts}
+    >
+      <Checkbox.Item
+        value="gateway"
+        label="Web traffic"
+        description="Uploads and downloads through Gateway HTTP policies."
+      />
+      <Checkbox.Item
+        value="ai"
+        label="AI prompts"
+        description="Prompts sent to AI apps, and the responses they return."
+      />
+      <Checkbox.Item
+        value="casb"
+        label="SaaS and cloud storage"
+        description="Files stored in connected apps and cloud accounts."
+      />
+      <Checkbox.Item
+        value="email"
+        label="Outbound email"
+        description="Email leaving your organization."
+      />
+    </Checkbox.Group>
+```
+
+```tsx
+<Checkbox.Group
+      legend="Where should this profile scan?"
+      appearance="card"
+      orientation="horizontal"
+      value={products}
+      onValueChange={setProducts}
+    >
+      <Checkbox.Item
+        value="gateway"
+        label="Web traffic"
+        description="Uploads and downloads through Gateway HTTP policies."
+      />
+      <Checkbox.Item
+        value="ai"
+        label="AI prompts"
+        description="Prompts sent to AI apps, and the responses they return."
+      />
+      <Checkbox.Item
+        value="casb"
+        label="SaaS and cloud storage"
+        description="Files stored in connected apps and cloud accounts."
+      />
+      <Checkbox.Item
+        value="email"
+        label="Outbound email"
+        description="Email leaving your organization."
+      />
     </Checkbox.Group>
 ```
 
@@ -1625,7 +1803,7 @@ Read-only text field with a one-click copy-to-clipboard button.
 
 **Colors (kumo tokens used):**
 
-`bg-kumo-base`, `border-kumo-line`, `outline-kumo-fill`, `ring-kumo-brand`, `ring-kumo-focus`, `text-kumo-default`
+`bg-kumo-base`, `border-kumo-line`, `outline-kumo-line`, `ring-kumo-brand`, `ring-kumo-focus`, `text-kumo-default`
 
 **Styling:**
 
@@ -2174,7 +2352,7 @@ Collapsible — a composable disclosure component for showing/hiding content.
 
 **Colors (kumo tokens used):**
 
-`border-kumo-fill`, `text-kumo-link`
+`border-kumo-fill`, `text-kumo-default`
 
 **Sub-Components:**
 
@@ -2498,17 +2676,20 @@ Icon sub-component (wraps ComboboxBase)
 ```tsx
 <Combobox
       value={value}
-      onValueChange={(v) => setValue(v as Language)}
-      items={languages}
+      onValueChange={(nextValue) => setValue(nextValue as DatabaseItem | null)}
+      items={databaseItems}
     >
-      <Combobox.TriggerValue className="w-[200px]" />
+      <Combobox.TriggerValue
+        className="w-[240px]"
+        placeholder="Select a database"
+      />
       <Combobox.Content>
-        <Combobox.Input placeholder="Search languages" />
-        <Combobox.Empty />
+        <Combobox.Input placeholder="Search databases" />
+        <Combobox.Empty>No databases found.</Combobox.Empty>
         <Combobox.List>
-          {(item: Language) => (
-            <Combobox.Item key={item.value} value={item}>
-              {item.emoji} {item.label}
+          {(database: DatabaseItem) => (
+            <Combobox.Item key={database.value} value={database}>
+              {database.label}
             </Combobox.Item>
           )}
         </Combobox.List>
@@ -2519,13 +2700,10 @@ Icon sub-component (wraps ComboboxBase)
 ```tsx
 <Combobox
       value={value}
-      onValueChange={(v) => setValue(v as Language | null)}
+      onValueChange={(v) => setValue(v as Language)}
       items={languages}
     >
-      <Combobox.TriggerValue
-        className="w-[200px]"
-        placeholder="Select a language"
-      />
+      <Combobox.TriggerValue className="w-[200px]" />
       <Combobox.Content>
         <Combobox.Input placeholder="Search languages" />
         <Combobox.Empty />
@@ -3843,7 +4021,7 @@ DropdownMenu — accessible dropdown menu anchored to a trigger.
 
 **Colors (kumo tokens used):**
 
-`bg-kumo-control`, `bg-kumo-danger`, `bg-kumo-hairline`, `bg-kumo-overlay`, `bg-kumo-tint`, `ring-kumo-brand`, `ring-kumo-focus`, `ring-kumo-line`, `text-kumo-danger`, `text-kumo-default`
+`bg-kumo-control`, `bg-kumo-danger`, `bg-kumo-hairline`, `bg-kumo-tint`, `ring-kumo-brand`, `ring-kumo-line`, `text-kumo-danger`, `text-kumo-default`
 
 **Sub-Components:**
 
@@ -3855,7 +4033,15 @@ Trigger sub-component
 
 #### DropdownMenu.Portal
 
-Portal sub-component (wraps DropdownMenuPrimitive)
+Portal sub-component
+
+#### DropdownMenu.Positioner
+
+Positioner sub-component
+
+#### DropdownMenu.Popup
+
+Popup sub-component
 
 #### DropdownMenu.Sub
 
@@ -4014,7 +4200,9 @@ Group sub-component (wraps DropdownMenuPrimitive)
 
         {/* Language submenu with RadioGroup */}
         <DropdownMenu.Sub>
-          <DropdownMenu.SubTrigger>Language</DropdownMenu.SubTrigger>
+          <DropdownMenu.SubTrigger icon={GlobeIcon}>
+            Language
+          </DropdownMenu.SubTrigger>
           <DropdownMenu.SubContent>
             <DropdownMenu.Group>
               <DropdownMenu.RadioGroup
@@ -4034,7 +4222,9 @@ Group sub-component (wraps DropdownMenuPrimitive)
 
         {/* Timezone submenu with RadioGroup */}
         <DropdownMenu.Sub>
-          <DropdownMenu.SubTrigger>Set Timezone</DropdownMenu.SubTrigger>
+          <DropdownMenu.SubTrigger icon={<ClockIcon weight="duotone" />}>
+            Set Timezone
+          </DropdownMenu.SubTrigger>
           <DropdownMenu.SubContent>
             <DropdownMenu.Group>
               <DropdownMenu.RadioGroup
@@ -4067,8 +4257,8 @@ Group sub-component (wraps DropdownMenuPrimitive)
         <DropdownMenu.Item icon={PencilSimpleIcon}>Rename</DropdownMenu.Item>
         <DropdownMenu.Item icon={CopyIcon}>Duplicate</DropdownMenu.Item>
         <DropdownMenu.Separator />
-        <DropdownMenu.Item inset>Move to folder</DropdownMenu.Item>
-        <DropdownMenu.Item inset>Add to favorites</DropdownMenu.Item>
+        <DropdownMenu.Item>Move to folder</DropdownMenu.Item>
+        <DropdownMenu.Item>Add to favorites</DropdownMenu.Item>
         <DropdownMenu.Separator />
         <DropdownMenu.Item icon={TrashIcon} variant="danger">
           Delete
@@ -4093,6 +4283,12 @@ Group sub-component (wraps DropdownMenuPrimitive)
             onClick={() => setLastAction("Renamed")}
           >
             Rename
+          </DropdownMenu.Item>
+          <DropdownMenu.Item
+            icon={<ArrowsClockwiseIcon className="animate-spin" />}
+            onClick={() => setLastAction("Refreshed")}
+          >
+            Refresh
           </DropdownMenu.Item>
           <DropdownMenu.Separator />
           <DropdownMenu.Item
@@ -4199,7 +4395,7 @@ Placeholder shown when a list, table, or page has no content to display.
 
 **Colors (kumo tokens used):**
 
-`bg-kumo-control`, `bg-kumo-overlay`, `border-kumo-fill`, `border-kumo-interact`, `text-kumo-brand`, `text-kumo-default`, `text-kumo-inactive`, `text-kumo-subtle`, `text-kumo-success`
+`bg-kumo-control`, `bg-kumo-overlay`, `border-kumo-fill`, `ring-kumo-line`, `text-kumo-default`, `text-kumo-subtle`, `text-kumo-success`
 
 **Examples:**
 
@@ -4321,6 +4517,71 @@ Form field wrapper that provides a label, optional description, and error displa
 **Colors (kumo tokens used):**
 
 `text-kumo-danger`, `text-kumo-default`, `text-kumo-subtle`
+
+---
+
+### GlobeMap
+
+GlobeMap — an SVG orthographic globe with hatched land and geographic markers. Rendering is SVG-only and does not use WebGL.
+
+**Type:** component
+
+**Import:** `import { GlobeMap } from "@cloudflare/kumo";`
+
+**Category:** Data Visualization
+
+**Props:**
+
+- `landColor`: string
+  Stroke color for the hatched land. Defaults to the neutral Kumo map area color.
+- `landHatchSpacing`: number
+  Spacing between land hatch lines in view-box pixels. Default: `10`.
+- `oceanColor`: string
+  Fill behind the land and graticule. Default: the Kumo base surface.
+- `markers`: GlobeMapMarker[]
+  Geographic points drawn above the land. Points fade at the horizon and back-facing points are hidden.
+- `markerColor`: string
+  Default marker fill. Defaults to the Kumo chart blue.
+- `markerRadius`: number
+  Default marker radius in view-box pixels. Default: `7`.
+- `defaultRotation`: number[]
+  Initial globe rotation as `[longitude, latitude, roll]`.
+- `autoRotate`: boolean
+  Continuously rotate the globe horizontally. Default: `false`.
+- `autoRotateSpeed`: number
+  Horizontal auto-rotation speed in degrees per second. Default: `4`.
+- `showGraticule`: boolean
+  Draw latitude and longitude guides. Default: `false`.
+- `showTooltip`: boolean
+  Show the Kumo-styled marker tooltip. Default: `true`.
+- `height`: number
+  Fixed component height. Otherwise the globe uses a square aspect ratio.
+- `className`: string
+- `isDarkMode`: boolean
+
+**Colors (kumo tokens used):**
+
+`bg-kumo-base`, `border-kumo-line`, `text-kumo-default`, `text-kumo-subtle`
+
+**Examples:**
+
+```tsx
+<div className="mx-auto max-w-xl">
+      <GlobeMap
+        markers={cloudflareAvailabilityLocations}
+        landColor="var(--text-color-kumo-inactive)"
+        landHatchSpacing={8}
+        oceanColor="transparent"
+        showGraticule
+        markerColor="var(--color-kumo-brand)"
+        markerRadius={8}
+        autoRotate
+        aria-label="Cloudflare availability locations"
+        isDarkMode={isDarkMode}
+      />
+    </div>
+```
+
 
 ---
 
@@ -4608,6 +4869,94 @@ Responsive CSS grid layout container with preset column configurations.
         </Surface>
       </GridItem>
     </Grid>
+```
+
+
+---
+
+### InlineCopyText
+
+Compact, borderless copy control for IDs and other short values displayed inline or inside dense table cells.
+
+**Type:** component
+
+**Import:** `import { InlineCopyText } from "@cloudflare/kumo";`
+
+**Category:** Action
+
+**Props:**
+
+- `labels`: InlineCopyTextLabels
+  Accessible labels for localization.
+- `children`: ReactNode
+  Content to display. String children are copied unless `value` is provided.
+- `value`: string
+  The value to copy. Required when `children` is not a string.
+- `size`: "xs" | "sm" | "base" | "lg"
+  Text size. Supported values depend on the text variant.
+- `bold`: boolean
+  Whether to use medium font weight. Only applies to body text variants.
+- `as`: enum
+  The HTML element to render. Accepts headings (`"h1"`–`"h6"`), block text (`"p"`, `"pre"`), inline text (`"span"`, `"code"`, `"em"`, `"strong"`, `"small"`, `"abbr"`, `"time"`), form-related (`"label"`, `"legend"`), list/definition (`"dt"`, `"dd"`, `"li"`), and `"figcaption"`.
+
+- **Optional** for `"heading"` (defaults to `"span"`). Pass the heading   element that reflects this text's place in the document outline.
+- **Required** for deprecated heading variants (`"heading1"`,   `"heading2"`, `"heading3"`).
+- **Optional** for body variants (defaults to `"p"`) and monospace   variants (defaults to `"span"`).
+- `truncate`: boolean
+  Whether to truncate overflowing text with an ellipsis. Adds `truncate min-w-0` classes.
+- `disabled`: boolean
+- `name`: string
+- `type`: enum
+- `className`: string
+- `id`: string
+- `lang`: string
+- `title`: string
+- `variant`: "body" | "secondary" | "success" | "error" | "mono" | "mono-secondary" [default: "mono-secondary"]
+  Text style variant. Supports every Text variant except heading variants.
+
+**Colors (kumo tokens used):**
+
+`ring-kumo-brand`, `text-kumo-default`
+
+**Styling:**
+
+
+**Examples:**
+
+```tsx
+<InlineCopyText
+      labels={{ copyAction: "Copy database ID", copied: "Database ID copied" }}
+    >
+      f86b3f10-32e9-4db7-ae95-84a1b2c3d4e5
+    </InlineCopyText>
+```
+
+```tsx
+<div className="group flex w-full max-w-xl items-center justify-between gap-4 rounded-lg bg-kumo-base px-4 py-3 ring ring-kumo-line">
+      <span className="min-w-0 truncate text-sm text-kumo-default">
+        Production database
+      </span>
+      <InlineCopyText
+        labels={{
+          copyAction: "Copy database ID",
+          copied: "Database ID copied",
+        }}
+      >
+        f86b3f10-32e9-4db7-ae95-84a1b2c3d4e5
+      </InlineCopyText>
+    </div>
+```
+
+```tsx
+<InlineCopyText
+      value="f86b3f10-32e9-4db7-ae95-84a1b2c3d4e5"
+      variant="body"
+      labels={{ copyAction: "Copy database ID", copied: "Database ID copied" }}
+    >
+      <span>
+        Database ID: <strong>f86b3f10…</strong>
+      </span>
+    </InlineCopyText>
 ```
 
 
@@ -5177,8 +5526,12 @@ Label component for form fields.
   The label content — can be a string or any React node.
 - `showOptional`: boolean
   When `true`, shows gray "(optional)" text after the label.
+- `optionalLabel`: ReactNode
+  Content shown when `showOptional` is `true`.
 - `tooltip`: ReactNode
   Tooltip content displayed next to the label via an info icon.
+- `tooltipAriaLabel`: string
+  Accessible label for the tooltip button.
 - `className`: string
   Additional CSS classes merged via `cn()`.
 - `htmlFor`: string
@@ -5199,6 +5552,19 @@ Label component for form fields.
       <Label tooltip="More information about this field">
         Label with Tooltip
       </Label>
+      <KumoLocaleProvider
+        translations={{
+          label: {
+            optional: "(opcional)",
+            tooltip: "Mais informações",
+          },
+        }}
+      >
+        <Label showOptional>Rótulo traduzido</Label>
+        <Label tooltip="Mais informações sobre este campo">
+          Rótulo com dica
+        </Label>
+      </KumoLocaleProvider>
     </div>
 ```
 
@@ -5239,6 +5605,14 @@ Label component for form fields.
         <Select.Option value="uk">United Kingdom</Select.Option>
         <Select.Option value="ca">Canada</Select.Option>
       </Select>
+    </div>
+```
+
+```tsx
+<div className="flex flex-col gap-3">
+      <Label>Default</Label>
+      <Label showOptional>Optional</Label>
+      <Label tooltip="Important field">With Tooltip</Label>
     </div>
 ```
 
@@ -5346,6 +5720,564 @@ Secondary sub-component
         </LayerCard.Primary>
       </LayerCard>
     </div>
+```
+
+
+---
+
+### LayerDialog
+
+LayerDialog component
+
+**Type:** component
+
+**Import:** `import { LayerDialog } from "@cloudflare/kumo";`
+
+**Category:** Overlay
+
+**Props:**
+
+- `dismissDisabled`: boolean
+  Prevent every user-initiated dismissal while dialog work is pending.
+
+**Colors (kumo tokens used):**
+
+`bg-kumo-base`, `bg-kumo-contrast`, `bg-kumo-elevated`, `bg-kumo-fill`, `bg-kumo-recessed`, `border-kumo-hairline`
+
+**Sub-Components:**
+
+This is a compound component. Use these sub-components:
+
+#### LayerDialog.Root
+
+Root sub-component
+
+#### LayerDialog.Alert
+
+Alert sub-component
+
+#### LayerDialog.Trigger
+
+Trigger sub-component
+
+#### LayerDialog.Content
+
+Content sub-component
+
+Props:
+- `children`: ReactNode (required)
+- `container`: PortalContainer - Container element for the portal. Overrides `KumoPortalProvider` context.
+- `size`: KumoLayerDialogSize - Desktop-only width. Mobile dialogs always remain full-width.
+- `verticalAlign`: KumoLayerDialogVerticalAlign - Desktop-only positioning. Mobile dialogs always remain bottom sheets.
+- `closeLabel`: string - Accessible name of the automatic X button. Overrides the `close` translation from KumoLocaleProvider.
+
+#### LayerDialog.Title
+
+Title sub-component
+
+Props:
+- `children`: ReactNode (required)
+
+#### LayerDialog.Description
+
+Description sub-component
+
+Props:
+- `children`: ReactNode (required)
+
+#### LayerDialog.Body
+
+Body sub-component
+
+Props:
+- `children`: ReactNode (required)
+
+#### LayerDialog.Action
+
+Action sub-component
+
+#### LayerDialog.Actions
+
+Actions sub-component
+
+Props:
+- `children`: ReactNode (required) - Exactly one action. Pass `menu` to LayerDialog.Action for related actions such as "Save as draft".
+- `dismissLabel`: string - Text of the automatic dismiss button. Say "Cancel" only when the workflow has a real cancel outcome. Translate it for non-English products.
+
+
+**Examples:**
+
+```tsx
+<LayerDialog.Root>
+      <LayerDialog.Trigger
+        render={(props) => <Button {...props}>Open keyboard shortcuts</Button>}
+      />
+      <LayerDialog.Content>
+        <LayerDialog.Title>Keyboard shortcuts</LayerDialog.Title>
+        <LayerDialog.Description>
+          Browse available shortcuts without changing a setting.
+        </LayerDialog.Description>
+        <LayerDialog.Body>
+          <LongContent />
+        </LayerDialog.Body>
+      </LayerDialog.Content>
+    </LayerDialog.Root>
+```
+
+```tsx
+<LayerDialog.Root>
+      <LayerDialog.Trigger
+        render={(props) => <Button {...props}>Open settings</Button>}
+      />
+      <LayerDialog.Content>
+        <LayerDialog.Title>Configure custom hostname</LayerDialog.Title>
+        <LayerDialog.Description>
+          Route requests for this hostname to your Worker.
+        </LayerDialog.Description>
+        <LayerDialog.Body>
+          <div className="flex flex-col gap-5">
+            <Input
+              label="Hostname"
+              onChange={(event) => setHostname(event.target.value)}
+              value={hostname}
+            />
+            <Input
+              label="Display name"
+              onChange={(event) => setName(event.target.value)}
+              value={name}
+            />
+          </div>
+        </LayerDialog.Body>
+        <LayerDialog.Actions>
+          <LayerDialog.Action
+            disabled={!hostname || !name}
+            onClick={() => undefined}
+          >
+            Save hostname
+          </LayerDialog.Action>
+        </LayerDialog.Actions>
+      </LayerDialog.Content>
+    </LayerDialog.Root>
+```
+
+```tsx
+<LayerDialog.Root>
+      <LayerDialog.Trigger
+        render={(props) => <Button {...props}>Create deployment</Button>}
+      />
+      <LayerDialog.Content>
+        <LayerDialog.Title>Create deployment</LayerDialog.Title>
+        <LayerDialog.Description>
+          The browser owns the form’s native validation and submission state.
+        </LayerDialog.Description>
+        <LayerDialog.Body>
+          <form
+            id={formId}
+            className="flex flex-col gap-5"
+            onSubmit={(event) => event.preventDefault()}
+          >
+            <Input
+              label="Service name"
+              name="serviceName"
+              placeholder="production-api"
+              required
+            />
+            <Input
+              label="Compatibility date"
+              name="compatibilityDate"
+              required
+              type="date"
+            />
+          </form>
+        </LayerDialog.Body>
+        <LayerDialog.Actions dismissLabel="Cancel">
+          <LayerDialog.Action form={formId} type="submit">
+            Create deployment
+          </LayerDialog.Action>
+        </LayerDialog.Actions>
+      </LayerDialog.Content>
+    </LayerDialog.Root>
+```
+
+```tsx
+<LayerDialog.Root>
+      <LayerDialog.Trigger
+        render={(props) => <Button {...props}>Choose a Worker</Button>}
+      />
+      <LayerDialog.Content>
+        <LayerDialog.Title>Choose a Worker</LayerDialog.Title>
+        <LayerDialog.Description>
+          Select the Worker that handles requests for this route.
+        </LayerDialog.Description>
+        <LayerDialog.Body>
+          <div className="flex flex-col gap-3">
+            <Input
+              aria-label="Search Workers"
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Search Workers"
+              type="search"
+              value={query}
+            />
+            {matches.length > 0 ? (
+              <ul className="flex flex-col divide-y divide-kumo-hairline rounded-lg border border-kumo-hairline">
+                {matches.map((worker) => (
+                  <li key={worker} className="px-3 py-2 text-kumo-default">
+                    {worker}
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <Text variant="secondary">No Workers match “{query}”.</Text>
+            )}
+          </div>
+        </LayerDialog.Body>
+      </LayerDialog.Content>
+    </LayerDialog.Root>
+```
+
+```tsx
+<div className="flex flex-wrap justify-center gap-3">
+      <LayerDialog.Root>
+        <LayerDialog.Trigger
+          render={(props) => <Button {...props}>Edit deployment</Button>}
+        />
+        <LayerDialog.Content>
+          <LayerDialog.Title>Save deployment</LayerDialog.Title>
+          <LayerDialog.Description>
+            Deploy these changes now, or keep them as a draft.
+          </LayerDialog.Description>
+          <LayerDialog.Body>
+            <Text variant="secondary">
+              The alternate save outcome is related to the primary action, so it
+              lives in its split-button menu rather than as an unrelated footer
+              button.
+            </Text>
+          </LayerDialog.Body>
+          <LayerDialog.Actions>
+            <LayerDialog.Action
+              menu={[
+                <DropdownMenu.Item key="draft">
+                  Save as draft
+                </DropdownMenu.Item>,
+              ]}
+              menuLabel="Save options"
+            >
+              Save and deploy
+            </LayerDialog.Action>
+          </LayerDialog.Actions>
+        </LayerDialog.Content>
+      </LayerDialog.Root>
+
+      <LayerDialog.Alert>
+        <LayerDialog.Trigger
+          render={(props) => (
+            <Button {...props} variant="secondary">
+              Delete deployment
+            </Button>
+          )}
+        />
+        <LayerDialog.Content>
+          <LayerDialog.Title>Delete deployment</LayerDialog.Title>
+          <LayerDialog.Description>
+            This permanently removes the deployment and cannot be undone.
+          </LayerDialog.Description>
+          <LayerDialog.Body>
+            <Text variant="secondary">
+              The destructive split button keeps every part of the action,
+              including the menu trigger, visually consistent.
+            </Text>
+          </LayerDialog.Body>
+          <LayerDialog.Actions>
+            <LayerDialog.Action
+              menu={[
+                <DropdownMenu.Item key="delete-with-tokens">
+                  Delete and revoke tokens
+                </DropdownMenu.Item>,
+              ]}
+              menuLabel="Delete options"
+              variant="destructive"
+            >
+              Delete deployment
+            </LayerDialog.Action>
+          </LayerDialog.Actions>
+        </LayerDialog.Content>
+      </LayerDialog.Alert>
+    </div>
+```
+
+```tsx
+<LayerDialog.Root>
+      <LayerDialog.Trigger
+        render={(props) => <Button {...props}>Edit profile</Button>}
+      />
+      <LayerDialog.Content>
+        <LayerDialog.Title>Edit profile</LayerDialog.Title>
+        <LayerDialog.Description>
+          Update the profile information shown to your teammates. Changes are
+          not saved until you confirm.
+        </LayerDialog.Description>
+        <LayerDialog.Body>
+          <div className="flex flex-col gap-5">
+            <Input
+              label="Display name"
+              onChange={(event) => setName(event.target.value)}
+              value={name}
+            />
+            <Input
+              label="Email address"
+              onChange={(event) => setEmail(event.target.value)}
+              type="email"
+              value={email}
+            />
+          </div>
+        </LayerDialog.Body>
+        <LayerDialog.Actions dismissLabel="Cancel">
+          <LayerDialog.Action
+            disabled={!email || !name}
+            onClick={() => undefined}
+          >
+            Save changes
+          </LayerDialog.Action>
+        </LayerDialog.Actions>
+      </LayerDialog.Content>
+    </LayerDialog.Root>
+```
+
+```tsx
+<LayerDialog.Alert>
+      <LayerDialog.Trigger
+        render={(props) => (
+          <Button variant="secondary-destructive" {...props}>
+            Delete Worker
+          </Button>
+        )}
+      />
+      <LayerDialog.Content>
+        <LayerDialog.Title>Delete Worker</LayerDialog.Title>
+        <LayerDialog.Description>
+          Deleting{" "}
+          <strong className="font-medium text-kumo-default">
+            {workerName}
+          </strong>{" "}
+          is permanent.
+        </LayerDialog.Description>
+        <LayerDialog.Body>
+          <div className="flex flex-col gap-5">
+            <Text variant="secondary">
+              This deletes the Worker, deployments, and configuration. If this
+              Worker consumes Queues, those connections are removed first.
+              Queues, D1 databases, and messages stay in your account.
+            </Text>
+            <Input
+              label={
+                <>
+                  Type{" "}
+                  <strong className="font-medium text-kumo-default">
+                    {workerName}
+                  </strong>{" "}
+                  to confirm
+                </>
+              }
+              onChange={(event) => setConfirmation(event.target.value)}
+              placeholder={workerName}
+              value={confirmation}
+            />
+          </div>
+        </LayerDialog.Body>
+        <LayerDialog.Actions>
+          <LayerDialog.Action
+            disabled={confirmation !== workerName}
+            onClick={() => undefined}
+            variant="destructive"
+          >
+            Delete Worker
+          </LayerDialog.Action>
+        </LayerDialog.Actions>
+      </LayerDialog.Content>
+    </LayerDialog.Alert>
+```
+
+```tsx
+<LayerDialog.Root dismissDisabled={pending}>
+      <LayerDialog.Trigger
+        render={(props) => <Button {...props}>Save a setting</Button>}
+      />
+      <LayerDialog.Content>
+        <LayerDialog.Title>Save a setting</LayerDialog.Title>
+        <LayerDialog.Description>
+          While saving, Close, Escape, backdrop, and mobile swipe dismissals are
+          blocked together.
+        </LayerDialog.Description>
+        <LayerDialog.Body>
+          <Text variant="secondary">
+            Programmatic closes still work, so a successful save can dismiss the
+            dialog through `actionsRef` or a controlled `open` prop.
+          </Text>
+        </LayerDialog.Body>
+        <LayerDialog.Actions>
+          <LayerDialog.Action
+            loading={pending}
+            onClick={() => {
+              setPending(true);
+              window.setTimeout(() => setPending(false), 1500);
+            }}
+          >
+            Save changes
+          </LayerDialog.Action>
+        </LayerDialog.Actions>
+      </LayerDialog.Content>
+    </LayerDialog.Root>
+```
+
+```tsx
+<LayerDialog.Root
+      open={open}
+      onOpenChange={(nextOpen) => {
+        if (!nextOpen) setCleanupCount((count) => count + 1);
+        setOpen(nextOpen);
+      }}
+    >
+      <LayerDialog.Trigger
+        render={(props) => <Button {...props}>Open draft</Button>}
+      />
+      <LayerDialog.Content>
+        <LayerDialog.Title>Draft settings</LayerDialog.Title>
+        <LayerDialog.Body>
+          <Text variant="secondary">
+            Cleanup has run {cleanupCount} time{cleanupCount === 1 ? "" : "s"}.
+          </Text>
+        </LayerDialog.Body>
+      </LayerDialog.Content>
+    </LayerDialog.Root>
+```
+
+```tsx
+<LayerDialog.Root>
+      <LayerDialog.Trigger
+        render={(props) => <Button {...props}>Edit deployment</Button>}
+      />
+      <LayerDialog.Content>
+        <LayerDialog.Title>Edit deployment</LayerDialog.Title>
+        <LayerDialog.Description>
+          Review the deployment settings before saving.
+        </LayerDialog.Description>
+        <LayerDialog.Body>
+          <div className="flex flex-col gap-4">
+            <Text variant="secondary">
+              Opening a second dialog from this body should keep the first
+              dialog beneath it and restore focus when it closes.
+            </Text>
+            <LayerDialog.Alert>
+              <LayerDialog.Trigger
+                render={(props) => (
+                  <Button variant="secondary-destructive" {...props}>
+                    Discard changes
+                  </Button>
+                )}
+              />
+              <LayerDialog.Content size="sm">
+                <LayerDialog.Title>Discard unsaved changes?</LayerDialog.Title>
+                <LayerDialog.Description>
+                  Your deployment edits will be permanently lost.
+                </LayerDialog.Description>
+                <LayerDialog.Body>
+                  <Text variant="secondary">
+                    This nested alert is independently portaled and should
+                    dismiss back to the edit dialog.
+                  </Text>
+                </LayerDialog.Body>
+                <LayerDialog.Actions>
+                  <LayerDialog.Action variant="destructive">
+                    Discard changes
+                  </LayerDialog.Action>
+                </LayerDialog.Actions>
+              </LayerDialog.Content>
+            </LayerDialog.Alert>
+          </div>
+        </LayerDialog.Body>
+        <LayerDialog.Actions>
+          <LayerDialog.Action>Save changes</LayerDialog.Action>
+        </LayerDialog.Actions>
+      </LayerDialog.Content>
+    </LayerDialog.Root>
+```
+
+```tsx
+<LayerDialog.Root>
+      <LayerDialog.Trigger
+        render={(props) => <Button {...props}>Open top-aligned dialog</Button>}
+      />
+      <LayerDialog.Content verticalAlign="top">
+        <LayerDialog.Title>Top-aligned dialog</LayerDialog.Title>
+        <LayerDialog.Body>
+          <Text variant="secondary">Mobile dialogs remain bottom sheets.</Text>
+        </LayerDialog.Body>
+      </LayerDialog.Content>
+    </LayerDialog.Root>
+```
+
+```tsx
+<>
+      <div className="flex flex-wrap gap-2">
+        <Button onClick={() => openAt("center")}>Centered, tall content</Button>
+        <Button onClick={() => openAt("top")}>Top-aligned, tall content</Button>
+      </div>
+      <LayerDialog.Root open={open} onOpenChange={setOpen}>
+        <LayerDialog.Content verticalAlign={verticalAlign}>
+          <LayerDialog.Title>Audit log</LayerDialog.Title>
+          <LayerDialog.Description>
+            The dialog grows with its content until it reaches the viewport cap,
+            then only the body scrolls.
+          </LayerDialog.Description>
+          <LayerDialog.Body>
+            <ol className="flex flex-col gap-2">
+              {Array.from({ length: 40 }, (_, index) => (
+                <li
+                  key={index}
+                  className="rounded-lg border border-kumo-line px-3 py-2 text-kumo-subtle"
+                >
+                  Entry {index + 1}
+                </li>
+              ))}
+            </ol>
+          </LayerDialog.Body>
+          <LayerDialog.Actions>
+            <LayerDialog.Action>Export log</LayerDialog.Action>
+          </LayerDialog.Actions>
+        </LayerDialog.Content>
+      </LayerDialog.Root>
+    </>
+```
+
+```tsx
+<>
+      <div className="flex flex-wrap gap-2">
+        <Button onClick={() => openAtSize("sm")}>Small</Button>
+        <Button onClick={() => openAtSize("base")}>Default</Button>
+        <Button onClick={() => openAtSize("lg")}>Large</Button>
+        <Button onClick={() => openAtSize("xl")}>Extra large</Button>
+      </div>
+      <LayerDialog.Root open={open} onOpenChange={setOpen}>
+        <LayerDialog.Content size={size}>
+          <LayerDialog.Title>Review deployment configuration</LayerDialog.Title>
+          <LayerDialog.Description>
+            Confirm the service details and routing configuration before this
+            deployment is created.
+          </LayerDialog.Description>
+          <LayerDialog.Body>
+            <div className="grid gap-5 sm:grid-cols-2">
+              <Input label="Service name" defaultValue="production-api" />
+              <Input label="Environment" defaultValue="Production" />
+              <Input label="Hostname" defaultValue="api.example.com" />
+              <Input label="Compatibility date" defaultValue="2026-09-09" />
+            </div>
+          </LayerDialog.Body>
+          <LayerDialog.Actions>
+            <LayerDialog.Action>Create deployment</LayerDialog.Action>
+          </LayerDialog.Actions>
+        </LayerDialog.Content>
+      </LayerDialog.Root>
+    </>
 ```
 
 
@@ -5533,30 +6465,6 @@ MenuBar — horizontal icon-button toolbar with keyboard arrow-key navigation.
 **Styling:**
 
 
-**Examples:**
-
-```tsx
-<MenuBar
-      isActive={active}
-      optionIds
-      options={[
-        {
-          icon: <TextBolderIcon />,
-          id: "bold",
-          tooltip: "Bold",
-          onClick: () => setActive(active === "bold" ? undefined : "bold"),
-        },
-        {
-          icon: <TextItalicIcon />,
-          id: "italic",
-          tooltip: "Italic",
-          onClick: () => setActive(active === "italic" ? undefined : "italic"),
-        },
-      ]}
-    />
-```
-
-
 ---
 
 ### Meter
@@ -5637,6 +6545,8 @@ Pagination component
   Number of items displayed per page.
 - `totalCount`: number
   Total number of items across all pages.
+- `hasNextPage`: boolean
+  Whether another page exists when the total count is unknown. Ignored when `totalCount` is provided. Unknown totals use sequential controls only.
 - `className`: string
   Additional CSS classes for the container
 - `labels`: PaginationLabels
@@ -5715,6 +6625,15 @@ Props:
       perPage={10}
       totalCount={100}
       controls="simple"
+    />
+```
+
+```tsx
+<Pagination
+      text={() => `Page ${page}`}
+      page={page}
+      setPage={setPage}
+      hasNextPage={hasNextPage}
     />
 ```
 
@@ -5864,15 +6783,43 @@ Popover component for displaying accessible popup content anchored to a trigger.
 
 **Colors (kumo tokens used):**
 
-`bg-kumo-base`, `fill-kumo-base`, `fill-kumo-tip-shadow`, `fill-kumo-tip-stroke`, `outline-kumo-fill`, `text-kumo-default`, `text-kumo-subtle`
+`bg-kumo-base`, `fill-kumo-arrow-edge`, `fill-kumo-arrow-stroke`, `fill-kumo-base`, `outline-kumo-line`, `text-kumo-default`, `text-kumo-subtle`
 
 **Sub-Components:**
 
 This is a compound component. Use these sub-components:
 
+#### Popover.Root
+
+Root sub-component
+
 #### Popover.Trigger
 
 Trigger sub-component
+
+#### Popover.Portal
+
+Portal sub-component
+
+#### Popover.Backdrop
+
+Backdrop sub-component
+
+#### Popover.Positioner
+
+Positioner sub-component
+
+#### Popover.Popup
+
+Popup sub-component
+
+#### Popover.Arrow
+
+Arrow sub-component
+
+#### Popover.Viewport
+
+Viewport sub-component
 
 #### Popover.Content
 
@@ -5894,123 +6841,241 @@ Close sub-component
 **Examples:**
 
 ```tsx
-<Popover>
+<Popover.Root>
       <Popover.Trigger
         render={
           <Button shape="square" icon={BellIcon} aria-label="Notifications" />
         }
       />
-      <Popover.Content>
-        <Popover.Title>Notifications</Popover.Title>
-        <Popover.Description>
-          You are all caught up. Good job!
-        </Popover.Description>
-      </Popover.Content>
-    </Popover>
+      <Popover.Portal>
+        <Popover.Positioner>
+          <Popover.Popup>
+            <Popover.Arrow />
+            <Popover.Title>Notifications</Popover.Title>
+            <Popover.Description>
+              You are all caught up. Good job!
+            </Popover.Description>
+          </Popover.Popup>
+        </Popover.Positioner>
+      </Popover.Portal>
+    </Popover.Root>
 ```
 
 ```tsx
-<Popover>
+<Popover.Root>
       <Popover.Trigger render={<Button />}>Open Popover</Popover.Trigger>
-      <Popover.Content>
-        <Popover.Title>Popover Title</Popover.Title>
+      <Popover.Portal>
+        <Popover.Positioner>
+          <Popover.Popup>
+            <Popover.Arrow />
+            <Popover.Title>Popover Title</Popover.Title>
+            <Popover.Description>
+              This is a basic popover with a title and description.
+            </Popover.Description>
+          </Popover.Popup>
+        </Popover.Positioner>
+      </Popover.Portal>
+    </Popover.Root>
+```
+
+```tsx
+<Popover>
+      <Popover.Trigger render={<Button variant="secondary" />}>
+        Open legacy Content
+      </Popover.Trigger>
+      <Popover.Content className="w-72">
+        <Popover.Title>Compatibility mode</Popover.Title>
         <Popover.Description>
-          This is a basic popover with a title and description.
+          This legacy wrapper fades in without scaling or transforming.
         </Popover.Description>
       </Popover.Content>
     </Popover>
 ```
 
 ```tsx
-<Popover>
+<Popover.Root>
+      <Popover.Trigger render={<Button variant="secondary" />}>
+        Open scrollable Popover
+      </Popover.Trigger>
+      <Popover.Portal>
+        <Popover.Positioner>
+          <Popover.Popup className="w-72">
+            <Popover.Arrow />
+            <Popover.Title>Recent notifications</Popover.Title>
+            <Popover.Description>
+              The list scrolls while the heading and arrow stay in place.
+            </Popover.Description>
+            <div
+              aria-label="Recent notifications"
+              className="mt-3 max-h-40 overflow-y-auto rounded-md border border-kumo-hairline outline-none focus-visible:ring-2 focus-visible:ring-kumo-brand"
+              tabIndex={0}
+            >
+              {Array.from({ length: 10 }, (_, index) => (
+                <div
+                  key={index}
+                  className="border-b border-kumo-hairline px-3 py-2 last:border-b-0"
+                >
+                  Notification {index + 1}
+                </div>
+              ))}
+            </div>
+          </Popover.Popup>
+        </Popover.Positioner>
+      </Popover.Portal>
+    </Popover.Root>
+```
+
+```tsx
+<Popover.Root>
+      <Popover.Trigger render={<Button />}>Open tall Popover</Popover.Trigger>
+      <Popover.Portal>
+        <Popover.Positioner>
+          <Popover.Popup className="h-80 max-h-[var(--available-height)] w-72">
+            <Popover.Arrow />
+            <Popover.Title>Available-height popup</Popover.Title>
+            <Popover.Description>
+              The popup is 320px tall unless the viewport provides less space.
+            </Popover.Description>
+            <div
+              aria-label="Popover rows"
+              className="mt-3 min-h-0 flex-1 overflow-y-auto rounded-md border border-kumo-hairline outline-none focus-visible:ring-2 focus-visible:ring-kumo-brand"
+              tabIndex={0}
+            >
+              {Array.from({ length: 12 }, (_, index) => (
+                <div
+                  key={index}
+                  className="border-b border-kumo-hairline px-3 py-2 last:border-b-0"
+                >
+                  Row {index + 1}
+                </div>
+              ))}
+            </div>
+          </Popover.Popup>
+        </Popover.Positioner>
+      </Popover.Portal>
+    </Popover.Root>
+```
+
+```tsx
+<Popover.Root>
       <Popover.Trigger render={<Button />}>Open Settings</Popover.Trigger>
-      <Popover.Content>
-        <Popover.Title>Settings</Popover.Title>
-        <Popover.Description>
-          Configure your preferences below.
-        </Popover.Description>
-        <div className="mt-3">
-          <Popover.Close render={<Button variant="secondary" size="sm" />}>
-            Close
-          </Popover.Close>
-        </div>
-      </Popover.Content>
-    </Popover>
+      <Popover.Portal>
+        <Popover.Positioner>
+          <Popover.Popup>
+            <Popover.Arrow />
+            <Popover.Title>Settings</Popover.Title>
+            <Popover.Description>
+              Configure your preferences below.
+            </Popover.Description>
+            <div className="mt-3">
+              <Popover.Close render={<Button variant="secondary" size="sm" />}>
+                Close
+              </Popover.Close>
+            </div>
+          </Popover.Popup>
+        </Popover.Positioner>
+      </Popover.Portal>
+    </Popover.Root>
 ```
 
 ```tsx
 <div className="flex flex-wrap gap-4">
-      <Popover>
+      <Popover.Root>
         <Popover.Trigger render={<Button variant="secondary" />}>
           Bottom
         </Popover.Trigger>
-        <Popover.Content side="bottom">
-          <Popover.Title>Bottom</Popover.Title>
-          <Popover.Description>
-            Popover on bottom (default).
-          </Popover.Description>
-        </Popover.Content>
-      </Popover>
+        <Popover.Portal>
+          <Popover.Positioner side="bottom">
+            <Popover.Popup>
+              <Popover.Arrow />
+              <Popover.Title>Bottom</Popover.Title>
+              <Popover.Description>
+                Popover on bottom (default).
+              </Popover.Description>
+            </Popover.Popup>
+          </Popover.Positioner>
+        </Popover.Portal>
+      </Popover.Root>
 
-      <Popover>
+      <Popover.Root>
         <Popover.Trigger render={<Button variant="secondary" />}>
           Top
         </Popover.Trigger>
-        <Popover.Content side="top">
-          <Popover.Title>Top</Popover.Title>
-          <Popover.Description>Popover on top.</Popover.Description>
-        </Popover.Content>
-      </Popover>
+        <Popover.Portal>
+          <Popover.Positioner side="top">
+            <Popover.Popup>
+              <Popover.Arrow />
+              <Popover.Title>Top</Popover.Title>
+              <Popover.Description>Popover on top.</Popover.Description>
+            </Popover.Popup>
+          </Popover.Positioner>
+        </Popover.Portal>
+      </Popover.Root>
 
-      <Popover>
+      <Popover.Root>
         <Popover.Trigger render={<Button variant="secondary" />}>
           Left
         </Popover.Trigger>
-        <Popover.Content side="left">
-          <Popover.Title>Left</Popover.Title>
-          <Popover.Description>Popover on left.</Popover.Description>
-        </Popover.Content>
-      </Popover>
+        <Popover.Portal>
+          <Popover.Positioner side="left">
+            <Popover.Popup>
+              <Popover.Arrow />
+              <Popover.Title>Left</Popover.Title>
+              <Popover.Description>Popover on left.</Popover.Description>
+            </Popover.Popup>
+          </Popover.Positioner>
+        </Popover.Portal>
+      </Popover.Root>
 
-      <Popover>
+      <Popover.Root>
         <Popover.Trigger render={<Button variant="secondary" />}>
           Right
         </Popover.Trigger>
-        <Popover.Content side="right">
-          <Popover.Title>Right</Popover.Title>
-          <Popover.Description>Popover on right.</Popover.Description>
-        </Popover.Content>
-      </Popover>
+        <Popover.Portal>
+          <Popover.Positioner side="right">
+            <Popover.Popup>
+              <Popover.Arrow />
+              <Popover.Title>Right</Popover.Title>
+              <Popover.Description>Popover on right.</Popover.Description>
+            </Popover.Popup>
+          </Popover.Positioner>
+        </Popover.Portal>
+      </Popover.Root>
     </div>
 ```
 
 ```tsx
-<Popover>
+<Popover.Root>
       <Popover.Trigger render={<Button />}>User Profile</Popover.Trigger>
-      <Popover.Content className="w-64">
-        <div className="flex items-center gap-3">
-          <div className="size-10 rounded-full bg-kumo-recessed" />
-          <div>
-            <Popover.Title>Jane Doe</Popover.Title>
-            <p className="text-sm text-kumo-subtle">jane@example.com</p>
-          </div>
-        </div>
-        <div className="mt-3 flex gap-2 border-t border-kumo-hairline pt-3">
-          <Button variant="secondary" size="sm" className="flex-1">
-            Profile
-          </Button>
-          <Popover.Close
-            render={<Button variant="ghost" size="sm" className="flex-1" />}
-          >
-            Sign Out
-          </Popover.Close>
-        </div>
-      </Popover.Content>
-    </Popover>
+      <Popover.Portal>
+        <Popover.Positioner>
+          <Popover.Popup className="w-64">
+            <Popover.Arrow />
+            <div className="flex items-center gap-3">
+              <div className="size-10 rounded-full bg-kumo-recessed" />
+              <div>
+                <Popover.Title>Jane Doe</Popover.Title>
+                <p className="text-sm text-kumo-subtle">jane@example.com</p>
+              </div>
+            </div>
+            <div className="mt-3 flex gap-2 border-t border-kumo-hairline pt-3">
+              <Button variant="secondary" size="sm" className="flex-1">
+                Profile
+              </Button>
+              <Popover.Close
+                render={<Button variant="ghost" size="sm" className="flex-1" />}
+              >
+                Sign Out
+              </Popover.Close>
+            </div>
+          </Popover.Popup>
+        </Popover.Positioner>
+      </Popover.Portal>
+    </Popover.Root>
 ```
 
 ```tsx
-<Popover>
+<Popover.Root>
       <Popover.Trigger
         openOnHover
         delay={200}
@@ -6018,19 +7083,24 @@ Close sub-component
       >
         Hover Me
       </Popover.Trigger>
-      <Popover.Content>
-        <Popover.Title>Hover Triggered</Popover.Title>
-        <Popover.Description>
-          This popover opens on hover with a 200ms delay. It can still contain
-          interactive content like buttons and links.
-        </Popover.Description>
-        <div className="mt-3">
-          <Popover.Close render={<Button variant="secondary" size="sm" />}>
-            Got it
-          </Popover.Close>
-        </div>
-      </Popover.Content>
-    </Popover>
+      <Popover.Portal>
+        <Popover.Positioner>
+          <Popover.Popup>
+            <Popover.Arrow />
+            <Popover.Title>Hover Triggered</Popover.Title>
+            <Popover.Description>
+              This popover opens on hover with a 200ms delay. It can still
+              contain interactive content like buttons and links.
+            </Popover.Description>
+            <div className="mt-3">
+              <Popover.Close render={<Button variant="secondary" size="sm" />}>
+                Got it
+              </Popover.Close>
+            </div>
+          </Popover.Popup>
+        </Popover.Positioner>
+      </Popover.Portal>
+    </Popover.Root>
 ```
 
 ```tsx
@@ -6072,29 +7142,38 @@ Close sub-component
           </tbody>
         </table>
       </div>
-      <Popover
+      <Popover.Root
         open={!!selectedRow}
         onOpenChange={(open) => !open && setSelectedRow(null)}
       >
-        <Popover.Content
-          side="left"
-          anchor={
-            anchorRect ? { getBoundingClientRect: () => anchorRect } : undefined
-          }
-        >
-          <Popover.Title>
-            Edit {rows.find((r) => r.id === selectedRow)?.name}
-          </Popover.Title>
-          <Popover.Description>
-            The popover anchors to the selected row, not the icon button.
-          </Popover.Description>
-          <div className="mt-3">
-            <Popover.Close render={<Button size="sm" variant="secondary" />}>
-              Close
-            </Popover.Close>
-          </div>
-        </Popover.Content>
-      </Popover>
+        <Popover.Portal>
+          <Popover.Positioner
+            side="left"
+            anchor={
+              anchorRect
+                ? { getBoundingClientRect: () => anchorRect }
+                : undefined
+            }
+          >
+            <Popover.Popup>
+              <Popover.Arrow />
+              <Popover.Title>
+                Edit {rows.find((r) => r.id === selectedRow)?.name}
+              </Popover.Title>
+              <Popover.Description>
+                The popover anchors to the selected row, not the icon button.
+              </Popover.Description>
+              <div className="mt-3">
+                <Popover.Close
+                  render={<Button size="sm" variant="secondary" />}
+                >
+                  Close
+                </Popover.Close>
+              </div>
+            </Popover.Popup>
+          </Popover.Positioner>
+        </Popover.Portal>
+      </Popover.Root>
     </div>
 ```
 
@@ -6117,7 +7196,7 @@ Radio — radio button group for single-select choices.
   - `"default"`: Default radio appearance
   - `"error"`: Error state for validation failures
 - `appearance`: KumoRadioAppearance
-  Visual appearance applied to all Radio.Item children. - `"default"` — Standard inline radio items - `"card"` — Choice card with border, padding, and highlighted selection state Individual items can override this with their own `appearance` prop.
+  Visual appearance applied to all Radio.Item children. - `"default"` — Standard inline radio items - `"card"` — Choice card with border, padding, and highlighted selection state - `"segmented"` — Compact single-line group for short options Individual items can override default and card appearances. Segmented is group-only and cannot be overridden by individual items.
 - `legend`: string
   Legend text for the group (required for accessibility). For more control over legend styling, omit this prop and use `<Radio.Legend>` as a child instead.
 - `children`: ReactNode (required)
@@ -6145,7 +7224,7 @@ Radio — radio button group for single-select choices.
 
 **Colors (kumo tokens used):**
 
-`bg-kumo-base`, `bg-kumo-contrast`, `bg-kumo-tint`, `border-kumo-danger`, `border-kumo-hairline`, `border-kumo-interact`, `ring-kumo-brand`, `ring-kumo-danger`, `ring-kumo-focus`, `ring-kumo-hairline`, `ring-kumo-line`, `text-kumo-danger`, `text-kumo-default`, `text-kumo-subtle`
+`bg-kumo-base`, `bg-kumo-contrast`, `bg-kumo-control`, `bg-kumo-elevated`, `bg-kumo-tint`, `border-kumo-danger`, `border-kumo-hairline`, `border-kumo-interact`, `border-kumo-line`, `outline-kumo-brand`, `ring-kumo-brand`, `ring-kumo-danger`, `ring-kumo-focus`, `ring-kumo-hairline`, `ring-kumo-line`, `text-kumo-danger`, `text-kumo-default`, `text-kumo-inverse`, `text-kumo-subtle`
 
 **Sub-Components:**
 
@@ -6163,7 +7242,7 @@ Props:
 - `legend`: string - Legend text for the group (required for accessibility). For more control over legend styling, omit this prop and use `<Radio.Legend>` as a child instead.
 - `children`: ReactNode (required) - Child Radio.Item components (and optionally a Radio.Legend)
 - `orientation`: "vertical" | "horizontal" - Layout direction of the radio items
-- `appearance`: KumoRadioAppearance - Visual appearance applied to all Radio.Item children. - `"default"` — Standard inline radio items - `"card"` — Choice card with border, padding, and highlighted selection state Individual items can override this with their own `appearance` prop.
+- `appearance`: KumoRadioAppearance - Visual appearance applied to all Radio.Item children. - `"default"` — Standard inline radio items - `"card"` — Choice card with border, padding, and highlighted selection state - `"segmented"` — Compact single-line group for short options Individual items can override default and card appearances. Segmented is group-only and cannot be overridden by individual items.
 - `error`: string - Error message for the group
 - `description`: ReactNode - Helper text for the group
 - `value`: T - The controlled value of the selected radio item.
@@ -6208,6 +7287,89 @@ Props:
       <Radio.Item label="Medium" value="md" />
       <Radio.Item label="Large" value="lg" />
     </Radio.Group>
+```
+
+```tsx
+<Radio.Group
+      appearance="segmented"
+      legend="Duration preset"
+      value={duration}
+      onValueChange={setDuration}
+    >
+      <Radio.Item label="1h" value="1" />
+      <Radio.Item label="12h" value="12" />
+      <Radio.Item label="24h" value="24" />
+    </Radio.Group>
+```
+
+```tsx
+<div className="flex flex-wrap gap-8">
+      <Radio.Group
+        legend="Default appearance"
+        orientation="horizontal"
+        defaultValue="1"
+      >
+        <Radio.Item label="1h" value="1" />
+        <Radio.Item label="12h" value="12" />
+        <Radio.Item label="24h" value="24" />
+      </Radio.Group>
+      <Radio.Group
+        appearance="segmented"
+        legend="Segmented appearance"
+        defaultValue="1"
+      >
+        <Radio.Item label="1h" value="1" />
+        <Radio.Item label="12h" value="12" />
+        <Radio.Item label="24h" value="24" />
+      </Radio.Group>
+    </div>
+```
+
+```tsx
+<div className="flex flex-wrap gap-8">
+      <Radio.Group
+        appearance="segmented"
+        legend="Disabled group"
+        defaultValue="12"
+        disabled
+      >
+        <Radio.Item label="1h" value="1" />
+        <Radio.Item label="12h" value="12" />
+        <Radio.Item label="24h" value="24" />
+      </Radio.Group>
+      <Radio.Group
+        appearance="segmented"
+        legend="Disabled item"
+        defaultValue="1"
+      >
+        <Radio.Item label="1h" value="1" />
+        <Radio.Item label="12h" value="12" disabled />
+        <Radio.Item label="24h" value="24" />
+      </Radio.Group>
+    </div>
+```
+
+```tsx
+<Radio.Group appearance="segmented" defaultValue="automatic">
+      <Radio.Legend className="text-sm font-normal text-kumo-subtle">
+        Configuration mode
+      </Radio.Legend>
+      <Radio.Item label="Automatic" value="automatic" />
+      <Radio.Item label="Manual" value="manual" />
+    </Radio.Group>
+```
+
+```tsx
+<div className="w-48 max-w-full">
+      <Radio.Group
+        appearance="segmented"
+        legend="Processing preference"
+        defaultValue="automatic"
+      >
+        <Radio.Item label="Automatic processing" value="automatic" />
+        <Radio.Item label="Manual configuration" value="manual" />
+      </Radio.Group>
+    </div>
 ```
 
 ```tsx
@@ -6641,6 +7803,63 @@ Select component
 
 **Props:**
 
+- `align`: enum
+  How to align the popup relative to the specified side.
+- `alignItemWithTrigger`: boolean
+  Whether the positioner overlaps the trigger so the selected item's text is aligned with the trigger's value text. This only applies to mouse input and is automatically disabled if there is not enough space.
+- `alignOffset`: number | OffsetFunction
+  Additional offset along the alignment axis in pixels. Also accepts a function that returns the offset to read the dimensions of the anchor and positioner elements, along with its side and alignment.
+
+The function takes a `data` object parameter with the following properties:
+- `data.anchor`: the dimensions of the anchor element with properties `width` and `height`.
+- `data.positioner`: the dimensions of the positioner element with properties `width` and `height`.
+- `data.side`: which side of the anchor element the positioner is aligned against.
+- `data.align`: how the positioner is aligned relative to the specified side.
+- `anchor`: ReactNode
+  An element to position the popup against. By default, the popup will be positioned against the trigger.
+- `arrowPadding`: number
+  Minimum distance to maintain between the arrow and the edges of the popup.
+
+Use it to prevent the arrow element from hanging out of the rounded corners of a popup.
+- `collisionAvoidance`: CollisionAvoidance
+  Determines how to handle collisions when positioning the popup.
+
+`side` controls overflow on the preferred placement axis (`top`/`bottom` or `left`/`right`):
+- `'flip'`: keep the requested side when it fits; otherwise try the opposite side   (`top` and `bottom`, or `left` and `right`).
+- `'shift'`: never change side; keep the requested side and move the popup within   the clipping boundary so it stays visible.
+- `'none'`: do not correct side-axis overflow.
+
+`align` controls overflow on the alignment axis (`start`/`center`/`end`):
+- `'flip'`: keep side, but swap `start` and `end` when the requested alignment overflows.
+- `'shift'`: keep side and requested alignment, then nudge the popup along the   alignment axis to fit.
+- `'none'`: do not correct alignment-axis overflow.
+
+`fallbackAxisSide` controls fallback behavior on the perpendicular axis when the preferred axis cannot fit:
+- `'start'`: allow perpendicular fallback and try the logical start side first   (`top` before `bottom`, or `left` before `right` in LTR).
+- `'end'`: allow perpendicular fallback and try the logical end side first   (`bottom` before `top`, or `right` before `left` in LTR).
+- `'none'`: do not fallback to the perpendicular axis.
+
+When `side` is `'shift'`, explicitly setting `align` only supports `'shift'` or `'none'`. If `align` is omitted, it defaults to `'flip'`.
+- `collisionBoundary`: Boundary
+  An element or a rectangle that delimits the area that the popup is confined to.
+- `collisionPadding`: Padding
+  Additional space to maintain from the edge of the collision boundary.
+- `disableAnchorTracking`: boolean
+  Whether to disable the popup from tracking any layout shift of its positioning anchor.
+- `positionMethod`: enum
+  Determines which CSS `position` property to use.
+- `side`: enum
+  Which side of the anchor element to align the popup against. May automatically change to avoid collisions.
+- `sideOffset`: number | OffsetFunction
+  Distance between the anchor and the popup in pixels. Also accepts a function that returns the distance to read the dimensions of the anchor and positioner elements, along with its side and alignment.
+
+The function takes a `data` object parameter with the following properties:
+- `data.anchor`: the dimensions of the anchor element with properties `width` and `height`.
+- `data.positioner`: the dimensions of the positioner element with properties `width` and `height`.
+- `data.side`: which side of the anchor element the positioner is aligned against.
+- `data.align`: how the positioner is aligned relative to the specified side.
+- `sticky`: boolean
+  Whether to maintain the popup in the viewport after the anchor element was scrolled out of view.
 - `className`: string
   Additional CSS classes merged via `cn()`.
 - `render`: ReactNode
@@ -6681,7 +7900,7 @@ Select component
 
 **Colors (kumo tokens used):**
 
-`bg-kumo-base`, `bg-kumo-elevated`, `bg-kumo-hairline`, `bg-kumo-tint`, `border-kumo-line`, `ring-kumo-brand`, `ring-kumo-danger`, `ring-kumo-focus`, `ring-kumo-line`, `text-kumo-danger`, `text-kumo-default`, `text-kumo-placeholder`, `text-kumo-subtle`
+`bg-kumo-base`, `bg-kumo-control`, `bg-kumo-hairline`, `bg-kumo-tint`, `border-kumo-line`, `ring-kumo-brand`, `ring-kumo-danger`, `ring-kumo-focus`, `ring-kumo-line`, `text-kumo-danger`, `text-kumo-default`, `text-kumo-placeholder`, `text-kumo-subtle`
 
 **Styling:**
 
@@ -7025,6 +8244,58 @@ Separator sub-component
     </Select>
 ```
 
+```tsx
+<div className="grid gap-4 sm:grid-cols-2">
+      <Select
+        label="side=bottom (default)"
+        className="w-[200px]"
+        defaultValue="earth"
+        items={planets}
+      />
+      <Select
+        label="side=top"
+        side="top"
+        className="w-[200px]"
+        defaultValue="earth"
+        items={planets}
+      />
+      <Select
+        label="align=end"
+        align="end"
+        className="w-[200px]"
+        defaultValue="earth"
+        items={planets}
+      />
+      <Select
+        label="sideOffset=12"
+        sideOffset={12}
+        className="w-[200px]"
+        defaultValue="earth"
+        items={planets}
+      />
+    </div>
+```
+
+```tsx
+<div className="flex flex-wrap items-start gap-8">
+      <Select
+        label="Anchored (default)"
+        description="Opens below the trigger"
+        className="w-[200px]"
+        defaultValue="mars"
+        items={planets}
+      />
+      <Select
+        label="Aligned to selection"
+        description="Selected option lands on the trigger"
+        alignItemWithTrigger
+        className="w-[200px]"
+        defaultValue="mars"
+        items={planets}
+      />
+    </div>
+```
+
 
 ---
 
@@ -7239,112 +8510,56 @@ Props:
 Header sub-component
 
 Props:
-- `icon`: React.ComponentType<{ className?: string }> | React.ReactNode
-- `active`: boolean
-- `size`: SidebarMenuButtonSize - Button size. - `"base"` — Standard nav item - `"sm"` — Compact nav item
-- `href`: string
-- `target`: React.HTMLAttributeAnchorTarget - Link target — only meaningful when `href` is provided.
-- `tooltip`: string
-- `className`: string
-- `children`: ReactNode
+- `itemId`: string - Anchor id for `useSidebar().scrollToItem(id)`.
 
 #### Sidebar.Content
 
 Content sub-component
 
 Props:
-- `icon`: React.ComponentType<{ className?: string }> | React.ReactNode
-- `active`: boolean
-- `size`: SidebarMenuButtonSize - Button size. - `"base"` — Standard nav item - `"sm"` — Compact nav item
-- `href`: string
-- `target`: React.HTMLAttributeAnchorTarget - Link target — only meaningful when `href` is provided.
-- `tooltip`: string
-- `className`: string
-- `children`: ReactNode
+- `itemId`: string - Anchor id for `useSidebar().scrollToItem(id)`.
 
 #### Sidebar.Footer
 
 Footer sub-component
 
 Props:
-- `icon`: React.ComponentType<{ className?: string }> | React.ReactNode
-- `active`: boolean
-- `size`: SidebarMenuButtonSize - Button size. - `"base"` — Standard nav item - `"sm"` — Compact nav item
-- `href`: string
-- `target`: React.HTMLAttributeAnchorTarget - Link target — only meaningful when `href` is provided.
-- `tooltip`: string
-- `className`: string
-- `children`: ReactNode
+- `itemId`: string - Anchor id for `useSidebar().scrollToItem(id)`.
 
 #### Sidebar.Loading
 
 Loading sub-component
 
 Props:
-- `icon`: React.ComponentType<{ className?: string }> | React.ReactNode
-- `active`: boolean
-- `size`: SidebarMenuButtonSize - Button size. - `"base"` — Standard nav item - `"sm"` — Compact nav item
-- `href`: string
-- `target`: React.HTMLAttributeAnchorTarget - Link target — only meaningful when `href` is provided.
-- `tooltip`: string
-- `className`: string
-- `children`: ReactNode
+- `itemId`: string - Anchor id for `useSidebar().scrollToItem(id)`.
 
 #### Sidebar.Group
 
 Group sub-component
 
 Props:
-- `icon`: React.ComponentType<{ className?: string }> | React.ReactNode
-- `active`: boolean
-- `size`: SidebarMenuButtonSize - Button size. - `"base"` — Standard nav item - `"sm"` — Compact nav item
-- `href`: string
-- `target`: React.HTMLAttributeAnchorTarget - Link target — only meaningful when `href` is provided.
-- `tooltip`: string
-- `className`: string
-- `children`: ReactNode
+- `itemId`: string - Anchor id for `useSidebar().scrollToItem(id)`.
 
 #### Sidebar.GroupLabel
 
 GroupLabel sub-component
 
 Props:
-- `icon`: React.ComponentType<{ className?: string }> | React.ReactNode
-- `active`: boolean
-- `size`: SidebarMenuButtonSize - Button size. - `"base"` — Standard nav item - `"sm"` — Compact nav item
-- `href`: string
-- `target`: React.HTMLAttributeAnchorTarget - Link target — only meaningful when `href` is provided.
-- `tooltip`: string
-- `className`: string
-- `children`: ReactNode
+- `itemId`: string - Anchor id for `useSidebar().scrollToItem(id)`.
 
 #### Sidebar.Menu
 
 Menu sub-component
 
 Props:
-- `icon`: React.ComponentType<{ className?: string }> | React.ReactNode
-- `active`: boolean
-- `size`: SidebarMenuButtonSize - Button size. - `"base"` — Standard nav item - `"sm"` — Compact nav item
-- `href`: string
-- `target`: React.HTMLAttributeAnchorTarget - Link target — only meaningful when `href` is provided.
-- `tooltip`: string
-- `className`: string
-- `children`: ReactNode
+- `itemId`: string - Anchor id for `useSidebar().scrollToItem(id)`.
 
 #### Sidebar.MenuItem
 
 MenuItem sub-component
 
 Props:
-- `icon`: React.ComponentType<{ className?: string }> | React.ReactNode
-- `active`: boolean
-- `size`: SidebarMenuButtonSize - Button size. - `"base"` — Standard nav item - `"sm"` — Compact nav item
-- `href`: string
-- `target`: React.HTMLAttributeAnchorTarget - Link target — only meaningful when `href` is provided.
-- `tooltip`: string
-- `className`: string
-- `children`: ReactNode
+- `itemId`: string - Anchor id for `useSidebar().scrollToItem(id)`.
 
 #### Sidebar.MenuButton
 
@@ -7357,6 +8572,7 @@ Props:
 - `href`: string
 - `target`: React.HTMLAttributeAnchorTarget - Link target — only meaningful when `href` is provided.
 - `tooltip`: string
+- `itemId`: string - Anchor id for `useSidebar().scrollToItem(id)`.
 - `className`: string
 - `children`: ReactNode
 
@@ -7594,9 +8810,9 @@ Props:
               </Sidebar.Menu>
             </Sidebar.Group>
           </Sidebar.Content>
-          <Sidebar.Footer>
+          <DemoSidebarFooter>
             <Sidebar.Trigger />
-          </Sidebar.Footer>
+          </DemoSidebarFooter>
         </Sidebar>
         <DemoMain>
           <ToggleButton />
@@ -7635,9 +8851,9 @@ Props:
               </Sidebar.Group>
             </Sidebar.Content>
           )}
-          <Sidebar.Footer>
+          <DemoSidebarFooter>
             <Sidebar.Trigger />
-          </Sidebar.Footer>
+          </DemoSidebarFooter>
         </Sidebar>
         <DemoMain>
           <button
@@ -7683,9 +8899,9 @@ Props:
               </Sidebar.Menu>
             </Sidebar.Group>
           </Sidebar.Content>
-          <Sidebar.Footer>
+          <DemoSidebarFooter>
             <Sidebar.Trigger />
-          </Sidebar.Footer>
+          </DemoSidebarFooter>
           <Sidebar.ResizeHandle />
         </Sidebar>
         <DemoMain>
@@ -7799,15 +9015,74 @@ Props:
               </Sidebar.Menu>
             </Sidebar.Group>
           </Sidebar.Content>
-          <Sidebar.Footer>
+          <DemoSidebarFooter>
             <Sidebar.Trigger />
-          </Sidebar.Footer>
+          </DemoSidebarFooter>
         </Sidebar>
         <DemoMain>
           <p>Open Workers near the bottom of the list</p>
         </DemoMain>
       </Sidebar.Provider>
     </div>
+```
+
+```tsx
+<DemoContainer>
+      <Sidebar.Provider
+        contained
+        defaultOpen
+        className="h-full min-h-0!"
+        onOpenChangeComplete={(open) => {
+          setCompletion(`Sidebar ${open ? "opened" : "collapsed"}.`);
+        }}
+      >
+        <Sidebar>
+          <Sidebar.Content>
+            <Sidebar.Group>
+              <Sidebar.GroupLabel>Overview</Sidebar.GroupLabel>
+              <Sidebar.Menu>
+                <Sidebar.MenuButton icon={HouseIcon} active>
+                  Home
+                </Sidebar.MenuButton>
+                <Sidebar.MenuItem>
+                  <Sidebar.Collapsible
+                    onOpenChangeComplete={(open) => {
+                      setCompletion(
+                        `Compute section ${open ? "opened" : "collapsed"}.`,
+                      );
+                    }}
+                  >
+                    <Sidebar.CollapsibleTrigger
+                      render={
+                        <Sidebar.MenuButton icon={CodeIcon}>
+                          Compute
+                          <Sidebar.MenuChevron />
+                        </Sidebar.MenuButton>
+                      }
+                    />
+                    <Sidebar.CollapsibleContent>
+                      <Sidebar.MenuSub>
+                        <Sidebar.MenuSubButton>Workers</Sidebar.MenuSubButton>
+                        <Sidebar.MenuSubButton>Pages</Sidebar.MenuSubButton>
+                      </Sidebar.MenuSub>
+                    </Sidebar.CollapsibleContent>
+                  </Sidebar.Collapsible>
+                </Sidebar.MenuItem>
+              </Sidebar.Menu>
+            </Sidebar.Group>
+          </Sidebar.Content>
+          <DemoSidebarFooter>
+            <Sidebar.Trigger />
+          </DemoSidebarFooter>
+        </Sidebar>
+        <DemoMain>
+          <p aria-live="polite">{completion}</p>
+          <p>
+            Toggle the sidebar or open Compute to see the completion callback.
+          </p>
+        </DemoMain>
+      </Sidebar.Provider>
+    </DemoContainer>
 ```
 
 ```tsx
@@ -8044,11 +9319,45 @@ Props:
             </Sidebar.SlidingView>
           </Sidebar.SlidingViews>
 
-          <Sidebar.Footer>
+          <DemoSidebarFooter>
             <Sidebar.Trigger />
-          </Sidebar.Footer>
+          </DemoSidebarFooter>
         </Sidebar>
         <DemoMain />
+      </Sidebar.Provider>
+    </DemoContainer>
+```
+
+```tsx
+<DemoContainer>
+      <Sidebar.Provider contained defaultOpen className="h-full min-h-0!">
+        <Sidebar>
+          <Sidebar.Header>
+            <BrandLogo />
+          </Sidebar.Header>
+          <Sidebar.Content>
+            <Sidebar.Group>
+              <Sidebar.Menu>
+                {LONG_NAV_ITEMS.map((label, idx) => (
+                  <Sidebar.MenuButton
+                    key={label}
+                    icon={idx === 0 ? HouseIcon : GlobeIcon}
+                    active={idx === 0}
+                    itemId={ANCHOR_ID_BY_LABEL[label]}
+                  >
+                    {label}
+                  </Sidebar.MenuButton>
+                ))}
+              </Sidebar.Menu>
+            </Sidebar.Group>
+          </Sidebar.Content>
+          <DemoSidebarFooter>
+            <Sidebar.Trigger />
+          </DemoSidebarFooter>
+        </Sidebar>
+        <DemoMain>
+          <ScrollToItemControls />
+        </DemoMain>
       </Sidebar.Provider>
     </DemoContainer>
 ```
@@ -8086,9 +9395,9 @@ Props:
               </Sidebar.Menu>
             </Sidebar.Group>
           </Sidebar.Content>
-          <Sidebar.Footer>
+          <DemoSidebarFooter>
             <Sidebar.Trigger />
-          </Sidebar.Footer>
+          </DemoSidebarFooter>
         </Sidebar>
         <DemoMain>
           <MobileToggleButton />
@@ -8173,6 +9482,100 @@ Props:
           </div>
         </Sidebar.Provider>
       </div>
+    </div>
+```
+
+
+---
+
+### Slider
+
+Slider component
+
+**Type:** component
+
+**Import:** `import { Slider } from "@cloudflare/kumo";`
+
+**Category:** Input
+
+**Props:**
+
+- `size`: enum [default: base]
+  - `"sm"`: Compact slider for dense layouts
+  - `"base"`: Default slider size
+- `label`: ReactNode
+  Label displayed above the slider track.
+- `getAriaLabel`: (index: number) => string
+  Accessible name for each thumb. Use it when there is no visible `label`, or to tell the thumbs of a range slider apart.
+- `value`: number | readonly number[]
+  Controlled value. Pass an array to render one thumb per value (a range).
+- `defaultValue`: number | readonly number[]
+  Uncontrolled initial value. Pass an array to render one thumb per value (a range).
+- `onValueChange`: (value: number | readonly number[], eventDetails: SliderRoot.ChangeEventDetails) => void
+  Called when the value changes while dragging or from the keyboard
+- `min`: number
+  Minimum value of the slider (default: 0)
+- `max`: number
+  Maximum value of the slider (default: 100)
+- `step`: number
+  Amount the value changes per step (default: 1)
+- `format`: Intl.NumberFormatOptions
+  Formats the value badges, range labels, and the value announced to assistive technology
+- `disabled`: boolean
+  Whether the slider is disabled
+
+**Colors (kumo tokens used):**
+
+`bg-kumo-contrast`, `bg-kumo-fill`, `bg-kumo-overlay`, `bg-kumo-recessed`, `ring-kumo-focus`, `ring-kumo-line`, `text-kumo-default`, `text-kumo-inverse`, `text-kumo-subtle`
+
+**Examples:**
+
+```tsx
+<Slider label="Volume" defaultValue={40} className="w-72" />
+```
+
+```tsx
+<Slider
+      label="Price range"
+      defaultValue={[25, 75]}
+      getAriaLabel={(index) =>
+        index === 0 ? "Minimum price" : "Maximum price"
+      }
+      className="w-72"
+    />
+```
+
+```tsx
+<Slider label="Match count" defaultValue={2} max={5} className="w-72" />
+```
+
+```tsx
+<Slider
+      label="Sampling rate"
+      defaultValue={0.25}
+      min={0}
+      max={1}
+      step={0.05}
+      format={{ style: "percent" }}
+      className="w-72"
+    />
+```
+
+```tsx
+<div className="flex w-72 flex-col gap-6">
+      <Slider label="Small" size="sm" defaultValue={30} />
+      <Slider label="Base" defaultValue={30} />
+    </div>
+```
+
+```tsx
+<div className="flex w-72 flex-col gap-3">
+      <Slider
+        label="Brightness"
+        value={value}
+        onValueChange={(next) => setValue(next)}
+      />
+      <p className="text-sm text-kumo-subtle">Brightness: {value}%</p>
     </div>
 ```
 
@@ -9109,7 +10512,7 @@ Tab navigation component with segmented or underline style. Built on Base UI Tab
 **Examples:**
 
 ```tsx
-<div className="flex flex-col gap-6">
+<div className="flex flex-col items-start gap-6">
       <div>
         <p className="mb-2 text-sm text-kumo-subtle">Segmented (default)</p>
         <Tabs
@@ -9203,7 +10606,7 @@ Tab navigation component with segmented or underline style. Built on Base UI Tab
 ```
 
 ```tsx
-<div className="flex flex-col gap-6">
+<div className="flex flex-col items-start gap-6">
       <div>
         <p className="mb-2 text-sm text-kumo-subtle">Segmented sm</p>
         <Tabs
@@ -9262,6 +10665,106 @@ Tab navigation component with segmented or underline style. Built on Base UI Tab
 
 ---
 
+### TagInput
+
+TagInput component
+
+**Type:** component
+
+**Import:** `import { TagInput } from "@cloudflare/kumo";`
+
+**Category:** Other
+
+**Props:**
+
+- `alt`: string
+- `autoComplete`: React.HTMLInputAutoCompleteAttribute
+- `checked`: boolean
+- `height`: number | string
+- `list`: string
+- `name`: string
+- `placeholder`: string
+- `readOnly`: boolean
+- `required`: boolean
+- `type`: React.HTMLInputTypeAttribute
+- `width`: number | string
+- `className`: string
+- `id`: string
+- `lang`: string
+- `title`: string
+- `children`: ReactNode
+- `value`: string[]
+- `validateValue`: object
+- `maxValues`: number
+- `labels`: TagInputLabels
+  Translated labels for generated input, action, and validation text.
+- `label`: ReactNode
+- `labelTooltip`: ReactNode
+- `description`: ReactNode
+- `error`: string | object
+- `variant`: enum [default: default]
+  - `"default"`: Default tag input appearance.
+  - `"error"`: Error state for validation failures.
+- `disabled`: boolean
+
+**Colors (kumo tokens used):**
+
+`bg-kumo-overlay`, `ring-kumo-hairline`, `text-kumo-default`
+
+**Styling:**
+
+
+**Examples:**
+
+```tsx
+<TagInput
+      label="Recipients"
+      description="Paste comma- or newline-separated email addresses."
+      placeholder="name@example.com"
+      autoComplete="off"
+      value={recipients}
+      onValueChange={setRecipients}
+      validateValue={(value) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)}
+    />
+```
+
+```tsx
+<TagInput
+      defaultValue={["frontend", "priority"]}
+      label="Labels"
+      description="Accepts any non-empty value."
+      placeholder="Add a label"
+    />
+```
+
+```tsx
+<TagInput
+      defaultValue={["alpha"]}
+      label="Access groups"
+      maxValues={3}
+      description="A maximum of three groups."
+      placeholder="Type a group name"
+    />
+```
+
+```tsx
+<TagInput
+      defaultValue={["uno"]}
+      label="Etiquetas"
+      labels={{
+        input: "Agregar etiqueta",
+        removeValue: (value) => `Eliminar ${value}`,
+        invalidValue: (value) => `${value} no es valido.`,
+        maxValuesReached: (maxValues) => `Maximo de ${maxValues} etiquetas.`,
+      }}
+      maxValues={3}
+      placeholder="Agregar una etiqueta"
+    />
+```
+
+
+---
+
 ### Text
 
 Text component
@@ -9275,9 +10778,10 @@ Text component
 **Props:**
 
 - `variant`: enum [default: body]
-  - `"heading1"`: Large heading for page titles
-  - `"heading2"`: Medium heading for section titles
-  - `"heading3"`: Small heading for subsections
+  - `"heading"`: Heading text (16px by default, 20px at large size)
+  - `"heading1"`: Deprecated large heading for page titles; use heading instead
+  - `"heading2"`: Deprecated medium heading for section titles; use heading instead
+  - `"heading3"`: Deprecated small heading for subsections; use heading instead
   - `"body"`: Default body text
   - `"secondary"`: Muted text for secondary information
   - `"success"`: Success state text
@@ -9296,7 +10800,8 @@ Text component
 - `as`: enum
   The HTML element to render. Accepts headings (`"h1"`–`"h6"`), block text (`"p"`, `"pre"`), inline text (`"span"`, `"code"`, `"em"`, `"strong"`, `"small"`, `"abbr"`, `"time"`), form-related (`"label"`, `"legend"`), list/definition (`"dt"`, `"dd"`, `"li"`), and `"figcaption"`.
 
-- **Required** for heading variants (`"heading1"`, `"heading2"`,   `"heading3"`) — pick the element that reflects this text's place in   the document outline, or `"span"` for decorative heading-styled text   that is not a section heading.
+- **Optional** for `"heading"` (defaults to `"span"`). Pass the heading   element that reflects this text's place in the document outline.
+- **Required** for deprecated heading variants (`"heading1"`,   `"heading2"`, `"heading3"`).
 - **Optional** for body variants (defaults to `"p"`) and monospace   variants (defaults to `"span"`).
 - `children`: ReactNode
   Text content.
@@ -9313,22 +10818,14 @@ Text component
 ```tsx
 <div className="grid w-full grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
       <div className="flex flex-col justify-end gap-1 rounded-lg border border-kumo-hairline bg-kumo-base p-4">
-        <Text variant="heading1" as="h1">
-          Heading 1
-        </Text>
-        <Text variant="mono-secondary">text-3xl (30px)</Text>
-      </div>
-      <div className="flex flex-col justify-end gap-1 rounded-lg border border-kumo-hairline bg-kumo-base p-4">
-        <Text variant="heading2" as="h2">
-          Heading 2
-        </Text>
-        <Text variant="mono-secondary">text-2xl (24px)</Text>
-      </div>
-      <div className="flex flex-col justify-end gap-1 rounded-lg border border-kumo-hairline bg-kumo-base p-4">
-        <Text variant="heading3" as="h3">
-          Heading 3
-        </Text>
+        <Text variant="heading">Heading</Text>
         <Text variant="mono-secondary">text-lg (16px)</Text>
+      </div>
+      <div className="flex flex-col justify-end gap-1 rounded-lg border border-kumo-hairline bg-kumo-base p-4">
+        <Text variant="heading" size="lg" as="h2">
+          Heading large
+        </Text>
+        <Text variant="mono-secondary">text-xl (20px)</Text>
       </div>
       <div className="flex flex-col justify-end gap-1 rounded-lg border border-kumo-hairline bg-kumo-base p-4">
         <Text>Body</Text>
@@ -9426,8 +10923,14 @@ TimeseriesChart — a time-series line or bar chart.
   Label for the y-axis (value axis)
 - `yAxisTickCount`: number
   Number of ticks to display on the y-axis
+- `yAxisMinInterval`: number
+  Minimum interval between y-axis ticks. Set to `1` for discrete count data so ECharts does not render fractional tick marks.
 - `tooltipValueFormat`: (value: number) => string
   Custom formatter for tooltip values. Receives the raw y-value and returns a display string. When omitted, the raw value is shown. Takes precedence over the deprecated `yAxisTickLabelFormat` prop.
+- `tooltipTimestampFormat`: (timestamp: number) => string
+  Custom formatter for tooltip timestamps. Receives the raw timestamp in milliseconds and returns a display string. Applies to standard series and marker tooltips. When omitted, timestamps are formatted using the browser's locale and time zone.
+- `tooltipFooter`: string
+  Footer text rendered below the series rows in the tooltip. Intended for brief context such as data freshness or aggregation details. Available for every `TimeseriesChart` configuration.
 - `tooltipMode`: "all" | "single"
   Controls which series are shown in the tooltip. - `"all"` — show all series at the hovered timestamp (default) - `"single"` — show only the series whose value is closest to the cursor
 - `tooltipMaxItems`: number
@@ -9455,7 +10958,7 @@ TimeseriesChart — a time-series line or bar chart.
 
 **Colors (kumo tokens used):**
 
-`bg-kumo-base`, `outline-kumo-fill`
+`bg-kumo-base`, `outline-kumo-line`
 
 **Examples:**
 
@@ -9475,6 +10978,17 @@ TimeseriesChart — a time-series line or bar chart.
       data={data}
       xAxisName="Time (UTC)"
       yAxisName="Count"
+    />
+```
+
+```tsx
+<TimeseriesChart
+      echarts={echarts}
+      isDarkMode={isDarkMode}
+      data={data}
+      xAxisName="Time (UTC)"
+      yAxisName="Requests"
+      yAxisMinInterval={1}
     />
 ```
 
@@ -9513,15 +11027,25 @@ TimeseriesChart — a time-series line or bar chart.
       data={data}
       xAxisName="Time (UTC)"
       yAxisName="Requests"
-      xAxisTickFormat={(ts) => {
-        const d = new Date(ts);
-        return `${d.getHours().toString().padStart(2, "0")}:${d.getMinutes().toString().padStart(2, "0")}`;
-      }}
+      xAxisTickFormat={(timestamp) =>
+        new Intl.DateTimeFormat(undefined, {
+          timeZone: "UTC",
+          hour: "2-digit",
+          minute: "2-digit",
+        }).format(timestamp)
+      }
       yAxisTickFormat={(value) => {
         if (value >= 1000) return `${value / 1000}k`;
         return value.toString();
       }}
       tooltipValueFormat={(value) => `${(value / 1000).toFixed(1)}k requests`}
+      tooltipTimestampFormat={(timestamp) =>
+        new Intl.DateTimeFormat(undefined, {
+          timeZone: "UTC",
+          dateStyle: "medium",
+          timeStyle: "medium",
+        }).format(timestamp)
+      }
     />
 ```
 
@@ -9724,6 +11248,7 @@ TimeseriesChart — a time-series line or bar chart.
           isDarkMode={isDarkMode}
           data={data}
           height={300}
+          tooltipFooter="Percentiles use a five-minute rolling window."
         />
       </LayerCard.Primary>
     </LayerCard>
@@ -9887,7 +11412,7 @@ Toasty — toast notification provider and viewport.
 
 ```tsx
 <Toasty>
-      <ToastTitleOnlyButton />
+      <ToastFunctionalUpdateButton />
     </Toasty>
 ```
 
@@ -9939,6 +11464,10 @@ This is a compound component. Use these sub-components:
 #### Toolbar.Button
 
 Button sub-component
+
+#### Toolbar.Link
+
+Link sub-component
 
 #### Toolbar.Input
 
@@ -9994,6 +11523,15 @@ InputGroup sub-component
 ```tsx
 <Toolbar>
       <Toolbar.Button icon={UploadSimpleIcon}>Upload</Toolbar.Button>
+      <Toolbar.Button icon={DownloadSimpleIcon}>Download</Toolbar.Button>
+    </Toolbar>
+```
+
+```tsx
+<Toolbar>
+      <Toolbar.Link href="/components/button" icon={BookOpenIcon}>
+        Button documentation
+      </Toolbar.Link>
       <Toolbar.Button icon={DownloadSimpleIcon}>Download</Toolbar.Button>
     </Toolbar>
 ```
@@ -10075,7 +11613,7 @@ Accessible popup that shows additional information on hover/focus. Wrap your app
 
 **Colors (kumo tokens used):**
 
-`bg-kumo-base`, `fill-kumo-base`, `fill-kumo-tip-shadow`, `fill-kumo-tip-stroke`, `outline-kumo-fill`, `text-kumo-default`
+`bg-kumo-base`, `fill-kumo-arrow-edge`, `fill-kumo-arrow-stroke`, `fill-kumo-base`, `outline-kumo-line`, `text-kumo-default`
 
 **Sub-Components:**
 
@@ -10251,12 +11789,12 @@ Multi-line textarea input with Input variants and InputArea-specific dimensions
 ## Quick Reference
 
 **Components by Category:**
-- **Other:** Autocomplete, CloudflareLogo, DatePicker, Label, Link, SensitiveInput, Sidebar, Table, TableOfContents, Toolbar, DeleteResource
+- **Other:** Autocomplete, CloudflareLogo, DatePicker, Label, Link, SensitiveInput, Sidebar, Table, TableOfContents, TagInput, Toolbar, DeleteResource
 - **Display:** Badge, Breadcrumbs, Code, Collapsible, Empty, LayerCard, Meter, Text
 - **Feedback:** Banner, Loader, Toasty
-- **Data Visualization:** BubbleMap, Chart, ChoroplethMap, SankeyChart, TimeseriesChart
-- **Action:** Button, ClipboardText
-- **Input:** Checkbox, Combobox, DateRangePicker, Field, Input, InputGroup, Radio, Select, Switch
+- **Data Visualization:** BubbleMap, Chart, ChoroplethMap, GlobeMap, SankeyChart, TimeseriesChart
+- **Action:** Button, ButtonGroup, ClipboardText, InlineCopyText
+- **Input:** Checkbox, Combobox, DateRangePicker, Field, Input, InputGroup, Radio, Select, Slider, Switch
 - **Navigation:** CommandPalette, MenuBar, Pagination, Tabs
-- **Overlay:** Dialog, DropdownMenu, Popover, Tooltip
+- **Overlay:** Dialog, DropdownMenu, LayerDialog, Popover, Tooltip
 - **Layout:** Grid, Surface, PageHeader, ResourceListPage

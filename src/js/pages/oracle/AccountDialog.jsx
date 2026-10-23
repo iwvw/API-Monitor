@@ -127,9 +127,9 @@ key_file=<path to your private keyfile>`}
         </div>
         </LayerDialog.Body>
         <LayerDialog.Actions dismissLabel="取消">
-          <LayerDialog.Actions.Primary type="button" onClick={saveAccount} loading={submittingAccount}>
+          <LayerDialog.Action type="button" onClick={saveAccount} loading={submittingAccount}>
             保存
-          </LayerDialog.Actions.Primary>
+          </LayerDialog.Action>
         </LayerDialog.Actions>
       </LayerDialog.Content>
     </LayerDialog.Root>

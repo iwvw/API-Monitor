@@ -69,13 +69,13 @@ export function TransferDialog({ transferModal, setTransferModal, storageNodes, 
         </LayerDialog.Body>
 
         <LayerDialog.Actions dismissLabel="取消">
-          <LayerDialog.Actions.Primary
+          <LayerDialog.Action
             type="button"
             loading={transferModal.transferring}
             onClick={onSubmit}
           >
             开始转移
-          </LayerDialog.Actions.Primary>
+          </LayerDialog.Action>
         </LayerDialog.Actions>
       </LayerDialog.Content>
     </LayerDialog.Root>

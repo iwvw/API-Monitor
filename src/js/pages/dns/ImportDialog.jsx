@@ -37,9 +37,9 @@ function ImportDialog({
           </div>
         </LayerDialog.Body>
         <LayerDialog.Actions dismissLabel="取消">
-          <LayerDialog.Actions.Primary type="button" onClick={onSubmitImport} icon={<Upload className="h-4 w-4" />}>
+          <LayerDialog.Action type="button" onClick={onSubmitImport} icon={<Upload className="h-4 w-4" />}>
             导入
-          </LayerDialog.Actions.Primary>
+          </LayerDialog.Action>
         </LayerDialog.Actions>
       </LayerDialog.Content>
     </LayerDialog.Root>

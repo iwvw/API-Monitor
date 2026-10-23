@@ -48,13 +48,13 @@ export default function AddFlyAccountDialog({ showAddFlyModal, setShowAddFlyModa
             </div>
           </LayerDialog.Body>
           <LayerDialog.Actions dismissLabel="取消">
-            <LayerDialog.Actions.Primary
+            <LayerDialog.Action
               type="button"
               onClick={addFlyAccount}
               loading={flyAddingAccount}
             >
               确定添加
-            </LayerDialog.Actions.Primary>
+            </LayerDialog.Action>
           </LayerDialog.Actions>
         </LayerDialog.Content>
       </LayerDialog.Root>

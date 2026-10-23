@@ -229,7 +229,7 @@ API Monitor 目前管理着大量可被视作「资产」的对象：主机与�
 2. 顶部使用 Tabs 分区：`总览`、`实体资产`、`虚拟资产`、`纳管来源`。
 3. 列表使用 `AppTable` + 语义列角色，列定义集中在 `constants.js`。
 4. 筛选栏使用 `ResponsiveSearchInput` + `Select`，窄屏用 `TabBarOverflowActions` 收纳。
-5. 新建/编辑使用 `LayerDialog`，结构必须满足一个 `Title` + 一个 `Body` + 可选 `Description` + `Actions`，`Actions` 只含一个 `Actions.Primary`。
+5. 新建/编辑使用 `LayerDialog`，结构必须满足一个 `Title` + 一个 `Body` + 可选 `Description` + `Actions`，`Actions` 只含一个 `LayerDialog.Action`。
 6. 日期选择使用现成的 `DateField` / `DateTimeField`，不使用原生 `input type="date"`。
 7. 删除使用 `dialog.deleteResource`。
 8. 剩余天数用状态色调分级：正常 `info`、30 天内 `warning`、7 天内 `danger`、已过期 `danger`。

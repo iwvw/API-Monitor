@@ -694,11 +694,11 @@ export default function ForwardDialog({ open, onOpenChange, onSubmit, servers, e
 
         <LayerDialog.Actions dismissLabel="取消">
           {createdToken ? (
-            <LayerDialog.Actions.Primary type="button" onClick={() => onOpenChange(false)}>完成</LayerDialog.Actions.Primary>
+            <LayerDialog.Action type="button" onClick={() => onOpenChange(false)}>完成</LayerDialog.Action>
           ) : (
-            <LayerDialog.Actions.Primary type="button" onClick={handleSubmit} loading={submitting}>
+            <LayerDialog.Action type="button" onClick={handleSubmit} loading={submitting}>
               {editing ? '保存' : '创建并部署'}
-            </LayerDialog.Actions.Primary>
+            </LayerDialog.Action>
           )}
         </LayerDialog.Actions>
       </LayerDialog.Content>

@@ -130,7 +130,7 @@ function DeleteResourceDialog({ options, promptValue, setPromptValue, onCancel }
           </form>
         </LayerDialog.Body>
         <LayerDialog.Actions dismissLabel="取消">
-          <LayerDialog.Actions.Primary
+          <LayerDialog.Action
             type="submit"
             variant="destructive"
             disabled={!canDelete}
@@ -139,7 +139,7 @@ function DeleteResourceDialog({ options, promptValue, setPromptValue, onCancel }
             }}
           >
             {options.confirmText || '删除'}
-          </LayerDialog.Actions.Primary>
+          </LayerDialog.Action>
         </LayerDialog.Actions>
       </LayerDialog.Content>
     </LayerDialog.Alert>
@@ -221,14 +221,14 @@ function GlobalDialogHost() {
           </form>
         </LayerDialog.Body>
         <LayerDialog.Actions dismissLabel={options.cancelText || '取消'}>
-          <LayerDialog.Actions.Primary
+          <LayerDialog.Action
             type="button"
             variant={getConfirmVariant(request)}
             autoFocus={!isAlert && request.type !== 'prompt'}
             onClick={handleConfirm}
           >
             {options.confirmText}
-          </LayerDialog.Actions.Primary>
+          </LayerDialog.Action>
         </LayerDialog.Actions>
       </LayerDialog.Content>
     </LayerDialog.Root>

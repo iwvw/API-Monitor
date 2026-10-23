@@ -520,7 +520,7 @@ function DockerHubPage() {
             </form>
           </LayerDialog.Body>
           <LayerDialog.Actions dismissLabel="取消">
-            <LayerDialog.Actions.Primary type="submit" form="dockerhub-account-form" icon={<Plus className="h-3.5 w-3.5" />} loading={saving}>保存</LayerDialog.Actions.Primary>
+            <LayerDialog.Action type="submit" form="dockerhub-account-form" icon={<Plus className="h-3.5 w-3.5" />} loading={saving}>保存</LayerDialog.Action>
           </LayerDialog.Actions>
         </LayerDialog.Content>
       </LayerDialog.Root>

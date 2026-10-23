@@ -29,9 +29,9 @@ function R2FolderDialog({
           />
         </LayerDialog.Body>
         <LayerDialog.Actions dismissLabel="取消">
-          <LayerDialog.Actions.Primary type="button" onClick={onCreateR2Folder} loading={loading.createR2Folder}>
+          <LayerDialog.Action type="button" onClick={onCreateR2Folder} loading={loading.createR2Folder}>
             创建
-          </LayerDialog.Actions.Primary>
+          </LayerDialog.Action>
         </LayerDialog.Actions>
       </LayerDialog.Content>
     </LayerDialog.Root>

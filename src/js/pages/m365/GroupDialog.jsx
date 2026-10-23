@@ -38,13 +38,13 @@ export default function GroupDialog({
           </div>
         </LayerDialog.Body>
         <LayerDialog.Actions>
-          <LayerDialog.Actions.Primary
+          <LayerDialog.Action
             type="button"
             onClick={submitGroup}
             loading={submittingGroup}
           >
             {submittingGroup ? '创建中...' : '创建'}
-          </LayerDialog.Actions.Primary>
+          </LayerDialog.Action>
         </LayerDialog.Actions>
       </LayerDialog.Content>
     </LayerDialog.Root>

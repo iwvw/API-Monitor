@@ -31,9 +31,9 @@ export default function BucketDialog({ open, onOpenChange, bucketForm, setBucket
           </div>
         </LayerDialog.Body>
         <LayerDialog.Actions dismissLabel="取消">
-          <LayerDialog.Actions.Primary type="button" onClick={onSubmit} loading={submittingBucket}>
+          <LayerDialog.Action type="button" onClick={onSubmit} loading={submittingBucket}>
             创建
-          </LayerDialog.Actions.Primary>
+          </LayerDialog.Action>
         </LayerDialog.Actions>
       </LayerDialog.Content>
     </LayerDialog.Root>

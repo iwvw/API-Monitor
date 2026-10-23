@@ -88,9 +88,9 @@ export default function KoyebCreateDialog({ koyebCreateTarget, setKoyebCreateTar
           </div>
           </LayerDialog.Body>
           <LayerDialog.Actions dismissLabel="取消">
-            <LayerDialog.Actions.Primary type="button" onClick={createKoyebService} loading={koyebCreateSaving}>
+            <LayerDialog.Action type="button" onClick={createKoyebService} loading={koyebCreateSaving}>
               创建并部署
-            </LayerDialog.Actions.Primary>
+            </LayerDialog.Action>
           </LayerDialog.Actions>
         </LayerDialog.Content>
       </LayerDialog.Root>

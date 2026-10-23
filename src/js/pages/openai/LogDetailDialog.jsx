@@ -104,9 +104,9 @@ export function LogDetailDialog({ analytics }) {
             </div>
           </LayerDialog.Body>
           <LayerDialog.Actions dismissLabel="关闭">
-            <LayerDialog.Actions.Primary type="button" onClick={() => setLogDetail(null)}>
+            <LayerDialog.Action type="button" onClick={() => setLogDetail(null)}>
               关闭
-            </LayerDialog.Actions.Primary>
+            </LayerDialog.Action>
           </LayerDialog.Actions>
         </LayerDialog.Content>
       </LayerDialog.Root>

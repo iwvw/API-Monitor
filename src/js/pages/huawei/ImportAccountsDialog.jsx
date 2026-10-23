@@ -25,9 +25,9 @@ export default function ImportAccountsDialog({
           </div>
         </LayerDialog.Body>
         <LayerDialog.Actions dismissLabel="取消">
-          <LayerDialog.Actions.Primary type="button" onClick={submitImport} loading={importingAccounts} disabled={!importText.trim()}>
+          <LayerDialog.Action type="button" onClick={submitImport} loading={importingAccounts} disabled={!importText.trim()}>
             导入
-          </LayerDialog.Actions.Primary>
+          </LayerDialog.Action>
         </LayerDialog.Actions>
       </LayerDialog.Content>
     </LayerDialog.Root>

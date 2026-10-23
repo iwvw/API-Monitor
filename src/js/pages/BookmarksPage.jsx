@@ -158,7 +158,7 @@ function GroupSettingsDialog({ open, form, onOpenChange, onFormChange, onSave })
         </div>
         </LayerDialog.Body>
         <LayerDialog.Actions dismissLabel="取消">
-          <LayerDialog.Actions.Primary type="button" disabled={!canSave} onClick={() => onSave()}>保存</LayerDialog.Actions.Primary>
+          <LayerDialog.Action type="button" disabled={!canSave} onClick={() => onSave()}>保存</LayerDialog.Action>
         </LayerDialog.Actions>
       </LayerDialog.Content>
     </LayerDialog.Root>
@@ -1471,13 +1471,13 @@ export default function BookmarksPage() {
             </div>
           </LayerDialog.Body>
           <LayerDialog.Actions dismissLabel="取消">
-            <LayerDialog.Actions.Primary
+            <LayerDialog.Action
               type="button"
               onClick={confirmNativeImport}
               disabled={nativeImportSaving || !nativeImportPayload || !nativeImportPreview}
             >
               {nativeImportSaving ? '处理中…' : '确认导入'}
-            </LayerDialog.Actions.Primary>
+            </LayerDialog.Action>
           </LayerDialog.Actions>
         </LayerDialog.Content>
       </LayerDialog.Root>

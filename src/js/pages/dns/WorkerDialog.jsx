@@ -40,9 +40,9 @@ function WorkerDialog({
           </div>
         </LayerDialog.Body>
         <LayerDialog.Actions dismissLabel="取消">
-          <LayerDialog.Actions.Primary type="button" onClick={onSaveWorker} loading={loading.saveWorker} icon={<Save className="h-4 w-4" />}>
+          <LayerDialog.Action type="button" onClick={onSaveWorker} loading={loading.saveWorker} icon={<Save className="h-4 w-4" />}>
             保存
-          </LayerDialog.Actions.Primary>
+          </LayerDialog.Action>
         </LayerDialog.Actions>
       </LayerDialog.Content>
     </LayerDialog.Root>

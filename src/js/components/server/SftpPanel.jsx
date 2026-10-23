@@ -445,7 +445,7 @@ export default function SftpPanel({ serverId, serverName, initialPath = '.', onC
             <Input size="sm" label="目录名" value={mkdirName} onChange={event => setMkdirName(event.target.value)} />
           </LayerDialog.Body>
           <LayerDialog.Actions dismissLabel="取消">
-            <LayerDialog.Actions.Primary type="button" onClick={createDirectory}>创建</LayerDialog.Actions.Primary>
+            <LayerDialog.Action type="button" onClick={createDirectory}>创建</LayerDialog.Action>
           </LayerDialog.Actions>
         </LayerDialog.Content>
       </LayerDialog.Root>
@@ -457,7 +457,7 @@ export default function SftpPanel({ serverId, serverName, initialPath = '.', onC
             <Input size="sm" label="新名称" value={renameValue} onChange={event => setRenameValue(event.target.value)} />
           </LayerDialog.Body>
           <LayerDialog.Actions dismissLabel="取消">
-            <LayerDialog.Actions.Primary type="button" onClick={renamePath}>保存</LayerDialog.Actions.Primary>
+            <LayerDialog.Action type="button" onClick={renamePath}>保存</LayerDialog.Action>
           </LayerDialog.Actions>
         </LayerDialog.Content>
       </LayerDialog.Root>
@@ -469,7 +469,7 @@ export default function SftpPanel({ serverId, serverName, initialPath = '.', onC
             <Input size="sm" label="权限值" value={chmodValue} onChange={event => setChmodValue(event.target.value)} className="font-mono" />
           </LayerDialog.Body>
           <LayerDialog.Actions dismissLabel="取消">
-            <LayerDialog.Actions.Primary type="button" onClick={chmodPath}>保存</LayerDialog.Actions.Primary>
+            <LayerDialog.Action type="button" onClick={chmodPath}>保存</LayerDialog.Action>
           </LayerDialog.Actions>
         </LayerDialog.Content>
       </LayerDialog.Root>

@@ -2,7 +2,7 @@
 
 最后更新：2026-09-10
 
-本文档是 API Monitor 前端 UI 的硬约束。当前项目以 `@cloudflare/kumo` 2.13.2 为唯一设计系统基线。
+本文档是 API Monitor 前端 UI 的硬约束。当前项目以 `@cloudflare/kumo` 2.15.0 为唯一设计系统基线。
 
 ## 总规则
 
@@ -25,6 +25,7 @@
 | 表格 | Kumo `Table` |
 | 表格拖动 | Kumo `Table.ResizeHandle` |
 | 弹窗 | Kumo `Dialog` |
+| 结构化弹窗（Title + Body + Actions） | Kumo `LayerDialog`，主操作按钮用 `LayerDialog.Action` |
 | 删除确认 | Kumo `DeleteResource` |
 | 通知 | Kumo `Toasty` / `createKumoToastManager` |
 | 开关 | Kumo `Switch` |
@@ -35,6 +36,10 @@
 | 可复制文本 | Kumo `ClipboardText` |
 | 百分比/用量 | Kumo `Meter` |
 | 时间序列图 | Kumo `TimeseriesChart` + `ChartPalette` |
+| 数值 / 区间滑块 | Kumo `Slider` |
+| 自由标签输入 | Kumo `TagInput` |
+| 密集表格内的短值复制 | Kumo `InlineCopyText` |
+| 拆分按钮（主操作 + 关联备选） | Kumo `ButtonGroup`，`LayerDialog` 内用 `LayerDialog.Action` 的 `menu` |
 | 展开收起 | `AnimatedCollapse`，内部必须基于 Kumo `Collapsible` |
 
 ## 页面结构
@@ -67,7 +72,7 @@
 未来 major 版本移除）。**本项目刻意保留 `size="sm"`，不迁移**：
 
 - 原因：`Toolbar.Button` / `Toolbar.Input` / `Toolbar.Link` / `Toolbar.InputGroup` 的尺寸由 Toolbar
-  上下文强制注入（其 Props 已 Omit `size`，无法单独设置），官方在 2.13.2 没有任何「非废弃」的紧凑
+  上下文强制注入（其 Props 已 Omit `size`，无法单独设置），官方在 2.15.0 没有任何「非废弃」的紧凑
   路径。项目 17 处导出/导入工具栏全部使用这些子部件，移除 `size="sm"` 会把行内控件从 sm 撑到 base，
   违反本页「Toolbar 使用 size=sm」的密度规则。
 - 处置：维持 `size="sm"`；lint 若拦截该废弃项，走白名单放行并引用本条。
@@ -140,6 +145,25 @@ toast.info('状态已刷新');
 ```
 
 敏感值展示掩码时使用 `textToCopy` 保存真实复制值。
+
+密集界面（表格单元格、行内元信息）里的短值复制改用 `InlineCopyText`（2.14 起），它是无边框紧凑变体，
+不占 `ClipboardText` 的按钮占位。
+
+## 结构化弹窗（LayerDialog）
+
+业务弹窗统一 `LayerDialog`，主操作按钮是 `LayerDialog.Action`（**不是** `Actions.Primary`——那是 2.15 的弃用别名）：
+
+```jsx
+<LayerDialog.Actions dismissLabel="取消">
+  <LayerDialog.Action type="button" loading={saving} onClick={save}>
+    保存
+  </LayerDialog.Action>
+</LayerDialog.Actions>
+```
+
+- `Actions` 内只能有一个 `LayerDialog.Action`；需要多个并列业务按钮时改用基础 `Dialog`。
+- 有关联的备选提交结果（如「保存为草稿」）时，用 `Action` 的 `menu` + `menuLabel` 渲染拆分按钮，不要塞第二个按钮。
+- 不可逆操作（删除）在 `LayerDialog.Alert` 内用 `variant="destructive"`。
 
 ## PageHeader
 

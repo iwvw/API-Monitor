@@ -12,9 +12,9 @@ export default function BucketDialog({ open, onOpenChange, bucketForm, setBucket
           <Input label="桶名称" value={bucketForm.name} onChange={(e) => setBucketForm({ name: e.target.value })} placeholder="小写字母/数字/中划线" />
         </LayerDialog.Body>
         <LayerDialog.Actions dismissLabel="取消">
-          <LayerDialog.Actions.Primary type="button" onClick={createBucket} loading={savingBucket}>
+          <LayerDialog.Action type="button" onClick={createBucket} loading={savingBucket}>
             创建
-          </LayerDialog.Actions.Primary>
+          </LayerDialog.Action>
         </LayerDialog.Actions>
       </LayerDialog.Content>
     </LayerDialog.Root>

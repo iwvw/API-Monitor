@@ -257,13 +257,13 @@ export function GatewayKeyDialogs({ keysApi, endpointsApi }) {
           </LayerDialog.Body>
 
           <LayerDialog.Actions dismissLabel="取消">
-            <LayerDialog.Actions.Primary
+            <LayerDialog.Action
               type="button"
               onClick={saveGatewayKey}
               loading={gatewayKeySaving}
             >
               保存密钥
-            </LayerDialog.Actions.Primary>
+            </LayerDialog.Action>
           </LayerDialog.Actions>
         </LayerDialog.Content>
       </LayerDialog.Root>
@@ -291,12 +291,12 @@ export function GatewayKeyDialogs({ keysApi, endpointsApi }) {
             </div>
           </LayerDialog.Body>
           <LayerDialog.Actions dismissLabel="取消">
-            <LayerDialog.Actions.Primary
+            <LayerDialog.Action
               type="button"
               onClick={() => setNewGatewayKey(null)}
             >
               我已保存
-            </LayerDialog.Actions.Primary>
+            </LayerDialog.Action>
           </LayerDialog.Actions>
         </LayerDialog.Content>
       </LayerDialog.Root>

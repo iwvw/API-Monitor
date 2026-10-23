@@ -35,9 +35,9 @@ const ExportDialog = ({
           </div>
         </LayerDialog.Body>
         <LayerDialog.Actions dismissLabel="关闭">
-          <LayerDialog.Actions.Primary type="button" onClick={copyExportedUris}>
+          <LayerDialog.Action type="button" onClick={copyExportedUris}>
             复制到剪贴板
-          </LayerDialog.Actions.Primary>
+          </LayerDialog.Action>
         </LayerDialog.Actions>
       </LayerDialog.Content>
     </LayerDialog.Root>

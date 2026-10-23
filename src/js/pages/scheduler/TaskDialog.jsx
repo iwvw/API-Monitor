@@ -102,9 +102,9 @@ export function TaskDialog({
           </div>
         </LayerDialog.Body>
         <LayerDialog.Actions dismissLabel="取消">
-          <LayerDialog.Actions.Primary type="button" onClick={saveTask} loading={saving} disabled={Boolean(cronPreviewError)}>
+          <LayerDialog.Action type="button" onClick={saveTask} loading={saving} disabled={Boolean(cronPreviewError)}>
             <Save className="h-3.5 w-3.5" />保存
-          </LayerDialog.Actions.Primary>
+          </LayerDialog.Action>
         </LayerDialog.Actions>
       </LayerDialog.Content>
     </LayerDialog.Root>

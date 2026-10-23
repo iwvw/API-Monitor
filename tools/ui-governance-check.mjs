@@ -517,8 +517,10 @@ function checkDroppedLayerDialogAttrs(rel, openTag, slotName, lineNumber) {
 }
 
 // LayerDialog 是结构化弹窗：Content 的直接子元素只允许 Title/Body（各一个）与可选的
-// Description/Actions；Actions 只能含一个 Primary。违反会在运行时抛错（kumo 源码硬校验），
+// Description/Actions；Actions 只能含一个 Action。违反会在运行时抛错（kumo 源码硬校验），
 // 因此这里在构建前把守，避免迁移或新增时又写出会崩的结构。
+// kumo 2.15 起 `LayerDialog.Actions.Primary` 是 `LayerDialog.Action` 的弃用别名，
+// 只用于兼容 2.14 写法；新代码一律用 `LayerDialog.Action`，旧写法给警告。
 function scanLayerDialogs(files) {
   for (const rel of files.filter((file) => /\.jsx$/.test(file))) {
     const content = fs.readFileSync(path.join(root, rel), 'utf8');
@@ -544,7 +546,7 @@ function scanLayerDialogs(files) {
       // 先于 slot 剔除做检查：若某个顶层 {} 块内出现 Title/Body/Description 标签，
       // 说明 slot 被条件表达式包裹。Children.toArray 不展开顶层 Fragment，
       // kumo 的 collectSlot 会把它判为非法子元素并在运行时抛错。
-      // （Actions 不参与判断：Actions.Primary 可以合法地出现在 Body 内部的三元里。）
+      // （Actions 不参与判断：LayerDialog.Action 可以合法地出现在 Body 内部的三元里。）
       const slotMarkers = /<LayerDialog\.(Title|Body|Description)(?=[\s>])/;
       let wrapped = false;
       for (const block of topLevelBraces(rest)) {
@@ -601,22 +603,28 @@ function scanLayerDialogs(files) {
       const closeEnd = findMatchingClose(content, match.index, 'LayerDialog.Actions');
       if (closeEnd < 0) continue;
       let rest = content.slice(tagEnd + 1, closeEnd - '</LayerDialog.Actions>'.length);
-      let changed = true;
-      while (changed) {
-        changed = false;
-        const primary = /<LayerDialog\.Actions\.Primary(?=[\s>])/.exec(rest);
-        if (primary) {
-          const primaryClose = findMatchingClose(rest, primary.index, 'LayerDialog.Actions.Primary');
-          if (primaryClose < 0) break;
-          rest = rest.slice(0, primary.index) + rest.slice(primaryClose);
-          changed = true;
-        }
+      // 弃用别名：能跑，但新代码不应再写。
+      const deprecatedPrimary = /<LayerDialog\.Actions\.Primary(?=[\s>])/.exec(rest);
+      if (deprecatedPrimary) {
+        const lineNumber =
+          content.slice(0, match.index).split(/\r?\n/).length +
+          rest.slice(0, deprecatedPrimary.index).split(/\r?\n/).length -
+          1;
+        warnings.push(
+          `${rel}:${lineNumber} LayerDialog.Actions.Primary is a deprecated alias; use LayerDialog.Action`
+        );
+      }
+      // 只剔除第一个 Action：若剩下第二个，就会落到下面的 leftover 报错。
+      const action = /<LayerDialog\.(Actions\.Primary|Action)(?=[\s>])/.exec(rest);
+      if (action) {
+        const actionClose = findMatchingClose(rest, action.index, `LayerDialog.${action[1]}`);
+        if (actionClose > 0) rest = rest.slice(0, action.index) + rest.slice(actionClose);
       }
       const leftover = stripBalancedBraces(rest).replace(/\s+/g, ' ').trim();
       if (leftover) {
         const lineNumber = content.slice(0, match.index).split(/\r?\n/).length;
         failures.push(
-          `${rel}:${lineNumber} LayerDialog.Actions may only contain one Actions.Primary, found "${leftover.slice(0, 60)}"`
+          `${rel}:${lineNumber} LayerDialog.Actions may only contain one LayerDialog.Action, found "${leftover.slice(0, 60)}"`
         );
       }
       actionsRe.lastIndex = closeEnd;

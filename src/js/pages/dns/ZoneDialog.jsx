@@ -30,9 +30,9 @@ function ZoneDialog({
           </div>
         </LayerDialog.Body>
         <LayerDialog.Actions dismissLabel="取消">
-          <LayerDialog.Actions.Primary type="button" onClick={onSaveZone} loading={loading.saveZone} icon={<Plus className="h-4 w-4" />}>
+          <LayerDialog.Action type="button" onClick={onSaveZone} loading={loading.saveZone} icon={<Plus className="h-4 w-4" />}>
             添加
-          </LayerDialog.Actions.Primary>
+          </LayerDialog.Action>
         </LayerDialog.Actions>
       </LayerDialog.Content>
     </LayerDialog.Root>

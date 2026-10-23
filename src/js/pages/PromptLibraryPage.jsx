@@ -484,7 +484,7 @@ export default function PromptLibraryPage() {
           <LayerDialog.Body>
           </LayerDialog.Body>
           <LayerDialog.Actions dismissLabel="关闭">
-            <LayerDialog.Actions.Primary
+            <LayerDialog.Action
               type="button"
               onClick={() => {
                 setConflictOpen(false);
@@ -492,7 +492,7 @@ export default function PromptLibraryPage() {
               }}
             >
               加载最新草稿
-            </LayerDialog.Actions.Primary>
+            </LayerDialog.Action>
           </LayerDialog.Actions>
         </LayerDialog.Content>
       </LayerDialog.Alert>

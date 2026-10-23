@@ -188,7 +188,7 @@ export default function SunPanelImportDialog({
         </LayerDialog.Body>
 
         <LayerDialog.Actions dismissLabel="取消">
-          <LayerDialog.Actions.Primary
+          <LayerDialog.Action
             type="button"
             icon={<Upload className="h-4 w-4" />}
             loading={importing}
@@ -196,7 +196,7 @@ export default function SunPanelImportDialog({
             onClick={onSubmit}
           >
             导入
-          </LayerDialog.Actions.Primary>
+          </LayerDialog.Action>
         </LayerDialog.Actions>
       </LayerDialog.Content>
     </LayerDialog.Root>

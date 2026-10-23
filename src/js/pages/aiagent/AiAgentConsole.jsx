@@ -1583,13 +1583,13 @@ export default function AiAgentConsole() {
             </div>
           </LayerDialog.Body>
           <LayerDialog.Actions dismissLabel="取消">
-            <LayerDialog.Actions.Primary
+            <LayerDialog.Action
               type="button"
               onClick={saveInstance}
               loading={instanceSaving}
             >
               保存
-            </LayerDialog.Actions.Primary>
+            </LayerDialog.Action>
           </LayerDialog.Actions>
         </LayerDialog.Content>
       </LayerDialog.Root>
@@ -1652,13 +1652,13 @@ export default function AiAgentConsole() {
             </div>
           </LayerDialog.Body>
           <LayerDialog.Actions dismissLabel="取消">
-            <LayerDialog.Actions.Primary
+            <LayerDialog.Action
               type="button"
               onClick={saveUserGrants}
               loading={grantsSaving}
             >
               保存
-            </LayerDialog.Actions.Primary>
+            </LayerDialog.Action>
           </LayerDialog.Actions>
         </LayerDialog.Content>
       </LayerDialog.Root>
@@ -1722,9 +1722,9 @@ export default function AiAgentConsole() {
             </div>
           </LayerDialog.Body>
           <LayerDialog.Actions dismissLabel="取消">
-            <LayerDialog.Actions.Primary type="button" onClick={saveUser} loading={userSaving}>
+            <LayerDialog.Action type="button" onClick={saveUser} loading={userSaving}>
               保存
-            </LayerDialog.Actions.Primary>
+            </LayerDialog.Action>
           </LayerDialog.Actions>
         </LayerDialog.Content>
       </LayerDialog.Root>
@@ -1833,13 +1833,13 @@ export default function AiAgentConsole() {
             </label>
           </LayerDialog.Body>
           <LayerDialog.Actions dismissLabel="取消">
-            <LayerDialog.Actions.Primary
+            <LayerDialog.Action
               type="button"
               onClick={resetPasswordFor}
               loading={resetting}
             >
               重置
-            </LayerDialog.Actions.Primary>
+            </LayerDialog.Action>
           </LayerDialog.Actions>
         </LayerDialog.Content>
       </LayerDialog.Root>

@@ -48,13 +48,13 @@ export default function AddKoyebAccountDialog({ showAddKoyebModal, setShowAddKoy
             </div>
           </LayerDialog.Body>
           <LayerDialog.Actions dismissLabel="取消">
-            <LayerDialog.Actions.Primary
+            <LayerDialog.Action
               type="button"
               onClick={addKoyebAccount}
               loading={koyebAddingAccount}
             >
               确定添加
-            </LayerDialog.Actions.Primary>
+            </LayerDialog.Action>
           </LayerDialog.Actions>
         </LayerDialog.Content>
       </LayerDialog.Root>

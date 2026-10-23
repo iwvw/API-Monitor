@@ -77,13 +77,13 @@ export default function AccountImportDialog({
           </label>
         </LayerDialog.Body>
         <LayerDialog.Actions dismissLabel="取消">
-          <LayerDialog.Actions.Primary
+          <LayerDialog.Action
             type="button"
             onClick={submitImportAccounts}
             loading={importingAccounts}
           >
             导入
-          </LayerDialog.Actions.Primary>
+          </LayerDialog.Action>
         </LayerDialog.Actions>
       </LayerDialog.Content>
     </LayerDialog.Root>

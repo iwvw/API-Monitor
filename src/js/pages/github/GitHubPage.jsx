@@ -1986,14 +1986,14 @@ function GitHubPage() {
             </form>
           </LayerDialog.Body>
           <LayerDialog.Actions dismissLabel="取消">
-            <LayerDialog.Actions.Primary
+            <LayerDialog.Action
               type="button"
               onClick={createRepository}
               icon={<Plus className="h-3.5 w-3.5" />}
               loading={saving}
             >
               添加仓库
-            </LayerDialog.Actions.Primary>
+            </LayerDialog.Action>
           </LayerDialog.Actions>
         </LayerDialog.Content>
       </LayerDialog.Root>

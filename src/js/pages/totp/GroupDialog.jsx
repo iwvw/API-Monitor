@@ -72,9 +72,9 @@ const GroupDialog = ({
         </LayerDialog.Body>
 
         <LayerDialog.Actions dismissLabel="取消">
-          <LayerDialog.Actions.Primary type="button" onClick={handleSaveGroup}>
+          <LayerDialog.Action type="button" onClick={handleSaveGroup}>
             保存分组
-          </LayerDialog.Actions.Primary>
+          </LayerDialog.Action>
         </LayerDialog.Actions>
       </LayerDialog.Content>
     </LayerDialog.Root>

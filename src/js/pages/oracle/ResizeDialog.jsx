@@ -148,14 +148,14 @@ export default function ResizeDialog({
         )}
         </LayerDialog.Body>
         <LayerDialog.Actions dismissLabel="取消">
-          <LayerDialog.Actions.Primary
+          <LayerDialog.Action
             type="button"
             onClick={saveResize}
             loading={submittingResize}
             disabled={loadingResizeShapes}
           >
             提交变更
-          </LayerDialog.Actions.Primary>
+          </LayerDialog.Action>
         </LayerDialog.Actions>
       </LayerDialog.Content>
     </LayerDialog.Root>

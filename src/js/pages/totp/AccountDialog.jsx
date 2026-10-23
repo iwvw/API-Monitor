@@ -418,21 +418,21 @@ const AccountDialog = ({
 
         <LayerDialog.Actions dismissLabel="取消">
           {accountModalMode === 'add' && accountAddTab === 'scan' ? (
-            <LayerDialog.Actions.Primary
+            <LayerDialog.Action
               type="button"
               onClick={() => importUrisDirectly(importUris)}
               disabled={!importUris.trim()}
             >
               执行导入
-            </LayerDialog.Actions.Primary>
+            </LayerDialog.Action>
           ) : (
-            <LayerDialog.Actions.Primary
+            <LayerDialog.Action
               type="button"
               onClick={handleSaveAccount}
               loading={accountModalSaving}
             >
               保存账号
-            </LayerDialog.Actions.Primary>
+            </LayerDialog.Action>
           )}
         </LayerDialog.Actions>
       </LayerDialog.Content>

@@ -22,7 +22,7 @@ API Monitor —— 自托管 API / 云资源 / 主机监控面板。前端 React
 ## Kumo-only UI（违反即回归）
 
 - 只用 `@cloudflare/kumo` 组件；弹窗统一用 kumo 原生 `LayerDialog`（`@cloudflare/kumo/components/layer-dialog`），不要再写自研包装。
-- `LayerDialog.Content` 的直接子元素只允许一个 `Title`、一个 `Body`，加可选的 `Description` 和 `Actions`；`Actions` 只能含一个 `Actions.Primary`。违反**运行时抛错**。
+- `LayerDialog.Content` 的直接子元素只允许一个 `Title`、一个 `Body`，加可选的 `Description` 和 `Actions`；`Actions` 只能含一个 `LayerDialog.Action`（2.15 起；`Actions.Primary` 只是弃用别名）。违反**运行时抛错**。
 - `LayerDialog` 的 `Content`/`Title`/`Description`/`Body` 会**静默丢弃**写在它们上的 `className`/`ref`（不报错也不生效）。要加类名或 ref，放到 slot 内部自己的元素上。
 - 底部多个并列业务按钮、或内容是依赖确定高度的画布/终端/编辑器时，用 kumo 基础 `Dialog`，别硬套 `LayerDialog`。
 - 破坏性删除确认迁移到 Kumo `DeleteResource`（`dialog.deleteResource`）。

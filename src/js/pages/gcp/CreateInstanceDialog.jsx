@@ -68,7 +68,7 @@ export default function CreateInstanceDialog({
       </div>
         </LayerDialog.Body>
         <LayerDialog.Actions dismissLabel="取消">
-          <LayerDialog.Actions.Primary type="button" loading={submittingCreate} onClick={onSubmit}>创建</LayerDialog.Actions.Primary>
+          <LayerDialog.Action type="button" loading={submittingCreate} onClick={onSubmit}>创建</LayerDialog.Action>
         </LayerDialog.Actions>
       </LayerDialog.Content>
     </LayerDialog.Root>

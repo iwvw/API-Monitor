@@ -6,7 +6,7 @@
 
 ## 当前架构
 
-- 前端：React 19、Vite 8、Tailwind CSS 4、Zustand，以及 `@cloudflare/kumo` 2.13.2。
+- 前端：React 19、Vite 8、Tailwind CSS 4、Zustand，以及 `@cloudflare/kumo` 2.15.0。
 - UI 体系：基础控件与图表只用 Kumo。本地组件应当是业务组合组件或收窄的过渡包装。
 - 后端：`backend-go/` 中的 Go 单进程后端，路由由 `backend-go/internal/manifest/manifest.go` 统一治理。
 - 持久化：SQLite 仍是唯一的持久化存储。除非有明确的产品决策，否则不要替换它。
@@ -34,7 +34,7 @@
 ## 不可协商的规则
 
 - 只用 Kumo：在适用场景下使用 Kumo 的 `Button`、`Input`、`Select`、`Tabs`、`Table`、`Dialog`、`DeleteResource`、`Toasty`、`Checkbox`、`Switch`、`Sidebar`、`Loader`、`Tooltip`、`Popover`、`DropdownMenu`、`TimeseriesChart`、`Meter` 以及 `ChartPalette`。
-- 弹窗统一用 kumo 原生 `LayerDialog`（`@cloudflare/kumo/components/layer-dialog`），不要再用自研包装。`LayerDialog.Content` 的直接子元素只允许一个 `Title`、一个 `Body`，加可选的 `Description` 和 `Actions`；`Actions` 只能含一个 `Actions.Primary`。违反会在运行时抛错，`npm run ui:governance` 已把守。
+- 弹窗统一用 kumo 原生 `LayerDialog`（`@cloudflare/kumo/components/layer-dialog`），不要再用自研包装。`LayerDialog.Content` 的直接子元素只允许一个 `Title`、一个 `Body`，加可选的 `Description` 和 `Actions`；`Actions` 只能含一个 `LayerDialog.Action`（kumo 2.15 起；`Actions.Primary` 已降级为弃用别名）。违反会在运行时抛错，`npm run ui:governance` 已把守。
 - `LayerDialog` 的 `Content`/`Title`/`Description`/`Body` 只解构自己的固定字段，写在它们上面的 `className`/`ref` 会被静默丢弃（不报错但也不生效，例如 `Body` 上的 `gap-3` 从未起作用）。需要额外类名或 ref 时，放进 slot 内部自己的元素上；`npm run ui:governance` 已把守。
 - 底部有多个并列业务按钮、或内容是依赖确定高度的画布/终端/编辑器时，保留 kumo 基础 `Dialog`，不要强行套 `LayerDialog`。
 - `LayerDialog.Body` 的滚动内容层顶部无内边距（仅 `px-4.5 pb-4.5`，窄屏 `px-4 pb-4`），而外层 ScrollAreaViewport 是裁剪容器、Kumo Button/Input 的描边用外扩 `ring`；Body 首个子元素若自带 ring，上边框会被裁掉 1px。`src/css/app.css` 中的 `[data-drawer-content] div.base-ui-disable-scrollbar > div[role='presentation'][class~='px-4.5'][class~='pb-4.5']` 规则已统一补顶部内边距兜底。该规则依赖 Kumo 内部类名（`base-ui-disable-scrollbar`、`px-4.5 pb-4.5`），升级 Kumo 需重新确认选择器仍命中且不再需要兜底。已排查 Kumo 其余裁剪容器（Dialog/DropdownMenu/InputGroup/Collapsible/LayerCard/Sidebar/Toast），均无此问题。

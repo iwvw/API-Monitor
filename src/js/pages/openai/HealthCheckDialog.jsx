@@ -85,13 +85,13 @@ export function HealthCheckDialog({ healthApi }) {
           </div>
           </LayerDialog.Body>
           <LayerDialog.Actions dismissLabel="取消">
-            <LayerDialog.Actions.Primary
+            <LayerDialog.Action
               type="button"
               loading={modelHealthBatchLoading}
               onClick={startBatchHealthCheck}
             >
               开始检测
-            </LayerDialog.Actions.Primary>
+            </LayerDialog.Action>
           </LayerDialog.Actions>
         </LayerDialog.Content>
       </LayerDialog.Root>

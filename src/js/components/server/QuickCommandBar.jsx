@@ -492,7 +492,7 @@ export default function QuickCommandBar({
             )}
           </LayerDialog.Body>
           <LayerDialog.Actions dismissLabel="关闭">
-            <LayerDialog.Actions.Primary type="button" onClick={loadHistory} loading={historyLoading}>刷新</LayerDialog.Actions.Primary>
+            <LayerDialog.Action type="button" onClick={loadHistory} loading={historyLoading}>刷新</LayerDialog.Action>
           </LayerDialog.Actions>
         </LayerDialog.Content>
       </LayerDialog.Root>

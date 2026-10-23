@@ -18,9 +18,9 @@ function TunnelCreateDialog({
           <Input size="sm" label="Tunnel 名称" value={tunnelForm.name} onChange={(event) => setTunnelForm({ name: event.target.value })} placeholder="my-tunnel" />
         </LayerDialog.Body>
         <LayerDialog.Actions dismissLabel="取消">
-          <LayerDialog.Actions.Primary type="button" onClick={onCreateTunnel} loading={loading.saveTunnel}>
+          <LayerDialog.Action type="button" onClick={onCreateTunnel} loading={loading.saveTunnel}>
             创建
-          </LayerDialog.Actions.Primary>
+          </LayerDialog.Action>
         </LayerDialog.Actions>
       </LayerDialog.Content>
     </LayerDialog.Root>

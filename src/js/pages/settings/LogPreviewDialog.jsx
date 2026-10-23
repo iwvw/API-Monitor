@@ -61,9 +61,9 @@ export function LogPreviewDialog({ confirmEnforceLogLimits, logPreview, setLogPr
             )}
           </LayerDialog.Body>
           <LayerDialog.Actions dismissLabel="取消">
-            <LayerDialog.Actions.Primary type="button" variant="destructive" onClick={confirmEnforceLogLimits}>
+            <LayerDialog.Action type="button" variant="destructive" onClick={confirmEnforceLogLimits}>
               确认清理
-            </LayerDialog.Actions.Primary>
+            </LayerDialog.Action>
           </LayerDialog.Actions>
         </LayerDialog.Content>
       </LayerDialog.Alert>

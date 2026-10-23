@@ -63,13 +63,13 @@ export default function KoyebConfigDialog({ koyebConfigTarget, setKoyebConfigTar
             </div>
           </LayerDialog.Body>
           <LayerDialog.Actions dismissLabel="取消">
-            <LayerDialog.Actions.Primary
+            <LayerDialog.Action
               type="button"
               onClick={saveKoyebConfig}
               loading={koyebConfigSaving}
             >
               保存并部署
-            </LayerDialog.Actions.Primary>
+            </LayerDialog.Action>
           </LayerDialog.Actions>
         </LayerDialog.Content>
       </LayerDialog.Root>

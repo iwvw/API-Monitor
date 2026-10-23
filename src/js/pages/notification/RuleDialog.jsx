@@ -252,10 +252,10 @@ export function RuleDialog({
           </div>
         </LayerDialog.Body>
         <LayerDialog.Actions dismissLabel="取消">
-          <LayerDialog.Actions.Primary type="button" onClick={handleSaveRule} loading={notificationSaving}>
+          <LayerDialog.Action type="button" onClick={handleSaveRule} loading={notificationSaving}>
             <Save className="w-3.5 h-3.5" />
             保存规则
-          </LayerDialog.Actions.Primary>
+          </LayerDialog.Action>
         </LayerDialog.Actions>
       </LayerDialog.Content>
     </LayerDialog.Root>

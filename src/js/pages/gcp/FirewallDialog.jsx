@@ -73,9 +73,9 @@ export default function FirewallDialog({ open, onOpenChange, editingFirewall, fi
       </div>
         </LayerDialog.Body>
         <LayerDialog.Actions dismissLabel="取消">
-          <LayerDialog.Actions.Primary type="button" loading={submittingFirewall} onClick={onSubmit}>
+          <LayerDialog.Action type="button" loading={submittingFirewall} onClick={onSubmit}>
             {editingFirewall ? '保存' : '创建'}
-          </LayerDialog.Actions.Primary>
+          </LayerDialog.Action>
         </LayerDialog.Actions>
       </LayerDialog.Content>
     </LayerDialog.Root>

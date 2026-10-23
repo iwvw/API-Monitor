@@ -13371,9 +13371,9 @@ function ServerPage() {
             </div>
           </LayerDialog.Body>
           <LayerDialog.Actions dismissLabel="取消">
-            <LayerDialog.Actions.Primary type="button" onClick={addCredential}>
+            <LayerDialog.Action type="button" onClick={addCredential}>
               保存
-            </LayerDialog.Actions.Primary>
+            </LayerDialog.Action>
           </LayerDialog.Actions>
         </LayerDialog.Content>
       </LayerDialog.Root>
@@ -13414,13 +13414,13 @@ function ServerPage() {
             </div>
           </LayerDialog.Body>
           <LayerDialog.Actions dismissLabel="取消">
-            <LayerDialog.Actions.Primary
+            <LayerDialog.Action
               type="button"
               onClick={confirmImportServers}
               disabled={importModalSaving || !importPreview}
             >
               确认恢复导入
-            </LayerDialog.Actions.Primary>
+            </LayerDialog.Action>
           </LayerDialog.Actions>
         </LayerDialog.Content>
       </LayerDialog.Root>
@@ -14196,7 +14196,7 @@ function ServerPage() {
             </div>
           </LayerDialog.Body>
           <LayerDialog.Actions dismissLabel="关闭">
-            <LayerDialog.Actions.Primary
+            <LayerDialog.Action
               type="button"
               onClick={() => {
                 loadDockerContainerLogs(dockerLogsServer, dockerLogsContainer, dockerLogsTail);
@@ -14207,7 +14207,7 @@ function ServerPage() {
               }
             >
               刷新
-            </LayerDialog.Actions.Primary>
+            </LayerDialog.Action>
           </LayerDialog.Actions>
         </LayerDialog.Content>
       </LayerDialog.Root>
@@ -14294,9 +14294,9 @@ function ServerPage() {
             </form>
           </LayerDialog.Body>
           <LayerDialog.Actions dismissLabel="取消">
-            <LayerDialog.Actions.Primary type="submit" form="network-target-form">
+            <LayerDialog.Action type="submit" form="network-target-form">
               保存
-            </LayerDialog.Actions.Primary>
+            </LayerDialog.Action>
           </LayerDialog.Actions>
         </LayerDialog.Content>
       </LayerDialog.Root>

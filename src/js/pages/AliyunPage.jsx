@@ -510,7 +510,7 @@ function AliyunPage() {
           </div>
           </LayerDialog.Body>
           <LayerDialog.Actions dismissLabel="取消">
-            <LayerDialog.Actions.Primary type="button" onClick={saveAccount} loading={submittingAccount}>保存账号</LayerDialog.Actions.Primary>
+            <LayerDialog.Action type="button" onClick={saveAccount} loading={submittingAccount}>保存账号</LayerDialog.Action>
           </LayerDialog.Actions>
         </LayerDialog.Content>
       </LayerDialog.Root>
