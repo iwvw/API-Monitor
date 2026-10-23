@@ -376,21 +376,25 @@ impl SkeletonTurn {
          * 状态判定。
          *
          * ⚠️ 不能用工具 part 的 status 判断任务是否还在跑：`background=true` 的
-         * 调用会**立即返回**（工具本身是 completed），任务继续在后台跑。实测
-         * 那样会让所有历史任务都变成 unknown。
+         * 调用会**立即返回**（工具本身是 completed），任务继续在后台跑。
          *
-         * 历史消息里能读到的轮次都已经结束了（骨架只收已定稿轮次），所以：
-         * - 收到完成通知 → 用通知里的终态（见 absorb_synthetic）；
-         * - 没有通知 → 视为已完成。这是**保守且正确**的：把已结束的任务显示成
-         *   「状态未知」只会让人以为还有东西在跑。
+         * ⚠️ 也不能一律写成 completed：实测骨架会把**此刻仍在跑**的后台任务
+         * 标成 completed（`for i in $(seq 1 200); ...` 明明还在输出），
+         * 前端据此显示「已结束」，用户看到的就是「后台任务始终是已结束状态」。
          *
-         * 真正「正在跑」的任务由实时 synthetic/工具事件维护（backgroundJobStore），
-         * 不依赖这里。
+         * 正确的判据是**这一轮是否还在生成**：
+         * - 轮次未定稿（`unsettled`）→ 任务可能仍在跑，写 running；
+         * - 轮次已定稿 → 这一轮结束了，但后台任务未必结束（它本来就不阻塞轮次）。
+         *   此时没有完成通知就说明还没收到通知，写 unknown 让前端用
+         *   `shell.list` 校正，而不是武断地写成 completed。
+         *
+         * 前端拿到 unknown 不会直接显示「状态未知」：`backgroundJobStore` 会
+         * 用 `shell.list` 与实时事件把它校正成真实状态。
          */
-        let mut status = "completed";
+        let mut status = if self.unsettled { "running" } else { "unknown" };
         if let Some(raw_status) = state.and_then(|s| s.get("status")).and_then(Value::as_str) {
             if raw_status == "running" || raw_status == "pending" {
-                // 前台仍在执行 —— 还没转成后台，不该算一条后台任务
+                // 工具本身还在前台执行 —— 还没转成后台，不算后台任务
                 return;
             }
             if raw_status == "error" || raw_status == "cancelled" {
@@ -1240,6 +1244,42 @@ mod tests {
         assert_eq!(jobs[0]["id"], "sh_real1");
         assert_eq!(jobs[0]["kind"], "shell");
         assert_eq!(jobs[0]["title"], "sleep 120 && echo LONGDONE");
+        // 已定稿轮次 + 没有完成通知 → unknown（交给前端用 shell.list 校正），
+        // 不能武断写成 completed：实测那样会把仍在跑的任务显示成已结束
+        assert_eq!(jobs[0]["status"], "unknown");
+    }
+
+    /// 未定稿轮次里的后台任务应标成 running。
+    ///
+    /// 这一轮还在生成，任务几乎必然仍在跑；写成 completed 会让用户在任务
+    /// 刚开始时就看到「已结束」。
+    #[test]
+    fn skeleton_marks_background_jobs_of_unsettled_turn_as_running() {
+        let messages = vec![
+            json!({ "type": "user", "id": "u1", "text": "起个后台任务", "time": { "created": 1000u64 } }),
+            json!({
+                "type": "assistant", "id": "a1",
+                // 没有 completed → 该轮未定稿
+                "time": { "created": 1001u64 },
+                "content": [
+                    {
+                        "type": "tool",
+                        "name": "bash",
+                        "state": {
+                            "status": "completed",
+                            "input": { "command": "for i in 1 2 3; do echo x; sleep 9; done", "background": true },
+                            "metadata": { "shellID": "sh_live" }
+                        }
+                    }
+                ]
+            }),
+        ];
+        let skeleton = skeleton_of(messages);
+        let jobs = skeleton[0]["backgroundJobs"]
+            .as_array()
+            .expect("backgroundJobs must be present");
+        assert_eq!(jobs[0]["id"], "sh_live");
+        assert_eq!(jobs[0]["status"], "running");
     }
 
     /// 命令正文里出现的模板字符串不能被当成后台任务。
