@@ -1,6 +1,6 @@
 module github.com/iwvw/api-monitor/backend-go
 
-go 1.26.9
+go 1.26.10
 
 require (
 	github.com/andybalholm/brotli v1.2.6
