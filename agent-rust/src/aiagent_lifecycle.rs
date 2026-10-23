@@ -890,10 +890,20 @@ async fn supervise_once() {
         // 用时一并强制清理（无关进程也不例外，ADR-0006 第 7.5 条修订），仅白名单
         // 内 keep 的不动。清理后端口仍被占（白名单或强杀失败）则记一次失败并累计
         // 重启次数，避免与占用者形成「反复抢端口」的循环；重启上限与退避照常兜底。
+        //
+        // ⚠️ 不能只在 `listening_pid(port).is_some()` 时才清理。
+        //
+        // `listening_pid` 只认 `LISTEN` 状态的 socket。旧进程**正在退出**的那一小段
+        // 时间里，它已经不再 LISTEN、但进程还在、端口也还没真正释放 —— 此时条件为
+        // false，清理被跳过，接着 spawn 就撞上「Is port 4096 in use?」。实测正是这条
+        // 路径导致 opencode 反复崩溃重置：每次重置都会把正在跑的会话全部中断
+        // （`Step interrupted`），用户看到的就是「什么都没发，却整个卡住了」。
+        //
+        // 所以这里**无条件**清理同类残留：`terminate_provider_occupants` 本身只认
+        // 进程名/命令行含 `opencode` 且端口落在本 Provider 区间内的进程，并跳过
+        // keep 白名单，误杀风险可控；多一次进程枚举的代价远低于一次会话中断。
         let keep = alive_managed_pids();
-        if listening_pid(port).is_some() {
-            terminate_provider_occupants(template, &keep).await;
-        }
+        terminate_provider_occupants(template, &keep).await;
         if !force_free_port(port, &keep, &provider_match_terms(template)).await {
             let occupant = listening_pid(port).unwrap_or(0);
             let mut table = process_table().lock().unwrap();
