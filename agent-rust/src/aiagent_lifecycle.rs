@@ -85,13 +85,33 @@ fn process_table() -> &'static Mutex<HashMap<String, ManagedProcess>> {
 
 /// 进程表持久化文件路径（与 Agent 其它状态放在同一目录）。
 fn state_file() -> PathBuf {
-    std::env::var("API_MONITOR_AIAGENT_STATE")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| {
-            let mut path = dirs_state_dir();
-            path.push("aiagent_processes.json");
-            path
-        })
+    // 测试必须写到独立临时文件：默认路径是 Agent 工作目录下的
+    // `aiagent_processes.json`，而 cargo test 的工作目录就是仓库里的
+    // `agent-rust/`。不隔离的话，用例会把 inst_* 这类假实例（其中还有
+    // `desired_running: true` 的）写进真实状态文件；本机再跑一次 Agent，
+    // `reconcile_on_boot` 就会照着它去拉起并不存在的托管进程。
+    #[cfg(test)]
+    {
+        static TEST_STATE: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+        return TEST_STATE
+            .get_or_init(|| {
+                std::env::temp_dir().join(format!(
+                    "api-monitor-agent-test-{}-aiagent_processes.json",
+                    std::process::id()
+                ))
+            })
+            .clone();
+    }
+    #[cfg(not(test))]
+    {
+        std::env::var("API_MONITOR_AIAGENT_STATE")
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| {
+                let mut path = dirs_state_dir();
+                path.push("aiagent_processes.json");
+                path
+            })
+    }
 }
 
 fn dirs_state_dir() -> PathBuf {
@@ -1135,7 +1155,24 @@ fn provider_match_terms(template: &ProviderTemplate) -> Vec<String> {
 ///   3. 轮询等待端口释放（taskkill 后内核回收有延迟）；
 ///   4. bind 探测兜底：stale 条目不挡新监听时视为已可用。
 /// `keep_pids`（其它存活托管实例的 PID）绝不触碰；`terms` 来自 Provider 匹配规则。
+///
+/// ⚠️ 测试环境直接视为可用：用例需要「端口被占」的稳定结果，而真实清理会
+/// 杀掉宿主机上正跑着的同名进程（开发者本机往往就有生产 Agent 在跑），
+/// 属于测试不该有的副作用。
 async fn force_free_port(port: u16, keep_pids: &[u32], terms: &[String]) -> bool {
+    #[cfg(test)]
+    {
+        let _ = (port, keep_pids, terms);
+        return true;
+    }
+    #[cfg(not(test))]
+    {
+        force_free_port_impl(port, keep_pids, terms).await
+    }
+}
+
+#[cfg(not(test))]
+async fn force_free_port_impl(port: u16, keep_pids: &[u32], terms: &[String]) -> bool {
     if let Some(occupant) = listening_pid(port) {
         if !keep_pids.contains(&occupant) {
             eprintln!(
@@ -1312,6 +1349,22 @@ mod tests {
     fn env_guard() -> std::sync::MutexGuard<'static, ()> {
         static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
         ENV_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    /// 触碰全局 `process_table()` 的用例必须串行。
+    ///
+    /// `process_table()` 是进程级静态状态，而 cargo test 默认并发跑用例。
+    /// 一个用例插进 `desired_running=true` 的条目后，另一个用例调用的
+    /// `supervise_once()` 会把它判成「期望运行但已死」，进而**真的去拉起
+    /// Provider 进程**、甚至 `force_free_port` 杀掉宿主机上真实占用该端口的
+    /// 进程。实测后果：
+    ///   1. 本机装了 opencode 时用例会启动真实 `opencode serve`，它继承测试
+    ///      进程的 stdout 管道，`cargo test` 等不到 EOF —— 结果已打印却永久挂住；
+    ///   2. 各用例的重启计数互相污染，断言随机失败。
+    /// 用法：在用例首行 `let _guard = table_guard();`，持有到用例结束。
+    fn table_guard() -> std::sync::MutexGuard<'static, ()> {
+        static TABLE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+        TABLE_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
     #[test]
@@ -1625,6 +1678,8 @@ mod tests {
 
     #[tokio::test]
     async fn stop_is_idempotent_for_unknown_instance() {
+        let _guard = table_guard();
+
         let payload = serde_json::json!({ "instance_id": "inst_never_started" });
         let out = stop(&payload.to_string()).await.unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&out).unwrap();
@@ -1634,6 +1689,8 @@ mod tests {
     // 显式 stop 后条目保留但 desired_running=false，supervisor 不会把它拉回来。
     #[tokio::test]
     async fn stop_marks_desired_false_and_keeps_entry() {
+        let _guard = table_guard();
+
         let instance_id = "inst_stop_marks";
         {
             let mut table = process_table().lock().unwrap();
@@ -1669,6 +1726,8 @@ mod tests {
     // 退避序列用尽时进入 crashed 终态，而不是无限重试。
     #[tokio::test]
     async fn supervisor_marks_crashed_when_backoff_exhausted() {
+        let _guard = table_guard();
+
         let instance_id = "inst_crashed";
         {
             let mut table = process_table().lock().unwrap();
@@ -1702,6 +1761,8 @@ mod tests {
     // supervisor 不碰 desired_running=false 的条目（用户显式停止过）。
     #[tokio::test]
     async fn supervisor_ignores_desired_false_entries() {
+        let _guard = table_guard();
+
         let instance_id = "inst_desired_false";
         {
             let mut table = process_table().lock().unwrap();
@@ -1735,6 +1796,8 @@ mod tests {
     // crashed 的条目不会被 supervisor 反复处理。
     #[tokio::test]
     async fn supervisor_skips_already_crashed_entries() {
+        let _guard = table_guard();
+
         let instance_id = "inst_already_crashed";
         {
             let mut table = process_table().lock().unwrap();
@@ -1785,6 +1848,8 @@ mod tests {
     /// 「连续快速失败次数」而误判 crashed。
     #[tokio::test]
     async fn stable_process_resets_restart_count() {
+        let _guard = table_guard();
+
         #[cfg(target_os = "windows")]
         let child = std::process::Command::new("ping")
             .args(["-n", "30", "127.0.0.1"])
@@ -1842,6 +1907,8 @@ mod tests {
     /// 否则快速崩溃循环会被无限重试，退避机制失效。
     #[tokio::test]
     async fn recently_restarted_process_keeps_restart_count() {
+        let _guard = table_guard();
+
         #[cfg(target_os = "windows")]
         let child = std::process::Command::new("ping")
             .args(["-n", "30", "127.0.0.1"])
@@ -1898,6 +1965,8 @@ mod tests {
     /// 已死进程的计数不归零：它仍在退避序列中，归零会导致无限重试。
     #[tokio::test]
     async fn dead_process_keeps_restart_count() {
+        let _guard = table_guard();
+
         let instance_id = "inst_dead_keeps";
         {
             let mut table = process_table().lock().unwrap();
@@ -2053,6 +2122,8 @@ mod tests {
 
     #[test]
     fn status_reports_unmanaged_instance() {
+        let _guard = table_guard();
+
         let payload = serde_json::json!({ "instance_id": "inst_never_started" });
         let out = status(&payload.to_string()).unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&out).unwrap();
@@ -2066,6 +2137,8 @@ mod tests {
     /// 用 ping/sleep 替换模板里的可执行文件，避免依赖 opencode 是否安装。
     #[tokio::test]
     async fn end_to_end_start_status_stop() {
+        let _guard = table_guard();
+
         // 挑一个空闲端口（先绑再放），避免与真实服务冲突。
         let port = {
             let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
