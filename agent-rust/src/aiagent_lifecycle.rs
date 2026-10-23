@@ -114,6 +114,11 @@ fn state_file() -> PathBuf {
     }
 }
 
+/// 默认状态目录：优先用 Agent 的工作目录。
+///
+/// 仅非 test 配置的 `state_file()` 会用到；测试版本固定写临时目录，
+/// 因此这里在 test 下必然「未被使用」。
+#[cfg_attr(test, allow(dead_code))]
 fn dirs_state_dir() -> PathBuf {
     // 与 tcp_forwarder 等模块一致：优先用 Agent 的工作目录。
     std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
@@ -1155,24 +1160,15 @@ fn provider_match_terms(template: &ProviderTemplate) -> Vec<String> {
 ///   3. 轮询等待端口释放（taskkill 后内核回收有延迟）；
 ///   4. bind 探测兜底：stale 条目不挡新监听时视为已可用。
 /// `keep_pids`（其它存活托管实例的 PID）绝不触碰；`terms` 来自 Provider 匹配规则。
-///
-/// ⚠️ 测试环境直接视为可用：用例需要「端口被占」的稳定结果，而真实清理会
-/// 杀掉宿主机上正跑着的同名进程（开发者本机往往就有生产 Agent 在跑），
-/// 属于测试不该有的副作用。
 async fn force_free_port(port: u16, keep_pids: &[u32], terms: &[String]) -> bool {
+    // 测试环境直接视为可用：用例需要「端口被占」的稳定结果，而真实清理会
+    // 杀掉宿主机上正跑着的同名进程（开发者本机往往就有生产 Agent 在跑），
+    // 属于测试不该有的副作用。
     #[cfg(test)]
-    {
+    if true {
         let _ = (port, keep_pids, terms);
         return true;
     }
-    #[cfg(not(test))]
-    {
-        force_free_port_impl(port, keep_pids, terms).await
-    }
-}
-
-#[cfg(not(test))]
-async fn force_free_port_impl(port: u16, keep_pids: &[u32], terms: &[String]) -> bool {
     if let Some(occupant) = listening_pid(port) {
         if !keep_pids.contains(&occupant) {
             eprintln!(
