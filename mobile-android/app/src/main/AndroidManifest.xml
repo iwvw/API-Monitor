@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
+    <!--
+      allowBackup=false：设置里存的是 Keystore 加密后的面板密码 / API Token，
+      备份会把整份 prefs（密文）连同 Keystore 之外的元数据一起带走。
+      这些是单机凭据，没有跨设备恢复的需求，关掉更安全。
+      usesCleartextTraffic 由 network_security_config 精确控制（桌面端面板
+      常以 http:// 局域网地址部署，完全禁明文会让 App 无法连接）。
+    -->
+    <application
+        android:name=".ApiMonitorApp"
+        android:allowBackup="false"
+        android:enableOnBackInvokedCallback="true"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:networkSecurityConfig="@xml/network_security_config"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.APIMonitor">
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:label="@string/app_name"
+            android:theme="@style/Theme.APIMonitor"
+            android:windowSoftInputMode="adjustResize">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+
+</manifest>
