@@ -592,6 +592,35 @@ GET /api/cloudflare/accounts/{id}/workers/{scriptName}
 }
 ```
 
+### 11. Workers 请求用量（今日 / 本月）
+
+按站点时区（`user_settings.time_zone`）计算「今天」和「本月」的起点，数据取自
+Cloudflare GraphQL Analytics。不含 Pages Functions（它计入同一配额但属于另一数据集）。
+
+**请求**:
+```http
+GET /api/cloudflare/accounts/{id}/workers-usage
+```
+
+**响应**:
+```json
+{
+  "success": true,
+  "usage": {
+    "today": { "requests": 1200, "errors": 0, "subrequests": 0, "cpuTimeMs": 5, "truncated": false },
+    "month": { "requests": 4200, "errors": 0, "subrequests": 0, "cpuTimeMs": 15, "truncated": false },
+    "todayStart": "2026-10-24T00:00:00+08:00",
+    "monthStart": "2026-10-01T00:00:00+08:00",
+    "timeZone": "Asia/Shanghai",
+    "source": "workersOverviewRequestsAdaptiveGroups",
+    "updatedAt": "2026-10-24T14:30:00+08:00"
+  }
+}
+```
+
+`source` 为 `workersInvocationsAdaptive` 表示回退到了原始调用数据集；
+该数据集按行返回，超过单次查询上限时 `truncated` 为 `true`，实际用量可能更高。
+
 ---
 
 ## 服务器监控

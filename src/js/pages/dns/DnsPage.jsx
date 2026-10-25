@@ -98,6 +98,7 @@ function DnsPage() {
   const [templates, setTemplates] = useState([]);
   const [workers, setWorkers] = useState([]);
   const [workerSubdomain, setWorkerSubdomain] = useState('');
+  const [workerUsage, setWorkerUsage] = useState(null);
   const [pages, setPages] = useState([]);
   const [r2Buckets, setR2Buckets] = useState([]);
   const [r2SelectedBucket, setR2SelectedBucket] = useState(null);
@@ -430,6 +431,23 @@ function DnsPage() {
     }
   }, [cfApi, selectedAccountId, setLoadingKey]);
 
+  // 用量是独立接口：失败不打断列表，只在卡片头部显示「用量不可用」。
+  const loadWorkerUsage = useCallback(async () => {
+    if (!selectedAccountId) {
+      setWorkerUsage(null);
+      return;
+    }
+    setLoadingKey('workerUsage', true);
+    try {
+      const data = await cfApi(`/accounts/${selectedAccountId}/workers-usage`);
+      setWorkerUsage(data.usage || null);
+    } catch {
+      setWorkerUsage(null);
+    } finally {
+      setLoadingKey('workerUsage', false);
+    }
+  }, [cfApi, selectedAccountId, setLoadingKey]);
+
   const loadPages = useCallback(async () => {
     if (!selectedAccountId) {
       setPages([]);
@@ -596,8 +614,10 @@ function DnsPage() {
         loadSsl();
         loadAnalytics();
       }
-    } else if (activeTab === 'workers') loadWorkers();
-    else if (activeTab === 'pages') loadPages();
+    } else if (activeTab === 'workers') {
+      loadWorkers();
+      loadWorkerUsage();
+    } else if (activeTab === 'pages') loadPages();
     else if (activeTab === 'r2') {
       loadR2Buckets();
       if (r2SelectedBucket) loadR2Objects(r2SelectedBucket.name, r2CurrentPrefix);
@@ -615,6 +635,7 @@ function DnsPage() {
     loadSsl,
     loadTemplates,
     loadTunnels,
+    loadWorkerUsage,
     loadWorkers,
     loadZones,
     r2CurrentPrefix,
@@ -631,11 +652,14 @@ function DnsPage() {
   useEffect(() => {
     if (!selectedAccountId) return;
     if (activeTab === 'dns') loadZones(selectedAccountId);
-    if (activeTab === 'workers') loadWorkers();
+    if (activeTab === 'workers') {
+      loadWorkers();
+      loadWorkerUsage();
+    }
     if (activeTab === 'pages') loadPages();
     if (activeTab === 'r2') loadR2Buckets();
     if (activeTab === 'tunnels') loadTunnels();
-  }, [activeTab, loadPages, loadR2Buckets, loadTunnels, loadWorkers, loadZones, selectedAccountId]);
+  }, [activeTab, loadPages, loadR2Buckets, loadTunnels, loadWorkerUsage, loadWorkers, loadZones, selectedAccountId]);
 
   const openAccountModal = (account = null) => {
     setModal({ type: 'account', data: account });
@@ -1879,6 +1903,7 @@ function DnsPage() {
               loading={loading}
               workers={workers}
               workerSubdomain={workerSubdomain}
+              workerUsage={workerUsage}
               workerColWidths={workerColWidths}
               startWorkerResize={startWorkerResize}
               isArmed={isArmed}

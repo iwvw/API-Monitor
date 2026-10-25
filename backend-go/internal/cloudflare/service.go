@@ -141,6 +141,8 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.deletePagesDomain(w, r, parts[1], parts[3], parts[5])
 	case len(parts) == 3 && parts[0] == "accounts" && parts[2] == "workers":
 		s.workers(w, r, parts[1])
+	case len(parts) == 3 && parts[0] == "accounts" && parts[2] == "workers-usage" && r.Method == http.MethodGet:
+		s.workerUsage(w, r, parts[1])
 	case len(parts) == 4 && parts[0] == "accounts" && parts[2] == "workers":
 		s.workerScript(w, r, parts[1], parts[3])
 	case len(parts) == 5 && parts[0] == "accounts" && parts[2] == "workers" && parts[4] == "toggle" && r.Method == http.MethodPost:

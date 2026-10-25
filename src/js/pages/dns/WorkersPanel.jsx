@@ -6,7 +6,7 @@ import { Table } from '@cloudflare/kumo/components/table';
 import { SkeletonLine } from '@cloudflare/kumo/components/loader';
 import { Plus, Terminal, Trash } from '../../components/Icons.jsx';
 import { handleEditableRowDoubleClick } from '../../modules/tableInteractions.js';
-import { formatDate } from './utils.jsx';
+import { formatDate, formatNumber } from './utils.jsx';
 
 const DNS_WORKER_COLUMNS = [
   { id: 'name', role: 'primary', grow: 1 },
@@ -15,10 +15,37 @@ const DNS_WORKER_COLUMNS = [
   { id: 'actions', role: 'actions-xl' },
 ];
 
+// 免费版每日 10 万请求；付费版（Standard）每月 1000 万。套餐档位目前不查询，
+// 只按「日 / 月」两个口径展示绝对值，不编造百分比。
+function WorkerUsageSummary({ usage, loading }) {
+  if (loading) return <SkeletonLine className="h-4 w-40" />;
+  if (!usage) {
+    return <span className="text-xs text-kumo-subtle">用量不可用</span>;
+  }
+  const today = usage.today || {};
+  const month = usage.month || {};
+  const truncated = today.truncated || month.truncated;
+  return (
+    <span className="inline-flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-kumo-subtle">
+      <span>
+        今日请求 <span className="font-mono font-semibold text-kumo-strong">{formatNumber(today.requests)}</span>
+      </span>
+      <span aria-hidden="true">·</span>
+      <span>
+        本月 <span className="font-mono font-semibold text-kumo-strong">{formatNumber(month.requests)}</span>
+      </span>
+      {truncated && (
+        <Badge variant="warning" title="分析数据超过单次查询上限，实际值可能更高">可能偏低</Badge>
+      )}
+    </span>
+  );
+}
+
 function WorkersPanel({
   loading,
   workers,
   workerSubdomain,
+  workerUsage,
   workerColWidths,
   startWorkerResize,
   isArmed,
@@ -34,6 +61,7 @@ function WorkersPanel({
       title="Workers"
       description={workerSubdomain ? <>默认子域名：<span className="font-mono text-kumo-strong">{workerSubdomain}.workers.dev</span></> : '默认子域名未返回'}
       icon={<Terminal className="h-4 w-4 text-brand" />}
+      meta={<WorkerUsageSummary usage={workerUsage} loading={loading.workerUsage} />}
       action={(
         <Button size="sm" onClick={() => openWorkerModal()} icon={<Plus className="h-4 w-4" />}>
           新建 Worker
