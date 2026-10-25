@@ -46,19 +46,23 @@ type memoryCaptureOperation struct {
 // startMemoryCapture 启动自动记忆提炼后台循环（由 StartBackground 调用，幂等）。
 func (s *Service) startMemoryCapture() {
 	s.captureOnce.Do(func() {
-		s.stopCapture = make(chan struct{})
-		go s.memoryCaptureLoop()
+		stop, ok := s.registerCapture()
+		if !ok {
+			return
+		}
+		go s.memoryCaptureLoop(stop)
 	})
 }
 
 // memoryCaptureLoop 周期扫描空闲会话并提炼（OpenClaw dreaming 的轻量版：
 // 无独立 cron，直接寄生在 service 后台循环；按会话空闲 + 增量消息触发，每会话一次）。
-func (s *Service) memoryCaptureLoop() {
+// stop 由调用方传入（goroutine 只读局部变量，避免与 StopBackground 竞争）。
+func (s *Service) memoryCaptureLoop(stop <-chan struct{}) {
 	ticker := time.NewTicker(memoryCaptureInterval)
 	defer ticker.Stop()
 	for {
 		select {
-		case <-s.stopCapture:
+		case <-stop:
 			return
 		case <-ticker.C:
 			_ = s.runMemoryCaptureOnce()

@@ -57,6 +57,8 @@ type Service struct {
 	stopCleaner chan struct{}
 	captureOnce sync.Once       // 自动记忆提炼 goroutine（memory_agent.go）
 	stopCapture chan struct{}
+	bgMu        sync.Mutex      // 保护 stopCleaner/stopCapture/bgStopped（StartBackground 与 StopBackground 并发）
+	bgStopped   bool            // StopBackground 之后不再拉起后台 goroutine
 	captureInFlight map[string]bool // 提炼防重：同会话同时只允许一次提炼（进程内）
 	toolLoops      map[string]int // 工具循环检测：runId|指纹 -> 累计调用次数（engine.go）
 	src         *notification.Service // 通知中心：AI 频道 bot token 来源 + 结果推送出口

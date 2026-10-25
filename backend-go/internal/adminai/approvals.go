@@ -23,10 +23,37 @@ const approvalCleanerInterval = 1 * time.Minute
 func (s *Service) StartBackground() {
 	s.cleanerOnce.Do(func() {
 		s.recoverStaleExecutions()
-		s.stopCleaner = make(chan struct{})
-		go s.approvalCleanerLoop()
+		stop, ok := s.registerBackground()
+		if !ok {
+			return
+		}
+		go s.approvalCleanerLoop(stop)
 	})
 	s.startMemoryCapture()
+}
+
+// registerBackground 登记一个新的后台停止信号；已 Stop 过则返回 false（不再起 goroutine）。
+func (s *Service) registerBackground() (chan struct{}, bool) {
+	s.bgMu.Lock()
+	defer s.bgMu.Unlock()
+	if s.bgStopped {
+		return nil, false
+	}
+	stop := make(chan struct{})
+	s.stopCleaner = stop
+	return stop, true
+}
+
+// registerCapture 登记记忆提炼的停止信号；已 Stop 过则返回 false。
+func (s *Service) registerCapture() (chan struct{}, bool) {
+	s.bgMu.Lock()
+	defer s.bgMu.Unlock()
+	if s.bgStopped {
+		return nil, false
+	}
+	stop := make(chan struct{})
+	s.stopCapture = stop
+	return stop, true
 }
 
 // recoverStaleExecutions 启动恢复：上次进程中断残留的 running 执行统一标记为 error，
@@ -51,37 +78,36 @@ func (s *Service) recoverStaleExecutions() {
 	}
 }
 
-// StopBackground 停止后台任务（幂等）。
+// StopBackground 停止后台任务（幂等）。关闭停止信号后置 bgStopped，
+// 使已启动但尚未注册的后台 goroutine 不再拉起。
+// 与旧行为一致：从未启动过时是空操作，之后仍可 StartBackground。
 func (s *Service) StopBackground() {
-	if s.stopCleaner == nil {
+	s.bgMu.Lock()
+	defer s.bgMu.Unlock()
+	if s.stopCleaner == nil && s.stopCapture == nil {
 		return
 	}
-	select {
-	case <-s.stopCleaner:
-		return
-	default:
+	s.bgStopped = true
+	if s.stopCleaner != nil {
+		close(s.stopCleaner)
+		s.stopCleaner = nil
 	}
-	close(s.stopCleaner)
-	s.stopCleaner = nil
 	if s.stopCapture != nil {
-		select {
-		case <-s.stopCapture:
-		default:
-			close(s.stopCapture)
-			s.stopCapture = nil
-		}
+		close(s.stopCapture)
+		s.stopCapture = nil
 	}
 }
 
 // approvalCleanerLoop 定时把已过期的 pending 审批标记为 expired。
-func (s *Service) approvalCleanerLoop() {
+// stop 由调用方传入（goroutine 只读局部变量，避免与 StopBackground 竞争）。
+func (s *Service) approvalCleanerLoop(stop <-chan struct{}) {
 	ticker := time.NewTicker(approvalCleanerInterval)
 	retentionTicker := time.NewTicker(60 * time.Minute)
 	defer ticker.Stop()
 	defer retentionTicker.Stop()
 	for {
 		select {
-		case <-s.stopCleaner:
+		case <-stop:
 			return
 		case <-ticker.C:
 			s.expireOverdueApprovals()

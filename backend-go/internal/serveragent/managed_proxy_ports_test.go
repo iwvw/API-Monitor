@@ -93,12 +93,28 @@ func TestReserveManagedProxyPortIsolatedPerServer(t *testing.T) {
 func TestReserveManagedProxyPortExhaustionReturnsError(t *testing.T) {
 	_, db := testService(t)
 	insertReservePortHost(t, db, "reserve-host")
-	for port := 45654; port <= 55654; port++ {
-		if _, err := db.ExecContext(context.Background(), `INSERT INTO managed_proxy_nodes (id,server_id,name,protocol,runtime,public_host,assigned_port,transport,config_encrypted,client_uri_encrypted) VALUES (?,?,?,?,?,?,?,?,?,?)`, fmt.Sprintf("port-%d", port), "reserve-host", fmt.Sprintf("node-%d", port), "vless-reality", "sing-box", "192.0.2.41", port, "tcp", "{}", ""); err != nil {
-			t.Fatalf("seed port %d: %v", port, err)
-		}
+	ctx := context.Background()
+	// 占用触发器的唯一性检查是 server_id + assigned_port 的 EXISTS 全表扫描，
+	// 逐行插入 10001 条会退化成 O(n²)：无索引约 15s，-race 下更久，
+	// 足以撞上 go test 的 10 分钟总超时。临时索引只服务本次造数，用完即删。
+	if _, err := db.ExecContext(ctx, `CREATE INDEX IF NOT EXISTS tmp_seed_port ON managed_proxy_nodes(server_id, assigned_port)`); err != nil {
+		t.Fatalf("create seed index: %v", err)
 	}
-	port, excluded, err := reserveManagedProxyPort(context.Background(), db, "reserve-host", "exhausted-node", 0)
+	if _, err := db.ExecContext(ctx, `
+		WITH RECURSIVE seq(port) AS (
+			SELECT 45654
+			UNION ALL
+			SELECT port + 1 FROM seq WHERE port < 55654
+		)
+		INSERT INTO managed_proxy_nodes (id,server_id,name,protocol,runtime,public_host,assigned_port,transport,config_encrypted,client_uri_encrypted)
+		SELECT 'port-' || port, 'reserve-host', 'node-' || port, 'vless-reality', 'sing-box', '192.0.2.41', port, 'tcp', '{}', ''
+		FROM seq`); err != nil {
+		t.Fatalf("seed exhausted port range: %v", err)
+	}
+	if _, err := db.ExecContext(ctx, `DROP INDEX IF EXISTS tmp_seed_port`); err != nil {
+		t.Fatalf("drop seed index: %v", err)
+	}
+	port, excluded, err := reserveManagedProxyPort(ctx, db, "reserve-host", "exhausted-node", 0)
 	if err == nil {
 		t.Fatalf("reservation succeeded port=%d, want exhaustion error", port)
 	}
