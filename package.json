@@ -45,7 +45,9 @@
     "clean:workspace": "node tools/workspace-cleanup.mjs --apply",
     "security:audit": "node tools/dependency-audit.mjs --ecosystem npm",
     "security:audit:cargo": "node tools/dependency-audit.mjs --ecosystem cargo",
-    "security:verify": "node tools/verify-audit-parsing.mjs && pwsh -NoProfile -File tools/gitleaks-config-check.ps1"
+    "security:verify": "node tools/verify-audit-parsing.mjs && pwsh -NoProfile -File tools/gitleaks-config-check.ps1",
+    "android:assemble": "cd mobile-android && gradlew.bat :app:assembleDebug",
+    "android:test": "cd mobile-android && gradlew.bat :app:testDebugUnitTest"
   },
   "dependencies": {
     "@cloudflare/kumo": "^2.15.0",

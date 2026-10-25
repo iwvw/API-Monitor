@@ -11,6 +11,7 @@
 - 后端：`backend-go/` 中的 Go 单进程后端，路由由 `backend-go/internal/manifest/manifest.go` 统一治理。
 - 持久化：SQLite 仍是唯一的持久化存储。除非有明确的产品决策，否则不要替换它。
 - Agent：`agent-rust/` 中的 Rust Agent，通过 Go 后端兼容 Engine.IO/Socket.IO 的服务接入。
+- 安卓客户端：`mobile-android/` 中的原生 Kotlin + Jetpack Compose 工程（AGP 9 内置 Kotlin）。当前为连接/鉴权骨架，尚未接入业务模块。它消费与 Web 前端相同的 Go 后端接口，**不受 Kumo-only 与 `ui:governance` 约束**（那套规则只作用于 `src/js`）。
 - 托管代理运行时：仅 Linux 的 Agent 能力，负责收敛固定的 sing-box 运行时与按订阅划分的用户。控制面不安装、不管理 Xray。见 `docs/adr/0001-托管代理运行时.md`。
 - 订阅计费：Agent 读取仅回环的 sing-box V2Ray Stats 计数器，持久化基线，并向 Go 订阅账本发送幂等增量。导入的外部节点永远不会计入该账本。
 - 运行时数据：data、backup、uploads、secrets 以及本地环境文件被有意忽略，必须加以保护。
@@ -75,6 +76,13 @@
   CI 中由 `AGENT_VERSION_BASE` 传入 push 前 SHA）把守。
 
 ## AI 维护命令
+
+安卓客户端构建（不参与 `audit:fast` / `audit:full`，需本地 Android SDK）：
+
+```bash
+npm run android:assemble   # = cd mobile-android && .\gradlew.bat :app:assembleDebug
+npm run android:test       # 单元测试
+```
 
 快速本地审计：
 

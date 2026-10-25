@@ -30,6 +30,7 @@ inspect_logs.js
 # 用户数据 & 数据库
 # ====================
 data/
+!mobile-android/app/src/main/java/com/iwvw/apimonitor/data/
 *.db
 *.db-journal
 *.db-shm
@@ -77,6 +78,7 @@ config/
 tmp/
 test/tmp/
 test/
+!mobile-android/app/src/test/
 .opencode/
 
 # ====================
