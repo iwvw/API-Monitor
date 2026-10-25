@@ -16,5 +16,13 @@
     "Keep this list short. If it grows, the real fix is a dependency upgrade or",
     "removing the dependency, not another line here."
   ],
-  "entries": []
+  "entries": [
+    {
+      "id": "RUSTSEC-2026-0387",
+      "ecosystem": "cargo",
+      "reason": "crypto-bigint < 0.7.6 has timing variability in constant-time ops. Only reachable via webrtc 0.17.2 -> dtls 0.17.2 -> p256/p384 0.13 -> elliptic-curve 0.13.8 -> crypto-bigint 0.5.5 (remote-desktop media path only). No 0.5.x release contains the fix: 0.7.6 is a different major line, so the whole elliptic-curve/p256/p384/dtls chain must move to elliptic-curve 0.14 / p256 0.14 / p384 0.14 / ecdsa 0.17. The only upstream entry point is dtls, which is consumed solely by webrtc, so the real fix is a webrtc 0.17 -> 0.21 migration (APIBuilder/on_* callbacks/read_rtcp all replaced; ~61 call sites in agent-rust/src/remote_desktop.rs, needs on-device browser verification). Tracked as a dedicated migration task; remove this entry once webrtc 0.21 lands and crypto-bigint disappears from Cargo.lock.",
+      "owner": "@iwvw",
+      "expires": "2026-12-31"
+    }
+  ]
 }
