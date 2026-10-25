@@ -294,6 +294,9 @@ func newServer(cfg config.Config) (*Server, error) {
 	server.openai.StartModelAutoRefresh(warmupCtx)
 	// 启动 Antigravity 配额刷新检测（开关由前端控制，关闭时后台静默跳过）。
 	server.antigravity.StartQuotaMonitor(warmupCtx)
+	// Antigravity 客户端版本发现：从官方 Hub auto-updater 拉最新版本刷新 UA。
+	// Cloud Code 拒绝 2.23.0 以下客户端访问新模型，所以不能写死版本号。
+	server.antigravity.StartVersionDiscovery(warmupCtx)
 	// Antigravity 插件 access token 自动续期：Google refresh_token 换新 access_token，
 	// 避免过期后直到转发时才暴露 invalid_grant。
 	server.antigravity.StartAutoRefresh(warmupCtx)

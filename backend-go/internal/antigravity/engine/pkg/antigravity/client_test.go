@@ -1298,11 +1298,13 @@ func TestClient_LoadCodeAssist_Success_RealCall(t *testing.T) {
 		if reqBody.Metadata.IDEType != "ANTIGRAVITY" {
 			t.Errorf("IDEType 不匹配: got %s, want ANTIGRAVITY", reqBody.Metadata.IDEType)
 		}
-		if strings.TrimSpace(reqBody.Metadata.IDEVersion) == "" {
-			t.Errorf("IDEVersion 不应为空")
+		// loadCodeAssist 只带 ideType：与官方客户端一致，不再附加版本/名称，
+		// 否则上游会把请求识别成另一种客户端形态。
+		if reqBody.Metadata.IDEVersion != "" {
+			t.Errorf("IDEVersion 不应出现在 loadCodeAssist 请求体: got %s", reqBody.Metadata.IDEVersion)
 		}
-		if reqBody.Metadata.IDEName != "antigravity" {
-			t.Errorf("IDEName 不匹配: got %s, want antigravity", reqBody.Metadata.IDEName)
+		if reqBody.Metadata.IDEName != "" {
+			t.Errorf("IDEName 不应出现在 loadCodeAssist 请求体: got %s", reqBody.Metadata.IDEName)
 		}
 
 		w.Header().Set("Content-Type", "application/json")

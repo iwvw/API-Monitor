@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"math/rand"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -111,6 +112,11 @@ func TransformClaudeToGeminiWithOptions(claudeReq *ClaudeRequest, projectID, map
 	if err != nil {
 		return nil, fmt.Errorf("build contents: %w", err)
 	}
+
+	// 1.1 归一化首尾形态：丢掉尾部纯 thought 的 model turn（上游对「以 model 结尾且
+	// 无可回复内容」直接 400）。Gemini 系可再补空 user turn；Claude 系上游拒绝空
+	// 文本 part，因此只做丢弃。
+	contents = normalizeContentsBoundary(contents, allowDummyThought)
 
 	// 2. 构建 systemInstruction（使用 targetModel 而非原始请求模型，确保身份注入基于最终模型）
 	systemInstruction := buildSystemInstruction(claudeReq.System, targetModel, opts, claudeReq.Tools)
@@ -379,6 +385,8 @@ func buildContents(messages []ClaudeMessage, toolIDToName map[string]string, isT
 	var contents []GeminiContent
 	var systemParts []GeminiPart
 	strippedThinking := false
+	// 全请求共用一个 ID 映射器：tool_use 与后续 tool_result 必须落到同一个上游 ID。
+	idMapper := newToolIDMapper()
 
 	for i, msg := range messages {
 		role := msg.Role
@@ -386,7 +394,7 @@ func buildContents(messages []ClaudeMessage, toolIDToName map[string]string, isT
 			role = "model"
 		}
 
-		parts, strippedThisMsg, err := buildParts(msg.Content, toolIDToName, allowDummyThought)
+		parts, strippedThisMsg, err := buildPartsWithMapper(msg.Content, toolIDToName, allowDummyThought, idMapper)
 		if err != nil {
 			return nil, nil, false, fmt.Errorf("build parts for message %d: %w", i, err)
 		}
@@ -433,14 +441,82 @@ func buildContents(messages []ClaudeMessage, toolIDToName map[string]string, isT
 	return contents, systemParts, strippedThinking, nil
 }
 
+// Claude 上游对 tool_use / tool_result 的 id 有格式要求：
+// 只允许 [a-zA-Z0-9_-]，长度 1..64。违反即 400 INVALID_ARGUMENT。
+// 网关侧的 OpenAI 兼容入口常见形如 "call_abc|fc_def" 的 ID（含 '|'），
+// 直接透传会被上游拒绝。
+var (
+	claudeToolIDInvalid = regexp.MustCompile(`[^a-zA-Z0-9_-]`)
+	claudeToolIDMaxLen  = 64
+)
+
+// SanitizeClaudeToolID 把任意 ID 归一化为 Claude 上游可接受的形态。
+// 非法字符替换为下划线；超长截断；空结果回退为 "tool_call"。
+func SanitizeClaudeToolID(id string) string {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return "tool_call"
+	}
+	id = claudeToolIDInvalid.ReplaceAllString(id, "_")
+	if len(id) > claudeToolIDMaxLen {
+		id = id[:claudeToolIDMaxLen]
+	}
+	if id == "" {
+		return "tool_call"
+	}
+	return id
+}
+
+// toolIDMapper 负责把 Claude 侧的工具 ID 稳定映射为上游可接受的 ID，
+// 并保证同一请求内不出现重复（并行 tool_calls 可能给出相同/清洗后相同的 ID）。
+type toolIDMapper struct {
+	sanitized map[string]string // 原始 ID → 上游 ID
+	used      map[string]bool   // 已被占用的上游 ID
+}
+
+func newToolIDMapper() *toolIDMapper {
+	return &toolIDMapper{
+		sanitized: make(map[string]string),
+		used:      make(map[string]bool),
+	}
+}
+
+// mapID 返回原始 ID 对应的上游 ID；重复调用同一原始 ID 返回同一结果。
+func (m *toolIDMapper) mapID(raw string) string {
+	if m == nil {
+		return SanitizeClaudeToolID(raw)
+	}
+	if id, ok := m.sanitized[raw]; ok {
+		return id
+	}
+	base := SanitizeClaudeToolID(raw)
+	id := base
+	for suffix := 1; m.used[id]; suffix++ {
+		candidate := fmt.Sprintf("%s_%d", base, suffix)
+		if len(candidate) > claudeToolIDMaxLen {
+			candidate = candidate[:claudeToolIDMaxLen]
+		}
+		id = candidate
+	}
+	m.used[id] = true
+	m.sanitized[raw] = id
+	return id
+}
+
 // DummyThoughtSignature 用于跳过 Gemini 3 thought_signature 验证
 // 参考: https://ai.google.dev/gemini-api/docs/thought-signatures
 // 导出供跨包使用（如 gemini_native_signature_cleaner 跨账号修复）
 const DummyThoughtSignature = "skip_thought_signature_validator"
 
-// buildParts 构建消息的 parts
+// buildParts 构建单条消息的 parts（独立 ID 映射；跨消息配对请用 buildPartsWithMapper）。
 // allowDummyThought: 只有 Gemini 模型支持 dummy thought signature
 func buildParts(content json.RawMessage, toolIDToName map[string]string, allowDummyThought bool) ([]GeminiPart, bool, error) {
+	return buildPartsWithMapper(content, toolIDToName, allowDummyThought, newToolIDMapper())
+}
+
+// buildPartsWithMapper 构建消息的 parts。
+// idMapper 需在全请求范围内共享，保证 tool_use 与其 tool_result 落到同一个上游 ID。
+func buildPartsWithMapper(content json.RawMessage, toolIDToName map[string]string, allowDummyThought bool, idMapper *toolIDMapper) ([]GeminiPart, bool, error) {
 	var parts []GeminiPart
 	strippedThinking := false
 
@@ -500,7 +576,7 @@ func buildParts(content json.RawMessage, toolIDToName map[string]string, allowDu
 			}
 
 		case "tool_use":
-			// 存储 id -> name 映射
+			// 存储 id -> name 映射（用原始 ID，tool_result 也按原始 ID 反查）
 			if block.ID != "" && block.Name != "" {
 				toolIDToName[block.ID] = block.Name
 			}
@@ -509,7 +585,8 @@ func buildParts(content json.RawMessage, toolIDToName map[string]string, allowDu
 				FunctionCall: &GeminiFunctionCall{
 					Name: block.Name,
 					Args: block.Input,
-					ID:   block.ID,
+					// 上游要求 tool id 形如 ^[a-zA-Z0-9_-]+$；这里统一清洗并去重。
+					ID: idMapper.mapID(block.ID),
 				},
 			}
 			// tool_use 的 signature 处理：
@@ -542,7 +619,8 @@ func buildParts(content json.RawMessage, toolIDToName map[string]string, allowDu
 					Response: map[string]any{
 						"result": resultContent,
 					},
-					ID: block.ToolUseID,
+					// 与 tool_use 使用同一映射，保证 functionCall/functionResponse 成对。
+					ID: idMapper.mapID(block.ToolUseID),
 				},
 			})
 		}
@@ -603,19 +681,17 @@ const (
 )
 
 func maxOutputTokensLimit(model string) int {
-	if strings.HasPrefix(model, "claude-") {
-		return maxOutputTokensClaude
-	}
-	return maxOutputTokensUpperBound
+	return MaxCompletionTokensFor(model)
 }
 
-// isAntigravityOpusHighTierModel 判断是否为高阶 Opus 模型（4.6+），
+// isAntigravityOpusHighTierModel 判断是否为高阶 Opus 模型，
 // 用于 adaptive thinking 时覆写为高预算。
 func isAntigravityOpusHighTierModel(model string) bool {
 	lower := strings.ToLower(model)
 	return strings.HasPrefix(lower, "claude-opus-4-6") ||
 		strings.HasPrefix(lower, "claude-opus-4-7") ||
-		strings.HasPrefix(lower, "claude-opus-4-8")
+		strings.HasPrefix(lower, "claude-opus-4-8") ||
+		strings.HasPrefix(lower, "claude-opus-5-5")
 }
 
 func buildGenerationConfig(req *ClaudeRequest) *GeminiGenerationConfig {
@@ -634,6 +710,12 @@ func buildGenerationConfig(req *ClaudeRequest) *GeminiGenerationConfig {
 		config.MaxOutputTokens = req.MaxTokens
 	}
 
+	// 先按模型额度收口，再做 thinking 预算调整：否则后续 thinking 补偿会把
+	// max_tokens 顶到超出模型上限，上游直接 400。
+	if config.MaxOutputTokens > maxLimit {
+		config.MaxOutputTokens = maxLimit
+	}
+
 	// Thinking 配置
 	if req.Thinking != nil && (req.Thinking.Type == "enabled" || req.Thinking.Type == "adaptive") {
 		config.ThinkingConfig = &GeminiThinkingConfig{
@@ -641,7 +723,7 @@ func buildGenerationConfig(req *ClaudeRequest) *GeminiGenerationConfig {
 		}
 
 		// - thinking.type=enabled：budget_tokens>0 用显式预算
-		// - thinking.type=adaptive：在 Antigravity 的高阶 Opus（4.6+）上覆写为 （24576）
+		// - thinking.type=adaptive：在 Antigravity 的高阶 Opus 上覆写为高预算
 		budget := -1
 		if req.Thinking.BudgetTokens > 0 {
 			budget = req.Thinking.BudgetTokens
@@ -650,37 +732,28 @@ func buildGenerationConfig(req *ClaudeRequest) *GeminiGenerationConfig {
 			budget = ClaudeAdaptiveHighThinkingBudgetTokens
 		}
 
-		// 正预算需要做上限与 max_tokens 约束；动态预算（-1）直接透传给上游。
-		if budget > 0 {
-			// gemini-2.5-flash 上限
-			if strings.Contains(req.Model, "gemini-2.5-flash") && budget > Gemini25FlashThinkingBudgetLimit {
-				budget = Gemini25FlashThinkingBudgetLimit
-			}
-
+		// 按模型能力收紧预算：超出上限裁剪，低于最小值则整体移除 thinkingConfig
+		// （上游对此返回 400，不会自动纠正）。
+		budget, keep := clampThinkingBudget(req.Model, budget)
+		if !keep {
+			log.Printf("[Antigravity] thinking budget below model minimum for %s; dropping thinkingConfig", req.Model)
+			config.ThinkingConfig = nil
+		} else if budget > 0 {
 			// 自动修正：max_tokens 必须大于 budget_tokens（Claude 上游要求）
 			if adjusted, ok := ensureMaxTokensGreaterThanBudget(config.MaxOutputTokens, budget); ok {
+				if adjusted > maxLimit {
+					adjusted = maxLimit
+					budget = maxLimit - MaxTokensBudgetPadding
+				}
 				log.Printf("[Antigravity] Auto-adjusted max_tokens from %d to %d (must be > budget_tokens=%d)",
 					config.MaxOutputTokens, adjusted, budget)
 				config.MaxOutputTokens = adjusted
 			}
-		}
-		config.ThinkingConfig.ThinkingBudget = budget
-	}
-
-	if config.MaxOutputTokens > maxLimit {
-		config.MaxOutputTokens = maxLimit
-	}
-
-	// 其他参数
-	if !isReasoning {
-		if req.Temperature != nil {
-			config.Temperature = req.Temperature
-		}
-		if req.TopP != nil {
-			config.TopP = req.TopP
-		}
-		if req.TopK != nil {
-			config.TopK = req.TopK
+			if config.ThinkingConfig != nil {
+				config.ThinkingConfig.ThinkingBudget = budget
+			}
+		} else if config.ThinkingConfig != nil {
+			config.ThinkingConfig.ThinkingBudget = budget
 		}
 	}
 

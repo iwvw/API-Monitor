@@ -190,12 +190,16 @@ func (c *AvailableCredit) GetMinimumAmount() float64 {
 }
 
 // OnboardUserRequest onboardUser 请求
+//
+// 字段名对齐官方控制面：tier_id（snake_case）+ metadata{ide_type, ide_version,
+// ide_name}。旧实现的 tierId / platform / pluginType 已被上游忽略，导致部分
+// 账号 onboarding 一直拿不到 project_id。
 type OnboardUserRequest struct {
-	TierID   string `json:"tierId"`
+	TierID   string `json:"tier_id"`
 	Metadata struct {
-		IDEType    string `json:"ideType"`
-		Platform   string `json:"platform,omitempty"`
-		PluginType string `json:"pluginType,omitempty"`
+		IDEType    string `json:"ide_type"`
+		IDEVersion string `json:"ide_version"`
+		IDEName    string `json:"ide_name"`
 	} `json:"metadata"`
 }
 
@@ -442,19 +446,18 @@ func (c *Client) GetUserInfo(ctx context.Context, accessToken string) (*UserInfo
 }
 
 // LoadCodeAssist 获取账户信息，返回解析后的结构体和原始 JSON
-// 支持 URL fallback：sandbox → daily → prod
+// 端点顺序：daily → prod（消费级凭据默认落在 daily）。
 func (c *Client) LoadCodeAssist(ctx context.Context, accessToken string) (*LoadCodeAssistResponse, map[string]any, error) {
+	// 与官方客户端一致：loadCodeAssist 只带 ideType，不带版本/名称字段。
+	// 旧实现多发的 ideVersion/ideName 会让上游把请求当成另一种客户端形态。
 	reqBody := LoadCodeAssistRequest{}
 	reqBody.Metadata.IDEType = "ANTIGRAVITY"
-	reqBody.Metadata.IDEVersion = GetUserAgentVersionForContext(ctx)
-	reqBody.Metadata.IDEName = "antigravity"
 
 	bodyBytes, err := json.Marshal(reqBody)
 	if err != nil {
 		return nil, nil, fmt.Errorf("序列化请求失败: %w", err)
 	}
 
-	// 固定顺序：prod -> daily
 	availableURLs := BaseURLs
 
 	var lastErr error
@@ -467,7 +470,7 @@ func (c *Client) LoadCodeAssist(ctx context.Context, accessToken string) (*LoadC
 		}
 		req.Header.Set("Authorization", "Bearer "+accessToken)
 		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("User-Agent", GetUserAgentForContext(ctx))
+		req.Header.Set("User-Agent", LoadCodeAssistUserAgent(GetUserAgentForContext(ctx)))
 
 		resp, err := servertiming.Do(c.httpClient, req)
 		if err != nil {
@@ -523,9 +526,11 @@ func (c *Client) OnboardUser(ctx context.Context, accessToken, tierID string) (s
 	}
 
 	reqBody := OnboardUserRequest{TierID: tierID}
+	// 控制面 metadata：ide_type 固定 ANTIGRAVITY，ide_version 取 UA 里的版本，
+	// ide_name 为 antigravity。与 CLIProxyAPI 的 antigravityControlPlaneMetadata 一致。
 	reqBody.Metadata.IDEType = "ANTIGRAVITY"
-	reqBody.Metadata.Platform = "PLATFORM_UNSPECIFIED"
-	reqBody.Metadata.PluginType = "GEMINI"
+	reqBody.Metadata.IDEVersion = VersionFromUserAgent(GetUserAgentForContext(ctx))
+	reqBody.Metadata.IDEName = "antigravity"
 
 	bodyBytes, err := json.Marshal(reqBody)
 	if err != nil {
@@ -545,8 +550,10 @@ func (c *Client) OnboardUser(ctx context.Context, accessToken, tierID string) (s
 				break
 			}
 			req.Header.Set("Authorization", "Bearer "+accessToken)
+			req.Header.Set("Accept", "*/*")
 			req.Header.Set("Content-Type", "application/json")
-			req.Header.Set("User-Agent", GetUserAgentForContext(ctx))
+			req.Header.Set("User-Agent", OnboardUserUserAgent(GetUserAgentForContext(ctx)))
+			req.Header.Set("X-Goog-Api-Client", AntigravityGoogAPIClientUA)
 
 			resp, err := servertiming.Do(c.httpClient, req)
 			if err != nil {
@@ -927,7 +934,7 @@ func (c *Client) SetUserSettings(ctx context.Context, accessToken string) (*SetU
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "*/*")
 	req.Header.Set("User-Agent", GetUserAgentForContext(ctx))
-	req.Header.Set("X-Goog-Api-Client", "gl-node/22.21.1")
+	req.Header.Set("X-Goog-Api-Client", AntigravityGoogAPIClientUA)
 	req.Host = "daily-cloudcode-pa.googleapis.com"
 
 	resp, err := servertiming.Do(c.httpClient, req)
@@ -970,7 +977,7 @@ func (c *Client) FetchUserInfo(ctx context.Context, accessToken, projectID strin
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "*/*")
 	req.Header.Set("User-Agent", GetUserAgentForContext(ctx))
-	req.Header.Set("X-Goog-Api-Client", "gl-node/22.21.1")
+	req.Header.Set("X-Goog-Api-Client", AntigravityGoogAPIClientUA)
 	req.Host = "daily-cloudcode-pa.googleapis.com"
 
 	resp, err := servertiming.Do(c.httpClient, req)

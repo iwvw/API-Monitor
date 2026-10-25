@@ -363,9 +363,9 @@ func (p *StreamingProcessor) processFunctionCall(fc *GeminiFunctionCall, signatu
 
 	p.usedTool = true
 
-	toolID := fc.ID
-	if toolID == "" {
-		toolID = fmt.Sprintf("%s-%s", fc.Name, generateRandomID())
+	toolID := SanitizeClaudeToolID(fc.ID)
+	if strings.TrimSpace(fc.ID) == "" {
+		toolID = SanitizeClaudeToolID(fmt.Sprintf("%s-%s", fc.Name, generateRandomID()))
 	}
 
 	toolUse := map[string]any{

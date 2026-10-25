@@ -2,6 +2,8 @@ package antigravity
 
 // Gemini v1internal 请求/响应类型定义
 
+import "encoding/json"
+
 // V1InternalRequest v1internal 请求包装
 type V1InternalRequest struct {
 	Project     string        `json:"project"`
@@ -37,6 +39,26 @@ type GeminiPart struct {
 	InlineData       *GeminiInlineData       `json:"inlineData,omitempty"`
 	FunctionCall     *GeminiFunctionCall     `json:"functionCall,omitempty"`
 	FunctionResponse *GeminiFunctionResponse `json:"functionResponse,omitempty"`
+
+	// forceEmptyText 让空文本 part 仍序列化为 {"text":""}。
+	// 边界归一化补的空 user turn 必须带这个标记：omitempty 会把空串整字段丢掉，
+	// 上游收到的就是 {"parts":[{}]}，反而被判为非法 part。
+	forceEmptyText bool
+}
+
+// MarshalJSON 在 forceEmptyText 时保留显式的空 text 字段。
+func (p GeminiPart) MarshalJSON() ([]byte, error) {
+	type alias GeminiPart
+	raw, err := json.Marshal(alias(p))
+	if err != nil || !p.forceEmptyText {
+		return raw, err
+	}
+	var fields map[string]any
+	if err := json.Unmarshal(raw, &fields); err != nil {
+		return raw, err
+	}
+	fields["text"] = ""
+	return json.Marshal(fields)
 }
 
 // GeminiInlineData Gemini 内联数据（图片等）

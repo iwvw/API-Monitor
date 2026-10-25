@@ -481,9 +481,13 @@ func TestTransformClaudeToGeminiWithOptions_MessageRoles(t *testing.T) {
 			},
 		})
 
-		require.Len(t, req.Request.Contents, 1)
-		require.Equal(t, "model", req.Request.Contents[0].Role)
-		require.Equal(t, "hello from assistant", req.Request.Contents[0].Parts[0].Text)
+		// target 是 gemini-2.5-flash，因此首尾都会补空 user turn：
+		// 上游不接受以 model 开头/结尾的 contents。
+		require.Len(t, req.Request.Contents, 3)
+		require.Equal(t, "user", req.Request.Contents[0].Role)
+		require.Equal(t, "model", req.Request.Contents[1].Role)
+		require.Equal(t, "hello from assistant", req.Request.Contents[1].Parts[0].Text)
+		require.Equal(t, "user", req.Request.Contents[2].Role)
 	})
 
 	t.Run("top level and message system instructions are merged", func(t *testing.T) {
@@ -525,11 +529,13 @@ func TestTransformClaudeToGeminiWithOptions_MessageRoles(t *testing.T) {
 			},
 		})
 
-		require.Len(t, req.Request.Contents, 2)
+		require.Len(t, req.Request.Contents, 3)
 		require.Equal(t, "user", req.Request.Contents[0].Role)
 		require.Equal(t, "question", req.Request.Contents[0].Parts[0].Text)
 		require.Equal(t, "model", req.Request.Contents[1].Role)
 		require.Equal(t, "answer", req.Request.Contents[1].Parts[0].Text)
+		// Gemini 目标补一个空 user turn，避免上游以 model 结尾拒绝请求。
+		require.Equal(t, "user", req.Request.Contents[2].Role)
 	})
 }
 

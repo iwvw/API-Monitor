@@ -570,18 +570,18 @@ func (s *Service) StartCallStatsFlush(ctx context.Context) {
 	})
 }
 
-// forwardBaseURL 按账号 planType 选择转发端点。
-// 与 Antigravity 官方一致：付费账号（Pro/Ultra）使用 daily 端点，其余用 prod。
-func forwardBaseURL(acc *Account) string {
+// forwardBaseURL 返回转发端点。
+//
+// 旧实现按 planType 在 prod / daily 之间切换，但上游（CLIProxyAPI）已确认消费级
+// 凭据统一落在 daily，且曾经「按套餐切端点」会让同一账号在不同端点上拿到互相
+// 不兼容的模型授权。现在固定用 ForwardBaseURLs 的首项（daily），prod 仅作为
+// 引擎内部的降级候选，不在转发路径上做每次请求的二选一。
+func forwardBaseURL(_ *Account) string {
 	urls := engineag.ForwardBaseURLs()
 	if len(urls) == 0 {
 		return engineag.BaseURL
 	}
-	plan := strings.ToLower(strings.TrimSpace(acc.PlanType))
-	if plan == "pro" || plan == "ultra" {
-		return urls[0]
-	}
-	return engineag.BaseURL
+	return urls[0]
 }
 
 // ensureFreshToken 返回有效 access_token；过期则用 refresh_token 刷新并落库。
@@ -1000,6 +1000,15 @@ const quotaMonitorInterval = 15 * time.Minute
 
 // quotaMonitorCycleTimeout 是单轮检测的整体预算，超时即中止不阻塞下一轮。
 const quotaMonitorCycleTimeout = 60 * time.Second
+
+// StartVersionDiscovery 启动 Antigravity 客户端版本发现。
+//
+// 官方 Hub 每次发版都会更新 UA 里的 version 与 changelist，写死版本号会随时间
+// 被上游判为旧客户端（2.23.0 以下的客户端拿不到新模型）。这里把刷新交给引擎，
+// 装饰器只负责在进程生命周期内启动一次。
+func (s *Service) StartVersionDiscovery(ctx context.Context) {
+	engineag.StartVersionUpdater(ctx)
+}
 
 // StartQuotaMonitor 后台周期性检测各账号配额窗口是否在消耗/刷新。
 // 开关（QuotaMonitorEnabled）关闭时静默跳过；进程结束（ctx 取消）时退出。

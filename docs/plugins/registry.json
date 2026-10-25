@@ -49,10 +49,10 @@
     },
     "antigravity": {
       "name": "Antigravity",
-      "version": "1",
+      "version": "2",
       "status": "installed",
       "kind": "engine-plugin",
-      "summary": "Claude 订阅账号（Google OAuth）转 Anthropic 兼容 API：OAuth 授权、token 管理、Claude→Gemini→v1internal 协议转换、SSE 回转。多账号选号策略（固定首个 / 轮询 / 按剩余额度，默认固定首个），带账号失败冷却、失效过滤与换号重试（最多 3 个账号），额度快照带 2 小时 TTL 与后台刷新；选号原语复用 internal/accountpick。设置面 GET 已脱敏，不再下发 token。",
+      "summary": "Claude 订阅账号（Google OAuth）转 Anthropic 兼容 API：OAuth 授权、token 管理、Claude→Gemini→v1internal 协议转换、SSE 回转。多账号选号策略（固定首个 / 轮询 / 按剩余额度，默认固定首个），带账号失败冷却、失效过滤与换号重试（最多 3 个账号），额度快照带 2 小时 TTL 与后台刷新；选号原语复用 internal/accountpick。设置面 GET 已脱敏，不再下发 token。客户端指纹对齐 CLIProxyAPI：Hub 版本由后台从官方 auto-updater manifest 动态刷新（兜底 2.24.0，含 release changelist，Cloud Code 拒绝 2.23.0 以下客户端）；生成/项目发现/模型列表统一走 daily 端点；工具调用 ID 按 Claude 上游规则清洗并去重；contents 首尾按上游要求归一化（丢弃尾部纯 thought turn、Gemini 补空 user turn）。",
       "backendDirs": ["backend-go/internal/antigravity/"],
       "manifest": {
         "file": "backend-go/internal/manifest/manifest.go",
@@ -81,15 +81,16 @@
       },
       "goDeps": [],
       "systemContracts": [],
-      "docs": ["docs/standards/模型网关插件开发指南.md"],
+      "docs": ["docs/standards/模型网关插件开发指南.md", "docs/standards/模型网关插件-antigravity方案.md"],
       "uninstallSteps": [
         "rm backend-go/internal/antigravity/",
         "manifest.go：删除 /api/antigravity 与 /api/antigravity/v1 前缀行",
-        "server.go：删除 import、antigravity 字段、antigravity.New(cfg)、SetProxyPoolSelector 注入、/api/antigravity case、antigravity-compatible 鉴权分支",
+        "server.go：删除 import、antigravity 字段、antigravity.New(cfg)、SetProxyPoolSelector 注入、StartVersionDiscovery 调用、/api/antigravity case、antigravity-compatible 鉴权分支",
         "go mod tidy",
         "DB：DROP TABLE antigravity_usage_daily; DROP TABLE antigravity_call_stats; DROP TABLE antigravity_settings;",
         "删除 src/js/pages/openai/plugins/AntigravityPlugin.jsx",
-        "OpenAIPluginsPanel.jsx：移除 antigravity 注册条目"
+        "OpenAIPluginsPanel.jsx：移除 antigravity 注册条目",
+        "删除 docs/standards/模型网关插件-antigravity方案.md"
       ]
     },
     "ds2api": {

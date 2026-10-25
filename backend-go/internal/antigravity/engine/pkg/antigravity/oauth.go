@@ -33,8 +33,10 @@ const (
 	// AntigravityUserAgentVersionEnv 是 Antigravity User-Agent 版本号的环境变量名。
 	AntigravityUserAgentVersionEnv = "ANTIGRAVITY_USER_AGENT_VERSION"
 
-	// DefaultUserAgentVersion 是未通过环境变量或后台设置覆盖时使用的默认版本号。
-	DefaultUserAgentVersion = "1.23.2"
+	// DefaultUserAgentVersion 是未通过环境变量或后台设置覆盖时使用的兜底版本号。
+	// 与 AntigravityHubFallbackVersion 同一取值：Cloud Code 会拒绝 2.23.0
+	// 以下客户端访问新模型，所以这里不可下调。
+	DefaultUserAgentVersion = AntigravityHubFallbackVersion
 
 	// 固定的 redirect_uri（用户需手动复制 code）
 	RedirectURI = "http://localhost:8085/callback"
@@ -63,8 +65,8 @@ var userAgentVersionPattern = regexp.MustCompile(`^\d+\.\d+\.\d+$`)
 type UserAgentVersionResolver func(ctx context.Context) string
 
 var (
-	// defaultUserAgentVersion 可通过环境变量 ANTIGRAVITY_USER_AGENT_VERSION 配置。
-	defaultUserAgentVersion  = DefaultUserAgentVersion
+	// envUserAgentVersion 是环境变量 ANTIGRAVITY_USER_AGENT_VERSION 的覆盖值；空表示未覆盖。
+	envUserAgentVersion      string
 	userAgentVersionMu       sync.RWMutex
 	userAgentVersionResolver UserAgentVersionResolver
 )
@@ -76,9 +78,9 @@ var (
 var defaultClientSecret = "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"
 
 func init() {
-	// 从环境变量读取版本号，未设置则使用默认值
+	// 从环境变量读取版本号覆盖；未设置时跟随 Hub 动态版本发现。
 	if version := NormalizeUserAgentVersion(os.Getenv(AntigravityUserAgentVersionEnv)); version != "" {
-		defaultUserAgentVersion = version
+		envUserAgentVersion = version
 	}
 	// 从环境变量读取 client_secret，未设置则使用开源项目默认值
 	if secret := os.Getenv(AntigravityOAuthClientSecretEnv); secret != "" {
@@ -95,9 +97,13 @@ func NormalizeUserAgentVersion(version string) string {
 	return version
 }
 
-// GetDefaultUserAgentVersion 返回配置文件/环境变量层面的默认版本号。
+// GetDefaultUserAgentVersion 返回未考虑运行时解析器时的版本号。
+// 优先级：环境变量覆盖 > Hub 动态发现 > 回退版本。
 func GetDefaultUserAgentVersion() string {
-	return defaultUserAgentVersion
+	if envUserAgentVersion != "" {
+		return envUserAgentVersion
+	}
+	return HubLatestVersion()
 }
 
 // SetUserAgentVersionResolver 设置运行时版本号解析器，通常由后台 settings 注入。
@@ -120,15 +126,29 @@ func GetUserAgentVersionForContext(ctx context.Context) string {
 			return version
 		}
 	}
-	return defaultUserAgentVersion
+	return GetDefaultUserAgentVersion()
 }
 
-// BuildUserAgent 使用指定版本号构造 User-Agent；版本为空或非法时回退默认值。
+// BuildUserAgent 按 Hub 家族格式构造 User-Agent；版本为空或非法时回退默认值。
+//
+// 格式对齐官方客户端（含 changelist）：
+//
+//	antigravity/hub/2.24.0 (aidev_client; os_type=darwin; arch=arm64; cl=1000335682)
 func BuildUserAgent(version string) string {
-	if normalized := NormalizeUserAgentVersion(version); normalized != "" {
-		return fmt.Sprintf("antigravity/%s windows/amd64", normalized)
+	normalized := NormalizeUserAgentVersion(version)
+	if normalized == "" {
+		return HubUserAgent()
 	}
-	return fmt.Sprintf("antigravity/%s windows/amd64", defaultUserAgentVersion)
+	return hubUserAgentForVersion(normalized)
+}
+
+// hubUserAgentForVersion 用指定版本构造 Hub UA，changelist 仅对已知发版生效。
+func hubUserAgentForVersion(version string) string {
+	metadata := "aidev_client; " + antigravityHubPlatform
+	if changelist := antigravityHubChangelists[version]; changelist != "" {
+		metadata += "; cl=" + changelist
+	}
+	return fmt.Sprintf("antigravity/hub/%s (%s)", version, metadata)
 }
 
 // GetUserAgentForContext 返回当前请求应使用的 User-Agent。
@@ -148,40 +168,27 @@ func getClientSecret() (string, error) {
 	return "", infraerrors.Newf(http.StatusBadRequest, "ANTIGRAVITY_OAUTH_CLIENT_SECRET_MISSING", "missing antigravity oauth client_secret; set %s", AntigravityOAuthClientSecretEnv)
 }
 
-// BaseURLs 定义 Antigravity API 端点（与 Antigravity-Manager 保持一致）
+// BaseURLs 定义 Antigravity API 端点。
+//
+// 顺序与上游一致：daily 优先，prod 仅作兜底。Cloud Code 的消费级凭据默认
+// 落在 daily 上，新模型/新配额接口（retrieveUserQuotaSummary 等）也只在 daily 可用。
 var BaseURLs = []string{
-	antigravityProdBaseURL,  // prod (优先)
-	antigravityDailyBaseURL, // daily sandbox (备用)
+	antigravityDailyBaseURL, // daily（主）
+	antigravityProdBaseURL,  // prod（兜底）
 }
 
-// BaseURL 默认 URL（保持向后兼容）
+// BaseURL 默认 URL
 var BaseURL = BaseURLs[0]
 
-// ForwardBaseURLs 返回 API 转发用的 URL 顺序（daily 优先）
+// ForwardBaseURLs 返回 API 转发用的 URL 顺序（daily 优先）。
+//
+// 保留该函数是为了兼容既有调用点；BaseURLs 现在已按 daily 优先排序，
+// 因此这里只做一次去重后的复制。
 func ForwardBaseURLs() []string {
 	if len(BaseURLs) == 0 {
 		return nil
 	}
-	urls := append([]string(nil), BaseURLs...)
-	dailyIndex := -1
-	for i, url := range urls {
-		if url == antigravityDailyBaseURL {
-			dailyIndex = i
-			break
-		}
-	}
-	if dailyIndex <= 0 {
-		return urls
-	}
-	reordered := make([]string, 0, len(urls))
-	reordered = append(reordered, urls[dailyIndex])
-	for i, url := range urls {
-		if i == dailyIndex {
-			continue
-		}
-		reordered = append(reordered, url)
-	}
-	return reordered
+	return append([]string(nil), BaseURLs...)
 }
 
 // URLAvailability 管理 URL 可用性状态（带 TTL 自动恢复和动态优先级）

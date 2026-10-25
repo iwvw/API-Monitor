@@ -121,10 +121,12 @@ func (p *NonStreamingProcessor) processPart(part *GeminiPart) {
 
 		p.hasToolCall = true
 
-		// 生成 tool_use id
-		toolID := part.FunctionCall.ID
-		if toolID == "" {
-			toolID = fmt.Sprintf("%s-%s", part.FunctionCall.Name, generateRandomID())
+		// 生成 tool_use id。上游可能不给 id，此时用「函数名-随机串」兜底；
+		// 函数名可能含点号等 Claude ID 不允许的字符，因此统一过一遍清洗，
+		// 保证客户端回传该 ID 时能原样通过上游校验。
+		toolID := SanitizeClaudeToolID(part.FunctionCall.ID)
+		if strings.TrimSpace(part.FunctionCall.ID) == "" {
+			toolID = SanitizeClaudeToolID(fmt.Sprintf("%s-%s", part.FunctionCall.Name, generateRandomID()))
 		}
 
 		item := ClaudeContentItem{
