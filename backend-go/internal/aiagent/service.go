@@ -1847,8 +1847,12 @@ func (s *Service) buildInstanceViewWithHosts(
 		view.Lifecycle = lifecycle
 
 		if managed {
-			view.Status = statusFromLifecycle(lifecycle)
-			view.HostOnline = lifecycle.Supported
+			online := s.agentOnline(instance.ServerID)
+			view.Status = statusFromLifecycle(lifecycle, online)
+			// hostOnline 表示「主机 Agent 是否在线」，与「是否支持 lifecycle 能力」是两件事。
+			// lifecycle.Supported 只在 Agent 在线且上报了 aiagent_lifecycle_v1 时才为 true，
+			// 旧版 Agent 或能力缺失时会让 hostOnline 误报为 false，UI 因此显示「主机离线」。
+			view.HostOnline = online
 		} else {
 			view.Status = s.probeInstance(ctx, instance)
 			view.HostOnline = view.Status.HostOnline
@@ -1857,14 +1861,26 @@ func (s *Service) buildInstanceViewWithHosts(
 	return view
 }
 
+// agentOnline 报告主机 Agent 控制连接是否在线。
+// 与「是否支持 lifecycle 能力」区分开：后者只影响能否托管进程，
+// 不应影响主机在线判定。
+func (s *Service) agentOnline(serverID string) bool {
+	if s.runtime == nil {
+		return false
+	}
+	return s.runtime.AgentOnline(serverID)
+}
+
 // statusFromLifecycle 把托管状态映射成探测视图。
 //
 // 托管实例的权威来源是 Agent 持有的进程表，因此这里直接以它为准构造
 // InstanceState，而不是再发一次探测任务去「猜」。关联验证的语义保持一致：
 // 在线要求「端口被监听」且「监听者是本 Provider 的进程」。
-func statusFromLifecycle(lifecycle LifecycleState) InstanceState {
+func statusFromLifecycle(lifecycle LifecycleState, hostOnline bool) InstanceState {
 	state := InstanceState{
-		HostOnline:             lifecycle.Supported,
+		// HostOnline 由调用方用 Agent 连接状态填充；lifecycle.Supported 只反映
+		// 托管能力，不能拿来冒充主机在线状态。
+		HostOnline:             hostOnline,
 		ProcessRunning:         lifecycle.Running,
 		PortListening:          lifecycle.PortListening,
 		PID:                    lifecycle.PID,

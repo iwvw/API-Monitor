@@ -380,7 +380,7 @@ func TestStatusFromLifecycleAssociation(t *testing.T) {
 	}
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {
-			state := statusFromLifecycle(testCase.lifecycle)
+			state := statusFromLifecycle(testCase.lifecycle, testCase.lifecycle.Supported)
 			if state.Online != testCase.wantOn {
 				t.Fatalf("Online = %v, want %v (state=%+v)", state.Online, testCase.wantOn, state)
 			}
@@ -390,7 +390,7 @@ func TestStatusFromLifecycleAssociation(t *testing.T) {
 
 // 崩溃终态在探测视图里要给出可区分的错误说明。
 func TestStatusFromLifecycleCrashedError(t *testing.T) {
-	state := statusFromLifecycle(LifecycleState{Crashed: true, Supported: true})
+	state := statusFromLifecycle(LifecycleState{Crashed: true, Supported: true}, true)
 	if state.Online {
 		t.Fatal("崩溃实例不应在线")
 	}
