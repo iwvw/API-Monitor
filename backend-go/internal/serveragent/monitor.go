@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/iwvw/api-monitor/backend-go/internal/applog"
 	"github.com/iwvw/api-monitor/backend-go/internal/response"
 	"github.com/iwvw/api-monitor/backend-go/internal/timeutil"
 )
@@ -149,11 +150,35 @@ func (s *Service) syncTrafficCycleBaselines(ctx context.Context, db *sql.DB) {
 		if c.baselineRx <= 0 || c.baselineTx <= 0 {
 			_, _ = db.ExecContext(ctx, `UPDATE server_accounts SET traffic_cycle_baseline_rx = ?, traffic_cycle_baseline_tx = ?, updated_at = ? WHERE id = ?`,
 				rxCumulative, txCumulative, nowStr, c.id)
+			continue
+		}
+
+		// 网卡累计计数器回绕：主机重启后 /proc/net/dev 从 0 重新计数，
+		// 而基线仍是重启前的累计值，导致「本期 = 累计 - 基线」恒为负被钳成 0，
+		// 面板上该主机流量会永久显示 0。此时把基线同步下调到当前累计值，
+		// 让本期用量从重启时刻重新累积（重启前的量已无法从计数器还原）。
+		rebaseRx, rebaseTx := rebaseIfCounterReset(c.baselineRx, rxCumulative), rebaseIfCounterReset(c.baselineTx, txCumulative)
+		if rebaseRx || rebaseTx {
+			_, _ = db.ExecContext(ctx, `UPDATE server_accounts SET traffic_cycle_baseline_rx = ?, traffic_cycle_baseline_tx = ?, updated_at = ? WHERE id = ?`,
+				rxCumulative, txCumulative, nowStr, c.id)
+			applog.Warn(ctx, "serveragent", "网卡计数器回绕，已重置流量基线",
+				"server_id", c.id, "baseline_rx", c.baselineRx, "now_rx", rxCumulative,
+				"baseline_tx", c.baselineTx, "now_tx", txCumulative)
 		}
 	}
 }
 
-func (s *Service) runPeriodicCollection(ctx context.Context, db *sql.DB) int {	rows, err := db.QueryContext(ctx, "SELECT id, COALESCE(cached_info, '{}') FROM server_accounts")
+// rebaseIfCounterReset 判断某个方向的累计计数器是否发生了回绕
+// （重启后从 0 重新计数，当前值小于已记录的基线）。
+//
+// 只降不升：正常情况下累计值单调递增，不该触碰基线；这里仅在下调场景返回 true，
+// 避免把「同一周期内正常增长」误判成回绕。
+func rebaseIfCounterReset(baseline, current int64) bool {
+	return baseline > 0 && current < baseline
+}
+
+func (s *Service) runPeriodicCollection(ctx context.Context, db *sql.DB) int {
+	rows, err := db.QueryContext(ctx, "SELECT id, COALESCE(cached_info, '{}') FROM server_accounts")
 	if err != nil {
 		return 0
 	}

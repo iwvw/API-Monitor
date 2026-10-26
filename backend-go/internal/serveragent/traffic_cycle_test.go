@@ -83,9 +83,14 @@ func TestTrafficUsedForCycle(t *testing.T) {
 	if got := trafficUsedForCycle(100, "calendar_month", 60); got != 40 {
 		t.Errorf("used: got %d want 40", got)
 	}
-	// 累计小于基线（重置瞬间）：钳到 0
-	if got := trafficUsedForCycle(50, "calendar_month", 60); got != 0 {
-		t.Errorf("clamped: got %d want 0", got)
+	// 累计小于基线（网卡计数器回绕 / 主机重启）：以当前累计值作为新起点，
+	// 而不是钳成 0——钳 0 会让重启后的主机流量永久显示 0。
+	if got := trafficUsedForCycle(50, "calendar_month", 60); got != 50 {
+		t.Errorf("wrapped counter: got %d want 50", got)
+	}
+	// 恰好相等（刚重启、尚未产生流量）：本期为 0。
+	if got := trafficUsedForCycle(60, "calendar_month", 60); got != 0 {
+		t.Errorf("equal: got %d want 0", got)
 	}
 }
 
@@ -112,5 +117,32 @@ func TestTrafficTotalsFromMetricsReadsBothDirections(t *testing.T) {
 	})
 	if rx3 != 0 || tx3 != 0 {
 		t.Fatalf("clamped totals = %d/%d, want 0/0", rx3, tx3)
+	}
+}
+
+// TestRebaseIfCounterReset 覆盖网卡计数器回绕的判定。
+//
+// 主机重启后 /proc/net/dev 从 0 重新计数，累计值会小于已记录的基线。
+// 只在这个「只降」的方向上返回 true，正常增长不能触发基线重置。
+func TestRebaseIfCounterReset(t *testing.T) {
+	cases := []struct {
+		name     string
+		baseline int64
+		current  int64
+		want     bool
+	}{
+		{"正常增长不重置", 100, 200, false},
+		{"持平不重置", 100, 100, false},
+		{"回绕需重置", 100, 50, true},
+		{"归零需重置", 100, 0, true},
+		{"基线为 0 不重置", 0, 50, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := rebaseIfCounterReset(tc.baseline, tc.current); got != tc.want {
+				t.Errorf("rebaseIfCounterReset(%d, %d) = %v, want %v",
+					tc.baseline, tc.current, got, tc.want)
+			}
+		})
 	}
 }

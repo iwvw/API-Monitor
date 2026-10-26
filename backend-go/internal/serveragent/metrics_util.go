@@ -314,11 +314,13 @@ func trafficUsedForCycle(usedBytes int64, cycleType string, baseline int64) int6
 	if normalizeTrafficCycleType(cycleType) == "none" || baseline <= 0 {
 		return usedBytes
 	}
-	d := usedBytes - baseline
-	if d < 0 {
-		return 0
+	// 网卡累计计数器回绕（主机重启后从 0 重新计数）时 usedBytes < baseline，
+	// 相减为负会被钳成 0，导致该主机流量永久显示 0。回绕后以当前累计值作为
+	// 新起点重新累积（重启前的量无法从计数器还原）。
+	if usedBytes < baseline {
+		return usedBytes
 	}
-	return d
+	return usedBytes - baseline
 }
 
 func enrichTrafficQuota(info map[string]interface{}, metrics map[string]interface{}, limitBytes int64, limitMode string, alertEnabled bool, alertPercent float64, cycleType string, cycleBaseline int64) {

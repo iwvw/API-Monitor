@@ -430,6 +430,10 @@ const resolveCycleBytes = (totalBytes, baselineBytes) => {
   const baseline = toNumber(baselineBytes, NaN);
   if (!Number.isFinite(total)) return 0;
   if (!Number.isFinite(baseline) || baseline <= 0) return Math.max(0, total);
+  // 网卡累计计数器回绕（主机重启后从 0 重新计数）时 total < baseline，
+  // 直接相减会得到负数并被钳成 0，让流量永久显示 0。回绕后应以当前累计值
+  // 作为新的起点重新累计，而不是显示成「没有流量」。
+  if (total < baseline) return Math.max(0, total);
   return Math.max(0, total - baseline);
 };
 
