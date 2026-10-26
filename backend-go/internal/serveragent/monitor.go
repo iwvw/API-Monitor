@@ -171,10 +171,13 @@ func (s *Service) syncTrafficCycleBaselines(ctx context.Context, db *sql.DB) {
 // rebaseIfCounterReset 判断某个方向的累计计数器是否发生了回绕
 // （重启后从 0 重新计数，当前值小于已记录的基线）。
 //
-// 只降不升：正常情况下累计值单调递增，不该触碰基线；这里仅在下调场景返回 true，
-// 避免把「同一周期内正常增长」误判成回绕。
+// 必须同时满足 baseline > 0 且 current > 0：current == 0 往往意味着
+// cached_info 尚未落库（容器刚重启、本轮还没采集），把这种「无数据」当成回绕
+// 会把一条有效基线直接清零，反而让该主机短暂显示成「本期用掉全部累计流量」。
+//
+// 只降不升：正常情况下累计值单调递增，不该触碰基线；这里仅在下调场景返回 true。
 func rebaseIfCounterReset(baseline, current int64) bool {
-	return baseline > 0 && current < baseline
+	return baseline > 0 && current > 0 && current < baseline
 }
 
 func (s *Service) runPeriodicCollection(ctx context.Context, db *sql.DB) int {

@@ -317,8 +317,14 @@ func trafficUsedForCycle(usedBytes int64, cycleType string, baseline int64) int6
 	// 网卡累计计数器回绕（主机重启后从 0 重新计数）时 usedBytes < baseline，
 	// 相减为负会被钳成 0，导致该主机流量永久显示 0。回绕后以当前累计值作为
 	// 新起点重新累积（重启前的量无法从计数器还原）。
-	if usedBytes < baseline {
+	//
+	// usedBytes == 0 不走该分支：那更可能是本轮还没采到数据，此时若把 0 当作
+	// 新起点，会把整段累计量算成本期用量（虚高）。保持钳 0 更安全。
+	if usedBytes > 0 && usedBytes < baseline {
 		return usedBytes
+	}
+	if usedBytes < baseline {
+		return 0
 	}
 	return usedBytes - baseline
 }

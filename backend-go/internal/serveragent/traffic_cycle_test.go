@@ -88,6 +88,10 @@ func TestTrafficUsedForCycle(t *testing.T) {
 	if got := trafficUsedForCycle(50, "calendar_month", 60); got != 50 {
 		t.Errorf("wrapped counter: got %d want 50", got)
 	}
+	// 累计为 0 更可能是本轮未采集，不能当成本期用掉全部量，保持钳 0。
+	if got := trafficUsedForCycle(0, "calendar_month", 60); got != 0 {
+		t.Errorf("zero used: got %d want 0", got)
+	}
 	// 恰好相等（刚重启、尚未产生流量）：本期为 0。
 	if got := trafficUsedForCycle(60, "calendar_month", 60); got != 0 {
 		t.Errorf("equal: got %d want 0", got)
@@ -134,7 +138,7 @@ func TestRebaseIfCounterReset(t *testing.T) {
 		{"正常增长不重置", 100, 200, false},
 		{"持平不重置", 100, 100, false},
 		{"回绕需重置", 100, 50, true},
-		{"归零需重置", 100, 0, true},
+		{"当前为 0（常见于未采集）不重置", 100, 0, false},
 		{"基线为 0 不重置", 0, 50, false},
 	}
 	for _, tc := range cases {

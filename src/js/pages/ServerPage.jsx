@@ -433,7 +433,9 @@ const resolveCycleBytes = (totalBytes, baselineBytes) => {
   // 网卡累计计数器回绕（主机重启后从 0 重新计数）时 total < baseline，
   // 直接相减会得到负数并被钳成 0，让流量永久显示 0。回绕后应以当前累计值
   // 作为新的起点重新累计，而不是显示成「没有流量」。
-  if (total < baseline) return Math.max(0, total);
+  // total === 0 视为本轮未采集，不能当成本期用掉全部量，保持 0。
+  if (total > 0 && total < baseline) return Math.max(0, total);
+  if (total < baseline) return 0;
   return Math.max(0, total - baseline);
 };
 
