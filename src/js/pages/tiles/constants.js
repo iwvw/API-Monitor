@@ -73,9 +73,9 @@ export const MAX_COLS = 8;
 export const TILE_DEFS = [
   { id: 'apiTrend', title: 'API 调用趋势', w: 4, h: 2 },
   { id: 'apiTokens', title: 'API 令牌消耗', w: 1, h: 2 },
-  { id: 'openaiRequests', title: 'OpenAI 网关请求', w: 2, h: 2 },
-  { id: 'openaiLatency', title: 'OpenAI 延迟', w: 2, h: 2 },
-  { id: 'openaiErrors', title: 'OpenAI 错误数', w: 1, h: 2 },
+  { id: 'openaiRequests', title: '模型网关请求', w: 2, h: 2 },
+  { id: 'openaiLatency', title: '模型网关延迟', w: 2, h: 2 },
+  { id: 'openaiErrors', title: '模型网关错误数', w: 1, h: 2 },
   { id: 'hostCpu', title: '主机性能', w: 2, h: 2 },
   { id: 'uptime', title: '监控可用率', w: 1, h: 2 },
   { id: 'cfZone', title: 'Cloudflare Zone 请求', w: 2, h: 2 },

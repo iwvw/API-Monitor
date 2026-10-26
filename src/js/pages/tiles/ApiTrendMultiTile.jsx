@@ -1,4 +1,4 @@
-// API 调用趋势（多系列）：与 OpenAI 延迟卡同款结构——half 走 HalfTile 三档（左数据右缩略图），
+// API 调用趋势（多系列）：与模型网关延迟卡同款结构——half 走 HalfTile 三档（左数据右缩略图），
 // 非 half 走「数值行（总请求 + 词元 + 三系列色点图例）+ 整宽出血图」。
 // 已合并原「API 请求趋势」卡（请求次数 = 读取 + 变更）。
 import React, { useMemo, useState } from 'react';

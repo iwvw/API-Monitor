@@ -563,19 +563,19 @@ export default function TilesBoard() {
         );
       case 'openaiRequests':
         return (
-          <TileFrame title="OpenAI 网关请求">
+          <TileFrame title="模型网关请求">
             <OpenaiRequestsTile data={openaiData} loading={openaiLoading} isDarkMode={isDarkMode} density={density} w={item.w} />
           </TileFrame>
         );
       case 'openaiLatency':
         return (
-          <TileFrame title="OpenAI 延迟">
+          <TileFrame title="模型网关延迟">
             <OpenaiLatencyTile data={openaiData} loading={openaiLoading} isDarkMode={isDarkMode} density={density} w={item.w} />
           </TileFrame>
         );
       case 'openaiErrors':
         return (
-          <TileFrame title="OpenAI 错误数">
+          <TileFrame title="模型网关错误数">
             <OpenaiErrorsTile data={openaiData} loading={openaiLoading} isDarkMode={isDarkMode} density={density} w={item.w} />
           </TileFrame>
         );
