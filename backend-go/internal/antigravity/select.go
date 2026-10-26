@@ -202,7 +202,11 @@ func quotaWeightOf(view *QuotaView) float64 {
 	best := -1.0
 	for _, g := range view.Groups {
 		for _, b := range g.Buckets {
-			f := b.RemainingFraction
+			// 指针为 nil 表示上游没给这个字段，不能当成 0（那会被误判为已耗尽）。
+			if b.RemainingFraction == nil {
+				continue
+			}
+			f := *b.RemainingFraction
 			if best < 0 || f < best {
 				best = f
 			}

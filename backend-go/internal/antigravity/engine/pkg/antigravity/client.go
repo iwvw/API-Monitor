@@ -751,12 +751,16 @@ func (c *Client) FetchAvailableModels(ctx context.Context, accessToken, projectI
 }
 
 // UserQuotaBucket 用户配额摘要中的一个 bucket（窗口桶）。
+//
+// RemainingFraction 用指针而不是 float64 + omitempty：上游在窗口耗尽时会返回
+// 真正的 0，omitempty 会把 0 当成空值直接从 JSON 里删掉，前端于是拿到 undefined
+// 并显示成「—」，无法区分「已用尽」和「字段缺失」。
 type UserQuotaBucket struct {
-	DisplayName       string  `json:"displayName,omitempty"`
-	Window            string  `json:"window,omitempty"`
-	RemainingFraction float64 `json:"remainingFraction,omitempty"`
-	ResetTime         string  `json:"resetTime,omitempty"`
-	Description       string  `json:"description,omitempty"`
+	DisplayName       string   `json:"displayName,omitempty"`
+	Window            string   `json:"window,omitempty"`
+	RemainingFraction *float64 `json:"remainingFraction,omitempty"`
+	ResetTime         string   `json:"resetTime,omitempty"`
+	Description       string   `json:"description,omitempty"`
 }
 
 // UserQuotaGroup 用户配额摘要中的一个分组。

@@ -167,6 +167,49 @@ func LookupModelLimit(modelID string) (modelLimit, bool) {
 	return best, found
 }
 
+// exposedModelIDs 是允许对外暴露的模型 ID 集合（小写）。
+//
+// 上游 fetchAvailableModels 会返回大量内部实验代号（例如
+// tab_jump_flash_lite_preview），直接透传会把它们当成正式模型名暴露给客户端，
+// 既容易误用也会随上游灰度随时消失。因此对外模型 = 静态目录 ∩ 上游返回，
+// 与 CLIProxyAPI 的 filterAntigravityModels 语义一致。
+var exposedModelIDs = func() map[string]struct{} {
+	ids := make(map[string]struct{})
+	add := func(list []modelDef) {
+		for _, m := range list {
+			ids[strings.ToLower(m.ID)] = struct{}{}
+		}
+	}
+	add(claudeModels)
+	add(geminiModels)
+	add(ossModels)
+	return ids
+}()
+
+// IsExposedModel 判断模型 ID 是否属于对外暴露的白名单。
+func IsExposedModel(modelID string) bool {
+	_, ok := exposedModelIDs[strings.ToLower(strings.TrimSpace(modelID))]
+	return ok
+}
+
+// FilterExposedModels 从上游返回的模型表中只保留白名单内的条目。
+//
+// 返回的 map 是新 map，不修改入参。上游若返回白名单之外的 ID（内部实验代号），
+// 会被丢弃；白名单里但上游没返回的模型也不会凭空出现。
+func FilterExposedModels(models map[string]ModelInfo) map[string]ModelInfo {
+	if len(models) == 0 {
+		return models
+	}
+	filtered := make(map[string]ModelInfo, len(models))
+	for id, info := range models {
+		if !IsExposedModel(id) {
+			continue
+		}
+		filtered[id] = info
+	}
+	return filtered
+}
+
 // MaxCompletionTokensFor 返回模型允许的最大输出 tokens。
 // 未知模型回落到历史默认值，避免改变既有行为。
 func MaxCompletionTokensFor(modelID string) int {

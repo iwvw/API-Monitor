@@ -193,6 +193,11 @@ var geminiModels = []modelDef{
 	{ID: "gemini-3.6-flash-tiered", DisplayName: "Gemini 3.6 Flash", CreatedAt: "2026-07-21T00:00:00Z", IsReasoning: true},
 	{ID: "gemini-3-pro-preview", DisplayName: "Gemini 3 Pro Preview", CreatedAt: "2025-06-01T00:00:00Z", IsReasoning: true},
 	{ID: "gemini-3-pro-image", DisplayName: "Gemini 3 Pro Image", CreatedAt: "2025-06-01T00:00:00Z"},
+	// 以下为历史/实验档位：上游 registry 未登记，但存量调用里出现过，
+	// 保留在目录内以免升级后突然从模型列表消失。
+	{ID: "gemini-3.8-flash-tiered", DisplayName: "Gemini 3.8 Flash (Tiered)", CreatedAt: "2026-09-01T00:00:00Z", IsReasoning: true},
+	{ID: "gemini-3-flash-preview", DisplayName: "Gemini 3 Flash Preview", CreatedAt: "2025-06-01T00:00:00Z"},
+	{ID: "gemini-3.1-flash-lite-preview", DisplayName: "Gemini 3.1 Flash Lite Preview", CreatedAt: "2026-02-19T00:00:00Z"},
 }
 
 // Antigravity 上的非 Claude/Gemini 系模型（同一上游、同一协议）。

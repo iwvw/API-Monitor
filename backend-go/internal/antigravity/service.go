@@ -801,6 +801,9 @@ func (s *Service) attemptClaudeForward(ctx context.Context, w http.ResponseWrite
 }
 
 // FetchModels 用指定账号从上游拉取模型列表。
+//
+// 返回值已按静态目录取交集：上游 fetchAvailableModels 会把内部实验代号
+// （tab_jump_flash_lite_preview 之类）一起返回，直接对外暴露会被误当成正式模型。
 func (s *Service) FetchModels(ctx context.Context, email string) (map[string]engineag.ModelInfo, error) {
 	acc := s.findAccount(email)
 	if acc == nil {
@@ -819,7 +822,7 @@ func (s *Service) FetchModels(ctx context.Context, email string) (map[string]eng
 	if err != nil {
 		return nil, err
 	}
-	return models.Models, nil
+	return engineag.FilterExposedModels(models.Models), nil
 }
 
 // QuotaView 是账号配额摘要的归一化展示结构。
@@ -1069,8 +1072,11 @@ func (s *Service) quotaMonitorOnceNow(ctx context.Context) {
 		}
 		for _, g := range view.Groups {
 			for _, b := range g.Buckets {
+				if b.RemainingFraction == nil {
+					continue
+				}
 				key := acc.Email + "\x00" + b.Window + "\x00" + b.DisplayName
-				now[key] = b.RemainingFraction
+				now[key] = *b.RemainingFraction
 			}
 		}
 	}
