@@ -53,11 +53,16 @@ func (p GeminiPart) MarshalJSON() ([]byte, error) {
 	if err != nil || !p.forceEmptyText {
 		return raw, err
 	}
-	var fields map[string]any
+	// 常见路径：边界归一化补的空文本 part 只有 text 一个字段。
+	if raw[0] == '{' && len(raw) == 2 {
+		return []byte(`{"text":""}`), nil
+	}
+	// 兜底：该 part 还带了其它字段时，只补 text 键，不能丢掉它们。
+	var fields map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &fields); err != nil {
 		return raw, err
 	}
-	fields["text"] = ""
+	fields["text"] = json.RawMessage(`""`)
 	return json.Marshal(fields)
 }
 

@@ -84,6 +84,24 @@ func TestNormalizeContentsBoundaryGeminiPrependsUserTurn(t *testing.T) {
 	}
 }
 
+func TestNormalizeContentsBoundaryAssistantAliasCountsAsModel(t *testing.T) {
+	// 角色别名 "assistant" 也是模型侧：首轮是它时必须同样补 user turn，
+	// 否则首尾归一化会被别名绕过。
+	contents := []GeminiContent{
+		{Role: "assistant", Parts: []GeminiPart{{Text: "a"}}},
+	}
+	got := normalizeContentsBoundary(contents, true)
+	if len(got) != 3 {
+		t.Fatalf("expected leading+synthetic trailing user turns for assistant alias, got %d turns", len(got))
+	}
+	if got[0].Role != "user" {
+		t.Fatalf("leading role = %q, want user", got[0].Role)
+	}
+	if got[2].Role != "user" {
+		t.Fatalf("trailing role = %q, want user", got[2].Role)
+	}
+}
+
 func TestNormalizeContentsBoundaryClaudeSkipsSyntheticTurn(t *testing.T) {
 	// Claude 系上游适配层拒绝空文本 part，因此只丢弃尾部纯思考 turn，不补空 turn。
 	contents := []GeminiContent{

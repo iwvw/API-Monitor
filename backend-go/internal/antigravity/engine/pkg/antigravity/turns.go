@@ -98,7 +98,7 @@ func syntheticEmptyUserTurn() GeminiContent {
 
 // ensureLeadingUserTurn 保证 contents 以 user turn 开头。
 func ensureLeadingUserTurn(contents []GeminiContent) []GeminiContent {
-	if len(contents) == 0 || contents[0].Role != "model" {
+	if len(contents) == 0 || !isModelRole(contents[0].Role) {
 		return contents
 	}
 	return append([]GeminiContent{syntheticEmptyUserTurn()}, contents...)
