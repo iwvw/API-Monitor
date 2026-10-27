@@ -30,7 +30,6 @@ const NodeTableDDL = `CREATE TABLE IF NOT EXISTS managed_proxy_nodes (
 	client_uri_encrypted TEXT NOT NULL,
 	revision INTEGER NOT NULL DEFAULT 1,
 	enabled INTEGER NOT NULL DEFAULT 1,
-	stable INTEGER NOT NULL DEFAULT 0,
 	publishable INTEGER NOT NULL DEFAULT 0,
 	apply_status TEXT NOT NULL DEFAULT 'pending',
 	last_error TEXT NOT NULL DEFAULT '',
@@ -66,7 +65,6 @@ var nodeColumnMigrations = []struct {
 	{"observed_port", "ALTER TABLE managed_proxy_nodes ADD COLUMN observed_port INTEGER NOT NULL DEFAULT 0"},
 	{"observed_at", "ALTER TABLE managed_proxy_nodes ADD COLUMN observed_at TEXT"},
 	{"health_status", "ALTER TABLE managed_proxy_nodes ADD COLUMN health_status TEXT NOT NULL DEFAULT 'unknown'"},
-	{"stable", "ALTER TABLE managed_proxy_nodes ADD COLUMN stable INTEGER NOT NULL DEFAULT 0"},
 }
 
 func EnsureNodeColumns(ctx context.Context, db *sql.DB) error {
@@ -85,6 +83,12 @@ func EnsureNodeColumns(ctx context.Context, db *sql.DB) error {
 	}
 	if err := rebuildNodeProtocolConstraint(ctx, db); err != nil {
 		return err
+	}
+	// 稳定节点标记已下线：清理历史库中残留的列。
+	if columns["stable"] {
+		if _, err := db.ExecContext(ctx, `ALTER TABLE managed_proxy_nodes DROP COLUMN stable`); err != nil {
+			return fmt.Errorf("drop managed proxy node stable: %w", err)
+		}
 	}
 	return nil
 }
@@ -134,7 +138,7 @@ func rebuildNodeProtocolConstraint(ctx context.Context, db *sql.DB) error {
 	ordered := []string{
 		"id", "server_id", "name", "protocol", "runtime", "public_host", "assigned_port",
 		"stats_port", "transport", "config_encrypted", "client_uri_encrypted", "revision",
-		"enabled", "stable", "publishable", "apply_status", "last_error", "observed_status",
+		"enabled", "publishable", "apply_status", "last_error", "observed_status",
 		"observed_revision", "observed_port", "observed_at", "health_status", "access_mode",
 		"tunnel_path", "preferred_address_id", "connect_address", "connect_port",
 		"tunnel_hostname", "created_at", "updated_at",

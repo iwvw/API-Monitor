@@ -206,7 +206,7 @@ func TestTableColumns(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, expected := range []string{"id", "server_id", "name", "protocol", "stats_port", "access_mode", "stable", "updated_at"} {
+	for _, expected := range []string{"id", "server_id", "name", "protocol", "stats_port", "access_mode", "updated_at"} {
 		if !columns[expected] {
 			t.Fatalf("column %s missing: %v", expected, columns)
 		}

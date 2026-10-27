@@ -149,32 +149,13 @@ func proxiesYAML(nodes []Node, indent int) string {
 	return strings.Join(lines, "\n")
 }
 
-func proxyNamesYAML(nodes []Node, stableOnly bool, indent int) string {
+func proxyNamesYAML(nodes []Node, indent int) string {
 	lines := []string{}
 	for _, node := range nodes {
-		if !node.Enabled || (stableOnly && !node.Stable) {
+		if !node.Enabled {
 			continue
 		}
 		lines = append(lines, yamlStringListItem(node.Name, indent))
-	}
-	if stableOnly && len(lines) == 0 {
-		lines = append(lines, yamlStringListItem("🚀 手动", indent))
-	}
-	if len(lines) == 0 {
-		lines = append(lines, yamlStringListItem("DIRECT", indent))
-	}
-	return strings.Join(lines, "\n")
-}
-
-func stableProxyNamesYAML(nodes []Node, indent int) string {
-	lines := []string{}
-	seen := map[string]bool{}
-	for _, node := range nodes {
-		if !node.Enabled || !node.Stable || seen[node.Name] {
-			continue
-		}
-		lines = append(lines, yamlStringListItem(node.Name, indent))
-		seen[node.Name] = true
 	}
 	if len(lines) == 0 {
 		lines = append(lines, yamlStringListItem("DIRECT", indent))

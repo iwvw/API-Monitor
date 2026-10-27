@@ -32,8 +32,8 @@ func (s *Service) updateNode(w http.ResponseWriter, r *http.Request, db *sql.DB,
 	// subscription_nodes are imported external nodes by definition. Internal
 	// nodes live in managed_proxy_nodes and cannot be converted by editing.
 	ownership, management, reporting, trafficServerID := "external", "unmanaged", "unavailable", ""
-	_, err := db.ExecContext(r.Context(), `UPDATE subscription_nodes SET name = ?, type = ?, server = ?, port = ?, country_code = ?, location = ?, tags = ?, traffic_server_id = ?, ownership = ?, management = ?, traffic_reporting = ?, enabled = ?, stable = ?, sort_order = ?, raw_encrypted = CASE WHEN ? = '' THEN raw_encrypted ELSE ? END, config_encrypted = CASE WHEN ? = '' THEN config_encrypted ELSE ? END, updated_at = datetime('now') WHERE id = ?`,
-		node.Name, node.Type, node.Server, node.Port, node.CountryCode, node.Location, node.Tags, nullString(trafficServerID), ownership, management, reporting, boolToInt(node.Enabled), boolToInt(node.Stable), node.SortOrder, node.Raw, rawEnc, node.ConfigJSON, cfgEnc, id)
+	_, err := db.ExecContext(r.Context(), `UPDATE subscription_nodes SET name = ?, type = ?, server = ?, port = ?, country_code = ?, location = ?, tags = ?, traffic_server_id = ?, ownership = ?, management = ?, traffic_reporting = ?, enabled = ?, sort_order = ?, raw_encrypted = CASE WHEN ? = '' THEN raw_encrypted ELSE ? END, config_encrypted = CASE WHEN ? = '' THEN config_encrypted ELSE ? END, updated_at = datetime('now') WHERE id = ?`,
+		node.Name, node.Type, node.Server, node.Port, node.CountryCode, node.Location, node.Tags, nullString(trafficServerID), ownership, management, reporting, boolToInt(node.Enabled), node.SortOrder, node.Raw, rawEnc, node.ConfigJSON, cfgEnc, id)
 	if err != nil {
 		response.Error(w, http.StatusInternalServerError, err.Error())
 		return

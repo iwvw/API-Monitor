@@ -157,7 +157,6 @@ func ensureSchema(ctx context.Context, db *sql.DB) error {
 			management TEXT DEFAULT 'unmanaged',
 			traffic_reporting TEXT DEFAULT 'unavailable',
 			enabled INTEGER DEFAULT 1,
-			stable INTEGER DEFAULT 0,
 			sort_order INTEGER DEFAULT 0,
 			raw_encrypted TEXT,
 			config_encrypted TEXT,
@@ -313,6 +312,10 @@ func ensureSchema(ctx context.Context, db *sql.DB) error {
 	if err := backfillSubscriptionCredentials(ctx, db); err != nil {
 		return err
 	}
+	// 稳定节点标记已下线：清理历史库中残留的列（全新库无需此列）。
+	if err := dropColumn(ctx, db, "subscription_nodes", "stable"); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -402,6 +405,23 @@ func migratePlanNodeRelations(ctx context.Context, db *sql.DB) error {
 		}
 	}
 	return tx.Commit()
+}
+
+// dropColumn removes a legacy column when present on existing databases.
+// SQLite has no "DROP COLUMN IF EXISTS", so it inspects first and only
+// issues the ALTER when the column is actually present.
+func dropColumn(ctx context.Context, db *sql.DB, tableName, columnName string) error {
+	exists, err := schemaColumnExists(ctx, db, tableName, columnName)
+	if err != nil {
+		return err
+	}
+	if !exists {
+		return nil
+	}
+	if _, err := db.ExecContext(ctx, `ALTER TABLE `+tableName+` DROP COLUMN `+columnName); err != nil {
+		return fmt.Errorf("drop %s.%s: %w", tableName, columnName, err)
+	}
+	return nil
 }
 
 func ensureColumn(ctx context.Context, db *sql.DB, tableName, columnName, alterSQL string) error {

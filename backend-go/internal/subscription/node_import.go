@@ -145,9 +145,9 @@ func insertNode(ctx context.Context, tx *sql.Tx, node Node) error {
 	if ownership != "self" {
 		trafficServerID = ""
 	}
-	_, err = tx.ExecContext(ctx, `INSERT INTO subscription_nodes (id, subscription_id, profile_id, name, type, server, port, country_code, location, tags, traffic_server_id, ownership, management, traffic_reporting, enabled, stable, sort_order, raw_encrypted, config_encrypted, fingerprint, source, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
-		node.ID, node.SubscriptionID, node.ProfileID, node.Name, node.Type, node.Server, node.Port, node.CountryCode, node.Location, node.Tags, nullString(trafficServerID), ownership, management, reporting, boolToInt(node.Enabled || !strings.EqualFold(node.Name, "__disabled__")), boolToInt(node.Stable), node.SortOrder, rawEnc, cfgEnc, fingerprint, firstNonEmpty(node.Source, "manual"))
+	_, err = tx.ExecContext(ctx, `INSERT INTO subscription_nodes (id, subscription_id, profile_id, name, type, server, port, country_code, location, tags, traffic_server_id, ownership, management, traffic_reporting, enabled, sort_order, raw_encrypted, config_encrypted, fingerprint, source, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
+		node.ID, node.SubscriptionID, node.ProfileID, node.Name, node.Type, node.Server, node.Port, node.CountryCode, node.Location, node.Tags, nullString(trafficServerID), ownership, management, reporting, boolToInt(node.Enabled || !strings.EqualFold(node.Name, "__disabled__")), node.SortOrder, rawEnc, cfgEnc, fingerprint, firstNonEmpty(node.Source, "manual"))
 	return err
 }
 
@@ -187,7 +187,6 @@ func replaceImportedNodes(ctx context.Context, tx *sql.Tx, profileID, source str
 		if matched && !seenIDs[current.ID] {
 			node.ID = current.ID
 			node.Enabled = current.Enabled
-			node.Stable = current.Stable
 			if err := updateImportedNode(ctx, tx, node, source, fingerprint); err != nil {
 				return err
 			}
@@ -221,7 +220,7 @@ func loadReplaceCandidates(ctx context.Context, tx *sql.Tx, profileID, source st
 	}
 	rows, err := tx.QueryContext(ctx, `SELECT id,subscription_id,COALESCE(profile_id,subscription_id),name,
 		COALESCE(type,''),COALESCE(server,''),COALESCE(port,0),COALESCE(country_code,''),COALESCE(location,''),
-		COALESCE(tags,''),enabled,stable,sort_order,COALESCE(fingerprint,'')
+		COALESCE(tags,''),enabled,sort_order,COALESCE(fingerprint,'')
 		FROM subscription_nodes WHERE COALESCE(profile_id,subscription_id)=? AND `+sourceClause, profileID)
 	if err != nil {
 		return nil, err
@@ -230,13 +229,12 @@ func loadReplaceCandidates(ctx context.Context, tx *sql.Tx, profileID, source st
 	items := []Node{}
 	for rows.Next() {
 		var node Node
-		var enabled, stable int
+		var enabled int
 		var fingerprint string
-		if err := rows.Scan(&node.ID, &node.SubscriptionID, &node.ProfileID, &node.Name, &node.Type, &node.Server, &node.Port, &node.CountryCode, &node.Location, &node.Tags, &enabled, &stable, &node.SortOrder, &fingerprint); err != nil {
+		if err := rows.Scan(&node.ID, &node.SubscriptionID, &node.ProfileID, &node.Name, &node.Type, &node.Server, &node.Port, &node.CountryCode, &node.Location, &node.Tags, &enabled, &node.SortOrder, &fingerprint); err != nil {
 			return nil, err
 		}
 		node.Enabled = enabled == 1
-		node.Stable = stable == 1
 		items = append(items, node)
 	}
 	return items, rows.Err()
@@ -252,10 +250,10 @@ func updateImportedNode(ctx context.Context, tx *sql.Tx, node Node, source, fing
 		return err
 	}
 	_, err = tx.ExecContext(ctx, `UPDATE subscription_nodes SET subscription_id=?,profile_id=?,name=?,type=?,server=?,port=?,country_code=?,location=?,tags=?,
-		traffic_server_id=NULL,ownership='external',management='unmanaged',traffic_reporting='unavailable',enabled=?,stable=?,sort_order=?,
+		traffic_server_id=NULL,ownership='external',management='unmanaged',traffic_reporting='unavailable',enabled=?,sort_order=?,
 		raw_encrypted=?,config_encrypted=?,fingerprint=?,source=?,updated_at=datetime('now') WHERE id=?`,
 		node.SubscriptionID, node.ProfileID, node.Name, node.Type, node.Server, node.Port, node.CountryCode, node.Location, node.Tags,
-		boolToInt(node.Enabled), boolToInt(node.Stable), node.SortOrder, rawEnc, cfgEnc, fingerprint, source, node.ID)
+		boolToInt(node.Enabled), node.SortOrder, rawEnc, cfgEnc, fingerprint, source, node.ID)
 	return err
 }
 
@@ -300,7 +298,6 @@ func mergeManagedNodes(ctx context.Context, tx *sql.Tx, profileID string, incomi
 			node.Tags = firstNonEmpty(current.Tags, node.Tags)
 			node.TrafficServerID = current.TrafficServerID
 			node.Enabled = current.Enabled
-			node.Stable = current.Stable
 			node.SortOrder = current.SortOrder
 			if err := updateManagedNode(ctx, tx, node, fingerprint); err != nil {
 				return err
@@ -324,7 +321,7 @@ func mergeManagedNodes(ctx context.Context, tx *sql.Tx, profileID string, incomi
 }
 
 func loadManagedNodeFingerprints(ctx context.Context, tx *sql.Tx, profileID string) (map[string]Node, error) {
-	rows, err := tx.QueryContext(ctx, `SELECT id, subscription_id, COALESCE(profile_id, subscription_id), name, COALESCE(type, ''), COALESCE(server, ''), COALESCE(port, 0), COALESCE(country_code, ''), COALESCE(location, ''), COALESCE(tags, ''), COALESCE(traffic_server_id, ''), enabled, stable, sort_order, COALESCE(fingerprint, '')
+	rows, err := tx.QueryContext(ctx, `SELECT id, subscription_id, COALESCE(profile_id, subscription_id), name, COALESCE(type, ''), COALESCE(server, ''), COALESCE(port, 0), COALESCE(country_code, ''), COALESCE(location, ''), COALESCE(tags, ''), COALESCE(traffic_server_id, ''), enabled, sort_order, COALESCE(fingerprint, '')
 		FROM subscription_nodes
 		WHERE COALESCE(profile_id, subscription_id) = ? AND source IN ('managed', 'upstream')`, profileID)
 	if err != nil {
@@ -334,13 +331,12 @@ func loadManagedNodeFingerprints(ctx context.Context, tx *sql.Tx, profileID stri
 	nodes := map[string]Node{}
 	for rows.Next() {
 		var node Node
-		var enabled, stable int
+		var enabled int
 		var fingerprint string
-		if err := rows.Scan(&node.ID, &node.SubscriptionID, &node.ProfileID, &node.Name, &node.Type, &node.Server, &node.Port, &node.CountryCode, &node.Location, &node.Tags, &node.TrafficServerID, &enabled, &stable, &node.SortOrder, &fingerprint); err != nil {
+		if err := rows.Scan(&node.ID, &node.SubscriptionID, &node.ProfileID, &node.Name, &node.Type, &node.Server, &node.Port, &node.CountryCode, &node.Location, &node.Tags, &node.TrafficServerID, &enabled, &node.SortOrder, &fingerprint); err != nil {
 			return nil, err
 		}
 		node.Enabled = enabled == 1
-		node.Stable = stable == 1
 		stableFingerprint := nodeFingerprint(node)
 		if fingerprint != "" {
 			nodes[fingerprint] = node
@@ -365,8 +361,8 @@ func updateManagedNode(ctx context.Context, tx *sql.Tx, node Node, fingerprint s
 	if err != nil {
 		return err
 	}
-	_, err = tx.ExecContext(ctx, `UPDATE subscription_nodes SET subscription_id = ?, profile_id = ?, name = ?, type = ?, server = ?, port = ?, country_code = ?, location = ?, tags = ?, traffic_server_id = ?, enabled = ?, stable = ?, sort_order = ?, raw_encrypted = CASE WHEN ? = '' THEN raw_encrypted ELSE ? END, config_encrypted = CASE WHEN ? = '' THEN config_encrypted ELSE ? END, fingerprint = ?, source = 'managed', updated_at = datetime('now') WHERE id = ?`,
-		node.SubscriptionID, node.ProfileID, node.Name, node.Type, node.Server, node.Port, node.CountryCode, node.Location, node.Tags, nullString(node.TrafficServerID), boolToInt(node.Enabled), boolToInt(node.Stable), node.SortOrder, node.Raw, rawEnc, node.ConfigJSON, cfgEnc, fingerprint, node.ID)
+	_, err = tx.ExecContext(ctx, `UPDATE subscription_nodes SET subscription_id = ?, profile_id = ?, name = ?, type = ?, server = ?, port = ?, country_code = ?, location = ?, tags = ?, traffic_server_id = ?, enabled = ?, sort_order = ?, raw_encrypted = CASE WHEN ? = '' THEN raw_encrypted ELSE ? END, config_encrypted = CASE WHEN ? = '' THEN config_encrypted ELSE ? END, fingerprint = ?, source = 'managed', updated_at = datetime('now') WHERE id = ?`,
+		node.SubscriptionID, node.ProfileID, node.Name, node.Type, node.Server, node.Port, node.CountryCode, node.Location, node.Tags, nullString(node.TrafficServerID), boolToInt(node.Enabled), node.SortOrder, node.Raw, rawEnc, node.ConfigJSON, cfgEnc, fingerprint, node.ID)
 	return err
 }
 

@@ -6,7 +6,7 @@ import { Table } from '@cloudflare/kumo/components/table';
 import { Badge, Tabs } from '@cloudflare/kumo';
 import { AppTable, DataTableFrame, SectionCard } from '../../components/ui/AppPrimitives.jsx';
 import { TOOL_TABS_PROPS } from '../../modules/kumoTabs.js';
-import { Download, Edit, Plus, Star, Trash } from '../../components/Icons.jsx';
+import { Download, Edit, Plus, Trash } from '../../components/Icons.jsx';
 import { NODE_COLUMNS } from './constants.js';
 import { latencyChipClass, managedNodeState, nodeEndpoint, nodeNetworkTagClass, nodeNetworkTags, nodeTypeBadgeVariant } from './utils.js';
 import { NodeFlag, NodeHostQuality } from './components.jsx';
@@ -52,7 +52,7 @@ export default function NodesPanel({
               const confirmingDelete = isArmed(deleteConfirmKey);
               return <Table.Row key={node.id} onDoubleClick={() => onEditInternalNode(node)} className="cursor-pointer">
                 <Table.Cell className="text-center"><Switch size="sm" aria-label={node.enabled ? '停用内部节点' : '启用内部节点'} checked={!!node.enabled} onCheckedChange={(checked) => onToggleInternalNodeEnabled(node, checked)} /></Table.Cell>
-                <Table.Cell><div className="flex min-w-0 items-center gap-1.5 truncate text-sm font-semibold text-kumo-strong">{node.stable && <Star className="h-3.5 w-3.5 shrink-0 text-kumo-warning" />}{node.name}{node.stable && <Badge variant="success">稳定</Badge>}</div>{!node.publishable && (() => { const [stateLabel, stateVariant] = managedNodeState(node); return <div className="mt-1"><Badge variant={stateVariant}>{stateLabel}</Badge></div>; })()}</Table.Cell>
+                <Table.Cell><div className="flex min-w-0 items-center gap-1.5 truncate text-sm font-semibold text-kumo-strong">{node.name}</div>{!node.publishable && (() => { const [stateLabel, stateVariant] = managedNodeState(node); return <div className="mt-1"><Badge variant={stateVariant}>{stateLabel}</Badge></div>; })()}</Table.Cell>
                 <Table.Cell className="text-center"><Badge variant={nodeTypeBadgeVariant(protocol)} className="uppercase">{node.protocol === 'vless-reality' ? 'VLESS' : node.protocol === 'hysteria2' ? 'HYSTERIA2' : node.protocol === 'socks' ? 'SOCKS5' : node.protocol === 'http' ? 'HTTP' : String(node.protocol || 'UNKNOWN').toUpperCase()}</Badge></Table.Cell>
                 <Table.Cell><div className="truncate font-mono text-xs text-kumo-strong">{displayHost}:{displayPort}</div><div className="mt-1 flex min-w-0 flex-nowrap items-center gap-1 overflow-x-auto scrollbar-none">{connectionTags.map((tag) => <span key={tag} className={`${tag === node.runtime ? 'hidden cq-sm:inline-flex' : 'inline-flex'} shrink-0 rounded-[3px] border px-1.5 py-0.5 font-mono text-[10px] leading-4 ${nodeNetworkTagClass({ key: tag === 'tls' ? 'tls' : 'network', tone: tag })}`}>{tag}</span>)}</div></Table.Cell>
                 <Table.Cell>{server?.status === 'online' ? <NodeHostQuality node={{ ...node, traffic_server_id: node.server_id }} serverNameById={serverNameById} /> : <div className="flex min-w-0 flex-col items-start gap-1"><span className="inline-flex max-w-full rounded-[3px] border border-kumo-info/25 bg-kumo-info/10 px-1.5 py-0.5 text-[10px] font-semibold leading-4 text-kumo-info"><span className="truncate">{server?.name || node.server_name || node.server_id}</span></span><span className={`inline-flex rounded-[3px] border px-1.5 py-0.5 text-[10px] font-semibold leading-4 ${latencyChipClass(0)}`}>主机离线</span></div>}</Table.Cell>
@@ -124,9 +124,7 @@ export default function NodesPanel({
                   <Table.Cell>
                     <div className="flex min-w-0 items-center gap-1.5 truncate text-sm font-semibold text-kumo-strong">
                       <NodeFlag node={node} />
-                      {node.stable && <Star className="h-3.5 w-3.5 shrink-0 text-kumo-warning" />}
                       <span className="truncate">{node.name}</span>
-                      {node.stable && <Badge variant="success">稳定</Badge>}
                     </div>
                   </Table.Cell>
                   <Table.Cell className="text-center">

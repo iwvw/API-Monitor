@@ -66,8 +66,7 @@ func renderTemplate(tpl string, sub Subscription, nodes []Node) string {
 		"{{ traffic.download }}":                   strconv.FormatInt(sub.Traffic.Download, 10),
 		"{{ traffic.total }}":                      strconv.FormatInt(sub.Traffic.Total, 10),
 		"{{ proxies_yaml }}":                       proxiesYAML(nodes, 2),
-		"{{ proxy_names_yaml | indent 6 }}":        proxyNamesYAML(nodes, false, 6),
-		"{{ stable_proxy_names_yaml | indent 6 }}": stableProxyNamesYAML(nodes, 6),
+		"{{ proxy_names_yaml | indent 6 }}":        proxyNamesYAML(nodes, 6),
 		"{{ raw_uri_list }}":                       rawURIList(nodes),
 	}
 	out := tpl

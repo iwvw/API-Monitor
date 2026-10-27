@@ -73,7 +73,6 @@ export function InternalNodeDialog({ open, onOpenChange, editingInternalNodeId, 
             {!editingInternalNodeId && (internalNodeForm.protocol === 'socks' || internalNodeForm.protocol === 'http') && <div className="flex min-h-8 items-center rounded-md border border-kumo-info/25 bg-kumo-info/10 px-3 text-xs text-kumo-subtle">SOCKS/HTTP 仅直连，无 TLS 加密。</div>}
             {!editingInternalNodeId && <Select alignItemWithTrigger size="sm" label="接入方式" value={internalNodeForm.access_mode || 'direct'} disabled={internalNodeForm.protocol === 'socks' || internalNodeForm.protocol === 'http'} onValueChange={(value) => setInternalNodeForm((prev) => ({ ...prev, access_mode: String(value) }))} items={[{ value: 'direct', label: '直连节点' }, { value: 'cloudflare_tunnel', label: 'Cloudflare Tunnel（VLESS WS）' }]} />}
             {internalNodeForm.access_mode === 'cloudflare_tunnel' && <Select alignItemWithTrigger size="sm" label="优选地址" value={internalNodeForm.preferred_address_id || ''} onValueChange={(value) => setInternalNodeForm((prev) => ({ ...prev, preferred_address_id: String(value) }))} items={[{ value: '', label: '继承默认地址' }, ...preferredAddresses.map((item) => ({ value: item.id, label: `${item.name} · ${item.address}` }))]} />}
-            <div className="flex min-h-8 items-center rounded-md border border-kumo-line bg-kumo-recessed/25 px-3 py-2"><Switch size="sm" label="稳定节点" controlFirst={false} checked={!!internalNodeForm.stable} onCheckedChange={(checked) => setInternalNodeForm((prev) => ({ ...prev, stable: checked }))} /></div>
           </div>
           </LayerDialog.Body>
           <LayerDialog.Actions dismissLabel="取消">
@@ -213,7 +212,6 @@ export function NodeDialog({ open, onOpenChange, nodeForm, setNodeForm, saving, 
                     <Input size="sm" label="排序" type="number" value={nodeForm.sort_order || 0} onChange={(e) => setNodeForm((prev) => ({ ...prev, sort_order: Number(e.target.value) || 0 }))} className="w-full min-w-0" />
                     <div className="grid min-h-8 min-w-0 gap-3 rounded-md border border-kumo-line bg-kumo-recessed/25 px-3 py-2 cq-sm:grid-cols-2">
                       <Switch size="sm" label="启用节点" controlFirst={false} checked={!!nodeForm.enabled} onCheckedChange={(checked) => setNodeForm((prev) => ({ ...prev, enabled: checked }))} />
-                      <Switch size="sm" label="稳定节点" controlFirst={false} checked={!!nodeForm.stable} onCheckedChange={(checked) => setNodeForm((prev) => ({ ...prev, stable: checked }))} />
                     </div>
                   </div>
                 </section>

@@ -67,7 +67,7 @@ export const RUNTIME_HOST_COLUMNS = [
   { id: 'actions', role: 'actions-xl', width: 320 },
 ];
 
-export const emptyInternalNodeForm = { server_id: '', name: '', protocol: 'vless-reality', access_mode: 'direct', preferred_address_id: '', public_host: '', server_name: 'www.cloudflare.com', certificate_pem: '', private_key_pem: '', enabled: true, stable: false };
+export const emptyInternalNodeForm = { server_id: '', name: '', protocol: 'vless-reality', access_mode: 'direct', preferred_address_id: '', public_host: '', server_name: 'www.cloudflare.com', certificate_pem: '', private_key_pem: '', enabled: true };
 
 export const emptySubscriptionForm = {
   plan_id: '',
@@ -102,7 +102,6 @@ export const emptyNodeForm = {
   management: 'unmanaged',
   traffic_reporting: 'unavailable',
   enabled: true,
-  stable: false,
   sort_order: 0,
   raw: '',
   config_json: '',

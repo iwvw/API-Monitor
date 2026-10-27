@@ -568,7 +568,7 @@ function SubscriptionPage() {
       const res = await fetch(`${INTERNAL_API}/${editingInternalNodeId}`, {
         method: 'PUT',
         headers: getAuthHeaders(),
-        body: JSON.stringify({ name: internalNodeForm.name.trim(), stable: !!internalNodeForm.stable, preferred_address_id: internalNodeForm.preferred_address_id || '', connect_address: '', connect_port: 0 }),
+        body: JSON.stringify({ name: internalNodeForm.name.trim(), preferred_address_id: internalNodeForm.preferred_address_id || '', connect_address: '', connect_port: 0 }),
       });
       const data = await res.json();
       if (!res.ok || data.success === false) throw new Error(data.error || data.message || '保存失败');

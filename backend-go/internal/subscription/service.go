@@ -144,7 +144,6 @@ type Node struct {
 	Management       string           `json:"management"`
 	TrafficReporting string           `json:"traffic_reporting"`
 	Enabled          bool             `json:"enabled"`
-	Stable           bool             `json:"stable"`
 	SortOrder        int              `json:"sort_order"`
 	Raw              string           `json:"raw,omitempty"`
 	ConfigJSON       string           `json:"config_json,omitempty"`

@@ -74,9 +74,6 @@ func TestManagedSubscriptionNodesApplyPreferredAddress(t *testing.T) {
 	if !strings.Contains(nodes[0].Raw, "sni=origin.example.com") {
 		t.Fatalf("Tunnel SNI must remain owned hostname: %s", nodes[0].Raw)
 	}
-	if nodes[0].Stable {
-		t.Fatal("managed nodes must not enter the stable group without an explicit stability policy")
-	}
 }
 
 func TestResetTokenRotatesNodeCredentialsAndQueuesRuntimeSync(t *testing.T) {
@@ -851,32 +848,29 @@ proxies:
 
 func TestStableProxyNamesOnlyIncludesExplicitStableNodes(t *testing.T) {
 	nodes := []Node{
-		{Name: "🇺🇸 洛杉矶", Enabled: true, Stable: true},
-		{Name: "🇯🇵 日本", Enabled: true, Stable: false},
+		{Name: "🇺🇸 洛杉矶", Enabled: true},
+		{Name: "🇯🇵 日本", Enabled: true},
 	}
 
-	body := stableProxyNamesYAML(nodes, 0)
+	body := proxyNamesYAML(nodes, 0)
 	var names []string
 	if err := yaml.Unmarshal([]byte(strings.TrimSpace(body)), &names); err != nil {
-		t.Fatalf("stable proxy names should parse: %v\n%s", err, body)
+		t.Fatalf("proxy names should parse: %v\n%s", err, body)
 	}
 	joined := strings.Join(names, "\n")
-	if !strings.Contains(joined, "🇺🇸 洛杉矶") {
-		t.Fatalf("stable node missing from stable proxy names: %#v", names)
-	}
-	if strings.Contains(joined, "🇯🇵 日本") {
-		t.Fatalf("non-stable node should not be in stable proxy names:\n%s", body)
+	if !strings.Contains(joined, "🇺🇸 洛杉矶") || !strings.Contains(joined, "🇯🇵 日本") {
+		t.Fatalf("all enabled nodes should be listed: %#v", names)
 	}
 }
 
-func TestStableProxyNamesFallsBackToDirect(t *testing.T) {
-	body := stableProxyNamesYAML([]Node{{Name: "普通节点", Enabled: true}}, 0)
+func TestProxyNamesFallsBackToDirect(t *testing.T) {
+	body := proxyNamesYAML([]Node{{Name: "普通节点", Enabled: false}}, 0)
 	var names []string
 	if err := yaml.Unmarshal([]byte(strings.TrimSpace(body)), &names); err != nil {
-		t.Fatalf("stable proxy names should parse: %v\n%s", err, body)
+		t.Fatalf("proxy names should parse: %v\n%s", err, body)
 	}
 	if len(names) != 1 || names[0] != "DIRECT" {
-		t.Fatalf("stable group without explicitly stable nodes = %#v, want DIRECT", names)
+		t.Fatalf("empty group should be DIRECT, got %#v", names)
 	}
 }
 
@@ -953,7 +947,7 @@ func TestEnsureSchemaMigratesLegacySubscriptionsToProfiles(t *testing.T) {
 			location TEXT,
 			tags TEXT,
 			enabled INTEGER DEFAULT 1,
-			stable INTEGER DEFAULT 0,
+
 			sort_order INTEGER DEFAULT 0,
 			raw_encrypted TEXT,
 			config_encrypted TEXT,
@@ -2072,7 +2066,7 @@ func TestRefreshUpstreamPreservesBoundNodeProperties(t *testing.T) {
 	if err := tx.Commit(); err != nil {
 		t.Fatalf("commit tx: %v", err)
 	}
-	if _, err := db.ExecContext(ctx, `UPDATE subscription_nodes SET name = '自定义香港', country_code = 'SG', location = '自定义地区', tags = 'stable,premium', traffic_server_id = 'server_one', enabled = 0, stable = 1, sort_order = 7 WHERE id = 'node_existing'`); err != nil {
+	if _, err := db.ExecContext(ctx, `UPDATE subscription_nodes SET name = '自定义香港', country_code = 'SG', location = '自定义地区', tags = 'stable,premium', traffic_server_id = 'server_one', enabled = 0, sort_order = 7 WHERE id = 'node_existing'`); err != nil {
 		t.Fatalf("customize node: %v", err)
 	}
 
@@ -2088,7 +2082,7 @@ func TestRefreshUpstreamPreservesBoundNodeProperties(t *testing.T) {
 		t.Fatalf("len(nodes) = %d, want 1", len(loaded))
 	}
 	node := loaded[0]
-	if node.ID != "node_existing" || node.Name != "自定义香港" || node.TrafficServerID != "server_one" || node.Enabled || !node.Stable || node.SortOrder != 7 {
+	if node.ID != "node_existing" || node.Name != "自定义香港" || node.TrafficServerID != "server_one" || node.Enabled || node.SortOrder != 7 {
 		t.Fatalf("node local fields not preserved: %#v", node)
 	}
 	if node.CountryCode != "SG" || node.Location != "自定义地区" || node.Tags != "stable,premium" {

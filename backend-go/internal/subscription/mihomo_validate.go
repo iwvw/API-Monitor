@@ -24,7 +24,7 @@ func validateTemplateDefinition(format, content string) error {
 		return nil
 	}
 	fixtureNodes := preparePublishedNodes([]Node{
-		{Name: "模板验证节点", Type: "vless", Server: "node.example.com", Port: 443, ConfigJSON: `{"name":"模板验证节点","type":"vless","server":"node.example.com","port":443,"uuid":"00000000-0000-4000-8000-000000000001"}`, Enabled: true, Stable: true},
+		{Name: "模板验证节点", Type: "vless", Server: "node.example.com", Port: 443, ConfigJSON: `{"name":"模板验证节点","type":"vless","server":"node.example.com","port":443,"uuid":"00000000-0000-4000-8000-000000000001"}`, Enabled: true},
 	})
 	fixture := Subscription{Name: "模板验证", Traffic: TrafficInfo{Total: 1024}}
 	rendered := renderTemplate(content, fixture, fixtureNodes)

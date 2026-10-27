@@ -121,19 +121,19 @@ func subscriptionRequestURL(r *http.Request) string {
 }
 
 func loadManagedSubscriptionNodes(ctx context.Context, db *sql.DB, sub Subscription) ([]Node, error) {
-	rows, err := db.QueryContext(ctx, `SELECT id,server_id,name,protocol,public_host,assigned_port,client_uri_encrypted,COALESCE(access_mode,'direct'),COALESCE(preferred_address_id,''),COALESCE(connect_address,''),COALESCE(connect_port,0),COALESCE(tunnel_hostname,''),COALESCE(stable,0),created_at,updated_at FROM managed_proxy_nodes WHERE enabled=1 AND publishable=1 AND apply_status='running' ORDER BY created_at ASC`)
+	rows, err := db.QueryContext(ctx, `SELECT id,server_id,name,protocol,public_host,assigned_port,client_uri_encrypted,COALESCE(access_mode,'direct'),COALESCE(preferred_address_id,''),COALESCE(connect_address,''),COALESCE(connect_port,0),COALESCE(tunnel_hostname,''),created_at,updated_at FROM managed_proxy_nodes WHERE enabled=1 AND publishable=1 AND apply_status='running' ORDER BY created_at ASC`)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	type managedRow struct {
 		id, serverID, name, protocol, host, encrypted, accessMode, preferredID, connectAddress, tunnelHostname, createdAt, updatedAt string
-		port, connectPort, stable                                                                                                    int
+		port, connectPort                                                                                                             int
 	}
 	managedRows := []managedRow{}
 	for rows.Next() {
 		var item managedRow
-		if err := rows.Scan(&item.id, &item.serverID, &item.name, &item.protocol, &item.host, &item.port, &item.encrypted, &item.accessMode, &item.preferredID, &item.connectAddress, &item.connectPort, &item.tunnelHostname, &item.stable, &item.createdAt, &item.updatedAt); err != nil {
+		if err := rows.Scan(&item.id, &item.serverID, &item.name, &item.protocol, &item.host, &item.port, &item.encrypted, &item.accessMode, &item.preferredID, &item.connectAddress, &item.connectPort, &item.tunnelHostname, &item.createdAt, &item.updatedAt); err != nil {
 			return nil, err
 		}
 		managedRows = append(managedRows, item)
@@ -172,9 +172,6 @@ func loadManagedSubscriptionNodes(ctx context.Context, db *sql.DB, sub Subscript
 		node.TrafficServerID = item.serverID
 		node.Raw = raw
 		node.Enabled = true
-		// A running managed node is publishable, but that alone is not evidence
-		// that it belongs in the operator-curated stable group.
-		node.Stable = item.stable == 1
 		node.Ownership = "self"
 		node.Management = "agent"
 		node.TrafficReporting = "trusted"

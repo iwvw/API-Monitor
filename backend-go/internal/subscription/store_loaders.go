@@ -210,19 +210,18 @@ func loadNodes(ctx context.Context, db *sql.DB, subscriptionID string, decrypt b
 		where = "WHERE COALESCE(profile_id, subscription_id) = ?"
 		args = append(args, subscriptionID)
 	}
-	rows, err := db.QueryContext(ctx, `SELECT id, subscription_id, COALESCE(profile_id, subscription_id), name, COALESCE(type, ''), COALESCE(server, ''), COALESCE(port, 0), COALESCE(country_code, ''), COALESCE(location, ''), COALESCE(tags, ''), COALESCE(traffic_server_id, ''), COALESCE(ownership, 'external'), COALESCE(management, 'unmanaged'), COALESCE(traffic_reporting, 'unavailable'), enabled, stable, sort_order, COALESCE(raw_encrypted, ''), COALESCE(config_encrypted, ''), created_at, updated_at FROM subscription_nodes `+where+` ORDER BY COALESCE(profile_id, subscription_id) ASC, sort_order ASC, created_at ASC`, args...)
+	rows, err := db.QueryContext(ctx, `SELECT id, subscription_id, COALESCE(profile_id, subscription_id), name, COALESCE(type, ''), COALESCE(server, ''), COALESCE(port, 0), COALESCE(country_code, ''), COALESCE(location, ''), COALESCE(tags, ''), COALESCE(traffic_server_id, ''), COALESCE(ownership, 'external'), COALESCE(management, 'unmanaged'), COALESCE(traffic_reporting, 'unavailable'), enabled, sort_order, COALESCE(raw_encrypted, ''), COALESCE(config_encrypted, ''), created_at, updated_at FROM subscription_nodes `+where+` ORDER BY COALESCE(profile_id, subscription_id) ASC, sort_order ASC, created_at ASC`, args...)
 	if err != nil {
 		return nil, err
 	}
 	nodes := []Node{}
 	for rows.Next() {
 		var node Node
-		var enabled, stable int
-		if err := rows.Scan(&node.ID, &node.SubscriptionID, &node.ProfileID, &node.Name, &node.Type, &node.Server, &node.Port, &node.CountryCode, &node.Location, &node.Tags, &node.TrafficServerID, &node.Ownership, &node.Management, &node.TrafficReporting, &enabled, &stable, &node.SortOrder, &node.Raw, &node.ConfigJSON, &node.CreatedAt, &node.UpdatedAt); err != nil {
+		var enabled int
+		if err := rows.Scan(&node.ID, &node.SubscriptionID, &node.ProfileID, &node.Name, &node.Type, &node.Server, &node.Port, &node.CountryCode, &node.Location, &node.Tags, &node.TrafficServerID, &node.Ownership, &node.Management, &node.TrafficReporting, &enabled, &node.SortOrder, &node.Raw, &node.ConfigJSON, &node.CreatedAt, &node.UpdatedAt); err != nil {
 			return nil, err
 		}
 		node.Enabled = enabled == 1
-		node.Stable = stable == 1
 		if decrypt {
 			node.Raw = secure.SecureDecrypt(node.Raw)
 			node.ConfigJSON = secure.SecureDecrypt(node.ConfigJSON)
