@@ -9,7 +9,8 @@ API Monitor —— 自托管 API / 云资源 / 主机监控面板。前端 React
 - 装依赖：`npm install`；起前端+后端：`npm run dev`（Vite + `go run`，前端 `http://localhost:5173`）。
 - 前端单测：`npm test`（vitest，`test/`、`src/js/modules/**`、`src/js/components/**`、`src/js/pages/**` 下 `*.test.js`，node 环境）。单个文件：`npx vitest run test/<x>.test.js`。
 - Go 单测：`npm run backend-go:test`（= `cd backend-go && go test ./...`）。单包/单测：`cd backend-go && go test ./internal/<pkg>/ -run <Name> -v`。CI 用 `-p 1` 串行（并发包会在 Linux 撞 TempDir 句柄，非真失败，会自动重跑一次）。
-- 快速审计：`npm run audit:fast`（icons → governance:check → ui:governance → docs:check → lint → test）。完整审计：`npm run audit:full`（另含 Go 测试、路由清单、后端冒烟，需运行中的 Go 后端在 `API_MONITOR_BASE_URL` 或 `http://127.0.0.1:3000`）。
+- 快速审计：`npm run audit:fast`（`icons:generate` → `governance:check` → `ui:governance` → `kumo:registry:check` → `docs:check` → `lint` → `test`）。完整审计：`npm run audit:full`（另含 Go 测试、路由清单、后端冒烟，需运行中的 Go 后端在 `API_MONITOR_BASE_URL` 或 `http://127.0.0.1:3000`）。
+- 安卓客户端 `mobile-android/`（Kotlin + Compose 骨架）吃同一 Go 后端接口，但**不受 Kumo-only 与 `ui:governance` 约束**（那套规则只作用于 `src/js`）；不参与 `audit:fast`/`audit:full`，构建需本地 Android SDK（`npm run android:assemble` / `android:test`）。
 - `governance:check` = 三侧治理 + 时区治理 + motion 治理 + Agent 版本治理，四个独立脚本（`tools/*-governance*.mjs`）。改路由/`agent-rust`/时间/动画前先看对应脚本的判定。
 - 本地 `backend-go:dev` 会从根 `.env` 读 `ENCRYPTION_KEY` 注入环境（在 `backend-go/` 下直接 `go run` 不会自动读到）。
 
