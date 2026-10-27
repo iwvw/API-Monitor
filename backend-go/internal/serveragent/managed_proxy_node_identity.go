@@ -29,6 +29,29 @@ func countryFlag(countryCode string) string {
 	return string([]rune{rune(0x1F1E6) + rune(code[0]-'A'), rune(0x1F1E6) + rune(code[1]-'A')})
 }
 
+// defaultRealityServerName 是 REALITY 握手落点的兜底域名：Cloudflare 全球
+// 有 PoP，从任何地区握手延迟都低，且长期支持 TLS1.3 + H2。
+const defaultRealityServerName = "www.cloudflare.com"
+
+// realityForbiddenServerNames 是 Xray 明确警告过的落点：拿 apple/icloud 当
+// REALITY 目标有被 GFW 封 IP 的风险，生成时直接替换掉。
+var realityForbiddenServerNames = []string{"apple.com", "icloud.com"}
+
+// sanitizeRealityServerName 保证 REALITY 落点可用：空值、裸 IP、以及
+// Xray 警告过的域名一律回落到安全默认值，避免生成出高风险的节点。
+func sanitizeRealityServerName(serverName string) string {
+	name := strings.ToLower(strings.TrimSpace(serverName))
+	if name == "" || net.ParseIP(name) != nil {
+		return defaultRealityServerName
+	}
+	for _, forbidden := range realityForbiddenServerNames {
+		if name == forbidden || strings.HasSuffix(name, "."+forbidden) {
+			return defaultRealityServerName
+		}
+	}
+	return name
+}
+
 func generateManagedNode(id, name, protocol, host, serverName, cert, key string, tunnelOptions ...interface{}) (string, string, string, error) {
 	accessMode, tunnelHostname, tunnelPath, connectAddress := "direct", "", "", ""
 	connectPort := 0
@@ -82,9 +105,7 @@ func generateManagedNode(id, name, protocol, host, serverName, cert, key string,
 		return string(encoded), fmt.Sprintf("%s://%s:%s@%s:0#%s", protocol, username, password, host, url.QueryEscape(name)), "tcp", nil
 	}
 	if protocol == "vless-reality" {
-		if serverName == "" {
-			serverName = "www.cloudflare.com"
-		}
+		serverName = sanitizeRealityServerName(serverName)
 		private := make([]byte, 32)
 		if _, err := rand.Read(private); err != nil {
 			return "", "", "", err
@@ -111,6 +132,9 @@ func generateManagedNode(id, name, protocol, host, serverName, cert, key string,
 					"enabled":     true,
 					"handshake":   map[string]interface{}{"server": serverName, "server_port": 443},
 					"private_key": privateKey, "short_id": []string{shortID},
+					// 容忍客户端与服务端 1 分钟内的时钟偏差。手机/PC 校时漂移时
+					// 默认的 0 容忍会让 REALITY 握手直接被拒。
+					"max_time_difference": "1m",
 				},
 			},
 		}
@@ -131,7 +155,13 @@ func generateManagedNode(id, name, protocol, host, serverName, cert, key string,
 	inbound := map[string]interface{}{
 		"type": "hysteria2", "tag": id, "listen": "::", "listen_port": 0,
 		"users": []interface{}{map[string]interface{}{"password": password}},
-		"tls":   map[string]interface{}{"enabled": true, "server_name": serverName, "certificate": strings.Split(strings.TrimSpace(cert), "\n"), "key": strings.Split(strings.TrimSpace(key), "\n")},
+		// 忽略客户端上报的带宽，统一走 BBR。否则个别客户端声明 Brutal 高带宽后
+		// 会挤占同一台主机的共享链路，其它客户端抖动明显上升。
+		"ignore_client_bandwidth": true,
+		// 伪装成普通站点：未通过认证的探测请求会被反代到 https://www.bing.com，
+		// 端口表现为一个正常网站，避免被识别为代理服务。
+		"masquerade": "https://www.bing.com",
+		"tls":        map[string]interface{}{"enabled": true, "server_name": serverName, "certificate": strings.Split(strings.TrimSpace(cert), "\n"), "key": strings.Split(strings.TrimSpace(key), "\n")},
 	}
 	root := map[string]interface{}{"log": map[string]interface{}{"level": "warn"}, "inbounds": []interface{}{inbound}, "outbounds": []interface{}{map[string]interface{}{"type": "direct", "tag": "direct"}}}
 	encoded, _ := json.Marshal(root)
