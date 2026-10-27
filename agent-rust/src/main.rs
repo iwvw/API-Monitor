@@ -712,7 +712,12 @@ async fn run_client(
                                 match task.task_type {
                                     1 => {
                                         // COMMAND
-                                        match execute_command(&task.data, task.timeout as u64).await
+                                        match execute_command_in(
+                                            &task.data,
+                                            task.timeout as u64,
+                                            task.cwd.as_deref(),
+                                        )
+                                        .await
                                         {
                                             Ok((out, code)) => {
                                                 successful = true;
@@ -1155,6 +1160,18 @@ async fn run_client(
                                             }
                                         }
                                     }
+                                    43 => {
+                                        // FILE_ROOTS：返回沙箱真实根目录与白名单根
+                                        match FileManager::handle_file_roots() {
+                                            Ok(out) => {
+                                                successful = true;
+                                                res_data = out;
+                                            }
+                                            Err(err) => {
+                                                res_data = err;
+                                            }
+                                        }
+                                    }
                                     40 => {
                                         // NETWORK_QUALITY_PROBE
                                         match handle_network_quality_probe(&task.data).await {
@@ -1568,8 +1585,164 @@ fn scrub_clixml(text: String) -> String {
     out
 }
 
-async fn execute_command(command: &str, timeout_secs: u64) -> Result<(String, Option<i32>), String> {
-    if command.is_empty() {
+/// 单条命令保留的输出上限（stdout+stderr 合计）。超出部分丢弃但会显式标注，
+/// 避免 `docker logs` / `journalctl` 这类命令把几百 MB 塞进一帧 WebSocket
+/// 并连带写满 SQLite 任务表与 MCP 响应。
+const COMMAND_OUTPUT_LIMIT: usize = 256 * 1024;
+
+/// 超限时保留的头部配额。诊断命令时最有价值的信息通常在**尾部**（报错、
+/// 退出摘要），因此头尾都留：头部 1/4，尾部 3/4，中间用标注省略。
+const COMMAND_OUTPUT_HEAD: usize = COMMAND_OUTPUT_LIMIT / 4;
+
+/// 子进程单次 read 的缓冲大小。
+const COMMAND_READ_CHUNK: usize = 16 * 1024;
+
+/// 采集到的命令输出：按字节到达顺序拼接，超出上限后保留头尾、丢弃中段。
+#[derive(Default)]
+struct CommandOutput {
+    head: Vec<u8>,
+    tail: std::collections::VecDeque<u8>,
+    dropped: usize,
+}
+
+impl CommandOutput {
+    fn push(&mut self, bytes: &[u8]) {
+        if bytes.is_empty() {
+            return;
+        }
+        let mut rest = bytes;
+        if self.head.len() < COMMAND_OUTPUT_HEAD {
+            let take = (COMMAND_OUTPUT_HEAD - self.head.len()).min(rest.len());
+            self.head.extend_from_slice(&rest[..take]);
+            rest = &rest[take..];
+        }
+        if rest.is_empty() {
+            return;
+        }
+        let tail_limit = COMMAND_OUTPUT_LIMIT - COMMAND_OUTPUT_HEAD;
+        self.tail.extend(rest);
+        while self.tail.len() > tail_limit {
+            // 一次丢一小段，避免逐字节 pop_front 的重复开销。
+            let excess = self.tail.len() - tail_limit;
+            let chunk = excess.min(COMMAND_READ_CHUNK);
+            for _ in 0..chunk {
+                self.tail.pop_front();
+            }
+            self.dropped += chunk;
+        }
+    }
+
+    fn finish(self) -> String {
+        // 只有头部真的被截断时才需要处理尾部的半个字符；否则完整保留。
+        let head_truncated = self.dropped > 0 || !self.tail.is_empty();
+        let head = if head_truncated {
+            trim_utf8_tail(&self.head)
+        } else {
+            &self.head[..]
+        };
+        let mut tail_bytes: Vec<u8> = self.tail.into_iter().collect();
+        if self.dropped > 0 {
+            tail_bytes = trim_utf8_head(&tail_bytes).to_vec();
+        }
+        let head_text = decode_output(head);
+        let tail_text = decode_output(&tail_bytes);
+        let text = if self.dropped > 0 {
+            format!(
+                "{}\n...[输出已截断：中间省略 {} 字节（上限 {} 字节，保留首尾）。如需完整内容请用 grep/head/tail 或重定向到文件]...\n{}",
+                head_text, self.dropped, COMMAND_OUTPUT_LIMIT, tail_text
+            )
+        } else {
+            format!("{}{}", head_text, tail_text)
+        };
+        scrub_clixml(text)
+    }
+}
+
+/// 去掉末尾**不完整**的 UTF-8 序列（截断点可能落在多字节字符中间）。
+///
+/// 只在不完整时裁剪：若末尾本身就是完整字符（例如命令输出恰好以「中」结尾），
+/// 必须原样保留。早期实现无条件后退到前导字节之前，会把完整的多字节字符整段丢掉。
+fn trim_utf8_tail(bytes: &[u8]) -> &[u8] {
+    // 向前找到最后一个可能的字符起始字节（非续字节 10xxxxxx）。
+    let mut lead = bytes.len();
+    while lead > 0 && (bytes[lead - 1] & 0xC0) == 0x80 {
+        lead -= 1;
+    }
+    if lead == 0 {
+        // 全是续字节：没有可用的字符起始，整体丢弃（畸形输入）。
+        return &bytes[bytes.len()..];
+    }
+    let start = lead - 1;
+    let expected = match bytes[start] {
+        0x00..=0x7F => 1,
+        0xC0..=0xDF => 2,
+        0xE0..=0xEF => 3,
+        0xF0..=0xF7 => 4,
+        _ => {
+            // 非法前导字节：保守保留到它之前。
+            return &bytes[..start];
+        }
+    };
+    if bytes.len() - start >= expected {
+        // 该字符完整（或尾部还有别的完整内容），不裁剪。
+        bytes
+    } else {
+        &bytes[..start]
+    }
+}
+
+/// 去掉开头不完整的 UTF-8 续字节（丢弃中段后可能从字符中间开始）。
+fn trim_utf8_head(bytes: &[u8]) -> &[u8] {
+    let mut start = 0;
+    while start < bytes.len() && (bytes[start] & 0xC0) == 0x80 {
+        start += 1;
+    }
+    &bytes[start..]
+}
+
+/// 结束子进程（含其派生的整棵进程树）。
+///
+/// Agent 以 `process_group(0)` 启动子进程，因此子进程自身即为进程组组长（pgid == pid）。
+/// 只 `kill` 直接子进程会让 `sh -c` 里的后台孙进程被 reparent 到 init 后继续运行，
+/// 留下持端口/写文件的孤儿进程。
+async fn terminate_command_tree(child: &mut tokio::process::Child) {
+    let pid = child.id();
+    #[cfg(unix)]
+    if let Some(pid) = pid {
+        if pid <= i32::MAX as u32 && pid != 0 {
+            // 负值即「发给整个进程组」；ESRCH 表示已退出，忽略返回值。
+            unsafe {
+                libc::kill(-(pid as i32), libc::SIGKILL);
+            }
+        }
+    }
+    #[cfg(target_os = "windows")]
+    if let Some(pid) = pid {
+        // TerminateProcess 只结束直接子进程；cmd /C 派生出的子进程需要 /T 才一并结束。
+        let _ = tokio::process::Command::new("taskkill")
+            .args(["/F", "/T", "/PID", &pid.to_string()])
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .await;
+    }
+    let _ = child.start_kill();
+    let _ = child.wait().await;
+}
+
+/// 执行一条 shell 命令并返回（合并后的输出, 退出码）。
+///
+/// 关键设计（此前版本在这三点上有致命缺陷）：
+/// 1. stdout/stderr **并发读取**。先 `wait()` 再读管道会在子进程输出超过管道缓冲
+///    （Linux 默认 64KB）时互等死锁，命令只能等满超时才返回；
+/// 2. 超时后杀掉**整个进程组**，避免 `sh -c` 的后台孙进程泄漏；
+/// 3. 输出按上限截断并显式标注，超时也会带回已产生的部分输出。
+async fn execute_command_in(
+    command: &str,
+    timeout_secs: u64,
+    cwd: Option<&str>,
+) -> Result<(String, Option<i32>), String> {
+    if command.trim().is_empty() {
         return Err("命令不能为空".to_string());
     }
 
@@ -1583,45 +1756,120 @@ async fn execute_command(command: &str, timeout_secs: u64) -> Result<(String, Op
         c
     };
 
-    let child = cmd
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .spawn();
+    if let Some(dir) = cwd.map(str::trim).filter(|d| !d.is_empty()) {
+        cmd.current_dir(dir);
+    }
 
-    let mut child = match child {
-        Ok(c) => c,
-        Err(e) => return Err(format!("Spawn failed: {}", e)),
-    };
+    // 独立进程组：超时/取消时能一次性回收整棵树。
+    #[cfg(unix)]
+    {
+        cmd.process_group(0);
+    }
+
+    cmd.stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .stdin(std::process::Stdio::null());
+
+    let mut child = cmd.spawn().map_err(|e| format!("Spawn failed: {}", e))?;
+
+    // 两条管道各起一个读取任务，统一投递到 collector，保持字节到达顺序
+    // （stdout 与 stderr 交错时顺序不乱，报错位置与终端里一致）。
+    let (chunk_tx, mut chunk_rx) = mpsc::channel::<Vec<u8>>(64);
+    let mut readers = Vec::new();
+    if let Some(mut stdout) = child.stdout.take() {
+        let tx = chunk_tx.clone();
+        readers.push(tokio::spawn(async move {
+            let mut buf = vec![0u8; COMMAND_READ_CHUNK];
+            loop {
+                match tokio::io::AsyncReadExt::read(&mut stdout, &mut buf).await {
+                    Ok(0) => break,
+                    Ok(n) => {
+                        if tx.send(buf[..n].to_vec()).await.is_err() {
+                            break;
+                        }
+                    }
+                    Err(_) => break,
+                }
+            }
+        }));
+    }
+    if let Some(mut stderr) = child.stderr.take() {
+        let tx = chunk_tx.clone();
+        readers.push(tokio::spawn(async move {
+            let mut buf = vec![0u8; COMMAND_READ_CHUNK];
+            loop {
+                match tokio::io::AsyncReadExt::read(&mut stderr, &mut buf).await {
+                    Ok(0) => break,
+                    Ok(n) => {
+                        if tx.send(buf[..n].to_vec()).await.is_err() {
+                            break;
+                        }
+                    }
+                    Err(_) => break,
+                }
+            }
+        }));
+    }
+    drop(chunk_tx);
+
+    let collector = tokio::spawn(async move {
+        let mut output = CommandOutput::default();
+        while let Some(chunk) = chunk_rx.recv().await {
+            output.push(&chunk);
+        }
+        output.finish()
+    });
 
     let timeout_duration = if timeout_secs == 0 { 60 } else { timeout_secs };
-    let sleep_timer = tokio::time::sleep(Duration::from_secs(timeout_duration));
+    let wait_result = tokio::time::timeout(
+        Duration::from_secs(timeout_duration),
+        child.wait(),
+    )
+    .await;
 
-    tokio::select! {
-        res = child.wait() => {
-            match res {
-                Ok(status) => {
-                    let mut stdout_buf = Vec::new();
-                    if let Some(mut out) = child.stdout.take() {
-                        let _ = tokio::io::AsyncReadExt::read_to_end(&mut out, &mut stdout_buf).await;
-                    }
-                    let mut stderr_buf = Vec::new();
-                    if let Some(mut err) = child.stderr.take() {
-                        let _ = tokio::io::AsyncReadExt::read_to_end(&mut err, &mut stderr_buf).await;
-                    }
-                    let combined = scrub_clixml(decode_output(&stdout_buf) + &decode_output(&stderr_buf));
-                    // 非零退出码不再视为执行错误：命令确实跑完并可能产出了有效输出，
-                    // 由上层（面板/AI）依据 exit_code 自行判断。仅 spawn/wait 失败或
-                    // 超时才算硬错误。
-                    Ok((combined, status.code()))
-                }
-                Err(e) => Err(format!("Wait failed: {}", e)),
+    let status = match wait_result {
+        Ok(Ok(status)) => status,
+        Ok(Err(e)) => {
+            terminate_command_tree(&mut child).await;
+            return Err(format!("Wait failed: {}", e));
+        }
+        Err(_) => {
+            terminate_command_tree(&mut child).await;
+            // 进程已死，管道随即 EOF，读取任务会立刻结束，这里带上已产生的输出。
+            let partial = tokio::time::timeout(Duration::from_secs(5), collector)
+                .await
+                .ok()
+                .and_then(|r| r.ok())
+                .unwrap_or_default();
+            for handle in readers {
+                let _ = handle.await;
             }
+            let suffix = if partial.trim().is_empty() {
+                String::new()
+            } else {
+                format!("\n--- 超时前已产生的输出 ---\n{}", partial)
+            };
+            return Err(format!(
+                "Command timed out after {}s（已终止进程组）{}",
+                timeout_duration, suffix
+            ));
         }
-        _ = sleep_timer => {
-            let _ = child.kill().await;
-            Err("Command timed out".to_string())
-        }
+    };
+
+    // 正常退出后仍需等读取任务把管道读干净，否则会丢掉末尾输出。
+    for handle in readers {
+        let _ = handle.await;
     }
+    let output = collector.await.unwrap_or_default();
+
+    // 非零退出码不再视为执行错误：命令确实跑完并可能产出了有效输出，
+    // 由上层（面板/AI）依据 exit_code 自行判断。仅 spawn/wait 失败或
+    // 超时才算硬错误。
+    Ok((output, status.code()))
+}
+
+async fn execute_command(command: &str, timeout_secs: u64) -> Result<(String, Option<i32>), String> {
+    execute_command_in(command, timeout_secs, None).await
 }
 
 #[derive(Deserialize, Debug)]
@@ -2981,5 +3229,135 @@ mod tests {
         for unsafe_dir in ["/", "/opt", "/usr/bin", "/tmp/api-monitor-agent"] {
             assert!(validate_self_uninstall_dir(std::path::Path::new(unsafe_dir)).is_err());
         }
+    }
+
+    // ---- execute_command_in：大输出 / 并发流 / 超时 / cwd ----
+
+    #[cfg(target_os = "linux")]
+    #[tokio::test]
+    async fn execute_command_returns_large_stdout_without_deadlock() {
+        // 回归：旧实现先 wait() 再读管道，输出超过 64KB 管道缓冲时子进程阻塞在
+        // write、父进程阻塞在 wait，只能等满超时。这里 1.2MB 输出必须在超时前返回。
+        let started = Instant::now();
+        let (output, code) = execute_command_in("seq 1 200000", 20, None)
+            .await
+            .expect("大输出命令不应死锁");
+        assert_eq!(code, Some(0));
+        assert!(started.elapsed() < Duration::from_secs(20), "不应等满超时");
+        assert!(output.contains("200000"), "尾部输出不应丢失");
+    }
+
+    #[cfg(target_os = "linux")]
+    #[tokio::test]
+    async fn execute_command_keeps_stdout_and_stderr_together() {
+        // 回归：旧实现先读完 stdout 再读 stderr，stderr 写满 64KB 时同样死锁。
+        let (output, code) = execute_command_in(
+            "for i in $(seq 1 20000); do echo 'err line' >&2; done; echo done",
+            20,
+            None,
+        )
+        .await
+        .expect("大量 stderr 不应死锁");
+        assert_eq!(code, Some(0));
+        assert!(output.contains("err line"), "stderr 内容应合并进输出");
+        assert!(output.contains("done"), "stdout 内容应保留");
+    }
+
+    #[cfg(target_os = "linux")]
+    #[tokio::test]
+    async fn execute_command_truncates_oversized_output_with_marker() {
+        // 输出上限：超过 COMMAND_OUTPUT_LIMIT 时截断并显式标注，避免撑爆 WS 帧与 SQLite。
+        let (output, _) = execute_command_in("head -c 1000000 /dev/zero | tr '\\0' 'a'", 20, None)
+            .await
+            .expect("超大输出应正常返回截断结果");
+        assert!(output.contains("输出已截断"), "必须显式标注截断");
+        assert!(
+            output.len() < COMMAND_OUTPUT_LIMIT + 4096,
+            "输出不应超过上限太多，实际 {}",
+            output.len()
+        );
+    }
+
+    #[cfg(target_os = "linux")]
+    #[tokio::test]
+    async fn execute_command_timeout_kills_process_group() {
+        // 回归：超时只 kill 直接子进程会留下后台孙进程。整组终止后标记文件不应出现。
+        let marker = format!("/tmp/api-monitor-agent-timeout-{}", std::process::id());
+        let _ = std::fs::remove_file(&marker);
+        let command = format!("(sleep 3; touch {}) & sleep 30", marker);
+        let err = execute_command_in(&command, 1, None)
+            .await
+            .expect_err("应超时");
+        assert!(err.contains("Command timed out"), "错误信息应说明超时：{}", err);
+        tokio::time::sleep(Duration::from_secs(4)).await;
+        assert!(
+            !std::path::Path::new(&marker).exists(),
+            "后台孙进程未被回收，仍写入了标记文件"
+        );
+        let _ = std::fs::remove_file(&marker);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[tokio::test]
+    async fn execute_command_respects_cwd() {
+        let (output, code) = execute_command_in("pwd", 10, Some("/tmp")).await.expect("pwd");
+        assert_eq!(code, Some(0));
+        assert!(output.trim().ends_with("/tmp"), "cwd 未生效：{}", output.trim());
+    }
+
+    #[test]
+    fn command_output_truncates_on_char_boundary() {
+        // 截断点落在多字节字符中间时应回退到边界，而不是产出替换字符。
+        let mut output = CommandOutput::default();
+        let chunk = "中".repeat(COMMAND_OUTPUT_LIMIT);
+        output.push(chunk.as_bytes());
+        let text = output.finish();
+        assert!(!text.contains('\u{FFFD}'), "不应出现替换字符");
+        assert!(text.contains("输出已截断"));
+    }
+
+    #[test]
+    fn command_output_keeps_multibyte_tail_intact() {
+        // 回归：早期 trim_utf8_tail 无条件后退到前导字节之前，
+        // 输出恰好以完整多字节字符结尾时（如 `printf 中`）会整段丢掉。
+        let text = "中文".to_string();
+        let mut output = CommandOutput::default();
+        output.push(text.as_bytes());
+        let finished = output.finish();
+        assert_eq!(finished, "中文", "完整的多字节尾部必须原样保留");
+
+        // 单字符同理
+        let mut single = CommandOutput::default();
+        single.push("中".as_bytes());
+        assert_eq!(single.finish(), "中");
+    }
+
+    #[test]
+    fn trim_utf8_tail_keeps_complete_chars_trims_partial() {
+        assert_eq!(trim_utf8_tail("中".as_bytes()), "中".as_bytes());
+        assert_eq!(trim_utf8_tail(b"abc"), b"abc");
+        assert_eq!(trim_utf8_tail(b""), b"");
+        // "中" 的前两个字节 = 不完整的 3 字节序列，应被裁掉
+        let partial = &"中".as_bytes()[..2];
+        assert_eq!(trim_utf8_tail(partial), b"");
+        // "a" + "中" 的前两个字节 → 只保留 "a"
+        let mut mixed = Vec::from("a".as_bytes());
+        mixed.extend_from_slice(partial);
+        assert_eq!(trim_utf8_tail(&mixed), b"a");
+    }
+
+    #[test]
+    fn command_output_keeps_tail_when_over_limit() {
+        // 超限时必须保留尾部：报错与退出摘要都在末尾，只留头部等于丢掉诊断信息。
+        let mut output = CommandOutput::default();
+        output.push(b"HEAD-MARKER\n");
+        for _ in 0..200 {
+            output.push(&vec![b'a'; COMMAND_READ_CHUNK]);
+        }
+        output.push(b"\nTAIL-MARKER\n");
+        let text = output.finish();
+        assert!(text.starts_with("HEAD-MARKER"), "应保留头部");
+        assert!(text.trim_end().ends_with("TAIL-MARKER"), "应保留尾部");
+        assert!(text.len() <= COMMAND_OUTPUT_LIMIT + 1024, "总长受上限约束");
     }
 }

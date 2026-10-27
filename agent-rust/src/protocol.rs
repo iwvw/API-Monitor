@@ -63,6 +63,9 @@ pub struct TaskPayload {
     pub task_type: i32,
     pub data: String,
     pub timeout: i32,
+    /// 命令类任务（type=1）的工作目录；缺省时沿用 Agent 进程的当前目录。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cwd: Option<String>,
 }
 
 #[derive(Serialize, Debug, Clone)]

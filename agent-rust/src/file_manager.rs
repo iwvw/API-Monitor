@@ -21,7 +21,12 @@ pub struct FileListRequest {
 #[serde(rename_all = "camelCase")]
 pub struct FileEntry {
     pub name: String,
+    /// 面板展示用的虚拟路径：默认沙箱根显示为 `/`。
+    /// 注意这不是可以在 shell 里直接访问的真实路径。
     pub path: String,
+    /// 主机上的真实绝对路径。文件工具返回它，调用方才能拿去做 `sh -c`
+    /// （`agent_run_command` 跑在真实文件系统上，虚拟路径会找不到文件）。
+    pub real_path: String,
     pub is_directory: bool,
     pub is_file: bool,
     pub is_symlink: bool,
@@ -33,9 +38,23 @@ pub struct FileEntry {
 }
 
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct FileListResponse {
     pub files: Vec<FileEntry>,
     pub cwd: String,
+    pub real_cwd: String,
+    pub sandbox_root: String,
+    pub allowed_roots: Vec<String>,
+}
+
+/// 文件沙箱信息：让调用方知道「写下去的路径到底是什么」。
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FileRootsResponse {
+    pub sandbox_root: String,
+    pub allowed_roots: Vec<String>,
+    /// 沙箱语义说明：默认沙箱下绝对路径会被锚定到沙箱根内。
+    pub note: String,
 }
 
 #[derive(Deserialize, Debug)]
@@ -187,6 +206,7 @@ impl FileManager {
                     files.push(FileEntry {
                         name: file_name,
                         path: path_str,
+                        real_path: file_path.to_string_lossy().replace('\\', "/"),
                         is_directory: meta.is_dir(),
                         is_file: meta.is_file(),
                         is_symlink: meta.file_type().is_symlink(),
@@ -200,11 +220,39 @@ impl FileManager {
             }
         }
 
+        let allowed: Vec<String> = allowed_roots()
+            .unwrap_or_default()
+            .iter()
+            .map(|p| p.to_string_lossy().replace('\\', "/"))
+            .collect();
         let resp = FileListResponse {
             files,
             cwd: virtual_path(&abs_path),
+            real_cwd: abs_path.to_string_lossy().replace('\\', "/"),
+            sandbox_root: canonical_files_root().map(|p| p.to_string_lossy().replace('\\', "/")).unwrap_or_default(),
+            allowed_roots: allowed,
         };
 
+        serde_json::to_string(&resp).map_err(|e| e.to_string())
+    }
+
+    /// 返回文件沙箱的真实根目录与白名单根，供调用方把「上传路径」和
+    /// 「命令里该用的真实路径」对齐。
+    pub fn handle_file_roots() -> Result<String, String> {
+        let sandbox_root = canonical_files_root()?;
+        let allowed: Vec<String> = allowed_roots()?
+            .iter()
+            .map(|p| p.to_string_lossy().replace('\\', "/"))
+            .collect();
+        let resp = FileRootsResponse {
+            sandbox_root: sandbox_root.to_string_lossy().replace('\\', "/"),
+            allowed_roots: allowed,
+            note: "默认沙箱下的绝对路径（如 /opt/a.sh）会被锚定到 sandbox_root 内，"
+                .to_string()
+                + "真实落盘路径见各文件工具的 realPath 字段；"
+                + "只有 allowed_roots 内的路径才按真实绝对路径访问。"
+                + "agent_run_command 执行在真实文件系统上，必须使用 realPath。",
+        };
         serde_json::to_string(&resp).map_err(|e| e.to_string())
     }
 
@@ -353,6 +401,7 @@ impl FileManager {
                 .map(|n| n.to_string_lossy().to_string())
                 .unwrap_or_default(),
             path: virtual_path(&abs_path),
+            real_path: abs_path.to_string_lossy().replace('\\', "/"),
             is_directory: meta.is_dir(),
             is_file: meta.is_file(),
             is_symlink: meta.file_type().is_symlink(),
@@ -628,8 +677,18 @@ impl FileManager {
         file.write_all(&bytes)
             .map_err(|e| format!("写入文件失败: {}", e))?;
         file.flush().map_err(|e| format!("刷新文件失败: {}", e))?;
-
-        Ok(format!("已写入 {} 字节", bytes.len()))
+        // 返回真实绝对路径：调用方后续用 agent_run_command 执行该文件时必须用它
+        // （虚拟路径只在面板文件管理器里有意义）。
+        let total = file
+            .metadata()
+            .map(|m| m.len())
+            .unwrap_or(req.offset.max(0) as u64 + bytes.len() as u64);
+        let payload = serde_json::json!({
+            "message": format!("已写入 {} 字节", bytes.len()),
+            "realPath": abs_path.to_string_lossy().replace('\\', "/"),
+            "size": total,
+        });
+        Ok(payload.to_string())
     }
 }
 
