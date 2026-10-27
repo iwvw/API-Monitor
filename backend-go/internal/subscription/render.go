@@ -58,8 +58,8 @@ func renderTemplate(tpl string, sub Subscription, nodes []Node) string {
 }
 
 // subscriptionFormatFromUA maps known proxy client User-Agents to a concrete
-// subscription format. Unknown clients return "" so the caller falls back to
-// the subscription's default template format (usually Mihomo/Clash YAML).
+// subscription format. Unknown clients return "" so the caller renders the
+// built-in Mihomo/Clash YAML (the panel default).
 func subscriptionFormatFromUA(userAgent string) string {
 	lower := strings.ToLower(userAgent)
 	switch {

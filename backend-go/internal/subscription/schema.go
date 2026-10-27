@@ -417,6 +417,11 @@ func dropColumn(ctx context.Context, db *sql.DB, tableName, columnName string) e
 		return nil
 	}
 	if _, err := db.ExecContext(ctx, `ALTER TABLE `+tableName+` DROP COLUMN `+columnName); err != nil {
+		// 另一个后端进程可能已在本进程检查之后完成了同一条 DROP。重新检查，
+		// 列已不存在即视为成功，避免升级时因并发启动而报错。
+		if stillExists, inspectErr := schemaColumnExists(ctx, db, tableName, columnName); inspectErr == nil && !stillExists {
+			return nil
+		}
 		return fmt.Errorf("drop %s.%s: %w", tableName, columnName, err)
 	}
 	return nil

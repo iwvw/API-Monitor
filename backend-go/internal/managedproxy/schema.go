@@ -84,7 +84,13 @@ func EnsureNodeColumns(ctx context.Context, db *sql.DB) error {
 	if err := rebuildNodeProtocolConstraint(ctx, db); err != nil {
 		return err
 	}
-	// 稳定节点标记已下线：清理历史库中残留的列。
+	// 稳定节点标记已下线：清理历史库中残留的列。重建表会按新 DDL 建表，
+	// 因此这里必须重新读取列，不能复用重建前的陈旧快照（否则会因
+	// 「no such column: stable」让启动直接失败）。
+	columns, err = tableColumns(ctx, db, "managed_proxy_nodes")
+	if err != nil {
+		return err
+	}
 	if columns["stable"] {
 		if _, err := db.ExecContext(ctx, `ALTER TABLE managed_proxy_nodes DROP COLUMN stable`); err != nil {
 			return fmt.Errorf("drop managed proxy node stable: %w", err)
