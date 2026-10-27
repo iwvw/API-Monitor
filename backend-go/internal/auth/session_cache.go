@@ -5,6 +5,8 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
+	"net/http"
+	"strings"
 	"sync"
 	"time"
 )
@@ -25,6 +27,20 @@ type cachedSession struct {
 	hasTouch  bool
 }
 
+// takeTouch 判断本次命中是否需要落库 last_accessed_at，并在需要时先占位。
+//
+// 先占位再写库：并发命中同一会话时只有一个 goroutine 拿到 true，
+// 避免同一秒内多个请求各写一次。
+func (c *cachedSession) takeTouch(now time.Time) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.hasTouch && now.Sub(c.lastTouch) < sessionTouchInterval {
+		return false
+	}
+	c.lastTouch, c.hasTouch = now, true
+	return true
+}
+
 // sessionCacheKey 用 sid 的完整 sha256 摘要作缓存键，避免明文 sid 留在内存里。
 //
 // 与 sessionFingerprint 不同：后者只取 8 字节用于前端展示，这里必须用完整摘要，
@@ -34,40 +50,53 @@ func sessionCacheKey(sid string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// lookupCachedSession 命中缓存时返回 (true, true)。
-// 第一个返回值是「是否命中」，第二个是「会话是否有效」——命中即有效，
-// 保留两个返回值只是为了让调用点与未命中路径形状一致。
-func (s *Service) lookupCachedSession(ctx context.Context, db *sql.DB, sid string) (sessionRecord, bool) {
-	if !s.sessionCache.Enabled() {
-		return sessionRecord{}, false
+// requestSID 提取请求里的 sid cookie 值。
+func requestSID(r *http.Request) (string, bool) {
+	cookie, err := r.Cookie("sid")
+	if err != nil || strings.TrimSpace(cookie.Value) == "" {
+		return "", false
 	}
-	entry, ok := s.sessionCache.Get(sessionCacheKey(sid))
-	if !ok {
-		return sessionRecord{}, false
-	}
-	cached := entry.Value
-	if cached == nil {
-		return sessionRecord{}, false
-	}
-	s.touchCachedSession(ctx, db, cached)
-	// 调用方只关心「有效」这一判定（IsAuthenticated / requireSession），
-	// 需要完整记录的分支（列表展示）本来就直接查库。
-	return sessionRecord{ID: cached.sessionID, IsActive: 1}, true
+	return cookie.Value, true
 }
 
-// touchCachedSession 维持 last_accessed_at 的节流写，避免缓存让「最后活跃时间」
-// 停止更新（会话列表按它排序，停更会显示错误的活跃时间）。
-func (s *Service) touchCachedSession(ctx context.Context, db *sql.DB, cached *cachedSession) {
-	now := time.Now().UTC()
-	cached.mu.Lock()
-	shouldTouch := !cached.hasTouch || now.Sub(cached.lastTouch) >= sessionTouchInterval
-	if shouldTouch {
-		cached.lastTouch, cached.hasTouch = now, true
+// authenticateCachedSession 是鉴权热路径的缓存快捷分支。
+//
+// 返回 (valid, err, handled)：
+//   - handled=false：缓存未命中，调用方应继续走 openDB + validateSession。
+//   - handled=true ：已有确定结论，valid/err 直接使用。
+//
+// db 可以为 nil（调用方还没打开数据库）：这种情况下只有节流写到期时才临时
+// 打开一次。若调用方已经打开了 db，直接复用，避免一次多余的连接开销。
+func (s *Service) authenticateCachedSession(ctx context.Context, db *sql.DB, sid string) (bool, error, bool) {
+	if !s.sessionCache.Enabled() {
+		return false, nil, false
 	}
-	cached.mu.Unlock()
-	if shouldTouch {
-		_, _ = db.ExecContext(ctx, `UPDATE sessions SET last_accessed_at = ? WHERE session_id = ?`, formatTime(now), cached.sessionID)
+	entry, ok := s.sessionCache.Get(sessionCacheKey(sid))
+	if !ok || entry.Value == nil {
+		return false, nil, false
 	}
+	cached := entry.Value
+
+	if cached.takeTouch(time.Now().UTC()) {
+		// 节流落库是 best-effort：last_accessed_at 只用于展示与排序。
+		// 数据库暂时不可用不应让已缓存的合法会话变成 500，
+		// 更不能因此拒绝请求（缓存的意义就是减少 DB 依赖）。
+		ownsDB := false
+		handle := db
+		if handle == nil {
+			opened, err := s.openDB(ctx)
+			if err != nil {
+				return true, nil, true
+			}
+			handle, ownsDB = opened, true
+		}
+		_, _ = handle.ExecContext(ctx, `UPDATE sessions SET last_accessed_at = ? WHERE session_id = ?`,
+			formatTime(time.Now().UTC()), cached.sessionID)
+		if ownsDB {
+			_ = handle.Close()
+		}
+	}
+	return true, nil, true
 }
 
 // storeCachedSession 在会话校验通过后回填缓存。

@@ -447,14 +447,11 @@ func (s *Service) listTokens(ctx context.Context, db *sql.DB, userID string) ([]
 
 // authenticateToken 按明文令牌解析出认证上下文，并同步更新 last_used_at。
 //
-// 热路径先查进程内缓存（AUTH_CACHE_TTL，默认 30s）；未命中才查 SQLite 并回填。
-// 只缓存通过的结果：撤销 / 禁用 / 过期 / DB 错误都回源，不缓存。
+// 调用方已完成缓存判定（见 authenticateBearer）并持有已打开的 db；
+// 这里只做「未命中 → 查库 → 回填缓存」。
 func (s *Service) authenticateToken(ctx context.Context, db *sql.DB, plain, ip string) (authContext, error) {
 	if plain == "" {
 		return authContext{}, errInvalidCreds
-	}
-	if cached, ok := s.lookupCachedToken(ctx, db, plain, ip); ok {
-		return cached, nil
 	}
 	hash := hashToken(plain)
 	var (

@@ -191,14 +191,26 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Service) IsAuthenticated(ctx context.Context, r *http.Request) (bool, error) {
+	sid, ok := requestSID(r)
+	if !ok {
+		return false, nil
+	}
+
+	// 命中缓存时必须先于 openDB：openDB 要做 MkdirAll + 连接池引用 + ensureSchema
+	// + sql.OpenDB，成本远大于一次 map 查找。只有未命中或需要落库
+	// last_accessed_at 时才打开数据库。
+	if valid, err, handled := s.authenticateCachedSession(ctx, nil, sid); handled {
+		return valid, err
+	}
+
 	db, err := s.openDB(ctx)
 	if err != nil {
 		return false, err
 	}
 	defer db.Close()
 
-	_, ok, err := s.validateRequestSession(ctx, db, r)
-	return ok, err
+	_, valid, err := s.validateSession(ctx, db, sid)
+	return valid, err
 }
 
 func (s *Service) checkPassword(w http.ResponseWriter, r *http.Request) {
@@ -222,6 +234,18 @@ func (s *Service) checkPassword(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Service) session(w http.ResponseWriter, r *http.Request) {
+	// 前端轮询最频繁的接口：命中缓存时不要 openDB。
+	if sid, ok := requestSID(r); ok {
+		if valid, err, handled := s.authenticateCachedSession(r.Context(), nil, sid); handled {
+			if err != nil {
+				response.Error(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+			response.JSON(w, http.StatusOK, map[string]bool{"authenticated": valid})
+			return
+		}
+	}
+
 	db, err := s.openDB(r.Context())
 	if err != nil {
 		response.Error(w, http.StatusInternalServerError, err.Error())
@@ -990,20 +1014,22 @@ func sessionFingerprint(value string) string {
 }
 
 func (s *Service) validateRequestSession(ctx context.Context, db *sql.DB, r *http.Request) (sessionRecord, bool, error) {
-	cookie, err := r.Cookie("sid")
-	if err != nil || strings.TrimSpace(cookie.Value) == "" {
+	sid, ok := requestSID(r)
+	if !ok {
 		return sessionRecord{}, false, nil
 	}
-	return s.validateSession(ctx, db, cookie.Value)
+	// 缓存优先：session() / requireSession() 等调用方已经打开了 db，
+	// 这里省掉的是那条 SELECT 本身。
+	if valid, err, handled := s.authenticateCachedSession(ctx, db, sid); handled {
+		if !valid || err != nil {
+			return sessionRecord{}, false, err
+		}
+		return sessionRecord{ID: sid, IsActive: 1}, true, nil
+	}
+	return s.validateSession(ctx, db, sid)
 }
 
 func (s *Service) validateSession(ctx context.Context, db *sql.DB, sid string) (sessionRecord, bool, error) {
-	// 热路径先查进程内缓存（AUTH_CACHE_TTL，默认 30s）；未命中才查 SQLite 并回填。
-	// 只缓存「有效」结果：不存在 / 已撤销 / 已置灰都回源，不缓存。
-	if cached, ok := s.lookupCachedSession(ctx, db, sid); ok {
-		return cached, true, nil
-	}
-
 	var session sessionRecord
 	err := db.QueryRowContext(ctx, `
 		SELECT session_id, password, created_at, last_accessed_at, expires_at, is_active, COALESCE(ip_address,''), COALESCE(user_agent,'')
@@ -1026,6 +1052,9 @@ func (s *Service) validateSession(ctx context.Context, db *sql.DB, sid string) (
 		return sessionRecord{}, false, fmt.Errorf("get session: %w", err)
 	}
 	if session.IsActive == 0 {
+		// 缓存只存「有效」结果，正常流程下这里不会有条目；但若外部直接把
+		// is_active 置 0（绕过 API），残留条目必须在这里清掉。
+		s.invalidateSessionCache(sid)
 		return session, false, nil
 	}
 	expiresAt, err := parseDBTime(session.ExpiresAt)

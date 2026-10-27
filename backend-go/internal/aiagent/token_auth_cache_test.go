@@ -4,6 +4,10 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -48,15 +52,15 @@ func seedTokenUser(t *testing.T, service *Service) (plain, userID string) {
 	return plain, user.ID
 }
 
+// authenticate 走真实入口（resolveAuth → authenticateBearer），
+// 而不是直接调用 authenticateToken：缓存判定发生在 Open 之前，
+// 只有走完整入口才能验证「命中时完全不碰数据库」。
 func authenticate(t *testing.T, service *Service, plain string) (authContext, error) {
 	t.Helper()
-	ctx := context.Background()
-	db, err := service.store.Open(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-	return service.authenticateToken(ctx, db, plain, "203.0.113.7")
+	req := httptest.NewRequest(http.MethodGet, "/api/aiagent/preferences", nil)
+	req.Header.Set("Authorization", "Bearer "+plain)
+	req.RemoteAddr = "203.0.113.7:4567"
+	return service.resolveAuth(req)
 }
 
 // 证明缓存命中时不再回源：把数据库里的 token 行删掉（绕过 service 的所有失效
@@ -321,7 +325,27 @@ func TestTokenAuthCacheRespectsCredentialExpiry(t *testing.T) {
 	}
 }
 
-// 缓存键必须是摘要，不能是明文 token。
+// 缓存命中时必须连数据库都不碰。把 DataDir 指向不可创建的路径后，
+// 任何 store.Open 都会失败；命中缓存仍应通过。
+func TestTokenAuthCacheSkipsDatabaseOpenEntirely(t *testing.T) {
+	service := newCacheTestService(t, "30s")
+	plain, _ := seedTokenUser(t, service)
+
+	if _, err := authenticate(t, service, plain); err != nil {
+		t.Fatalf("priming auth: %v", err)
+	}
+
+	// store.Open 内部会 os.MkdirAll(DataDir)；换成已存在的普通文件使其必然失败。
+	blocker := filepath.Join(t.TempDir(), "not-a-dir")
+	if err := os.WriteFile(blocker, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	service.cfg.DataDir = blocker
+
+	if _, err := authenticate(t, service, plain); err != nil {
+		t.Fatalf("cached auth must not require a database connection: %v", err)
+	}
+}
 func TestTokenAuthCacheKeyIsDigestNotPlaintext(t *testing.T) {
 	service := newCacheTestService(t, "30s")
 	plain, _ := seedTokenUser(t, service)

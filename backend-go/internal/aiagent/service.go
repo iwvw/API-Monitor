@@ -365,12 +365,7 @@ func (s *Service) resolveAuth(r *http.Request) (authContext, error) {
 		return authContext{IsAdmin: true, UserID: adminActorID, Username: "admin"}, nil
 	}
 	if bearer := bearerToken(r); bearer != "" {
-		db, err := s.store.Open(r.Context())
-		if err != nil {
-			return authContext{}, err
-		}
-		defer db.Close()
-		return s.authenticateToken(r.Context(), db, bearer, s.clientIP(r))
+		return s.authenticateBearer(r, bearer)
 	}
 	if s.auth != nil {
 		ok, err := s.auth.IsAuthenticated(r.Context(), r)
@@ -380,6 +375,33 @@ func (s *Service) resolveAuth(r *http.Request) (authContext, error) {
 		}
 	}
 	return authContext{}, errInvalidCreds
+}
+
+// authenticateBearer 是 Bearer 令牌鉴权入口。
+//
+// 缓存命中路径必须**先于** store.Open：Open 会 MkdirAll + 取连接池引用 +
+// ensureSchema + sql.OpenDB，成本远大于一次 map 查找。只有确实需要查库
+// （未命中）或需要落库 last_used_at（1 分钟节流到期）时才打开数据库。
+func (s *Service) authenticateBearer(r *http.Request, bearer string) (authContext, error) {
+	ip := s.clientIP(r)
+	if cached, ok := s.peekCachedToken(bearer); ok {
+		if cached.takeTouch(time.Now().UTC()) {
+			// 节流落库是 best-effort：命中缓存说明凭据本身已通过校验，
+			// 数据库暂时不可用不应让请求变成 500。
+			if db, err := s.store.Open(r.Context()); err == nil {
+				touchTokenLastUsed(r.Context(), db, cached, ip)
+				_ = db.Close()
+			}
+		}
+		return cached.auth, nil
+	}
+
+	db, err := s.store.Open(r.Context())
+	if err != nil {
+		return authContext{}, err
+	}
+	defer db.Close()
+	return s.authenticateToken(r.Context(), db, bearer, ip)
 }
 
 // adminActorID 是面板管理员在模块访问日志中的归属标识。

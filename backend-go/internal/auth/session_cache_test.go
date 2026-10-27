@@ -3,6 +3,8 @@ package auth
 import (
 	"context"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -98,6 +100,33 @@ func TestSessionAuthCacheAvoidsDatabaseOnHit(t *testing.T) {
 	}
 	if !isAuthenticated(t, service, cookie) {
 		t.Fatal("cached auth must not hit the database")
+	}
+}
+
+// 缓存命中时必须连 openDB 都不做。
+//
+// 这条守的是「缓存位置」这个具体缺陷：如果把缓存判定放在 openDB 之后，
+// 每次请求仍要 MkdirAll + 取连接池引用 + sql.OpenDB，只省了 SELECT。
+// 这里把 DataDir 指向不可写路径，openDB 必然失败；命中缓存仍应成功。
+func TestSessionAuthCacheSkipsDatabaseOpenEntirely(t *testing.T) {
+	service := newSessionCacheTestService(t, "30s")
+	cookie := loginForCacheTest(t, service)
+
+	if !isAuthenticated(t, service, cookie) {
+		t.Fatal("priming auth should pass")
+	}
+
+	// openDB 内部会 os.MkdirAll(DataDir)；把 DataDir 换成已存在的普通文件，
+	// MkdirAll 必然报错，从而保证任何 openDB 调用都会失败。
+	blocker := filepath.Join(t.TempDir(), "not-a-dir")
+	if err := os.WriteFile(blocker, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	service.cfg.DataDir = blocker
+
+	// 节流窗口内的命中不应打开数据库，因此必须仍然通过。
+	if !isAuthenticated(t, service, cookie) {
+		t.Fatal("cached auth must not require a database connection")
 	}
 }
 
