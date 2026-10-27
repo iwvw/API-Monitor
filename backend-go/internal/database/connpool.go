@@ -46,12 +46,25 @@ func poolFor(dbPath string) *connPool {
 	return p
 }
 
+// schemaGeneration 在连接池被重置（数据库文件被整体替换，如导入/备份恢复）
+// 时递增。依赖「进程内只执行一次」的 schema 初始化必须按这个代数缓存，
+// 否则换库后会一直认为表已就绪，而新文件里可能根本没有这些表。
+var schemaGeneration atomic.Uint64
+
+// SchemaGeneration 返回当前 schema 代数。调用方可据此判断自己的
+// 「已初始化」缓存是否仍然有效。
+func SchemaGeneration() uint64 {
+	return schemaGeneration.Load()
+}
+
 // ResetPool 使 dbPath 对应连接池失效：关闭所有空闲物理连接并从注册表移除。
 // 之后任何新的 Store.Open 都会重新建立连接、重新打开磁盘上的数据库文件。
 // 用于数据库文件被整体替换（导入）后，保证后续访问不会再读写旧文件句柄。
 // 已在使用的连接（包括进程常驻句柄）不受影响，仍指向替换前的旧文件，
 // 因此导入成功后应尽快重启后端，避免常驻句柄读到旧快照。
 func ResetPool(dbPath string) {
+	// 文件可能整份换掉：所有「进程内只执行一次」的 schema 缓存都必须失效。
+	schemaGeneration.Add(1)
 	poolsMu.Lock()
 	p, ok := pools[dbPath]
 	if !ok {

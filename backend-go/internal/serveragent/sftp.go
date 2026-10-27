@@ -365,12 +365,25 @@ func (s *Service) handleSFTPUpload(w http.ResponseWriter, r *http.Request, db *s
 		target = pathpkg.Join(remoteDir, relativePath)
 	}
 	if s.hasAgentConnection(serverID) {
+		// 必须走分块 base64 写入，不能把字节塞进 string：Go string 里的非法
+		// UTF-8 序列在 json.Marshal 时会被替换成 U+FFFD，二进制文件（zip/图片/
+		// 可执行文件）会静默损坏。同时分块也避开单帧体积上限。
 		var buf bytes.Buffer
 		if _, err := io.Copy(&buf, file); err != nil {
 			writeSFTPError(w, err)
 			return
 		}
-		s.handleAgentFileWrite(w, serverID, target, buf.String())
+		written, werr := s.WriteAgentFileBytes(r.Context(), serverID, target, buf.Bytes(), 5*time.Minute)
+		if werr != nil {
+			writeSFTPError(w, werr)
+			return
+		}
+		response.JSON(w, http.StatusOK, map[string]interface{}{
+			"success": true,
+			"message": "上传成功",
+			"path":    target,
+			"size":    written,
+		})
 		return
 	}
 
@@ -452,6 +465,7 @@ const (
 	agentFileUploadToURLTask   = 39
 	agentFileFetchURLTask      = 41
 	agentFileWriteBase64Task   = 42
+	agentFileRootsTask         = 43
 	agentFileTimeout           = 30 * time.Second
 	agentFileChunkSize         = 1024 * 1024
 )
@@ -552,6 +566,11 @@ func (s *Service) FetchURLToAgentFile(ctx context.Context, serverID, url, remote
 
 // WriteAgentFileBase64 把一块 base64 字节写入主机文件（支持 offset 续写与首块截断）。
 func (s *Service) WriteAgentFileBase64(ctx context.Context, serverID, remotePath, data string, offset int64, truncate bool, timeout time.Duration) (string, error) {
+	return s.writeAgentFileBase64Raw(ctx, serverID, remotePath, data, offset, truncate, timeout)
+}
+
+// writeAgentFileBase64Raw 与 WriteAgentFileBase64 相同，但原始返回 Agent 的 JSON。
+func (s *Service) writeAgentFileBase64Raw(ctx context.Context, serverID, remotePath, data string, offset int64, truncate bool, timeout time.Duration) (string, error) {
 	serverID = strings.TrimSpace(serverID)
 	if serverID == "" {
 		return "", fmt.Errorf("server id is required")
@@ -574,38 +593,173 @@ func (s *Service) WriteAgentFileBase64(ctx context.Context, serverID, remotePath
 	return s.runAgentTaskAndWaitCtx(ctx, serverID, agentFileWriteBase64Task, string(payload), timeout)
 }
 
-// WriteAgentFileBytes 把整块字节分块写入 Agent 主机文件，返回写入字节数。
+// AgentFileWriteResult 是一次分块写入的结果。
+type AgentFileWriteResult struct {
+	// Size 是目标文件当前的总字节数（含此前写入的块）。
+	Size int64 `json:"size"`
+	// RealPath 是主机上的真实绝对路径。agent_run_command 执行在真实文件系统上，
+	// 必须用它；面板展示的虚拟路径（沙箱根为 "/"）在 shell 里找不到文件。
+	RealPath string `json:"realPath"`
+	Message  string `json:"message"`
+}
+
+// parseAgentFileWriteResult 解析 Agent 的写入回报。旧版 Agent 只返回纯文本
+// 「已写入 N 字节」，此时 RealPath 为空，调用方应回退为提示用户查询目录。
+func parseAgentFileWriteResult(raw string) AgentFileWriteResult {
+	trimmed := strings.TrimSpace(raw)
+	result := AgentFileWriteResult{Message: trimmed}
+	if strings.HasPrefix(trimmed, "{") {
+		var parsed struct {
+			Message  string `json:"message"`
+			RealPath string `json:"realPath"`
+			Size     int64  `json:"size"`
+		}
+		if err := json.Unmarshal([]byte(trimmed), &parsed); err == nil {
+			result.Size = parsed.Size
+			result.RealPath = strings.TrimSpace(parsed.RealPath)
+			if parsed.Message != "" {
+				result.Message = parsed.Message
+			}
+			return result
+		}
+	}
+	return result
+}
+
+// WriteAgentFileBytes 把整块字节分块写入 Agent 主机文件，返回写入字节数与真实路径。
 // 供 AI 侧直传工具复用：绕开 call_api 的 JSON + 1MB 限制与手工 base64 分块。
 func (s *Service) WriteAgentFileBytes(ctx context.Context, serverID, remotePath string, data []byte, timeout time.Duration) (int64, error) {
+	result, err := s.WriteAgentFileBytesDetailed(ctx, serverID, remotePath, data, timeout)
+	return result.Size, err
+}
+
+// WriteAgentFileBytesDetailed 与 WriteAgentFileBytes 相同，但额外返回真实路径。
+func (s *Service) WriteAgentFileBytesDetailed(ctx context.Context, serverID, remotePath string, data []byte, timeout time.Duration) (AgentFileWriteResult, error) {
 	serverID = strings.TrimSpace(serverID)
 	if serverID == "" {
-		return 0, fmt.Errorf("server id is required")
+		return AgentFileWriteResult{}, fmt.Errorf("server id is required")
 	}
 	if !s.hasAgentConnection(serverID) {
-		return 0, fmt.Errorf("agent offline")
+		return AgentFileWriteResult{}, fmt.Errorf("agent offline")
 	}
 	if timeout <= 0 {
 		timeout = 10 * time.Minute
 	}
 	total := int64(len(data))
 	if total == 0 {
-		if _, err := s.WriteAgentFileBase64(ctx, serverID, remotePath, "", 0, true, timeout); err != nil {
-			return 0, err
+		raw, err := s.writeAgentFileBase64Raw(ctx, serverID, remotePath, "", 0, true, timeout)
+		if err != nil {
+			return AgentFileWriteResult{}, err
 		}
-		return 0, nil
+		return parseAgentFileWriteResult(raw), nil
 	}
+	var result AgentFileWriteResult
 	for offset := int64(0); offset < total; {
 		end := offset + int64(agentFileChunkSize)
 		if end > total {
 			end = total
 		}
 		encoded := base64.StdEncoding.EncodeToString(data[offset:end])
-		if _, err := s.WriteAgentFileBase64(ctx, serverID, remotePath, encoded, offset, offset == 0, timeout); err != nil {
-			return offset, err
+		raw, err := s.writeAgentFileBase64Raw(ctx, serverID, remotePath, encoded, offset, offset == 0, timeout)
+		if err != nil {
+			return result, err
 		}
+		result = parseAgentFileWriteResult(raw)
 		offset = end
 	}
-	return total, nil
+	if result.Size <= 0 {
+		result.Size = total
+	}
+	return result, nil
+}
+
+// WriteAgentFileChunk 写入单个分块（按 offset 续写），供 AI 侧大文件分块上传。
+// 客户端自己读文件切片、自己算 sha256，模型只传 offset/长度这类元数据，
+// 因此不受模型输出长度限制。
+func (s *Service) WriteAgentFileChunk(ctx context.Context, serverID, remotePath string, data []byte, offset int64, truncate bool, timeout time.Duration) (AgentFileWriteResult, error) {
+	serverID = strings.TrimSpace(serverID)
+	if serverID == "" {
+		return AgentFileWriteResult{}, fmt.Errorf("server id is required")
+	}
+	if !s.hasAgentConnection(serverID) {
+		return AgentFileWriteResult{}, fmt.Errorf("agent offline")
+	}
+	if offset < 0 {
+		return AgentFileWriteResult{}, fmt.Errorf("offset 不能为负")
+	}
+	if timeout <= 0 {
+		timeout = 2 * time.Minute
+	}
+	encoded := base64.StdEncoding.EncodeToString(data)
+	raw, err := s.writeAgentFileBase64Raw(ctx, serverID, remotePath, encoded, offset, truncate, timeout)
+	if err != nil {
+		return AgentFileWriteResult{}, err
+	}
+	result := parseAgentFileWriteResult(raw)
+	if result.Size <= 0 {
+		result.Size = offset + int64(len(data))
+	}
+	return result, nil
+}
+
+// AgentFileRoots 返回目标主机的文件沙箱根目录与白名单根目录。
+func (s *Service) AgentFileRoots(ctx context.Context, serverID string) (map[string]interface{}, error) {
+	serverID = strings.TrimSpace(serverID)
+	if serverID == "" {
+		return nil, fmt.Errorf("server id is required")
+	}
+	if !s.hasAgentConnection(serverID) {
+		return nil, fmt.Errorf("agent offline")
+	}
+	raw, err := s.runAgentTransientFileTask(serverID, agentFileRootsTask, map[string]interface{}{}, agentFileTimeout)
+	if err != nil {
+		return nil, err
+	}
+	var parsed map[string]interface{}
+	if err := json.Unmarshal([]byte(raw), &parsed); err != nil {
+		return nil, fmt.Errorf("AGENT_FILE_ERROR: %w", err)
+	}
+	if parsed == nil {
+		parsed = map[string]interface{}{}
+	}
+	return parsed, nil
+}
+
+// AgentFileStat 返回目标主机上某个路径的信息（含真实路径）。
+func (s *Service) AgentFileStat(ctx context.Context, serverID, remotePath string) (map[string]interface{}, error) {
+	serverID = strings.TrimSpace(serverID)
+	if serverID == "" {
+		return nil, fmt.Errorf("server id is required")
+	}
+	if !s.hasAgentConnection(serverID) {
+		return nil, fmt.Errorf("agent offline")
+	}
+	raw, err := s.runAgentTransientFileTask(serverID, agentFileStatTask, map[string]interface{}{
+		"path": normalizeRemotePath(remotePath),
+	}, agentFileTimeout)
+	if err != nil {
+		return nil, err
+	}
+	var parsed map[string]interface{}
+	if err := json.Unmarshal([]byte(raw), &parsed); err != nil {
+		return nil, fmt.Errorf("AGENT_FILE_ERROR: %w", err)
+	}
+	return parsed, nil
+}
+
+// AgentFileChmod 修改目标主机上的文件权限（用于让上传的脚本可执行）。
+func (s *Service) AgentFileChmod(ctx context.Context, serverID, remotePath string, mode uint32) (string, error) {
+	serverID = strings.TrimSpace(serverID)
+	if serverID == "" {
+		return "", fmt.Errorf("server id is required")
+	}
+	if !s.hasAgentConnection(serverID) {
+		return "", fmt.Errorf("agent offline")
+	}
+	return s.runAgentFileTask(serverID, agentFileChmodTask, map[string]interface{}{
+		"path": normalizeRemotePath(remotePath),
+		"mode": mode,
+	}, agentFileTimeout)
 }
 
 func (s *Service) handleAgentFileMkdir(w http.ResponseWriter, serverID, remotePath string) {

@@ -55,6 +55,9 @@ type TaskEvent struct {
 	Progress int         `json:"progress"`
 	Data     interface{} `json:"data,omitempty"`
 	Error    string      `json:"error,omitempty"`
+	// ExitCode 为命令类任务的进程退出码（非进程类任务省略）。
+	// 异步模式（wait=false）下调用方要靠它判断命令是否真的成功。
+	ExitCode *int `json:"exit_code,omitempty"`
 }
 
 // Snapshot returns a consistent, serializable view of a task. Terminal
@@ -67,6 +70,7 @@ func (t *Task) Snapshot() TaskEvent {
 	if t.Status == TaskCompleted {
 		event.Type = "completed"
 		event.Data = t.Result
+		event.ExitCode = t.ExitCode
 	} else if t.Status == TaskFailed {
 		event.Type = "failed"
 		event.Error = t.Error
@@ -355,6 +359,7 @@ func (r *TaskRegistry) CompleteWithExitCode(taskID string, result string, exitCo
 		Status:   TaskCompleted,
 		Progress: 100,
 		Data:     result,
+		ExitCode: task.ExitCode,
 	}
 	task.notifySubscribers(event)
 	r.broadcast(event)
@@ -486,6 +491,13 @@ func (t *Task) GetStatus() TaskStatus {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
 	return t.Status
+}
+
+// ResultText 返回任务结果（线程安全），供后台记账与异步查询使用。
+func (t *Task) ResultText() string {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	return t.Result
 }
 
 // Subscribe 订阅任务事件
@@ -708,8 +720,12 @@ func (s *Service) writeNamedSSE(w http.ResponseWriter, eventName string, payload
 const (
 	// defaultExecTimeout 命令执行默认等待超时
 	defaultExecTimeout = 30 * time.Second
-	// maxExecTimeout 命令执行等待超时上限
+	// maxExecTimeout 同步模式的等待上限（HTTP 请求不能无限挂着）
 	maxExecTimeout = 300 * time.Second
+	// defaultAsyncExecTimeout / maxAsyncExecTimeout 用于 wait=false：
+	// 异步模式不占 HTTP 连接，需要覆盖 apt upgrade、编译、镜像拉取这类长任务。
+	defaultAsyncExecTimeout = 10 * time.Minute
+	maxAsyncExecTimeout     = 30 * time.Minute
 )
 
 // waitAgentTaskResult 等待任务到达终态并返回执行结果。

@@ -73,6 +73,8 @@ func (s *Service) handleAgentExecCommand(w http.ResponseWriter, r *http.Request,
 		Command string `json:"command"`
 		Timeout int    `json:"timeout"` // 秒，可选
 		Confirm bool   `json:"confirm"` // 危险命令二次确认（敏感模式下软拦截要求）
+		Cwd     string `json:"cwd"`     // 工作目录，可选（缺省用 Agent 进程当前目录）
+		Wait    *bool  `json:"wait"`    // false 时立即返回 task_id，由调用方轮询任务终态
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		response.Error(w, http.StatusBadRequest, "invalid request body")
@@ -119,14 +121,24 @@ func (s *Service) handleAgentExecCommand(w http.ResponseWriter, r *http.Request,
 	// base64 只含字母数字，可避免 cmd 解析管道符 / 引号导致命令被拆坏。
 	command = normalizeExecCommand(command)
 
-	// 超时：默认 30s，上限 300s（先钳制再换算，防止巨大值溢出成负 duration）
+	// 超时：默认 30s。同步模式上限 300s（HTTP 请求不能无限挂着）；异步模式
+	// 已不占请求，允许放宽到 30 分钟，否则 apt upgrade / 编译 / docker pull
+	// 这类长任务仍会在 300s 被 Agent 杀掉。
+	async := req.Wait != nil && !*req.Wait
+	limit := maxExecTimeout
+	if async {
+		limit = maxAsyncExecTimeout
+	}
 	timeout := defaultExecTimeout
 	if req.Timeout > 0 {
 		seconds := int64(req.Timeout)
-		if seconds > int64(maxExecTimeout/time.Second) {
-			seconds = int64(maxExecTimeout / time.Second)
+		if seconds > int64(limit/time.Second) {
+			seconds = int64(limit / time.Second)
 		}
 		timeout = time.Duration(seconds) * time.Second
+	} else if async {
+		// 异步模式不传 timeout 时给一个更宽松的默认值。
+		timeout = defaultAsyncExecTimeout
 	}
 
 	conn, online := s.registry.Get(serverID)
@@ -138,14 +150,35 @@ func (s *Service) handleAgentExecCommand(w http.ResponseWriter, r *http.Request,
 	task := s.taskRegistry.Create(serverID, "shell", command)
 	eventCh := task.Subscribe()
 
-	if err := conn.SendEvent("dashboard:task", map[string]interface{}{
+	payload := map[string]interface{}{
 		"id":      task.ID,
 		"type":    1, // RUN_COMMAND
 		"data":    command,
 		"timeout": int(timeout.Seconds()),
-	}); err != nil {
+	}
+	if cwd := strings.TrimSpace(req.Cwd); cwd != "" {
+		payload["cwd"] = cwd
+	}
+	if err := conn.SendEvent("dashboard:task", payload); err != nil {
 		s.taskRegistry.Fail(task.ID, err.Error())
 		response.Error(w, http.StatusBadGateway, "failed to send task to agent: "+err.Error())
+		return
+	}
+
+	// wait=false：立即返回 task_id，由调用方用 GET /api/server/tasks/{id}
+	// 或 agent_task_result 工具取终态。长任务（apt upgrade、编译、docker pull）
+	// 不再被 300s 的同步等待上限掐断，也不会占住一次 MCP 请求。
+	if req.Wait != nil && !*req.Wait {
+		s.recordExecCommandAsync(serverID, command, task, eventCh, timeout)
+		response.JSON(w, http.StatusAccepted, map[string]interface{}{
+			"success":   true,
+			"accepted":  true,
+			"task_id":   task.ID,
+			"status":    "running",
+			"timeout":   int(timeout.Seconds()),
+			"poll_with": "GET /api/server/tasks/" + task.ID,
+			"note":      "命令已在目标主机开始执行，稍后用 task_id 取终态（status=completed/failed，output 字段为输出；exit_code 为进程退出码）。",
+		})
 		return
 	}
 
@@ -164,6 +197,8 @@ func (s *Service) handleAgentExecCommand(w http.ResponseWriter, r *http.Request,
 
 	// 记录命令历史（复用片段历史写入逻辑，executionMode=api）
 	s.recordExecCommandHistory(r.Context(), db, serverID, command, status, output)
+
+	output = truncateExecOutput(output)
 
 	// 命令已执行完成即视为成功，即使退出码非零：非零退出码对 echo/grep/test/diff
 	// 等是正常结果，命令仍可能产出了有效输出。真实失败只发生在 spawn/wait 失败或超时
@@ -188,6 +223,76 @@ func (s *Service) handleAgentExecCommand(w http.ResponseWriter, r *http.Request,
 		resp["error"] = "命令执行失败: " + reason
 	}
 	response.JSON(w, http.StatusOK, resp)
+}
+
+// recordExecCommandAsync 在异步模式下等待任务终态并补写命令历史。
+// 必须由后台 goroutine 消费事件通道：否则订阅者缓冲（10 条）写满后
+// notifySubscribers 会丢弃终态事件，命令历史就永远补不上。
+// 使用 backgroundCtx 与独立 DB 句柄而非请求作用域的 db——HTTP 响应在任务完成前
+// 就已返回，请求的 db 句柄会被路由层关闭。
+func (s *Service) recordExecCommandAsync(serverID, command string, task *Task, eventCh <-chan TaskEvent, timeout time.Duration) {
+	if !s.trackPending() {
+		return
+	}
+	go func() {
+		defer s.pendingWG.Done()
+		// 多等一点，让 Agent 侧的收尾（写盘/回传）先落地再记账。
+		wait := timeout + 30*time.Second
+		ctx, cancel := context.WithTimeout(s.backgroundCtx, wait)
+		defer cancel()
+		db, err := s.open(ctx)
+		if err != nil {
+			return
+		}
+		defer db.Close()
+		timer := time.NewTimer(wait)
+		defer timer.Stop()
+		for {
+			select {
+			case event, ok := <-eventCh:
+				if !ok {
+					s.recordExecCommandHistory(ctx, db, serverID, command, string(task.GetStatus()), task.ResultText())
+					return
+				}
+				if event.Status == TaskCompleted {
+					s.recordExecCommandHistory(ctx, db, serverID, command, "success", task.ResultText())
+					return
+				}
+				if event.Status == TaskFailed {
+					s.recordExecCommandHistory(ctx, db, serverID, command, "failed", event.Error)
+					return
+				}
+			case <-timer.C:
+				s.recordExecCommandHistory(ctx, db, serverID, command, "timeout", "async task did not finish in "+wait.String())
+				return
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+}
+
+// execOutputLimit 是单条命令回传给调用方的输出上限（rune 计）。Agent 侧已按
+// 256KB 截断并保留首尾；这里再按字符兜底，确保 MCP 响应与命令历史不被
+// 超大输出撑爆（AI 侧还要再经过一次 64KB 的 contentSizeLimit 压缩）。
+const execOutputLimit = 120 * 1024
+
+// truncateExecOutput 按 rune 边界截断命令输出，保留首尾并显式标注省略量。
+// 只留头部会丢掉最后的报错信息，因此头尾各留一部分。
+func truncateExecOutput(output string) string {
+	if len(output) <= execOutputLimit {
+		return output
+	}
+	runes := []rune(output)
+	if len(runes) <= execOutputLimit {
+		return output
+	}
+	headLen := execOutputLimit / 4
+	tailLen := execOutputLimit - headLen
+	return string(runes[:headLen]) +
+		fmt.Sprintf("\n...[输出已截断：共 %d 字符，中间省略 %d 字符。请用 grep/head/tail 或重定向到文件缩小输出]...\n",
+			len(runes), len(runes)-headLen-tailLen) +
+		string(runes[len(runes)-tailLen:])
 }
 
 // recordExecCommandHistory 将 API 发起的命令执行写入命令历史表
