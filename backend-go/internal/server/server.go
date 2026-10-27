@@ -752,6 +752,9 @@ func (s *Server) serveStatic(w http.ResponseWriter, r *http.Request) {
 		indexPath := filepath.Join(s.cfg.DistDir, "index.html")
 		if _, err := os.Stat(indexPath); err == nil {
 			setStaticCacheHeaders(w, "index.html")
+			if servePrecompressed(w, r, indexPath) {
+				return
+			}
 			http.ServeFile(w, r, indexPath)
 			return
 		}
@@ -871,6 +874,10 @@ func (s *Server) tryServeFile(w http.ResponseWriter, r *http.Request, dir string
 	}
 	if !fileInfo.IsDir() {
 		setStaticCacheHeaders(w, cleanPath)
+		// 优先发送构建期预压缩产物；缺失时退回原文件（开发环境无预压缩步骤）。
+		if servePrecompressed(w, r, candidate) {
+			return true
+		}
 		http.ServeFile(w, r, candidate)
 		return true
 	}
@@ -888,6 +895,9 @@ func (s *Server) tryServeFile(w http.ResponseWriter, r *http.Request, dir string
 		return true
 	}
 	setStaticCacheHeaders(w, filepath.Join(cleanPath, "index.html"))
+	if servePrecompressed(w, r, indexPath) {
+		return true
+	}
 	http.ServeFile(w, r, indexPath)
 	return true
 

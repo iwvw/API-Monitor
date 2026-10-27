@@ -11,6 +11,7 @@
     "drawio:install": "node tools/install-drawio.mjs",
     "icons:generate": "node tools/generate-simple-icons-css.mjs",
     "build": "npm run icons:generate && vite build",
+    "dist:precompress": "node tools/precompress-dist.mjs dist",
     "preview": "vite preview",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
