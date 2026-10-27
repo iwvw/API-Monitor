@@ -276,7 +276,10 @@ func (s *Service) createManagedProxyNode(w http.ResponseWriter, r *http.Request,
 		PreferredAddressID string `json:"preferred_address_id"`
 		ConnectAddress     string `json:"connect_address"`
 		ConnectPort        int    `json:"connect_port"`
-		Enabled            *bool  `json:"enabled"`
+		// Preset 选择 sing-box 调优预设（GET /api/server/agent/proxy/presets）。
+		// 空值等价 balanced，保持既有行为。
+		Preset  string `json:"preset"`
+		Enabled *bool  `json:"enabled"`
 	}
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 2<<20)).Decode(&input); err != nil {
 		response.Error(w, 400, "invalid internal node")
@@ -377,7 +380,14 @@ func (s *Service) createManagedProxyNode(w http.ResponseWriter, r *http.Request,
 		input.CertificatePEM, input.PrivateKeyPEM = cert, key
 	}
 	id := "mnode-" + uuid.NewString()
-	config, clientURI, transport, err := generateManagedNode(id, input.Name, input.Protocol, input.PublicHost, input.ServerName, input.CertificatePEM, input.PrivateKeyPEM, input.AccessMode, tunnelHostname, tunnelPath, input.ConnectAddress, input.ConnectPort)
+	config, clientURI, transport, err := generateManagedNodeWithOptions(id, input.Name, input.Protocol, input.PublicHost, input.ServerName, input.CertificatePEM, input.PrivateKeyPEM, managedNodeOptions{
+		AccessMode:     input.AccessMode,
+		TunnelHostname: tunnelHostname,
+		TunnelPath:     tunnelPath,
+		ConnectAddress: input.ConnectAddress,
+		ConnectPort:    input.ConnectPort,
+		Preset:         input.Preset,
+	})
 	if err != nil {
 		response.Error(w, 400, err.Error())
 		return

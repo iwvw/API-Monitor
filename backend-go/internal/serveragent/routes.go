@@ -110,6 +110,8 @@ func (s *Service) handleAgentRoutes(w http.ResponseWriter, r *http.Request, db *
 
 	case len(subparts) == 2 && subparts[0] == "proxy" && subparts[1] == "nodes":
 		s.handleManagedProxyNodes(w, r, db, "")
+	case len(subparts) == 2 && subparts[0] == "proxy" && subparts[1] == "presets":
+		s.listManagedProxyPresets(w, r, db)
 	case len(subparts) >= 2 && subparts[0] == "proxy" && subparts[1] == "runtimes":
 		s.handleManagedProxyRuntimeRoutes(w, r, db, subparts[2:])
 	case len(subparts) >= 2 && subparts[0] == "proxy" && subparts[1] == "tunnels":

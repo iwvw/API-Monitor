@@ -6,7 +6,7 @@ import useStore from '../../store.js';
 import { dialog } from '../../modules/dialog.js';
 import { toast } from '../../modules/toast.js';
 import { useConfirmPress } from '../../hooks/useConfirmPress.js';
-import { API, INTERNAL_API, RUNTIME_API, TUNNEL_API, PREFERRED_API, SERVER_INVENTORY_API, DEFAULT_EXTERNAL_POOL_ID, LOAD_TIMEOUT_MS, INITIAL_SKELETON_MS, emptyInternalNodeForm, emptySubscriptionForm, emptyPlanForm, emptyNodeForm } from './constants.js';
+import { API, INTERNAL_API, RUNTIME_API, TUNNEL_API, PREFERRED_API, PRESETS_API, SERVER_INVENTORY_API, DEFAULT_EXTERNAL_POOL_ID, LOAD_TIMEOUT_MS, INITIAL_SKELETON_MS, emptyInternalNodeForm, emptySubscriptionForm, emptyPlanForm, emptyNodeForm } from './constants.js';
 import { getAuthHeaders, copyText, countryFlagEmoji, getInstanceCountryCode, subscriptionURL, normalizeManagedServer, isLinuxManagedServer, normalizePublicBase } from './utils.js';
 import { tabs } from './tabs.jsx';
 import SubscriptionsPanel from './SubscriptionsPanel.jsx';
@@ -51,6 +51,7 @@ function SubscriptionPage() {
   const [logs, setLogs] = useState([]);
   const [servers, setServers] = useState([]);
   const [settings, setSettings] = useState(null);
+  const [nodePresets, setNodePresets] = useState([]);
 
   const [subscriptionModalOpen, setSubscriptionModalOpen] = useState(false);
   const [subscriptionForm, setSubscriptionForm] = useState(emptySubscriptionForm);
@@ -106,6 +107,7 @@ function SubscriptionPage() {
       [SERVER_INVENTORY_API, (items) => setServers((Array.isArray(items) ? items : []).map(normalizeManagedServer).filter(isLinuxManagedServer)), []],
       [`${API}/settings`, setSettings, {}],
 	  [RUNTIME_API, setManagedRuntimes, []],
+      [PRESETS_API, (payload) => setNodePresets(Array.isArray(payload?.presets) ? payload.presets : []), []],
     ];
     const requests = resources.map(([url, setter, fallback]) => loadJSON(url)
       .then((payload) => {
@@ -1096,6 +1098,7 @@ function SubscriptionPage() {
         runtimeReadyServers={runtimeReadyServers}
         servers={servers}
         preferredAddresses={preferredAddresses}
+        nodePresets={nodePresets}
         saving={saving}
         onSave={saveInternalNode}
         onCreate={createInternalNode}

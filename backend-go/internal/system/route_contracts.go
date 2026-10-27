@@ -731,12 +731,22 @@ func init() {
 	})
 	routeRequestContracts["/api/server/agent/proxy/{id}/reconcile"] = noBody
 	routeRequestContracts["/api/server/agent/proxy/{id}/traffic"] = obj(nil, map[string]prop{"days": {t: "integer"}})
-	routeRequestContracts["/api/server/agent/proxy/nodes"] = obj([]string{"name"}, map[string]prop{
-		"name":     {t: "string", req: true},
-		"bindIp":   {t: "string"},
-		"port":     {t: "integer"},
-		"serverId": {t: "string"},
+	routeRequestContracts["/api/server/agent/proxy/nodes"] = obj([]string{"server_id", "name", "protocol", "public_host"}, map[string]prop{
+		"server_id":            {t: "string", req: true, d: "Agent 主机 ID（先调 /api/server/accounts 获取）"},
+		"name":                 {t: "string", req: true, d: "节点名称（同一主机内唯一）"},
+		"protocol":             {t: "string", req: true, e: []string{"vless-reality", "hysteria2", "socks", "http"}, d: "节点协议"},
+		"public_host":          {t: "string", req: true, d: "对外地址/主机名"},
+		"preset":               {t: "string", e: []string{"balanced", "low_latency", "stealth", "throughput"}, d: "sing-box 调优预设（GET /api/server/agent/proxy/presets），空值等价 balanced"},
+		"server_name":          {t: "string", d: "REALITY 握手落点，显式值优先于预设"},
+		"certificate_pem":      {t: "string", d: "Hysteria2 证书（留空自动生成）"},
+		"private_key_pem":      {t: "string", d: "Hysteria2 私钥（留空自动生成）"},
+		"access_mode":          {t: "string", e: []string{"direct", "cloudflare_tunnel"}, d: "接入方式，默认 direct"},
+		"preferred_address_id": {t: "string", d: "Cloudflare Tunnel 优选地址 ID"},
+		"connect_address":      {t: "string", d: "客户端连接地址（Tunnel 场景）"},
+		"connect_port":         {t: "integer", d: "客户端连接端口（Tunnel 场景）"},
+		"enabled":              {t: "boolean", d: "是否启用，默认 true"},
 	})
+	routeRequestContracts["/api/server/agent/proxy/presets"] = noBody
 	routeRequestContracts["/api/server/agent/proxy/nodes/{id}"] = routeRequestContracts["/api/server/agent/proxy/nodes"]
 	routeRequestContracts["/api/server/agent/proxy/nodes/{id}/reconcile"] = noBody
 	routeRequestContracts["/api/server/agent/proxy/tunnels"] = obj([]string{"name"}, map[string]prop{

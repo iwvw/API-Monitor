@@ -52,23 +52,58 @@ func sanitizeRealityServerName(serverName string) string {
 	return name
 }
 
+// managedNodeOptions 承载生成节点时可选的接入方式与预设调优。零值等价于
+// 历史行为（direct 接入 + balanced 预设），因此旧调用方无需感知预设。
+type managedNodeOptions struct {
+	AccessMode     string
+	TunnelHostname string
+	TunnelPath     string
+	ConnectAddress string
+	ConnectPort    int
+	// Preset 是 managedProxyPresetCatalog 的 ID；空值按 balanced 处理。
+	Preset string
+}
+
+// generateManagedNodeWithOptions 是带预设的节点配置生成入口。显式传入的
+// serverName（面板表单输入）优先级最高，为空时才采用预设的默认 REALITY 落点。
+func generateManagedNodeWithOptions(id, name, protocol, host, serverName, cert, key string, options managedNodeOptions) (string, string, string, error) {
+	preset := managedProxyPresetByID(options.Preset)
+	if strings.TrimSpace(serverName) == "" {
+		if presetName, ok := presetString(preset.Options, "reality_server_name"); ok {
+			serverName = presetName
+		}
+	}
+	return generateNodeWithPreset(id, name, protocol, host, serverName, cert, key, options, preset)
+}
+
+// generateManagedNode 保留旧签名（可变参数），供既有调用方与测试使用。
 func generateManagedNode(id, name, protocol, host, serverName, cert, key string, tunnelOptions ...interface{}) (string, string, string, error) {
-	accessMode, tunnelHostname, tunnelPath, connectAddress := "direct", "", "", ""
-	connectPort := 0
+	options := managedNodeOptions{AccessMode: "direct"}
 	if len(tunnelOptions) > 0 {
-		accessMode, _ = tunnelOptions[0].(string)
+		options.AccessMode, _ = tunnelOptions[0].(string)
 	}
 	if len(tunnelOptions) > 1 {
-		tunnelHostname, _ = tunnelOptions[1].(string)
+		options.TunnelHostname, _ = tunnelOptions[1].(string)
 	}
 	if len(tunnelOptions) > 2 {
-		tunnelPath, _ = tunnelOptions[2].(string)
+		options.TunnelPath, _ = tunnelOptions[2].(string)
 	}
 	if len(tunnelOptions) > 3 {
-		connectAddress, _ = tunnelOptions[3].(string)
+		options.ConnectAddress, _ = tunnelOptions[3].(string)
 	}
 	if len(tunnelOptions) > 4 {
-		connectPort, _ = tunnelOptions[4].(int)
+		options.ConnectPort, _ = tunnelOptions[4].(int)
+	}
+	return generateNodeWithPreset(id, name, protocol, host, serverName, cert, key, options, managedProxyPresetByID(""))
+}
+
+// generateNodeWithPreset 按预设渲染 sing-box inbound。预设只调整协议参数，
+// 不改端口、协议与凭据。
+func generateNodeWithPreset(id, name, protocol, host, serverName, cert, key string, options managedNodeOptions, preset managedProxyPreset) (string, string, string, error) {
+	accessMode, tunnelHostname, tunnelPath := options.AccessMode, options.TunnelHostname, options.TunnelPath
+	connectAddress, connectPort := options.ConnectAddress, options.ConnectPort
+	if accessMode == "" {
+		accessMode = "direct"
 	}
 	if accessMode == "cloudflare_tunnel" {
 		if tunnelHostname == "" || tunnelPath == "" {
@@ -132,9 +167,9 @@ func generateManagedNode(id, name, protocol, host, serverName, cert, key string,
 					"enabled":     true,
 					"handshake":   map[string]interface{}{"server": serverName, "server_port": 443},
 					"private_key": privateKey, "short_id": []string{shortID},
-					// 容忍客户端与服务端 1 分钟内的时钟偏差。手机/PC 校时漂移时
-					// 默认的 0 容忍会让 REALITY 握手直接被拒。
-					"max_time_difference": "1m",
+					// 预设决定时钟容差：balanced 1m、low_latency 10s。
+					// 默认的 0 容忍会让手机/PC 校时漂移时握手直接被拒。
+					"max_time_difference": presetStringOr(preset.Options, "reality_max_time_difference", "1m"),
 				},
 			},
 		}
@@ -157,11 +192,16 @@ func generateManagedNode(id, name, protocol, host, serverName, cert, key string,
 		"users": []interface{}{map[string]interface{}{"password": password}},
 		// 忽略客户端上报的带宽，统一走 BBR。否则个别客户端声明 Brutal 高带宽后
 		// 会挤占同一台主机的共享链路，其它客户端抖动明显上升。
-		"ignore_client_bandwidth": true,
-		// 伪装成普通站点：未通过认证的探测请求会被反代到 https://www.bing.com，
-		// 端口表现为一个正常网站，避免被识别为代理服务。
-		"masquerade": "https://www.bing.com",
-		"tls":        map[string]interface{}{"enabled": true, "server_name": serverName, "certificate": strings.Split(strings.TrimSpace(cert), "\n"), "key": strings.Split(strings.TrimSpace(key), "\n")},
+		"ignore_client_bandwidth": presetBoolOr(preset.Options, "hysteria2_ignore_client_bandwidth", true),
+		"tls":                     map[string]interface{}{"enabled": true, "server_name": serverName, "certificate": strings.Split(strings.TrimSpace(cert), "\n"), "key": strings.Split(strings.TrimSpace(key), "\n")},
+	}
+	// 伪装成普通站点：未通过认证的探测请求会被反代到目标站点，端口表现为
+	// 一个正常网站。low_latency 预设显式置空以省掉一次反向代理跳转。
+	if masquerade := presetStringOr(preset.Options, "hysteria2_masquerade", ""); masquerade != "" {
+		inbound["masquerade"] = masquerade
+	}
+	if hint := presetStringOr(preset.Options, "hysteria2_bandwidth_hint", ""); hint != "" {
+		inbound["bandwidth"] = map[string]interface{}{"up": hint, "down": hint}
 	}
 	root := map[string]interface{}{"log": map[string]interface{}{"level": "warn"}, "inbounds": []interface{}{inbound}, "outbounds": []interface{}{map[string]interface{}{"type": "direct", "tag": "direct"}}}
 	encoded, _ := json.Marshal(root)

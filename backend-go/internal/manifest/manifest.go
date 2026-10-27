@@ -431,6 +431,7 @@ func buildRoutes() []Route {
 		{Prefix: "/api/server/agent/proxy/nodes/{id}/reconcile", Module: "server-agent-proxy", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Reconcile one internal proxy node", MatchMode: MatchPattern},
 		{Prefix: "/api/server/agent/proxy/nodes/{id}", Module: "server-agent-proxy", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Internal proxy node", MatchMode: MatchPattern},
 		{Prefix: "/api/server/agent/proxy/nodes", Module: "server-agent-proxy", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Internal proxy nodes", MatchMode: MatchExact},
+		{Prefix: "/api/server/agent/proxy/presets", Module: "server-agent-proxy", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "sing-box 节点调优预设（均衡/低延迟/隐蔽/吞吐）", MatchMode: MatchExact},
 		{Prefix: "/api/server/agent/proxy/tunnels/preflight", Module: "server-agent-tunnels", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Managed Tunnel permission preflight", MatchMode: MatchExact},
 		{Prefix: "/api/server/agent/proxy/tunnels/{serverId}/deploy", Module: "server-agent-tunnels", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Deploy managed Named Tunnel", MatchMode: MatchPattern},
 		{Prefix: "/api/server/agent/proxy/tunnels/{serverId}", Module: "server-agent-tunnels", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Managed Tunnel uninstall", MatchMode: MatchPattern},

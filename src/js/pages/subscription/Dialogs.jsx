@@ -47,7 +47,7 @@ export function PlanDialog({ open, onOpenChange, editingPlanId, planForm, setPla
   );
 }
 
-export function InternalNodeDialog({ open, onOpenChange, editingInternalNodeId, internalNodeForm, setInternalNodeForm, selectedInternalHosts, setSelectedInternalHosts, runtimeReadyServers, servers, preferredAddresses, saving, onSave, onCreate }) {
+export function InternalNodeDialog({ open, onOpenChange, editingInternalNodeId, internalNodeForm, setInternalNodeForm, selectedInternalHosts, setSelectedInternalHosts, runtimeReadyServers, servers, preferredAddresses, nodePresets = [], saving, onSave, onCreate }) {
   return (
       <LayerDialog.Root open={open} onOpenChange={onOpenChange}>
         <LayerDialog.Content size="xl">
@@ -73,6 +73,8 @@ export function InternalNodeDialog({ open, onOpenChange, editingInternalNodeId, 
             {!editingInternalNodeId && (internalNodeForm.protocol === 'socks' || internalNodeForm.protocol === 'http') && <div className="flex min-h-8 items-center rounded-md border border-kumo-info/25 bg-kumo-info/10 px-3 text-xs text-kumo-subtle">SOCKS/HTTP 仅直连，无 TLS 加密。</div>}
             {!editingInternalNodeId && <Select alignItemWithTrigger size="sm" label="接入方式" value={internalNodeForm.access_mode || 'direct'} disabled={internalNodeForm.protocol === 'socks' || internalNodeForm.protocol === 'http'} onValueChange={(value) => setInternalNodeForm((prev) => ({ ...prev, access_mode: String(value) }))} items={[{ value: 'direct', label: '直连节点' }, { value: 'cloudflare_tunnel', label: 'Cloudflare Tunnel（VLESS WS）' }]} />}
             {internalNodeForm.access_mode === 'cloudflare_tunnel' && <Select alignItemWithTrigger size="sm" label="优选地址" value={internalNodeForm.preferred_address_id || ''} onValueChange={(value) => setInternalNodeForm((prev) => ({ ...prev, preferred_address_id: String(value) }))} items={[{ value: '', label: '继承默认地址' }, ...preferredAddresses.map((item) => ({ value: item.id, label: `${item.name} · ${item.address}` }))]} />}
+            {!editingInternalNodeId && nodePresets.length > 0 && <Select alignItemWithTrigger size="sm" label="调优预设" value={internalNodeForm.preset || 'balanced'} onValueChange={(value) => setInternalNodeForm((prev) => ({ ...prev, preset: String(value) }))} items={nodePresets.map((item) => ({ value: item.id, label: item.name }))} />}
+            {!editingInternalNodeId && nodePresets.length > 0 && (() => { const preset = nodePresets.find((item) => item.id === (internalNodeForm.preset || 'balanced')); return preset ? <div className="flex min-h-8 items-center rounded-md border border-kumo-line bg-kumo-recessed/25 px-3 py-2 text-xs text-kumo-subtle">{preset.description}</div> : null; })()}
           </div>
           </LayerDialog.Body>
           <LayerDialog.Actions dismissLabel="取消">
