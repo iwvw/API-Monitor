@@ -26,6 +26,7 @@ import (
 
 	"github.com/iwvw/api-monitor/backend-go/internal/apikeys"
 	"github.com/iwvw/api-monitor/backend-go/internal/applog"
+	"github.com/iwvw/api-monitor/backend-go/internal/authcache"
 	"github.com/iwvw/api-monitor/backend-go/internal/config"
 	"github.com/iwvw/api-monitor/backend-go/internal/database"
 	"github.com/iwvw/api-monitor/backend-go/internal/response"
@@ -50,6 +51,12 @@ type Service struct {
 	cfg   config.Config
 	store *database.Store
 	keys  *apikeys.Manager
+
+	// sessionCache 缓存「sid → 会话有效」，把鉴权热路径上的 SQLite 查询降到接近零。
+	// 键是 sid 的完整 sha256 摘要，不存明文。AUTH_CACHE_TTL<=0 时为 nil（缓存关闭）。
+	sessionCache *authcache.Cache[*cachedSession]
+	// sessionCacheTTL 是构造期解析出的 TTL，缓存启用时才 > 0。
+	sessionCacheTTL time.Duration
 }
 
 type loginRequest struct {
@@ -106,7 +113,14 @@ type sessionRecord struct {
 }
 
 func New(cfg config.Config) *Service {
-	return &Service{cfg: cfg, store: database.New(cfg), keys: apikeys.New(cfg)}
+	ttl := authcache.TTL()
+	return &Service{
+		cfg:             cfg,
+		store:           database.New(cfg),
+		keys:            apikeys.New(cfg),
+		sessionCache:    authcache.New[*cachedSession](ttl),
+		sessionCacheTTL: ttl,
+	}
 }
 
 func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -469,6 +483,8 @@ func (s *Service) revokeSessionByID(w http.ResponseWriter, r *http.Request) {
 		response.Error(w, http.StatusNotFound, "会话不存在")
 		return
 	}
+	// 安全红线：撤销单个会话后缓存必须立即失效。
+	s.invalidateSessionCache(id)
 	response.OK(w, map[string]bool{"success": true})
 }
 
@@ -485,6 +501,8 @@ func (s *Service) revokeAllSessions(w http.ResponseWriter, r *http.Request) {
 		response.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	// 安全红线：撤销全部会话后缓存必须整体失效。
+	s.invalidateAllSessionCache()
 	response.OK(w, map[string]bool{"success": true})
 }
 
@@ -714,6 +732,8 @@ func (s *Service) changePassword(w http.ResponseWriter, r *http.Request) {
 	_ = s.logOperation(r.Context(), db, "PASSWORD_CHANGED", "auth", map[string]interface{}{
 		"ip": clientIP,
 	}, clientIP, r.UserAgent())
+	// 安全红线：改密码后全部 session 缓存必须失效。
+	s.invalidateAllSessionCache()
 	response.JSON(w, http.StatusOK, map[string]bool{"success": true})
 }
 
@@ -978,6 +998,12 @@ func (s *Service) validateRequestSession(ctx context.Context, db *sql.DB, r *htt
 }
 
 func (s *Service) validateSession(ctx context.Context, db *sql.DB, sid string) (sessionRecord, bool, error) {
+	// 热路径先查进程内缓存（AUTH_CACHE_TTL，默认 30s）；未命中才查 SQLite 并回填。
+	// 只缓存「有效」结果：不存在 / 已撤销 / 已置灰都回源，不缓存。
+	if cached, ok := s.lookupCachedSession(ctx, db, sid); ok {
+		return cached, true, nil
+	}
+
 	var session sessionRecord
 	err := db.QueryRowContext(ctx, `
 		SELECT session_id, password, created_at, last_accessed_at, expires_at, is_active, COALESCE(ip_address,''), COALESCE(user_agent,'')
@@ -1005,16 +1031,24 @@ func (s *Service) validateSession(ctx context.Context, db *sql.DB, sid string) (
 	expiresAt, err := parseDBTime(session.ExpiresAt)
 	if err != nil || time.Now().UTC().After(expiresAt) {
 		_, _ = db.ExecContext(ctx, `UPDATE sessions SET is_active = 0 WHERE session_id = ?`, sid)
+		// 安全红线：会话被置灰后缓存必须立即失效，不能等 TTL 过期。
+		s.invalidateSessionCache(sid)
 		return session, false, nil
 	}
 	// 节流写入：last_accessed_at 仅用于会话排序与展示，60s 粒度足够。
 	// SQLite 单写者模型下，避免每个鉴权请求都产生一次写事务。
 	if lastAccessed, parseErr := parseDBTime(session.LastAccessedAt); parseErr != nil || time.Now().UTC().Sub(lastAccessed) >= time.Minute {
-		_, err = db.ExecContext(ctx, `UPDATE sessions SET last_accessed_at = ? WHERE session_id = ?`, formatTime(time.Now().UTC()), sid)
+		touched := formatTime(time.Now().UTC())
+		_, err = db.ExecContext(ctx, `UPDATE sessions SET last_accessed_at = ? WHERE session_id = ?`, touched, sid)
 		if err != nil {
 			return sessionRecord{}, false, fmt.Errorf("touch session: %w", err)
 		}
+		// 回填缓存时要用刚写入的值，否则缓存条目的节流起点会停在旧值上，
+		// 导致下一次命中又立刻写一次库（节流失效）。
+		session.LastAccessedAt = touched
 	}
+	// 回填缓存（DB 错误已在上面的分支返回，不会缓存故障）。
+	s.storeCachedSession(session)
 	return session, true, nil
 }
 
@@ -1027,6 +1061,8 @@ func (s *Service) destroySession(ctx context.Context, db *sql.DB, r *http.Reques
 	if err != nil {
 		return false, fmt.Errorf("destroy session: %w", err)
 	}
+	// 安全红线：登出后缓存必须立即失效，不能等 TTL 过期。
+	s.invalidateSessionCache(cookie.Value)
 	changes, _ := result.RowsAffected()
 	return changes > 0, nil
 }

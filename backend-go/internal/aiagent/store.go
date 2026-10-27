@@ -305,7 +305,15 @@ func (s *Service) updateUser(ctx context.Context, db *sql.DB, id string, display
 		disabled = COALESCE(?, disabled),
 		updated_at = ?
 		WHERE id = ?`, displayName != nil, display, disabledValue, now, id)
-	return err
+	if err != nil {
+		return err
+	}
+	// 安全红线：禁用用户必须立即让其全部 token 失效，不能等缓存 TTL 过期。
+	// 这里不区分 disabled 的取值方向：解禁时多失效一次只会多查一次库。
+	if disabled != nil {
+		s.invalidateTokenCacheByUserID(id)
+	}
+	return nil
 }
 
 func (s *Service) resetUserPassword(ctx context.Context, db *sql.DB, id, password string) error {
@@ -348,7 +356,12 @@ func (s *Service) deleteUser(ctx context.Context, db *sql.DB, id string) error {
 	if affected, _ := result.RowsAffected(); affected == 0 {
 		return errNotFound
 	}
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	// 安全红线：删除用户后其 token 缓存必须立即失效，不能等 TTL 过期。
+	s.invalidateTokenCacheByUserID(id)
+	return nil
 }
 
 func (s *Service) touchLogin(ctx context.Context, db *sql.DB, id string) {
@@ -433,9 +446,15 @@ func (s *Service) listTokens(ctx context.Context, db *sql.DB, userID string) ([]
 }
 
 // authenticateToken 按明文令牌解析出认证上下文，并同步更新 last_used_at。
+//
+// 热路径先查进程内缓存（AUTH_CACHE_TTL，默认 30s）；未命中才查 SQLite 并回填。
+// 只缓存通过的结果：撤销 / 禁用 / 过期 / DB 错误都回源，不缓存。
 func (s *Service) authenticateToken(ctx context.Context, db *sql.DB, plain, ip string) (authContext, error) {
 	if plain == "" {
 		return authContext{}, errInvalidCreds
+	}
+	if cached, ok := s.lookupCachedToken(ctx, db, plain, ip); ok {
+		return cached, nil
 	}
 	hash := hashToken(plain)
 	var (
@@ -463,7 +482,8 @@ func (s *Service) authenticateToken(ctx context.Context, db *sql.DB, plain, ip s
 	if disabled != 0 {
 		return authContext{}, errUserDisabled
 	}
-	if parsed, parseErr := time.Parse(time.RFC3339, expiresAt); parseErr == nil && time.Now().UTC().After(parsed) {
+	credentialExpiresAt, parseErr := time.Parse(time.RFC3339, expiresAt)
+	if parseErr == nil && time.Now().UTC().After(credentialExpiresAt) {
 		return authContext{}, errTokenExpired
 	}
 	var ipValue interface{}
@@ -472,9 +492,17 @@ func (s *Service) authenticateToken(ctx context.Context, db *sql.DB, plain, ip s
 	}
 	// 令牌活跃时间用于展示，无需每次请求都写库；节流到 1 分钟，避免流式热路径上的写放大。
 	if shouldTouchToken(lastUsedAt, time.Now().UTC()) {
+		touched := nowRFC3339()
 		_, _ = db.ExecContext(ctx, `UPDATE aiagent_tokens SET last_used_at = ?, last_ip = COALESCE(?, last_ip) WHERE id = ?`,
-			nowRFC3339(), ipValue, tokenID)
+			touched, ipValue, tokenID)
+		// 回填缓存时要用刚写入的值，否则缓存条目的节流起点会停在旧值上，
+		// 导致下一次命中又立刻写一次库（节流失效）。
+		lastUsedAt = sql.NullString{String: touched, Valid: true}
 	}
+
+	// 回填缓存。parseErr != nil 时 credentialExpiresAt 是零值，storeCachedToken
+	// 会按「无自身有效期」处理，仅受 TTL 约束。
+	s.storeCachedToken(plain, tokenID, userID, username, credentialExpiresAt, lastUsedAt)
 
 	return authContext{UserID: userID, TokenID: tokenID, Username: username}, nil
 }
@@ -507,13 +535,20 @@ func (s *Service) revokeToken(ctx context.Context, db *sql.DB, tokenID, userID s
 	if affected, _ := result.RowsAffected(); affected == 0 {
 		return errNotFound
 	}
+	// 安全红线：撤权必须在同一次请求内让缓存失效，不能等 TTL 自然过期。
+	s.invalidateTokenCacheByTokenID(tokenID)
 	return nil
 }
 
 func (s *Service) revokeUserTokens(ctx context.Context, db *sql.DB, userID string) error {
 	_, err := db.ExecContext(ctx, `UPDATE aiagent_tokens SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL`,
 		nowRFC3339(), userID)
-	return err
+	if err != nil {
+		return err
+	}
+	// 安全红线：该用户全部 token 立即失效（宁可多失效，不可漏失效）。
+	s.invalidateTokenCacheByUserID(userID)
+	return nil
 }
 
 // ---------- 实例 ----------

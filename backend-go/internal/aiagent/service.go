@@ -17,6 +17,7 @@ import (
 
 	"github.com/iwvw/api-monitor/backend-go/internal/applog"
 	"github.com/iwvw/api-monitor/backend-go/internal/auth"
+	"github.com/iwvw/api-monitor/backend-go/internal/authcache"
 	"github.com/iwvw/api-monitor/backend-go/internal/config"
 	"github.com/iwvw/api-monitor/backend-go/internal/database"
 	"github.com/iwvw/api-monitor/backend-go/internal/response"
@@ -74,6 +75,13 @@ type Service struct {
 	accessLogStart sync.Once
 	accessLogOnce  sync.Once
 	accessLogDrops atomic.Int64
+
+	// tokenAuthCache 缓存「明文 token 摘要 → authContext」，把鉴权热路径上的
+	// SQLite 查询降到接近零。键是 sha256(plain) 的十六进制串，不缓存明文；
+	// 值为 cachedTokenAuth。AUTH_CACHE_TTL<=0 时为 nil（缓存关闭，回退到每次查库）。
+	tokenAuthCache *authcache.Cache[*cachedTokenAuth]
+	// authCacheTTL 是构造期解析出的 TTL，缓存启用时才 > 0。
+	authCacheTTL time.Duration
 }
 
 // maxConcurrentGatewayStreams 是网关并发流上限。
@@ -81,6 +89,7 @@ const maxConcurrentGatewayStreams = 256
 
 // New 构造服务。cfg 是唯一必填入参；auth/runtime 通过 Setter 注入。
 func New(cfg config.Config) *Service {
+	ttl := authcache.TTL()
 	return &Service{
 		cfg:              cfg,
 		store:            database.New(cfg),
@@ -89,6 +98,8 @@ func New(cfg config.Config) *Service {
 		preferenceEvents: newPreferenceEventHub(),
 		gatewaySlots:     make(chan struct{}, maxConcurrentGatewayStreams),
 		metrics:          newMetrics(),
+		tokenAuthCache:   authcache.New[*cachedTokenAuth](ttl),
+		authCacheTTL:     ttl,
 	}
 }
 
