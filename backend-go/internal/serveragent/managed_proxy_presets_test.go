@@ -117,8 +117,16 @@ func TestHysteria2PresetTuning(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	bandwidth, _ := firstInbound(t, throughput)["bandwidth"].(map[string]interface{})
-	if bandwidth["up"] != "200 mbps" || bandwidth["down"] != "200 mbps" {
-		t.Errorf("throughput bandwidth hint = %#v", bandwidth)
+	throughputInbound := firstInbound(t, throughput)
+	// sing-box 语义：up_mbps/down_mbps 与 ignore_client_bandwidth 互斥，
+	// 声明带宽时必须移除 BBR 开关，否则节点启动失败。
+	if throughputInbound["up_mbps"] != float64(200) || throughputInbound["down_mbps"] != float64(200) {
+		t.Errorf("throughput bandwidth = %v/%v, want 200/200", throughputInbound["up_mbps"], throughputInbound["down_mbps"])
+	}
+	if _, present := throughputInbound["ignore_client_bandwidth"]; present {
+		t.Error("throughput must not set ignore_client_bandwidth alongside up_mbps/down_mbps")
+	}
+	if _, present := throughputInbound["bandwidth"]; present {
+		t.Error("sing-box has no `bandwidth` field; use up_mbps/down_mbps")
 	}
 }

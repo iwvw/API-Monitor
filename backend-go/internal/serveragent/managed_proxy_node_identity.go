@@ -200,8 +200,15 @@ func generateNodeWithPreset(id, name, protocol, host, serverName, cert, key stri
 	if masquerade := presetStringOr(preset.Options, "hysteria2_masquerade", ""); masquerade != "" {
 		inbound["masquerade"] = masquerade
 	}
-	if hint := presetStringOr(preset.Options, "hysteria2_bandwidth_hint", ""); hint != "" {
-		inbound["bandwidth"] = map[string]interface{}{"up": hint, "down": hint}
+	// sing-box 用 up_mbps/down_mbps（整数 Mbps）声明服务端带宽上限，且与
+	// ignore_client_bandwidth 互斥——两者同时设置会冲突导致节点启动失败。
+	// 因此仅在预设显式声明带宽时写入，并同步关闭 BBR 开关。
+	upMbps, hasUp := presetInt(preset.Options, "hysteria2_up_mbps")
+	downMbps, hasDown := presetInt(preset.Options, "hysteria2_down_mbps")
+	if hasUp && hasDown && upMbps > 0 && downMbps > 0 {
+		delete(inbound, "ignore_client_bandwidth")
+		inbound["up_mbps"] = upMbps
+		inbound["down_mbps"] = downMbps
 	}
 	root := map[string]interface{}{"log": map[string]interface{}{"level": "warn"}, "inbounds": []interface{}{inbound}, "outbounds": []interface{}{map[string]interface{}{"type": "direct", "tag": "direct"}}}
 	encoded, _ := json.Marshal(root)

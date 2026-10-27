@@ -70,13 +70,16 @@ var managedProxyPresetCatalog = []managedProxyPreset{
 	{
 		ID:          "throughput",
 		Name:        "吞吐优先",
-		Description: "Hysteria2 保留 BBR 但放开带宽提示，适合高带宽独享主机；REALITY 保持均衡参数。",
+		Description: "Hysteria2 显式声明 200Mbps 上下行（禁用 BBR，改由带宽上限约束）；适合高带宽独享主机。REALITY 保持均衡参数。",
 		Protocols:   []string{"vless-reality", "hysteria2"},
 		Options: map[string]interface{}{
-			"reality_max_time_difference":       "1m",
-			"hysteria2_ignore_client_bandwidth": true,
+			"reality_max_time_difference": "1m",
+			// sing-box 的 up_mbps/down_mbps 与 ignore_client_bandwidth 互斥：
+			// 声明带宽时必须关掉 BBR，否则配置冲突导致节点启动失败。
+			"hysteria2_ignore_client_bandwidth": false,
+			"hysteria2_up_mbps":                 200,
+			"hysteria2_down_mbps":               200,
 			"hysteria2_masquerade":              "https://www.bing.com",
-			"hysteria2_bandwidth_hint":          "200 mbps",
 		},
 	},
 }
@@ -125,4 +128,15 @@ func presetBoolOr(options map[string]interface{}, key string, fallback bool) boo
 		return value
 	}
 	return fallback
+}
+
+// presetInt 读取整数预设项（JSON 解码后为 float64，也容忍 int）。
+func presetInt(options map[string]interface{}, key string) (int, bool) {
+	switch value := options[key].(type) {
+	case int:
+		return value, true
+	case float64:
+		return int(value), true
+	}
+	return 0, false
 }
