@@ -17,8 +17,9 @@ import (
 //     Hysteria2 keeps BBR and disables the masquerade page.
 //   - stealth:     REALITY moves the handshake to a heavily-fronted site;
 //     Hysteria2 masquerades as an innocuous static site.
-//   - throughput:  Hysteria2 keeps BBR but advertises a large bandwidth hint;
-//     REALITY stays on the balanced tuning.
+//   - throughput:  Hysteria2 declares an explicit 200 Mbps up/down cap
+//     (which disables BBR, since sing-box treats the two as mutually
+//     exclusive); REALITY stays on the balanced tuning.
 //
 // Presets only adjust parameters the panel already owns. They never change
 // ports, protocols, credentials or the operator's REALITY handshake domain.
