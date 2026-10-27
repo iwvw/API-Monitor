@@ -58,8 +58,9 @@ run() {
   shift
   header "$label"
   # --latency 输出 P50/P90/P99；一行 Requests/sec 便于直接对比。
+  # grep 无匹配会返回 1，在 set -e 下会中断整个脚本；这里显式吞掉。
   wrk -t"$THREADS" -c"$CONCURRENCY" -d"$DURATION" --latency "$@" 2>&1 \
-    | grep -E "Requests/sec|Latency  |Socket errors|Non-2xx"
+    | grep -E "Requests/sec|Latency  |Socket errors|Non-2xx" || true
 }
 
 header "baseline: ${BASE_URL} (threads=${THREADS} connections=${CONCURRENCY} duration=${DURATION})"
