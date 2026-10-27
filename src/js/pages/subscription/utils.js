@@ -573,5 +573,3 @@ export const copyText = async (text, message = '已复制') => {
     toast.error('复制失败');
   }
 };
-
-export const templateLanguage = (format) => (format === 'clash' ? 'yaml' : 'bash');

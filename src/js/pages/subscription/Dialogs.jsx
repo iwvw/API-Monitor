@@ -12,7 +12,7 @@ import { sectionCardHeaderClass } from '../../components/ui/AppPrimitives.jsx';
 import CodeEditor from '../../components/ui/CodeEditor.jsx';
 import { Download, Save, Star, Trash, X } from '../../components/Icons.jsx';
 import { nodeTypeBadgeVariant, syncNodeForm } from './utils.js';
-import { NodeFlag, TemplateCodeEditor, TrafficSizeInput } from './components.jsx';
+import { NodeFlag, TrafficSizeInput } from './components.jsx';
 
 export function PlanDialog({ open, onOpenChange, editingPlanId, planForm, setPlanForm, nodes, allVisiblePlanNodesSelected, visiblePlanNodeIDs, visiblePlanNodes, planNodeTypeItems, planNodeSourceFilter, setPlanNodeSourceFilter, planNodeTypeFilter, setPlanNodeTypeFilter, saving, onSave }) {
   return (
@@ -312,34 +312,5 @@ export function ImportDialog({ open, onOpenChange, importSourceURL, setImportSou
           </div>
         </Dialog>
       </Dialog.Root>
-  );
-}
-
-export function TemplateDialog({ open, onOpenChange, editingTemplateId, templateForm, setTemplateForm, saving, onSave }) {
-  return (
-      <LayerDialog.Root open={open} onOpenChange={onOpenChange}>
-        <LayerDialog.Content size="xl">
-          <LayerDialog.Title>
-            {editingTemplateId ? '编辑模板' : '创建模板'}
-          </LayerDialog.Title>
-          <LayerDialog.Body>
-          <div className="@container min-w-0">
-              <div className="grid gap-4">
-                <div className="grid gap-3 cq-sm:grid-cols-2">
-                  <Input size="sm" label="名称" value={templateForm.name} onChange={(e) => setTemplateForm((prev) => ({ ...prev, name: e.target.value }))} />
-                  <Select alignItemWithTrigger size="sm" label="格式" value={templateForm.format} onValueChange={(value) => setTemplateForm((prev) => ({ ...prev, format: String(value) }))} items={[{ value: 'clash', label: 'Mihomo/Clash YAML' }, { value: 'raw', label: 'Raw URI List' }, { value: 'base64', label: 'Base64 URI List' }]} />
-                </div>
-                <TemplateCodeEditor label="模板内容" value={templateForm.content} format={templateForm.format} onChange={(content) => setTemplateForm((prev) => ({ ...prev, content }))} />
-                <Input size="sm" label="描述" value={templateForm.description} onChange={(e) => setTemplateForm((prev) => ({ ...prev, description: e.target.value }))} />
-              </div>
-          </div>
-          </LayerDialog.Body>
-          <LayerDialog.Actions dismissLabel="取消">
-            <LayerDialog.Action type="button" loading={saving} onClick={onSave}>
-              <Save className="h-3.5 w-3.5" />保存模板
-            </LayerDialog.Action>
-          </LayerDialog.Actions>
-        </LayerDialog.Content>
-      </LayerDialog.Root>
   );
 }

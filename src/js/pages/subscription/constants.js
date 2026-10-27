@@ -74,19 +74,11 @@ export const emptySubscriptionForm = {
   name: '',
   remark: '',
   enabled: true,
-  template_id: 'builtin_mihomo_default',
 };
 
 export const emptyPlanForm = {
   name: '', remark: '', enabled: true, total_bytes: 0, cycle_type: 'monthly', cycle_day: 1,
   rate_limit_enabled: true, rate_limit_per_minute: 30, node_ids: [], selection_mode: 'explicit', include_internal_nodes: true, include_external_nodes: false,
-};
-
-export const emptyTemplateForm = {
-  name: '',
-  format: 'clash',
-  content: '',
-  description: '',
 };
 
 export const emptyNodeForm = {

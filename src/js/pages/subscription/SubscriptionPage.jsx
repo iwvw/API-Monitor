@@ -6,7 +6,7 @@ import useStore from '../../store.js';
 import { dialog } from '../../modules/dialog.js';
 import { toast } from '../../modules/toast.js';
 import { useConfirmPress } from '../../hooks/useConfirmPress.js';
-import { API, INTERNAL_API, RUNTIME_API, TUNNEL_API, PREFERRED_API, SERVER_INVENTORY_API, DEFAULT_EXTERNAL_POOL_ID, LOAD_TIMEOUT_MS, INITIAL_SKELETON_MS, emptyInternalNodeForm, emptySubscriptionForm, emptyPlanForm, emptyTemplateForm, emptyNodeForm } from './constants.js';
+import { API, INTERNAL_API, RUNTIME_API, TUNNEL_API, PREFERRED_API, SERVER_INVENTORY_API, DEFAULT_EXTERNAL_POOL_ID, LOAD_TIMEOUT_MS, INITIAL_SKELETON_MS, emptyInternalNodeForm, emptySubscriptionForm, emptyPlanForm, emptyNodeForm } from './constants.js';
 import { getAuthHeaders, copyText, countryFlagEmoji, getInstanceCountryCode, subscriptionURL, normalizeManagedServer, isLinuxManagedServer, normalizePublicBase } from './utils.js';
 import { tabs } from './tabs.jsx';
 import SubscriptionsPanel from './SubscriptionsPanel.jsx';
@@ -15,8 +15,7 @@ import NodesPanel from './NodesPanel.jsx';
 import NodesSkeleton from './NodesSkeleton.jsx';
 import TunnelControls from './TunnelControls.jsx';
 import InstancesPanel from './InstancesPanel.jsx';
-import TemplatesPanel from './TemplatesPanel.jsx';
-import { PlanDialog, InternalNodeDialog, TunnelDialog, PreferredAddressDialog, SubscriptionDialog, NodeDialog, ImportDialog, TemplateDialog } from './Dialogs.jsx';
+import { PlanDialog, InternalNodeDialog, TunnelDialog, PreferredAddressDialog, SubscriptionDialog, NodeDialog, ImportDialog } from './Dialogs.jsx';
 
 function SubscriptionPage() {
   const { isArmed, confirmPress } = useConfirmPress();
@@ -49,7 +48,6 @@ function SubscriptionPage() {
   const [internalNodeActions, setInternalNodeActions] = useState({});
   const [externalNodeActions, setExternalNodeActions] = useState({});
   const [uninstallingServerId, setUninstallingServerId] = useState('');
-  const [templates, setTemplates] = useState([]);
   const [logs, setLogs] = useState([]);
   const [servers, setServers] = useState([]);
   const [settings, setSettings] = useState(null);
@@ -73,11 +71,6 @@ function SubscriptionPage() {
   const [protocolFilter, setProtocolFilter] = useState('all');
   const [tagFilter, setTagFilter] = useState('all');
 
-  const [templateModalOpen, setTemplateModalOpen] = useState(false);
-  const [templateForm, setTemplateForm] = useState(emptyTemplateForm);
-  const [editingTemplateId, setEditingTemplateId] = useState(null);
-  const [templateSubscriptionId, setTemplateSubscriptionId] = useState('');
-  const [templateBindingId, setTemplateBindingId] = useState('');
   const loadGenerationRef = useRef(0);
 	const terminalTaskIDsRef = useRef(new Set());
 
@@ -109,7 +102,6 @@ function SubscriptionPage() {
       [INTERNAL_API, setInternalNodes, []],
 	  [TUNNEL_API, setManagedTunnels, []],
 	  [PREFERRED_API, setPreferredAddresses, []],
-      [`${API}/templates`, setTemplates, []],
       [`${API}/logs?limit=200`, setLogs, []],
       [SERVER_INVENTORY_API, (items) => setServers((Array.isArray(items) ? items : []).map(normalizeManagedServer).filter(isLinuxManagedServer)), []],
       [`${API}/settings`, setSettings, {}],
@@ -583,11 +575,6 @@ function SubscriptionPage() {
     }
   };
 
-  const templateItems = useMemo(() => templates.map((item) => ({
-    value: item.id,
-    label: item.valid === false ? `${item.name}（配置错误）` : item.name,
-    disabled: item.valid === false,
-  })), [templates]);
   const runtimeByServer = useMemo(() => new Map(managedRuntimes.map((item) => [String(item.server_id), item])), [managedRuntimes]);
   const runtimeReadyServers = useMemo(() => servers.filter((server) => runtimeByServer.get(String(server.id))?.apply_status === 'running'), [servers, runtimeByServer]);
 	useEffect(() => {
@@ -621,22 +608,6 @@ function SubscriptionPage() {
   )), [planCandidateNodes, planNodeSourceFilter, planNodeTypeFilter]);
   const visiblePlanNodeIDs = useMemo(() => visiblePlanNodes.map((node) => node.id), [visiblePlanNodes]);
   const allVisiblePlanNodesSelected = visiblePlanNodeIDs.length > 0 && visiblePlanNodeIDs.every((id) => planForm.node_ids.includes(id));
-  const selectedTemplateSubscription = useMemo(
-    () => exportSubscriptions.find((item) => item.id === templateSubscriptionId) || null,
-    [exportSubscriptions, templateSubscriptionId]
-  );
-  useEffect(() => {
-    if (exportSubscriptions.length > 0 && !exportSubscriptions.some((item) => item.id === templateSubscriptionId)) {
-      setTemplateSubscriptionId(exportSubscriptions[0].id);
-    }
-  }, [exportSubscriptions, templateSubscriptionId]);
-  useEffect(() => {
-    setTemplateBindingId(
-      selectedTemplateSubscription?.template_id
-      || settings?.default_template_id
-      || 'builtin_mihomo_default'
-    );
-  }, [selectedTemplateSubscription, settings?.default_template_id]);
   const visibleNodes = useMemo(
     () => nodes,
     [nodes]
@@ -687,10 +658,6 @@ function SubscriptionPage() {
     }
   }, [tagFilter, tagItems]);
 
-  useEffect(() => {
-    setTemplateBindingId(selectedTemplateSubscription?.template_id || settings?.default_template_id || 'builtin_mihomo_default');
-  }, [selectedTemplateSubscription, settings]);
-
   const openCreateSubscription = () => {
     const linkIndex = exportSubscriptions.length + 1;
     setEditingSubscriptionId(null);
@@ -698,7 +665,6 @@ function SubscriptionPage() {
       ...emptySubscriptionForm,
       plan_id: firstEnabledPlanID,
       name: `订阅 ${linkIndex}`,
-      template_id: settings?.default_template_id || 'builtin_mihomo_default',
     });
     setSubscriptionModalOpen(true);
   };
@@ -754,7 +720,6 @@ function SubscriptionPage() {
       name: sub.name || '',
       remark: sub.remark || '',
       enabled: sub.enabled !== false,
-      template_id: sub.template_id || settings?.default_template_id || 'builtin_mihomo_default',
     });
     setSubscriptionModalOpen(true);
   };
@@ -980,102 +945,6 @@ function SubscriptionPage() {
     }
   };
 
-  const openCreateTemplate = () => {
-    setEditingTemplateId(null);
-    setTemplateForm(emptyTemplateForm);
-    setTemplateModalOpen(true);
-  };
-
-  const openEditTemplate = (tpl) => {
-    setEditingTemplateId(tpl.id);
-    setTemplateForm({ name: tpl.name, format: tpl.format, content: tpl.content, description: tpl.description || '' });
-    setTemplateModalOpen(true);
-  };
-
-  const openCloneTemplate = (tpl) => {
-    setEditingTemplateId(null);
-    setTemplateForm({
-      name: `${tpl.name}（自定义）`,
-      format: tpl.format,
-      content: tpl.content,
-      description: `基于 ${tpl.name} 的自定义模板`,
-    });
-    setTemplateModalOpen(true);
-  };
-
-  const saveTemplate = async () => {
-    setSaving(true);
-    try {
-      const res = await fetch(editingTemplateId ? `${API}/templates/${editingTemplateId}` : `${API}/templates`, {
-        method: editingTemplateId ? 'PUT' : 'POST',
-        headers: getAuthHeaders(),
-        body: JSON.stringify(templateForm),
-      });
-      const data = await res.json();
-      if (!res.ok || data.success === false) throw new Error(data.error || '保存失败');
-      toast.success('模板已保存');
-      setTemplateModalOpen(false);
-      loadAll();
-    } catch (error) {
-      toast.error(error.message || '保存失败');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const setDefaultTemplate = async (tpl) => {
-    const res = await fetch(`${API}/templates/${tpl.id}/default`, { method: 'POST', headers: getAuthHeaders() });
-    const data = await res.json();
-    if (!res.ok || data.success === false) {
-      toast.error(data.error || '设置失败');
-      return;
-    }
-    toast.success('默认模板已更新');
-    loadAll();
-  };
-
-  const deleteTemplate = async (tpl) => {
-    if (tpl.builtin) {
-      toast.warning('内置模板不能删除');
-      return;
-    }
-    if (!confirmPress(`template-delete:${tpl.id}`, `删除模板「${tpl.name}」`)) return;
-    const res = await fetch(`${API}/templates/${tpl.id}`, { method: 'DELETE', headers: getAuthHeaders() });
-    const data = await res.json();
-    if (!res.ok || data.success === false) {
-      toast.error(data.error || '删除失败');
-      return;
-    }
-    toast.success('模板已删除');
-    loadAll();
-  };
-
-  const saveTemplateBinding = async () => {
-    if (!selectedTemplateSubscription) {
-      toast.warning('请选择对外订阅');
-      return;
-    }
-    setSaving(true);
-    try {
-      const res = await fetch(`${API}/subscriptions/${selectedTemplateSubscription.id}`, {
-        method: 'PUT',
-        headers: getAuthHeaders(),
-        body: JSON.stringify({
-          ...selectedTemplateSubscription,
-          template_id: templateBindingId || settings?.default_template_id || 'builtin_mihomo_default',
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok || data.success === false) throw new Error(data.error || '保存失败');
-      toast.success('转换模板已更新');
-      loadAll();
-    } catch (error) {
-      toast.error(error.message || '保存失败');
-    } finally {
-      setSaving(false);
-    }
-  };
-
   const saveSettings = async () => {
     const res = await fetch(`${API}/settings`, {
       method: 'PUT',
@@ -1193,27 +1062,6 @@ function SubscriptionPage() {
                 onRotateAddress={rotateAddress}
               />
             )}
-            {activeTab === 'templates' && (
-              <TemplatesPanel
-                templates={templates}
-                publicBase={publicBase}
-                saving={saving}
-                selectedTemplateSubscription={selectedTemplateSubscription}
-                templateSubscriptionId={templateSubscriptionId}
-                setTemplateSubscriptionId={setTemplateSubscriptionId}
-                subscriptionItems={subscriptionItems}
-                templateBindingId={templateBindingId}
-                setTemplateBindingId={setTemplateBindingId}
-                templateItems={templateItems}
-                isArmed={isArmed}
-                onOpenCreateTemplate={openCreateTemplate}
-                onSaveTemplateBinding={saveTemplateBinding}
-                onSetDefaultTemplate={setDefaultTemplate}
-                onOpenCloneTemplate={openCloneTemplate}
-                onOpenEditTemplate={openEditTemplate}
-                onDeleteTemplate={deleteTemplate}
-              />
-            )}
           </div>
         )}
       </div>
@@ -1307,15 +1155,6 @@ function SubscriptionPage() {
         onCommit={commitImport}
       />
 
-      <TemplateDialog
-        open={templateModalOpen}
-        onOpenChange={setTemplateModalOpen}
-        editingTemplateId={editingTemplateId}
-        templateForm={templateForm}
-        setTemplateForm={setTemplateForm}
-        saving={saving}
-        onSave={saveTemplate}
-      />
     </PageStack>
   );
 }
