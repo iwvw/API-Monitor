@@ -5001,7 +5001,7 @@ Input component
 
 **Colors (kumo tokens used):**
 
-`bg-kumo-control`, `ring-kumo-danger`, `ring-kumo-focus`, `ring-kumo-line`, `text-kumo-default`
+`bg-kumo-control`, `ring-kumo-danger`, `ring-kumo-focus`, `ring-kumo-line`, `text-kumo-default`, `text-kumo-inactive`
 
 **Styling:**
 
@@ -10683,9 +10683,12 @@ TagInput component
 - `height`: number | string
 - `list`: string
 - `name`: string
+  Submits each accepted tag as a separate form value under this name.
 - `placeholder`: string
 - `readOnly`: boolean
+  Prevents adding or removing tags while keeping the input focusable.
 - `required`: boolean
+  Requires at least one accepted tag for native form validation. Like a native input, a `readOnly` TagInput is skipped by validation.
 - `type`: React.HTMLInputTypeAttribute
 - `width`: number | string
 - `className`: string
@@ -10744,6 +10747,44 @@ TagInput component
       maxValues={3}
       description="A maximum of three groups."
       placeholder="Type a group name"
+    />
+```
+
+```tsx
+<form
+      className="flex w-full max-w-md flex-col gap-3"
+      onSubmit={(event) => {
+        event.preventDefault();
+        const data = new FormData(event.currentTarget);
+        setSubmitted(data.getAll("topics").map(String));
+      }}
+    >
+      <TagInput
+        name="topics"
+        required
+        label="Topics"
+        description="Add at least one topic, then submit."
+        placeholder="Add a topic"
+      />
+      <div className="flex items-center gap-3">
+        <Button type="submit" variant="primary">
+          Submit
+        </Button>
+        {submitted ? (
+          <code className="text-sm text-kumo-subtle">
+            topics: {JSON.stringify(submitted)}
+          </code>
+        ) : null}
+      </div>
+    </form>
+```
+
+```tsx
+<TagInput
+      readOnly
+      defaultValue={["billing", "dns", "workers"]}
+      label="Assigned teams"
+      description="Managed by your organization's administrator."
     />
 ```
 
@@ -10914,6 +10955,8 @@ TimeseriesChart — a time-series line or bar chart.
   Label for the x-axis (time axis)
 - `xAxisTickCount`: number
   Number of ticks to display on the x-axis
+- `xAxisHideLabelOverlap`: boolean
+  Whether overlapping x-axis labels are automatically hidden. Defaults to `true`.
 - `xAxisTickFormat`: (value: number) => string
   Custom formatter for x-axis tick labels. Receives the raw timestamp in milliseconds and returns a display string, overriding ECharts' built-in time formatting.
 - `yAxisTickFormat`: (value: number) => string

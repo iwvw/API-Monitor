@@ -3,18 +3,18 @@ module github.com/iwvw/api-monitor/backend-go
 go 1.27.3
 
 require (
-	github.com/andybalholm/brotli v1.2.6
-	github.com/go-chi/chi/v5 v5.3.2
+	github.com/andybalholm/brotli v1.2.7
+	github.com/go-chi/chi/v5 v5.5.0
 	github.com/go-webauthn/webauthn v0.18.2
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/websocket v1.5.3
 	github.com/hupe1980/go-tiktoken v0.0.10
-	github.com/klauspost/compress v1.20.1
-	github.com/oracle/oci-go-sdk/v65 v65.126.2
-	github.com/pkg/sftp v1.13.11
+	github.com/klauspost/compress v1.20.3
+	github.com/oracle/oci-go-sdk/v65 v65.128.0
+	github.com/pkg/sftp v1.13.12
 	github.com/robfig/cron/v3 v3.0.1
 	github.com/router-for-me/CLIProxyAPI/v6 v6.10.9
-	github.com/sardanioss/httpcloak v1.7.2
+	github.com/sardanioss/httpcloak v1.7.3
 	github.com/shirou/gopsutil/v4 v4.26.9
 	github.com/skip2/go-qrcode v0.0.0-20200617195104-da1b6568686e
 	github.com/stretchr/testify v1.12.1
@@ -23,7 +23,7 @@ require (
 	golang.org/x/sync v0.24.0
 	golang.org/x/text v0.43.0
 	gopkg.in/yaml.v3 v3.0.1
-	modernc.org/sqlite v1.60.1
+	modernc.org/sqlite v1.61.0
 )
 
 require (
@@ -46,9 +46,9 @@ require (
 	github.com/power-devops/perfstat v0.0.0-20260916203055-22a1a467d9f0 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
 	github.com/sardanioss/http v1.2.0 // indirect
-	github.com/sardanioss/net v1.2.10 // indirect
+	github.com/sardanioss/net v1.2.12 // indirect
 	github.com/sardanioss/qpack v0.6.3 // indirect
-	github.com/sardanioss/quic-go v1.2.29 // indirect
+	github.com/sardanioss/quic-go v1.2.30 // indirect
 	github.com/sardanioss/udpbara v1.1.0 // indirect
 	github.com/sardanioss/utls v1.10.5 // indirect
 	github.com/sirupsen/logrus v1.10.2 // indirect
@@ -64,10 +64,9 @@ require (
 	github.com/youmark/pkcs8 v0.0.0-20240726163527-a2c0da244d78 // indirect
 	github.com/yusufpapurcu/wmi v1.2.4 // indirect
 	go.yaml.in/yaml/v3 v3.0.5 // indirect
-	golang.org/x/mod v0.42.0 // indirect
 	golang.org/x/sys v0.49.0 // indirect
 	google.golang.org/protobuf v1.36.12 // indirect
-	modernc.org/libc v1.77.1 // indirect
+	modernc.org/libc v1.79.0 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.12.1 // indirect
 )

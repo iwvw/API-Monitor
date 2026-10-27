@@ -4253,7 +4253,8 @@
         "ring-kumo-danger",
         "ring-kumo-focus",
         "ring-kumo-line",
-        "text-kumo-default"
+        "text-kumo-default",
+        "text-kumo-inactive"
       ],
       "styling": {
         "dimensions": {
@@ -5087,6 +5088,7 @@
         "<Pagination\n      text={() => `Page ${page}`}\n      page={page}\n      setPage={setPage}\n      hasNextPage={hasNextPage}\n    />",
         "<Pagination\n      page={page}\n      setPage={setPage}\n      perPage={10}\n      totalCount={100}\n      controls=\"full\"\n    />",
         "<Pagination page={page} setPage={setPage} perPage={10} totalCount={100} />",
+        "<Pagination page={page} setPage={setPage} perPage={10} totalCount={0} />",
         "<Pagination page={page} setPage={setPage} perPage={25} totalCount={1250} />",
         "<Pagination\n      text={({ perPage }: { perPage?: number }) =>\n        `Page ${page} - showing ${perPage} per page`\n      }\n      page={page}\n      setPage={setPage}\n      perPage={25}\n      totalCount={100}\n    />",
         "<Pagination\n      page={page}\n      setPage={setPage}\n      perPage={perPage}\n      totalCount={500}\n    >\n      <Pagination.Info />\n      <Pagination.Separator />\n      <Pagination.PageSize\n        value={perPage}\n        onChange={(size) => {\n          setPerPage(size);\n          setPage(1);\n        }}\n      />\n      <Pagination.Controls />\n    </Pagination>",
@@ -7383,7 +7385,8 @@
         },
         "name": {
           "type": "string",
-          "optional": true
+          "optional": true,
+          "description": "Submits each accepted tag as a separate form value under this name."
         },
         "placeholder": {
           "type": "string",
@@ -7391,11 +7394,13 @@
         },
         "readOnly": {
           "type": "boolean",
-          "optional": true
+          "optional": true,
+          "description": "Prevents adding or removing tags while keeping the input focusable."
         },
         "required": {
           "type": "boolean",
-          "optional": true
+          "optional": true,
+          "description": "Requires at least one accepted tag for native form validation. Like a native input, a `readOnly` TagInput is skipped by validation."
         },
         "type": {
           "type": "React.HTMLInputTypeAttribute",
@@ -7480,6 +7485,8 @@
         "<TagInput\n      label=\"Recipients\"\n      description=\"Paste comma- or newline-separated email addresses.\"\n      placeholder=\"name@example.com\"\n      autoComplete=\"off\"\n      value={recipients}\n      onValueChange={setRecipients}\n      validateValue={(value) => /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(value)}\n    />",
         "<TagInput\n      defaultValue={[\"frontend\", \"priority\"]}\n      label=\"Labels\"\n      description=\"Accepts any non-empty value.\"\n      placeholder=\"Add a label\"\n    />",
         "<TagInput\n      defaultValue={[\"alpha\"]}\n      label=\"Access groups\"\n      maxValues={3}\n      description=\"A maximum of three groups.\"\n      placeholder=\"Type a group name\"\n    />",
+        "<form\n      className=\"flex w-full max-w-md flex-col gap-3\"\n      onSubmit={(event) => {\n        event.preventDefault();\n        const data = new FormData(event.currentTarget);\n        setSubmitted(data.getAll(\"topics\").map(String));\n      }}\n    >\n      <TagInput\n        name=\"topics\"\n        required\n        label=\"Topics\"\n        description=\"Add at least one topic, then submit.\"\n        placeholder=\"Add a topic\"\n      />\n      <div className=\"flex items-center gap-3\">\n        <Button type=\"submit\" variant=\"primary\">\n          Submit\n        </Button>\n        {submitted ? (\n          <code className=\"text-sm text-kumo-subtle\">\n            topics: {JSON.stringify(submitted)}\n          </code>\n        ) : null}\n      </div>\n    </form>",
+        "<TagInput\n      readOnly\n      defaultValue={[\"billing\", \"dns\", \"workers\"]}\n      label=\"Assigned teams\"\n      description=\"Managed by your organization's administrator.\"\n    />",
         "<TagInput\n      defaultValue={[\"uno\"]}\n      label=\"Etiquetas\"\n      labels={{\n        input: \"Agregar etiqueta\",\n        removeValue: (value) => `Eliminar ${value}`,\n        invalidValue: (value) => `${value} no es valido.`,\n        maxValuesReached: (maxValues) => `Maximo de ${maxValues} etiquetas.`,\n      }}\n      maxValues={3}\n      placeholder=\"Agregar una etiqueta\"\n    />"
       ],
       "colors": [
@@ -7689,6 +7696,11 @@
           "type": "number",
           "optional": true,
           "description": "Number of ticks to display on the x-axis"
+        },
+        "xAxisHideLabelOverlap": {
+          "type": "boolean",
+          "optional": true,
+          "description": "Whether overlapping x-axis labels are automatically hidden. Defaults to `true`."
         },
         "xAxisTickFormat": {
           "type": "(value: number) => string",
