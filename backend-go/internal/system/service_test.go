@@ -3,7 +3,9 @@ package system
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -15,6 +17,7 @@ import (
 	"time"
 
 	"github.com/iwvw/api-monitor/backend-go/internal/config"
+	"github.com/iwvw/api-monitor/backend-go/internal/database"
 	"github.com/iwvw/api-monitor/backend-go/internal/manifest"
 )
 
@@ -1432,6 +1435,250 @@ func (f uploaderFunc) WriteAgentFileBytes(ctx context.Context, serverID, remoteP
 	return f(ctx, serverID, remotePath, data, timeout)
 }
 
+// 超过 256KB 的内联 base64 必须被拒绝，并给出「字节不经模型」的替代命令。
+// 旧实现的 88MB 上限是虚构的：真正的瓶颈是模型输出长度，放行只会让它反复失败。
+func TestAgentUploadFileRejectsOversizedInlinePayload(t *testing.T) {
+	cfg := config.Config{DataDir: t.TempDir(), DBName: "data.db"}
+	service := New(cfg)
+	defer service.Shutdown()
+	service.SetAgentFileUploader(uploaderFunc(func(context.Context, string, string, []byte, time.Duration) (int64, error) {
+		t.Fatal("超限内容不应触达写入层")
+		return 0, nil
+	}))
+
+	oversized := base64.StdEncoding.EncodeToString(make([]byte, 300*1024))
+	_, err := service.agentUploadFile(context.Background(), map[string]interface{}{
+		"serverId":       "srv-1",
+		"path":           "/opt/big.bin",
+		"content_base64": oversized,
+	})
+	if err == nil {
+		t.Fatal("超限内容应报错")
+	}
+	for _, hint := range []string{"agent/upload", "agent_transfer_file", "agent_fetch_url", "agent_upload_chunk"} {
+		if !strings.Contains(err.Error(), hint) {
+			t.Fatalf("错误信息应给出替代通道 %q：%v", hint, err)
+		}
+	}
+}
+
+// sha256 不匹配必须报错：模型复述长 base64 会静默改写字节，没有校验就写坏文件。
+func TestAgentUploadFileVerifiesSHA256(t *testing.T) {
+	cfg := config.Config{DataDir: t.TempDir(), DBName: "data.db"}
+	service := New(cfg)
+	defer service.Shutdown()
+	wrote := false
+	service.SetAgentFileUploader(uploaderFunc(func(_ context.Context, _, _ string, data []byte, _ time.Duration) (int64, error) {
+		wrote = true
+		return int64(len(data)), nil
+	}))
+
+	payload := []byte("#!/bin/sh\necho hi\n")
+	encoded := base64.StdEncoding.EncodeToString(payload)
+
+	_, err := service.agentUploadFile(context.Background(), map[string]interface{}{
+		"serverId":       "srv-1",
+		"path":           "/opt/a.sh",
+		"content_base64": encoded,
+		"sha256":         strings.Repeat("0", 64),
+	})
+	if err == nil {
+		t.Fatal("sha256 不匹配应报错")
+	}
+	if wrote {
+		t.Fatal("校验失败不应写入")
+	}
+
+	sum := sha256.Sum256(payload)
+	if _, err := service.agentUploadFile(context.Background(), map[string]interface{}{
+		"serverId":       "srv-1",
+		"path":           "/opt/a.sh",
+		"content_base64": encoded,
+		"sha256":         hex.EncodeToString(sum[:]),
+	}); err != nil {
+		t.Fatalf("校验通过时应写入: %v", err)
+	}
+	if !wrote {
+		t.Fatal("校验通过后应写入")
+	}
+}
+
+// 分块上传：offset 必须与目标文件当前大小一致，否则报错而不是写出错位文件。
+func TestAgentUploadChunkRejectsDiscontinuousOffset(t *testing.T) {
+	cfg := config.Config{DataDir: t.TempDir(), DBName: "data.db"}
+	service := New(cfg)
+	defer service.Shutdown()
+	service.agentFileOps = fakeFileOperator{
+		statSize: 100,
+	}
+	_, err := service.agentUploadChunk(context.Background(), map[string]interface{}{
+		"serverId":       "srv-1",
+		"path":           "/opt/a.bin",
+		"offset":         float64(50),
+		"content_base64": base64.StdEncoding.EncodeToString([]byte("abc")),
+	})
+	if err == nil {
+		t.Fatal("offset 与文件当前大小不一致时应报错")
+	}
+	if !strings.Contains(err.Error(), "offset") {
+		t.Fatalf("错误应说明 offset 问题: %v", err)
+	}
+}
+
+// 分块上传首块（offset=0）不校验前序状态，并应回传 realPath。
+func TestAgentUploadChunkFirstBlockReturnsRealPath(t *testing.T) {
+	cfg := config.Config{DataDir: t.TempDir(), DBName: "data.db"}
+	service := New(cfg)
+	defer service.Shutdown()
+	service.agentFileOps = fakeFileOperator{realPath: "/var/lib/api-monitor/agent/files/opt/a.bin"}
+
+	var gotOffset int64
+	var gotTruncate bool
+	service.agentFileOps = fakeFileOperator{
+		realPath: "/var/lib/api-monitor/agent/files/opt/a.bin",
+		onChunk: func(offset int64, truncate bool) {
+			gotOffset, gotTruncate = offset, truncate
+		},
+	}
+
+	result, err := service.agentUploadChunk(context.Background(), map[string]interface{}{
+		"serverId":       "srv-1",
+		"path":           "/opt/a.bin",
+		"offset":         float64(0),
+		"content_base64": base64.StdEncoding.EncodeToString([]byte("abc")),
+	})
+	if err != nil {
+		t.Fatalf("agentUploadChunk err: %v", err)
+	}
+	out := result.(map[string]interface{})
+	if out["realPath"] != "/var/lib/api-monitor/agent/files/opt/a.bin" {
+		t.Fatalf("应回传 realPath: %#v", out)
+	}
+	if gotOffset != 0 || !gotTruncate {
+		t.Fatalf("首块应 offset=0 且 truncate=true，实际 offset=%d truncate=%v", gotOffset, gotTruncate)
+	}
+}
+
+// 新工具必须出现在 MCP 工具清单里，否则客户端永远发现不了它们。
+func TestAgentFileToolsRegistered(t *testing.T) {
+	cfg := config.Config{DataDir: t.TempDir(), DBName: "data.db"}
+	service := New(cfg)
+	defer service.Shutdown()
+
+	names := map[string]bool{}
+	for _, tool := range service.aiTools() {
+		if name, ok := tool["name"].(string); ok {
+			names[name] = true
+		}
+	}
+	for _, want := range []string{
+		"agent_run_command", "agent_task_result",
+		"agent_upload_file", "agent_upload_chunk",
+		"agent_file_roots", "agent_file_stat", "agent_file_chmod",
+	} {
+		if !names[want] {
+			t.Fatalf("工具 %s 未注册", want)
+		}
+	}
+}
+
+// 分块上传必须显式提供 offset：缺省按 0 处理会带 truncate=true，
+// 把调用方本意的「续写」静默变成「覆盖」，是真实的数据丢失路径。
+func TestAgentUploadChunkRequiresExplicitOffset(t *testing.T) {
+	cfg := config.Config{DataDir: t.TempDir(), DBName: "data.db"}
+	service := New(cfg)
+	defer service.Shutdown()
+	wrote := false
+	service.agentFileOps = fakeFileOperator{onChunk: func(int64, bool) { wrote = true }}
+
+	_, err := service.agentUploadChunk(context.Background(), map[string]interface{}{
+		"serverId":       "srv-1",
+		"path":           "/opt/a.bin",
+		"content_base64": base64.StdEncoding.EncodeToString([]byte("abc")),
+	})
+	if err == nil {
+		t.Fatal("缺少 offset 应报错，避免静默覆盖已有文件")
+	}
+	if wrote {
+		t.Fatal("缺少 offset 时不应写入")
+	}
+}
+
+// 数据库被导入/恢复整体替换后，AI 接入的建表缓存必须失效重建，
+// 否则新库里没有审计表却仍认为「已就绪」。
+func TestEnsureAIAccessSchemaRebuildsAfterPoolReset(t *testing.T) {
+	dir := t.TempDir()
+	cfg := config.Config{DataDir: dir, DBName: "data.db"}
+	service := New(cfg)
+	defer service.Shutdown()
+
+	ctx := context.Background()
+	db, err := service.store.Open(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := service.ensureAIAccessSchema(ctx, db); err != nil {
+		t.Fatalf("首次建表失败: %v", err)
+	}
+	db.Close()
+
+	// 模拟导入换库：换一个全新的空库文件，表结构全部消失。
+	database.ResetPool(service.store.DatabasePath())
+
+	db2, err := service.store.Open(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db2.Close()
+	if _, err := db2.ExecContext(ctx, "DROP TABLE IF EXISTS ai_access_audit"); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.ensureAIAccessSchema(ctx, db2); err != nil {
+		t.Fatalf("换库后重建表失败: %v", err)
+	}
+	var count int
+	if err := db2.QueryRowContext(ctx,
+		"SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='ai_access_audit'").Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 {
+		t.Fatal("换库后 ai_access_audit 表应被重新创建")
+	}
+}
+
+// fakeFileOperator 是 AgentFileOperator 的测试替身。
+type fakeFileOperator struct {
+	statSize int64
+	realPath string
+	onChunk  func(offset int64, truncate bool)
+}
+
+func (f fakeFileOperator) WriteAgentFileChunk(_ context.Context, _, _ string, data []byte, offset int64, truncate bool, _ time.Duration) (AgentFileWriteResult, error) {
+	if f.onChunk != nil {
+		f.onChunk(offset, truncate)
+	}
+	return AgentFileWriteResult{Size: offset + int64(len(data)), RealPath: f.realPath}, nil
+}
+
+func (f fakeFileOperator) WriteAgentFileBytesDetailed(_ context.Context, _, _ string, data []byte, _ time.Duration) (AgentFileWriteResult, error) {
+	return AgentFileWriteResult{Size: int64(len(data)), RealPath: f.realPath}, nil
+}
+
+func (f fakeFileOperator) AgentFileRoots(_ context.Context, _ string) (map[string]interface{}, error) {
+	return map[string]interface{}{
+		"sandboxRoot":  "/var/lib/api-monitor/agent/files",
+		"allowedRoots": []string{"/var/lib/api-monitor/agent/files"},
+	}, nil
+}
+
+func (f fakeFileOperator) AgentFileStat(_ context.Context, _, _ string) (map[string]interface{}, error) {
+	return map[string]interface{}{"size": float64(f.statSize), "realPath": f.realPath, "isFile": true}, nil
+}
+
+func (f fakeFileOperator) AgentFileChmod(_ context.Context, _, _ string, mode uint32) (string, error) {
+	return "权限修改成功", nil
+}
+
 func TestAgentRunCommandTool(t *testing.T) {
 	cfg := config.Config{DataDir: t.TempDir(), DBName: "data.db"}
 	service := New(cfg)
@@ -1473,5 +1720,135 @@ func TestAgentRunCommandTool(t *testing.T) {
 	}
 	if !found {
 		t.Fatal("agent_run_command not present in aiTools()")
+	}
+}
+
+// agent_run_command 的 cwd / wait 参数应透传到下游请求体。
+func TestAgentRunCommandForwardsCwdAndAsync(t *testing.T) {
+	cfg := config.Config{DataDir: t.TempDir(), DBName: "data.db"}
+	service := New(cfg)
+	defer service.Shutdown()
+
+	var captured AICallRequest
+	service.SetAICaller(func(ctx context.Context, req AICallRequest) (AICallResponse, error) {
+		captured = req
+		return AICallResponse{StatusCode: 202, Body: map[string]interface{}{"success": true, "task_id": "t-1"}}, nil
+	})
+
+	if _, err := service.agentRunCommand(context.Background(), map[string]interface{}{
+		"serverId": "srv-1",
+		"command":  "make build",
+		"cwd":      "/srv/app",
+		"wait":     false,
+		"timeout":  float64(120),
+	}); err != nil {
+		t.Fatalf("agentRunCommand err: %v", err)
+	}
+	var body map[string]interface{}
+	if err := json.Unmarshal(captured.Body, &body); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	if body["cwd"] != "/srv/app" {
+		t.Fatalf("cwd 未透传: %#v", body)
+	}
+	if body["wait"] != false {
+		t.Fatalf("wait=false 未透传: %#v", body)
+	}
+}
+
+// serverId 缺失时应能按名称/主机解析；命中多台或全不命中要给出可操作错误。
+func TestAgentRunCommandResolvesHostByNameOrHost(t *testing.T) {
+	cfg := config.Config{DataDir: t.TempDir(), DBName: "data.db"}
+	service := New(cfg)
+	defer service.Shutdown()
+
+	ctx := context.Background()
+	db, err := service.store.Open(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// server_accounts 属于 serveragent 模块的 schema，这里按需建最小表结构。
+	if _, err := db.ExecContext(ctx,
+		`CREATE TABLE IF NOT EXISTS server_accounts (id TEXT PRIMARY KEY, name TEXT, host TEXT)`); err != nil {
+		t.Fatal(err)
+	}
+	for _, row := range [][3]string{
+		{"srv-1", "edge-tokyo", "192.0.2.10"},
+		{"srv-2", "edge-osaka", "192.0.2.11"},
+	} {
+		if _, err := db.ExecContext(ctx,
+			`INSERT INTO server_accounts (id,name,host) VALUES (?,?,?)`,
+			row[0], row[1], row[2]); err != nil {
+			t.Fatal(err)
+		}
+	}
+	db.Close()
+
+	var captured AICallRequest
+	service.SetAICaller(func(_ context.Context, req AICallRequest) (AICallResponse, error) {
+		captured = req
+		return AICallResponse{StatusCode: 200, Body: map[string]interface{}{"success": true}}, nil
+	})
+
+	if _, err := service.agentRunCommand(ctx, map[string]interface{}{
+		"serverName": "edge-tokyo",
+		"command":    "uptime",
+	}); err != nil {
+		t.Fatalf("按名称解析失败: %v", err)
+	}
+	if captured.Path != "/api/server/agent/command/srv-1" {
+		t.Fatalf("名称未解析为真实 ID: %s", captured.Path)
+	}
+
+	if _, err := service.agentRunCommand(ctx, map[string]interface{}{
+		"host":    "192.0.2.11",
+		"command": "uptime",
+	}); err != nil {
+		t.Fatalf("按主机地址解析失败: %v", err)
+	}
+	if captured.Path != "/api/server/agent/command/srv-2" {
+		t.Fatalf("host 未解析为真实 ID: %s", captured.Path)
+	}
+
+	if _, err := service.agentRunCommand(ctx, map[string]interface{}{
+		"serverName": "no-such-host",
+		"command":    "uptime",
+	}); err == nil {
+		t.Fatal("未知主机应报错")
+	} else if !strings.Contains(err.Error(), "/api/aiagent/servers") {
+		t.Fatalf("错误信息应给出取 ID 的接口: %v", err)
+	}
+}
+
+// agent_task_result 应查询任务终态接口。
+func TestAgentTaskResultTool(t *testing.T) {
+	cfg := config.Config{DataDir: t.TempDir(), DBName: "data.db"}
+	service := New(cfg)
+	defer service.Shutdown()
+
+	var captured AICallRequest
+	service.SetAICaller(func(_ context.Context, req AICallRequest) (AICallResponse, error) {
+		captured = req
+		return AICallResponse{StatusCode: 200, Body: map[string]interface{}{"success": true}}, nil
+	})
+
+	if _, err := service.agentTaskResult(context.Background(), map[string]interface{}{}); err == nil {
+		t.Fatal("taskId 缺失应报错")
+	}
+	if _, err := service.agentTaskResult(context.Background(), map[string]interface{}{"taskId": "t-1"}); err != nil {
+		t.Fatalf("agentTaskResult err: %v", err)
+	}
+	if captured.Method != http.MethodGet || captured.Path != "/api/server/tasks/t-1" {
+		t.Fatalf("unexpected call: %s %s", captured.Method, captured.Path)
+	}
+
+	found := false
+	for _, tool := range service.aiTools() {
+		if tool["name"] == "agent_task_result" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("agent_task_result not present in aiTools()")
 	}
 }

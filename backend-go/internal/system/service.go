@@ -39,6 +39,25 @@ type AgentFileUploader interface {
 	WriteAgentFileBytes(ctx context.Context, serverID, remotePath string, data []byte, timeout time.Duration) (int64, error)
 }
 
+// AgentFileWriteResult 是写入/分块上传的结果（含真实路径）。
+// agent_run_command 执行在真实文件系统上，必须用 RealPath 而不是面板的虚拟路径。
+type AgentFileWriteResult struct {
+	Size     int64  `json:"size"`
+	RealPath string `json:"realPath"`
+	Message  string `json:"message,omitempty"`
+}
+
+// AgentFileOperator 提供分块写入、沙箱根查询、stat 与 chmod，
+// 支撑「客户端自己读文件分块上传」的大文件路径。
+// 由 server 装配层用适配器把 serveragent 的实现桥接进来。
+type AgentFileOperator interface {
+	WriteAgentFileChunk(ctx context.Context, serverID, remotePath string, data []byte, offset int64, truncate bool, timeout time.Duration) (AgentFileWriteResult, error)
+	WriteAgentFileBytesDetailed(ctx context.Context, serverID, remotePath string, data []byte, timeout time.Duration) (AgentFileWriteResult, error)
+	AgentFileRoots(ctx context.Context, serverID string) (map[string]interface{}, error)
+	AgentFileStat(ctx context.Context, serverID, remotePath string) (map[string]interface{}, error)
+	AgentFileChmod(ctx context.Context, serverID, remotePath string, mode uint32) (string, error)
+}
+
 type alertState struct {
 	cpuHigh    bool
 	memoryHigh bool
@@ -59,6 +78,7 @@ type Service struct {
 	notifier   Notifier
 	aiCaller   AICaller
 	agentFiles AgentFileUploader
+	agentFileOps AgentFileOperator
 	apiKeys    *apikeys.Manager
 	alertState alertState
 	statusHub  *statusHub
@@ -76,6 +96,21 @@ type Service struct {
 	hostMetricsMu      sync.Mutex
 	hostMetricsSamples []hostMetricSample
 
+	// apiDocsCache 缓存接口目录：构建一次约 550KB/7ms，而每次 MCP 工具调用
+	// （call_api 的契约校验、find_api、get_route、list_apis）都要读它。
+	// 目录只由编译期常量（manifest 路由表 + 手写契约）决定，运行期不变，
+	// 因此按版本号缓存一次即可，无需失效逻辑。
+	apiDocsOnce sync.Once
+	apiDocsVal  map[string]interface{}
+
+	// aiAccessSchemaReady 保证 AI 接入审计表结构只在进程内创建一次；
+	// 原本每次 MCP 请求都要跑 4 条 CREATE TABLE/INDEX。
+	// aiAccessSchemaGeneration 记录建表成功时的 schema 代数（见
+	// database.SchemaGeneration）。数据库文件被导入/恢复整体替换后代数变化，
+	// 缓存自动失效并重新建表，避免「以为表还在、实际新库里没有」。
+	aiAccessSchemaMu         sync.Mutex
+	aiAccessSchemaReady      bool
+	aiAccessSchemaGeneration uint64
 }
 
 type hostMetricSample struct {
@@ -108,6 +143,11 @@ func (s *Service) SetAICaller(caller AICaller) {
 // SetAgentFileUploader 注入 Agent 主机字节写入能力，供 agent_upload_file 工具复用。
 func (s *Service) SetAgentFileUploader(uploader AgentFileUploader) {
 	s.agentFiles = uploader
+}
+
+// SetAgentFileOperator 注入分块上传 / 沙箱查询 / stat / chmod 能力。
+func (s *Service) SetAgentFileOperator(operator AgentFileOperator) {
+	s.agentFileOps = operator
 }
 
 func New(cfg config.Config) *Service {
@@ -650,6 +690,14 @@ type apiDocRoute struct {
 }
 
 func (s *Service) apiDocs() map[string]interface{} {
+	s.apiDocsOnce.Do(func() {
+		s.apiDocsVal = s.buildAPIDocs()
+	})
+	return s.apiDocsVal
+}
+
+// buildAPIDocs 构建接口目录。只在首次调用时执行一次（见 apiDocs 的缓存说明）。
+func (s *Service) buildAPIDocs() map[string]interface{} {
 	routes := append([]manifest.Route{}, manifest.Routes()...)
 	routes = append(routes, supplementalRoutes()...)
 	seen := map[string]bool{}

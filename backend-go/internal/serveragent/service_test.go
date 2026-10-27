@@ -3535,6 +3535,175 @@ func TestAgentExecCommandNonZeroExitIsSuccess(t *testing.T) {
 	}
 }
 
+// TestAgentExecCommandAsyncReturnsTaskID 验证 wait=false 立即返回 task_id，
+// 不占用一次同步等待（长任务的关键路径）。
+func TestAgentExecCommandAsyncReturnsTaskID(t *testing.T) {
+	service, _ := testService(t)
+	socket := &captureWriteSocket{t: t, service: service}
+	service.registry.Register("server-1", socket)
+
+	rec := perform(service, http.MethodPost, "/api/server/agent/command/server-1",
+		`{"command":"apt-get upgrade -y","wait":false,"timeout":600}`)
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("异步模式应返回 202，实际 %d body=%s", rec.Code, rec.Body.String())
+	}
+	payload := decodePayload(t, rec)
+	if payload["accepted"] != true {
+		t.Fatalf("accepted=%v", payload["accepted"])
+	}
+	taskID, _ := payload["task_id"].(string)
+	if taskID == "" {
+		t.Fatalf("应返回 task_id: %#v", payload)
+	}
+
+	// 任务应已在注册表中，可用 GET 查询终态。
+	task, ok := service.taskRegistry.Get(taskID)
+	if !ok {
+		t.Fatal("异步任务应登记在注册表中")
+	}
+	if task.ServerID != "server-1" {
+		t.Fatalf("任务归属主机错误: %s", task.ServerID)
+	}
+}
+
+// silentAgentSocket 只记录下发内容、从不回报结果，用于观察任务的下发时刻状态。
+type silentAgentSocket struct {
+	mu       sync.Mutex
+	payloads []map[string]interface{}
+}
+
+func (s *silentAgentSocket) WriteMessage(_ int, data []byte) error {
+	raw := string(data)
+	var frame []interface{}
+	if err := json.Unmarshal([]byte(raw[2:]), &frame); err != nil {
+		return nil
+	}
+	payload, _ := frame[1].(map[string]interface{})
+	s.mu.Lock()
+	s.payloads = append(s.payloads, payload)
+	s.mu.Unlock()
+	return nil
+}
+
+// TestAgentExecCommandAsyncDoesNotWaitForResult 验证 wait=false 不阻塞：
+// 用一个永不回报的 Agent socket，请求仍必须立即返回 202 而不是卡到超时。
+func TestAgentExecCommandAsyncDoesNotWaitForResult(t *testing.T) {
+	service, _ := testService(t)
+	socket := &silentAgentSocket{}
+	service.registry.Register("server-1", socket)
+
+	started := time.Now()
+	rec := perform(service, http.MethodPost, "/api/server/agent/command/server-1",
+		`{"command":"long-running","wait":false,"timeout":300}`)
+	elapsed := time.Since(started)
+
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("异步模式应返回 202，实际 %d body=%s", rec.Code, rec.Body.String())
+	}
+	if elapsed > 2*time.Second {
+		t.Fatalf("异步模式不应等待执行结果，实际耗时 %v", elapsed)
+	}
+	payload := decodePayload(t, rec)
+	taskID, _ := payload["task_id"].(string)
+	if taskID == "" {
+		t.Fatalf("应返回 task_id: %#v", payload)
+	}
+	task, ok := service.taskRegistry.Get(taskID)
+	if !ok {
+		t.Fatal("异步任务应登记在注册表中")
+	}
+	if task.GetStatus() == TaskCompleted {
+		t.Fatal("Agent 未回报时任务不应已完成")
+	}
+	socket.mu.Lock()
+	sent := len(socket.payloads)
+	socket.mu.Unlock()
+	if sent != 1 {
+		t.Fatalf("应恰好下发一次任务，实际 %d", sent)
+	}
+}
+
+// recordingReplySocket 记录下发的 task payload 并立即回报成功，用于检查钳制后的超时值。
+type recordingReplySocket struct {
+	t        *testing.T
+	service  *Service
+	mu       sync.Mutex
+	payloads []map[string]interface{}
+}
+
+func (s *recordingReplySocket) WriteMessage(_ int, data []byte) error {
+	raw := string(data)
+	var frame []interface{}
+	if err := json.Unmarshal([]byte(raw[2:]), &frame); err != nil {
+		s.t.Fatalf("decode socket frame: %v frame=%s", err, raw)
+	}
+	payload, _ := frame[1].(map[string]interface{})
+	s.mu.Lock()
+	s.payloads = append(s.payloads, payload)
+	s.mu.Unlock()
+	taskID, _ := payload["id"].(string)
+	go s.service.taskRegistry.CompleteWithExitCode(taskID, "done\n", 0)
+	return nil
+}
+
+func (s *recordingReplySocket) last() map[string]interface{} {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(s.payloads) == 0 {
+		return nil
+	}
+	return s.payloads[len(s.payloads)-1]
+}
+
+// TestAgentExecCommandTimeoutLimits 验证同步/异步两档超时上限：
+// 同步 300s（HTTP 不能无限挂着），异步放宽到 30 分钟（否则 apt upgrade 会被杀掉）。
+func TestAgentExecCommandTimeoutLimits(t *testing.T) {
+	service, _ := testService(t)
+	socket := &recordingReplySocket{t: t, service: service}
+	service.registry.Register("server-1", socket)
+
+	if rec := perform(service, http.MethodPost, "/api/server/agent/command/server-1",
+		`{"command":"echo hi","timeout":1200}`); rec.Code != http.StatusOK {
+		t.Fatalf("同步 status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if got, _ := socket.last()["timeout"].(float64); got != 300 {
+		t.Fatalf("同步模式超时应钳到 300s，实际 %v", got)
+	}
+
+	if rec := perform(service, http.MethodPost, "/api/server/agent/command/server-1",
+		`{"command":"apt-get upgrade -y","wait":false,"timeout":1200}`); rec.Code != http.StatusAccepted {
+		t.Fatalf("异步 status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if got, _ := socket.last()["timeout"].(float64); got != 1200 {
+		t.Fatalf("异步模式应保留 1200s，实际 %v", got)
+	}
+
+	// 异步模式不传 timeout 时用更宽松的默认值（10 分钟），而不是同步的 30 秒。
+	if rec := perform(service, http.MethodPost, "/api/server/agent/command/server-1",
+		`{"command":"apt-get upgrade -y","wait":false}`); rec.Code != http.StatusAccepted {
+		t.Fatalf("异步 status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if got, _ := socket.last()["timeout"].(float64); got != 600 {
+		t.Fatalf("异步默认超时应为 600s，实际 %v", got)
+	}
+}
+
+// TestAgentExecCommandSyncStillWaits 验证默认（不传 wait）仍是同步语义，
+// 避免异步改动破坏既有调用方。
+func TestAgentExecCommandSyncStillWaits(t *testing.T) {
+	service, _ := testService(t)
+	service.registry.Register("server-1", &exitCodeReplySocket{t: t, service: service, exitCode: 0})
+
+	rec := perform(service, http.MethodPost, "/api/server/agent/command/server-1", `{"command":"echo hi"}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("同步模式应返回 200，实际 %d body=%s", rec.Code, rec.Body.String())
+	}
+	payload := decodePayload(t, rec)
+	if payload["output"] != "matched output\n" {
+		t.Fatalf("同步模式应带回输出: %#v", payload)
+	}
+}
+
 func TestAgentExecCommandDangerous(t *testing.T) {
 	service, _ := testService(t)
 	// 不注册 socket：危险检测必须先于在线检查返回 400

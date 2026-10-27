@@ -699,6 +699,8 @@ func init() {
 	routeRequestContracts["/api/server/agent/command/{id}"] = obj([]string{"command"}, map[string]prop{
 		"command": {t: "string", req: true},
 		"timeout": {t: "integer"},
+		"cwd":     {t: "string", d: "工作目录（可选），省去每条命令都写 cd /x && ..."},
+		"wait":    {t: "boolean", d: "false 时立即返回 task_id（202），用 GET /api/server/tasks/{id} 取终态；缺省 true 同步等待"},
 		"confirm": {t: "boolean", d: "危险命令二次确认（敏感模式下软拦截，需带 confirm=true 才会执行）"},
 	})
 	routeRequestContracts["/api/server/agent/fetch-url"] = obj([]string{"serverId", "url", "path"}, map[string]prop{
