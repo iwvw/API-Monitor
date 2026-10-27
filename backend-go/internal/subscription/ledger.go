@@ -12,12 +12,9 @@ import (
 func loadSettings(ctx context.Context, db *sql.DB) (Settings, error) {
 	var settings Settings
 	var limitEnabled, geo int
-	err := db.QueryRowContext(ctx, `SELECT COALESCE(default_template_id, 'builtin_mihomo_default'), default_rate_limit_enabled, COALESCE(default_rate_limit_per_minute, 30), COALESCE(default_refresh_hours, 24), geoip_enabled FROM subscription_settings WHERE id = 1`).Scan(&settings.DefaultTemplateID, &limitEnabled, &settings.DefaultRateLimitPerMin, &settings.DefaultRefreshHours, &geo)
+	err := db.QueryRowContext(ctx, `SELECT default_rate_limit_enabled, COALESCE(default_rate_limit_per_minute, 30), COALESCE(default_refresh_hours, 24), geoip_enabled FROM subscription_settings WHERE id = 1`).Scan(&limitEnabled, &settings.DefaultRateLimitPerMin, &settings.DefaultRefreshHours, &geo)
 	settings.DefaultRateLimitEnabled = limitEnabled == 1
 	settings.GeoIPEnabled = geo == 1
-	if settings.DefaultTemplateID == "" {
-		settings.DefaultTemplateID = defaultTemplateID
-	}
 	return settings, err
 }
 

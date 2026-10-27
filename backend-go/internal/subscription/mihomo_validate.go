@@ -8,20 +8,12 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-func validateTemplateDefinition(format, content string) error {
-	format = normalizeTemplateFormat(format)
+// validateEmbeddedTemplate 在启动/首次渲染时校验内置模板能被本包的占位符
+// 渲染器完整替换并产出合法的 Mihomo 配置，防止模板与渲染器脱节。
+func validateEmbeddedTemplate(content string) error {
 	content = strings.TrimSpace(content)
 	if content == "" {
-		return errors.New("模板内容不能为空")
-	}
-	if format != "clash" && format != "raw" && format != "base64" {
-		return fmt.Errorf("不支持的模板格式 %q", format)
-	}
-	if format != "clash" {
-		if unresolved := unresolvedTemplatePattern.FindString(content); unresolved != "" && unresolved != "{{ raw_uri_list }}" {
-			return fmt.Errorf("包含未知占位符 %s", unresolved)
-		}
-		return nil
+		return errors.New("内置模板内容不能为空")
 	}
 	fixtureNodes := preparePublishedNodes([]Node{
 		{Name: "模板验证节点", Type: "vless", Server: "node.example.com", Port: 443, ConfigJSON: `{"name":"模板验证节点","type":"vless","server":"node.example.com","port":443,"uuid":"00000000-0000-4000-8000-000000000001"}`, Enabled: true},
