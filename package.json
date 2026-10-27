@@ -34,7 +34,7 @@
     "docs:check": "node tools/docs-link-check.mjs",
     "kumo:registry": "node tools/kumo-registry-snapshot.mjs",
     "kumo:registry:check": "node tools/kumo-registry-snapshot.mjs --check",
-    "governance:check": "node tools/three-side-governance-check.mjs && node tools/tz-governance-check.mjs && node tools/motion-governance-check.mjs && node tools/agent-version-governance.mjs",
+    "governance:check": "node tools/three-side-governance-check.mjs && node tools/tz-governance-check.mjs && node tools/motion-governance-check.mjs && node tools/agent-version-governance.mjs && node tools/go-version-governance.mjs && node tools/runtime-catalog-governance.mjs",
     "gen-api-catalog": "node tools/gen-api-catalog.mjs",
     "backend-go:smoke": "node tools/backend-go-smoke.mjs",
     "refactor:snapshot": "node tools/refactor-snapshot.mjs",

@@ -11,14 +11,24 @@ on:
 permissions:
   contents: write
 
+# 同一个 release 不可重复发布，concurrency 用 release 身份做分组。
 concurrency:
-  group: managed-runtime-v1.13.14
+  group: managed-runtime-v1.13.14-am2
   cancel-in-progress: false
 
 env:
+  # 上游 sing-box 版本与审计过的提交。源码变更属于独立的审计动作，
+  # 不要为了修工具链 CVE 顺手升级。
   SING_BOX_VERSION: 1.13.14
   SING_BOX_REVISION: 25a600db24f7680ad9806ce5427bd0ab8afe1114
-  GO_VERSION: 1.26.4
+  # API Monitor 自己的构建序号。换了工具链就必须换一个新的 release 身份
+  # （release 不可变），-amN 后缀同时会写进 catalog 的 Version，
+  # 各主机据此判断是否需要重新下载运行时。
+  RUNTIME_BUILD: am2
+  # 必须 >= backend-go/go.mod 的 go 指令（tools/go-version-governance.mjs 把守）。
+  # 该产物是 TLS 出站客户端，受 CVE-2026-111943（GO-2026-6809, crypto/x509）
+  # 直接影响，所以不能落后于主构建。
+  GO_VERSION: 1.27.3
   BUILD_TAGS: with_v2ray_api,with_quic,with_utls,with_acme,with_clash_api
 
 jobs:
@@ -61,8 +71,12 @@ jobs:
           set -euo pipefail
           cd managed-runtime-dist
           sha256sum sing-box-*
-          echo '094568655c7324de08bbeb108df886950f76b4dc164e1e5bc08e64219f1af727  sing-box-1.13.14-linux-amd64' | sha256sum --check --strict
-          echo 'fd19a07696593307c14133ae0ebed2e089523424b3f2ab2ea74aa206661f7131  sing-box-1.13.14-linux-arm64' | sha256sum --check --strict
+          # 这两个值与 backend-go/internal/serveragent/proxy_runtime_catalog.go
+          # 的 AMD64SHA256 / ARM64SHA256 必须一致（tools/runtime-catalog-governance.mjs 把守）。
+          # 它们由 Go 1.27.3 构建 25a600db 得出，更换 Go 版本或 sing-box 提交都会失配，
+          # 届时步骤失败、不发布，属预期行为。
+          echo '195070edb73143cb6629f7c041c3c155f6de81ce1c18f3817ddc6416e3b22c8c  sing-box-1.13.14-linux-amd64' | sha256sum --check --strict
+          echo 'b8623ffdfa55ac3a4f433365ac29c39eaff05e4786575fd0ea787dbb97658620  sing-box-1.13.14-linux-arm64' | sha256sum --check --strict
           chmod 0755 sing-box-*
           ./sing-box-1.13.14-linux-amd64 version | grep -F with_v2ray_api
           sha256sum sing-box-* > SHA256SUMS
@@ -70,11 +84,16 @@ jobs:
       - name: Publish immutable managed runtime release
         uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
         with:
-          tag_name: managed-runtime-v1.13.14
-          name: Managed sing-box runtime v1.13.14
+          tag_name: managed-runtime-v1.13.14-${{ env.RUNTIME_BUILD }}
+          name: Managed sing-box runtime v1.13.14 (${{ env.RUNTIME_BUILD }})
           body: |
             Reproducible sing-box v1.13.14 builds pinned to revision 25a600db24f7680ad9806ce5427bd0ab8afe1114.
             Build tags add the loopback-only V2Ray statistics interface required for per-subscriber accounting.
+
+            Build `${{ env.RUNTIME_BUILD }}` rebuilt with Go ${{ env.GO_VERSION }} (previous builds used Go 1.26.4).
+            The runtime is a TLS egress client, so it must not lag the main build on
+            CVE-2026-111943 / GO-2026-6809 (`crypto/x509` distrusted intermediate SPKI filter).
+            sing-box source is unchanged; only the toolchain differs.
           files: |
             managed-runtime-dist/sing-box-1.13.14-linux-amd64
             managed-runtime-dist/sing-box-1.13.14-linux-arm64
