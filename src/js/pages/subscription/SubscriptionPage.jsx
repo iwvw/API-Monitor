@@ -689,10 +689,6 @@ function SubscriptionPage() {
     }
   }, [tagFilter, tagItems]);
 
-  useEffect(() => {
-    setTemplateBindingId(selectedTemplateSubscription?.template_id || settings?.default_template_id || 'builtin_mihomo_default');
-  }, [selectedTemplateSubscription, settings]);
-
   const openCreateSubscription = () => {
     const linkIndex = exportSubscriptions.length + 1;
     setEditingSubscriptionId(null);
