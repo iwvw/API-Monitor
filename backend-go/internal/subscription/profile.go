@@ -48,6 +48,11 @@ func (s *Service) createProfile(w http.ResponseWriter, r *http.Request, db *sql.
 	subInput := subscriptionFromProfile(input)
 	subInput.Enabled = input.Enabled || !isExplicitFalse(r, "enabled")
 	subInput.RateLimitEnabled = input.RateLimitEnabled || settings.DefaultRateLimitEnabled
+	templateID := firstNonEmpty(input.TemplateID, settings.DefaultTemplateID, defaultTemplateID)
+	if err := validateTemplateReference(r.Context(), db, templateID); err != nil {
+		response.Error(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	trafficSource := normalizeTrafficSource(input.TrafficSource)
 	cycleType := normalizeCycleType(input.CycleType)
 	cycleDay := input.CycleDay
@@ -62,7 +67,7 @@ func (s *Service) createProfile(w http.ResponseWriter, r *http.Request, db *sql.
 	if limitPerMin <= 0 {
 		limitPerMin = settings.DefaultRateLimitPerMin
 	}
-	if err := upsertProfile(r.Context(), db, id, subInput, trafficSource, cycleType, cycleDay, limitPerMin, input.SelectionMode, input.IncludeInternalNodes); err != nil {
+	if err := upsertProfile(r.Context(), db, id, subInput, templateID, trafficSource, cycleType, cycleDay, limitPerMin, input.SelectionMode, input.IncludeInternalNodes); err != nil {
 		response.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -108,11 +113,16 @@ func (s *Service) updateProfile(w http.ResponseWriter, r *http.Request, db *sql.
 	if cycleDay <= 0 {
 		cycleDay = 1
 	}
+	templateID := firstNonEmpty(input.TemplateID, defaultTemplateID)
+	if err := validateTemplateReference(r.Context(), db, templateID); err != nil {
+		response.Error(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	trafficSource := normalizeTrafficSource(input.TrafficSource)
 	cycleType := normalizeCycleType(input.CycleType)
 	refreshHours := intDefault(input.UpstreamRefreshHours, defaultRefreshHours)
 	limitPerMin := intDefault(input.RateLimitPerMinute, defaultLimitPerMin)
-	if err := upsertProfile(r.Context(), db, id, subInput, trafficSource, cycleType, cycleDay, limitPerMin, input.SelectionMode, input.IncludeInternalNodes); err != nil {
+	if err := upsertProfile(r.Context(), db, id, subInput, templateID, trafficSource, cycleType, cycleDay, limitPerMin, input.SelectionMode, input.IncludeInternalNodes); err != nil {
 		response.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -219,9 +229,15 @@ func (s *Service) createSubscription(w http.ResponseWriter, r *http.Request, db 
 		return
 	}
 	applyPlanToSubscription(r.Context(), db, &input)
+	settings, _ := loadSettings(r.Context(), db)
 	id := randomID("sub")
 	profileID := defaultNodeLibrary
 	token := randomToken()
+	templateID := firstNonEmpty(input.TemplateID, settings.DefaultTemplateID, defaultTemplateID)
+	if err := validateTemplateReference(r.Context(), db, templateID); err != nil {
+		response.Error(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	effectiveEnabled := input.Enabled || !isExplicitFalse(r, "enabled")
 	input.Enabled = effectiveEnabled
 	tx, err := db.BeginTx(r.Context(), nil)
@@ -232,18 +248,18 @@ func (s *Service) createSubscription(w http.ResponseWriter, r *http.Request, db 
 	defer tx.Rollback()
 	if !profileExists(r.Context(), tx, profileID) {
 		library := Subscription{Name: "外部节点池", Remark: "系统统一外部节点池", Enabled: true}
-		if err := upsertProfile(r.Context(), tx, profileID, library, "manual", "none", 1, defaultLimitPerMin, "explicit", false); err != nil {
+		if err := upsertProfile(r.Context(), tx, profileID, library, rawTemplateID, "manual", "none", 1, defaultLimitPerMin, "explicit", false); err != nil {
 			response.Error(w, http.StatusInternalServerError, err.Error())
 			return
 		}
 	}
 	_, err = tx.ExecContext(r.Context(), `INSERT INTO subscription_subscriptions (
-		id, profile_id, plan_id, name, remark, enabled, public_token, vless_uuid, hysteria2_password, traffic_source, traffic_server_id,
+		id, profile_id, plan_id, name, remark, enabled, public_token, vless_uuid, hysteria2_password, template_id, traffic_source, traffic_server_id,
 		upstream_url, upstream_enabled, upstream_refresh_hours, total_bytes, manual_upload_bytes,
 		manual_download_bytes, expire_at, cycle_type, cycle_day, cycle_start, cycle_end,
 		rate_limit_enabled, rate_limit_per_minute, node_filter_ids, include_internal_nodes, include_external_nodes, updated_at
-	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
-		id, profileID, input.PlanID, input.Name, input.Remark, boolToInt(effectiveEnabled), token, randomUUID(), randomCredential(), "panel", nil,
+	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
+		id, profileID, input.PlanID, input.Name, input.Remark, boolToInt(effectiveEnabled), token, randomUUID(), randomCredential(), templateID, "panel", nil,
 		nil, 0, defaultRefreshHours, 0, 0,
 		0, nil, "none", 1, nil, nil,
 		0, 0, "", 0, 0)
@@ -283,6 +299,11 @@ func (s *Service) updateSubscription(w http.ResponseWriter, r *http.Request, db 
 	}
 	applyPlanToSubscription(r.Context(), db, &input)
 	profileID := firstNonEmpty(profileIDForSubscription(r.Context(), db, id), defaultNodeLibrary)
+	templateID := firstNonEmpty(input.TemplateID, defaultTemplateID)
+	if err := validateTemplateReference(r.Context(), db, templateID); err != nil {
+		response.Error(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	tx, err := db.BeginTx(r.Context(), nil)
 	if err != nil {
 		response.Error(w, http.StatusInternalServerError, err.Error())
@@ -299,12 +320,12 @@ func (s *Service) updateSubscription(w http.ResponseWriter, r *http.Request, db 
 		return
 	}
 	result, err := tx.ExecContext(r.Context(), `UPDATE subscription_subscriptions SET
-		profile_id = ?, plan_id = ?, name = ?, remark = ?, enabled = ?, traffic_source = ?, traffic_server_id = ?,
+		profile_id = ?, plan_id = ?, name = ?, remark = ?, enabled = ?, template_id = ?, traffic_source = ?, traffic_server_id = ?,
 		upstream_url = ?, upstream_enabled = ?, upstream_refresh_hours = ?, total_bytes = ?,
 		manual_upload_bytes = ?, manual_download_bytes = ?, expire_at = ?, cycle_type = ?, cycle_day = ?,
 		cycle_start = ?, cycle_end = ?, rate_limit_enabled = ?, rate_limit_per_minute = ?, node_filter_ids = ?, include_internal_nodes = ?, include_external_nodes = ?, updated_at = datetime('now')
 		WHERE id = ?`,
-		profileID, input.PlanID, input.Name, input.Remark, boolToInt(input.Enabled), "panel", nil,
+		profileID, input.PlanID, input.Name, input.Remark, boolToInt(input.Enabled), templateID, "panel", nil,
 		nil, 0, defaultRefreshHours, 0,
 		0, 0, nil, "none", 1,
 		nil, nil, 0, 0, "", 0, 0, id)
@@ -445,20 +466,21 @@ func (s *Service) deleteSubscription(w http.ResponseWriter, r *http.Request, db 
 	response.OK(w, map[string]bool{"deleted": true})
 }
 
-func upsertProfile(ctx context.Context, executor subscriptionExecutor, id string, input Subscription, trafficSource, cycleType string, cycleDay, limitPerMin int, selectionMode string, includeInternal bool) error {
+func upsertProfile(ctx context.Context, executor subscriptionExecutor, id string, input Subscription, templateID, trafficSource, cycleType string, cycleDay, limitPerMin int, selectionMode string, includeInternal bool) error {
 	if strings.TrimSpace(id) == "" {
 		return fmt.Errorf("profile id is required")
 	}
 	_, err := executor.ExecContext(ctx, `INSERT INTO subscription_profiles (
-			id, name, remark, enabled, traffic_source, traffic_server_id,
+			id, name, remark, enabled, template_id, traffic_source, traffic_server_id,
 			total_bytes, manual_upload_bytes, manual_download_bytes, expire_at, cycle_type,
 			cycle_day, cycle_start, cycle_end, baseline_upload_bytes, baseline_download_bytes,
 			rate_limit_enabled, rate_limit_per_minute, selection_mode, include_internal_nodes, updated_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
 		ON CONFLICT(id) DO UPDATE SET
 			name = excluded.name,
 			remark = excluded.remark,
 			enabled = excluded.enabled,
+			template_id = excluded.template_id,
 			traffic_source = excluded.traffic_source,
 			traffic_server_id = excluded.traffic_server_id,
 			total_bytes = excluded.total_bytes,
@@ -476,7 +498,7 @@ func upsertProfile(ctx context.Context, executor subscriptionExecutor, id string
 			selection_mode = excluded.selection_mode,
 			include_internal_nodes = excluded.include_internal_nodes,
 			updated_at = datetime('now')`,
-		id, input.Name, input.Remark, boolToInt(input.Enabled), trafficSource, nullString(input.TrafficServerID),
+		id, input.Name, input.Remark, boolToInt(input.Enabled), templateID, trafficSource, nullString(input.TrafficServerID),
 		input.TotalBytes, input.ManualUploadBytes, input.ManualDownloadBytes, nullString(input.ExpireAt), cycleType,
 		cycleDay, nullString(input.CycleStart), nullString(input.CycleEnd), input.BaselineUploadBytes, input.BaselineDownloadBytes,
 		boolToInt(input.RateLimitEnabled), limitPerMin, normalizePlanSelectionMode(selectionMode), boolToInt(includeInternal))
@@ -658,6 +680,7 @@ func subscriptionFromProfile(input NodeLibrary) Subscription {
 		Name:                  input.Name,
 		Remark:                input.Remark,
 		Enabled:               input.Enabled,
+		TemplateID:            input.TemplateID,
 		TrafficSource:         input.TrafficSource,
 		TrafficServerID:       input.TrafficServerID,
 		UpstreamURL:           input.UpstreamURL,
@@ -688,29 +711,4 @@ func (s *Service) listSubscriptions(w http.ResponseWriter, r *http.Request, db *
 		return
 	}
 	response.OK(w, subs)
-}
-
-func ensureDefaultNodeLibrary(ctx context.Context, db *sql.DB) error {
-	tx, err := db.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-	if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO subscription_profiles (
-			id,name,remark,enabled,traffic_source,ownership,management,traffic_reporting,
-			cycle_type,cycle_day,rate_limit_enabled,rate_limit_per_minute,updated_at
-		) VALUES (?, '外部节点池', '系统统一外部节点池', 1, 'manual', 'external', 'unmanaged', 'unavailable', 'none', 1, 0, ?, datetime('now'))`,
-		defaultNodeLibrary, defaultLimitPerMin); err != nil {
-		return fmt.Errorf("create default external node pool: %w", err)
-	}
-	// Older releases represented the node pool as an enabled public
-	// subscription. Retire that anchor so it cannot leak a hidden public URL or
-	// pollute subscription counts; nodes continue to reference the profile ID.
-	if _, err := tx.ExecContext(ctx, `DELETE FROM subscription_access_logs WHERE subscription_id=?`, defaultNodeLibrary); err != nil {
-		return fmt.Errorf("delete legacy node pool access logs: %w", err)
-	}
-	if _, err := tx.ExecContext(ctx, `DELETE FROM subscription_subscriptions WHERE id=?`, defaultNodeLibrary); err != nil {
-		return fmt.Errorf("delete legacy node pool subscription: %w", err)
-	}
-	return tx.Commit()
 }

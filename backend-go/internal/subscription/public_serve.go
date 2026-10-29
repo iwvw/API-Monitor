@@ -81,6 +81,9 @@ func (s *Service) servePublicSubscription(w http.ResponseWriter, r *http.Request
 	if format == "" {
 		format = subscriptionFormatFromUA(r.UserAgent())
 	}
+	if format == "" {
+		format = templateFormat(r.Context(), db, sub.TemplateID)
+	}
 	body, contentType, err := renderOutput(r.Context(), db, sub, nodes, format, renderBlocked)
 	if err != nil {
 		statusCode = http.StatusInternalServerError

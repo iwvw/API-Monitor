@@ -43,8 +43,13 @@ func (s *Service) updateSettings(w http.ResponseWriter, r *http.Request, db *sql
 	if !decodeJSON(w, r, &settings) {
 		return
 	}
-	_, err := db.ExecContext(r.Context(), `UPDATE subscription_settings SET default_rate_limit_enabled = ?, default_rate_limit_per_minute = ?, default_refresh_hours = ?, geoip_enabled = ?, updated_at = datetime('now') WHERE id = 1`,
-		boolToInt(settings.DefaultRateLimitEnabled), intDefault(settings.DefaultRateLimitPerMin, defaultLimitPerMin), intDefault(settings.DefaultRefreshHours, defaultRefreshHours), boolToInt(settings.GeoIPEnabled))
+	settings.DefaultTemplateID = firstNonEmpty(settings.DefaultTemplateID, defaultTemplateID)
+	if err := validateTemplateReference(r.Context(), db, settings.DefaultTemplateID); err != nil {
+		response.Error(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	_, err := db.ExecContext(r.Context(), `UPDATE subscription_settings SET default_template_id = ?, default_rate_limit_enabled = ?, default_rate_limit_per_minute = ?, default_refresh_hours = ?, geoip_enabled = ?, updated_at = datetime('now') WHERE id = 1`,
+		settings.DefaultTemplateID, boolToInt(settings.DefaultRateLimitEnabled), intDefault(settings.DefaultRateLimitPerMin, defaultLimitPerMin), intDefault(settings.DefaultRefreshHours, defaultRefreshHours), boolToInt(settings.GeoIPEnabled))
 	if err != nil {
 		response.Error(w, http.StatusInternalServerError, err.Error())
 		return
@@ -82,5 +87,6 @@ func (s *Service) listServers(w http.ResponseWriter, r *http.Request, db *sql.DB
 func (s *Service) exportAll(w http.ResponseWriter, r *http.Request, db *sql.DB) {
 	subs, _ := loadSubscriptions(r.Context(), db, "")
 	nodes, _ := loadNodes(r.Context(), db, "", true)
-	response.OK(w, map[string]interface{}{"type": "api-monitor-subscription-backup", "version": 1, "exportedAt": time.Now().UTC().Format(time.RFC3339), "subscriptions": subs, "nodes": nodes})
+	templates, _ := loadTemplates(r.Context(), db)
+	response.OK(w, map[string]interface{}{"type": "api-monitor-subscription-backup", "version": 1, "exportedAt": time.Now().UTC().Format(time.RFC3339), "subscriptions": subs, "nodes": nodes, "templates": templates})
 }

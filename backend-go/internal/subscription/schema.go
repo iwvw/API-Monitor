@@ -15,6 +15,7 @@ func ensureSchema(ctx context.Context, db *sql.DB) error {
 	statements := []string{
 		`CREATE TABLE IF NOT EXISTS subscription_settings (
 			id INTEGER PRIMARY KEY CHECK (id = 1),
+			default_template_id TEXT DEFAULT 'builtin_mihomo_default',
 			default_rate_limit_enabled INTEGER DEFAULT 1,
 			default_rate_limit_per_minute INTEGER DEFAULT 30,
 			default_refresh_hours INTEGER DEFAULT 24,
@@ -22,11 +23,23 @@ func ensureSchema(ctx context.Context, db *sql.DB) error {
 			updated_at TEXT DEFAULT (datetime('now'))
 		)`,
 		`INSERT OR IGNORE INTO subscription_settings (id) VALUES (1)`,
+		`CREATE TABLE IF NOT EXISTS subscription_templates (
+			id TEXT PRIMARY KEY,
+			name TEXT NOT NULL,
+			format TEXT NOT NULL,
+			content TEXT NOT NULL,
+			builtin INTEGER DEFAULT 0,
+			is_default INTEGER DEFAULT 0,
+			description TEXT,
+			created_at TEXT DEFAULT (datetime('now')),
+			updated_at TEXT DEFAULT (datetime('now'))
+		)`,
 		`CREATE TABLE IF NOT EXISTS subscription_profiles (
 			id TEXT PRIMARY KEY,
 			name TEXT NOT NULL,
 			remark TEXT,
 			enabled INTEGER DEFAULT 1,
+			template_id TEXT DEFAULT 'builtin_mihomo_default',
 			traffic_source TEXT DEFAULT 'manual',
 			traffic_server_id TEXT,
 			ownership TEXT DEFAULT 'external',
@@ -73,6 +86,7 @@ func ensureSchema(ctx context.Context, db *sql.DB) error {
 			public_token TEXT NOT NULL UNIQUE,
 			vless_uuid TEXT NOT NULL DEFAULT '',
 			hysteria2_password TEXT NOT NULL DEFAULT '',
+			template_id TEXT DEFAULT 'builtin_mihomo_default',
 			traffic_source TEXT DEFAULT 'manual',
 			traffic_server_id TEXT,
 			upstream_url TEXT,
@@ -270,12 +284,12 @@ func ensureSchema(ctx context.Context, db *sql.DB) error {
 		return fmt.Errorf("normalize node profile ids: %w", err)
 	}
 	if _, err := db.ExecContext(ctx, `INSERT OR IGNORE INTO subscription_profiles (
-			id, name, remark, enabled, traffic_source, traffic_server_id,
+			id, name, remark, enabled, template_id, traffic_source, traffic_server_id,
 			total_bytes, manual_upload_bytes, manual_download_bytes, expire_at, cycle_type,
 			cycle_day, cycle_start, cycle_end, baseline_upload_bytes, baseline_download_bytes,
 			rate_limit_enabled, rate_limit_per_minute, created_at, updated_at
 		)
-		SELECT profile_id, name, remark, enabled, traffic_source, traffic_server_id,
+		SELECT profile_id, name, remark, enabled, template_id, traffic_source, traffic_server_id,
 			total_bytes, manual_upload_bytes, manual_download_bytes, expire_at, cycle_type,
 			cycle_day, cycle_start, cycle_end, baseline_upload_bytes, baseline_download_bytes,
 			rate_limit_enabled, rate_limit_per_minute, created_at, updated_at
@@ -301,18 +315,6 @@ func ensureSchema(ctx context.Context, db *sql.DB) error {
 	// 稳定节点标记已下线：清理历史库中残留的列（全新库无需此列）。
 	if err := dropColumn(ctx, db, "subscription_nodes", "stable"); err != nil {
 		return err
-	}
-	// 输出模板功能已下线：清理模板表与各表残留的 template_id 列。
-	for _, table := range []string{"subscription_profiles", "subscription_subscriptions"} {
-		if err := dropColumn(ctx, db, table, "template_id"); err != nil {
-			return err
-		}
-	}
-	if err := dropColumn(ctx, db, "subscription_settings", "default_template_id"); err != nil {
-		return err
-	}
-	if _, err := db.ExecContext(ctx, `DROP TABLE IF EXISTS subscription_templates`); err != nil {
-		return fmt.Errorf("drop subscription_templates: %w", err)
 	}
 	return nil
 }

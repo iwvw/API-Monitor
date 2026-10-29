@@ -3,10 +3,66 @@ package subscription
 import (
 	"context"
 	"database/sql"
+	"errors"
+	"fmt"
+	"strings"
 
 	"github.com/iwvw/api-monitor/backend-go/internal/reconcilequeue"
 	"github.com/iwvw/api-monitor/backend-go/internal/secure"
 )
+
+func loadTemplates(ctx context.Context, db *sql.DB) ([]Template, error) {
+	rows, err := db.QueryContext(ctx, `SELECT id, name, format, content, builtin, is_default, COALESCE(description, ''), created_at, updated_at FROM subscription_templates ORDER BY is_default DESC, builtin DESC, name ASC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Template{}
+	for rows.Next() {
+		var tpl Template
+		var builtin, def int
+		if err := rows.Scan(&tpl.ID, &tpl.Name, &tpl.Format, &tpl.Content, &builtin, &def, &tpl.Description, &tpl.CreatedAt, &tpl.UpdatedAt); err != nil {
+			return nil, err
+		}
+		tpl.Builtin = builtin == 1
+		tpl.IsDefault = def == 1
+		if validationErr := validateTemplateDefinition(tpl.Format, tpl.Content); validationErr != nil {
+			tpl.ValidationError = validationErr.Error()
+		} else {
+			tpl.Valid = true
+		}
+		items = append(items, tpl)
+	}
+	return items, rows.Err()
+}
+
+func validateTemplateReference(ctx context.Context, db *sql.DB, id string) error {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return errors.New("请选择输出模板")
+	}
+	var format, content string
+	if err := db.QueryRowContext(ctx, `SELECT format,content FROM subscription_templates WHERE id=?`, id).Scan(&format, &content); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			switch id {
+			case defaultTemplateID:
+				format, content = "clash", loadDefaultMihomoTemplate()
+			case rawTemplateID:
+				format, content = "raw", "{{ raw_uri_list }}"
+			case base64TemplateID:
+				format, content = "base64", "{{ raw_uri_list }}"
+			default:
+				return errors.New("所选模板不存在")
+			}
+		} else {
+			return fmt.Errorf("读取模板失败: %w", err)
+		}
+	}
+	if err := validateTemplateDefinition(format, content); err != nil {
+		return fmt.Errorf("所选模板配置无效: %w", err)
+	}
+	return nil
+}
 
 func loadProfiles(ctx context.Context, db *sql.DB, id string) ([]NodeLibrary, error) {
 	where := ""
@@ -16,7 +72,7 @@ func loadProfiles(ctx context.Context, db *sql.DB, id string) ([]NodeLibrary, er
 		args = append(args, id)
 	}
 	rows, err := db.QueryContext(ctx, `SELECT
-			p.id, p.name, COALESCE(p.remark, ''), p.enabled,
+			p.id, p.name, COALESCE(p.remark, ''), p.enabled, COALESCE(p.template_id, ''),
 			COALESCE(p.traffic_source, 'manual'), COALESCE(p.traffic_server_id, ''),
 			COALESCE(u.url, ''), COALESCE(u.enabled, 0), COALESCE(u.refresh_hours, 24),
 			COALESCE(u.status, ''), COALESCE(u.last_error, ''), COALESCE(u.last_refresh_at, ''), COALESCE(u.userinfo, ''),
@@ -42,7 +98,7 @@ func loadProfiles(ctx context.Context, db *sql.DB, id string) ([]NodeLibrary, er
 	for rows.Next() {
 		var item NodeLibrary
 		var enabled, upstreamEnabled, rateEnabled, includeInternal int
-		if err := rows.Scan(&item.ID, &item.Name, &item.Remark, &enabled, &item.TrafficSource, &item.TrafficServerID, &item.UpstreamURL, &upstreamEnabled, &item.UpstreamRefreshHours, &item.UpstreamStatus, &item.UpstreamLastError, &item.UpstreamLastRefreshAt, &item.UpstreamUserinfo, &item.TotalBytes, &item.ManualUploadBytes, &item.ManualDownloadBytes, &item.ExpireAt, &item.CycleType, &item.CycleDay, &item.CycleStart, &item.CycleEnd, &item.BaselineUploadBytes, &item.BaselineDownloadBytes, &rateEnabled, &item.RateLimitPerMinute, &item.NodeFilterTags, &item.SortOrder, &item.SelectionMode, &includeInternal, &item.CreatedAt, &item.UpdatedAt); err != nil {
+		if err := rows.Scan(&item.ID, &item.Name, &item.Remark, &enabled, &item.TemplateID, &item.TrafficSource, &item.TrafficServerID, &item.UpstreamURL, &upstreamEnabled, &item.UpstreamRefreshHours, &item.UpstreamStatus, &item.UpstreamLastError, &item.UpstreamLastRefreshAt, &item.UpstreamUserinfo, &item.TotalBytes, &item.ManualUploadBytes, &item.ManualDownloadBytes, &item.ExpireAt, &item.CycleType, &item.CycleDay, &item.CycleStart, &item.CycleEnd, &item.BaselineUploadBytes, &item.BaselineDownloadBytes, &rateEnabled, &item.RateLimitPerMinute, &item.NodeFilterTags, &item.SortOrder, &item.SelectionMode, &includeInternal, &item.CreatedAt, &item.UpdatedAt); err != nil {
 			return nil, err
 		}
 		item.Enabled = enabled == 1
@@ -93,7 +149,7 @@ func loadSubscriptions(ctx context.Context, db *sql.DB, id string) ([]Subscripti
 		where = "WHERE id = ?"
 		args = append(args, id)
 	}
-	rows, err := db.QueryContext(ctx, `SELECT id, COALESCE(profile_id, id), COALESCE(plan_id, ''), name, COALESCE(remark, ''), enabled, public_token, COALESCE(vless_uuid,''), COALESCE(hysteria2_password,''), COALESCE(traffic_source, 'manual'), COALESCE(traffic_server_id, ''), COALESCE(upstream_url, ''), upstream_enabled, COALESCE(upstream_refresh_hours, 24), COALESCE(upstream_status, ''), COALESCE(upstream_last_error, ''), COALESCE(upstream_last_refresh_at, ''), total_bytes, manual_upload_bytes, manual_download_bytes, COALESCE(expire_at, ''), COALESCE(cycle_type, 'none'), COALESCE(cycle_day, 1), COALESCE(cycle_start, ''), COALESCE(cycle_end, ''), baseline_upload_bytes, baseline_download_bytes, rate_limit_enabled, COALESCE(rate_limit_per_minute, 30), COALESCE(node_filter_ids, ''), COALESCE(include_internal_nodes,1), COALESCE(include_external_nodes,0), created_at, updated_at FROM subscription_subscriptions `+where+` ORDER BY updated_at DESC`, args...)
+	rows, err := db.QueryContext(ctx, `SELECT id, COALESCE(profile_id, id), COALESCE(plan_id, ''), name, COALESCE(remark, ''), enabled, public_token, COALESCE(vless_uuid,''), COALESCE(hysteria2_password,''), COALESCE(template_id, ''), COALESCE(traffic_source, 'manual'), COALESCE(traffic_server_id, ''), COALESCE(upstream_url, ''), upstream_enabled, COALESCE(upstream_refresh_hours, 24), COALESCE(upstream_status, ''), COALESCE(upstream_last_error, ''), COALESCE(upstream_last_refresh_at, ''), total_bytes, manual_upload_bytes, manual_download_bytes, COALESCE(expire_at, ''), COALESCE(cycle_type, 'none'), COALESCE(cycle_day, 1), COALESCE(cycle_start, ''), COALESCE(cycle_end, ''), baseline_upload_bytes, baseline_download_bytes, rate_limit_enabled, COALESCE(rate_limit_per_minute, 30), COALESCE(node_filter_ids, ''), COALESCE(include_internal_nodes,1), COALESCE(include_external_nodes,0), created_at, updated_at FROM subscription_subscriptions `+where+` ORDER BY updated_at DESC`, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -102,7 +158,7 @@ func loadSubscriptions(ctx context.Context, db *sql.DB, id string) ([]Subscripti
 		var sub Subscription
 		var enabled, upstreamEnabled, rateEnabled, includeInternal, includeExternal int
 		var nodeFilterIDs string
-		if err := rows.Scan(&sub.ID, &sub.ProfileID, &sub.PlanID, &sub.Name, &sub.Remark, &enabled, &sub.PublicToken, &sub.VLESSUUID, &sub.Hysteria2Password, &sub.TrafficSource, &sub.TrafficServerID, &sub.UpstreamURL, &upstreamEnabled, &sub.UpstreamRefreshHours, &sub.UpstreamStatus, &sub.UpstreamLastError, &sub.UpstreamLastRefreshAt, &sub.TotalBytes, &sub.ManualUploadBytes, &sub.ManualDownloadBytes, &sub.ExpireAt, &sub.CycleType, &sub.CycleDay, &sub.CycleStart, &sub.CycleEnd, &sub.BaselineUploadBytes, &sub.BaselineDownloadBytes, &rateEnabled, &sub.RateLimitPerMinute, &nodeFilterIDs, &includeInternal, &includeExternal, &sub.CreatedAt, &sub.UpdatedAt); err != nil {
+		if err := rows.Scan(&sub.ID, &sub.ProfileID, &sub.PlanID, &sub.Name, &sub.Remark, &enabled, &sub.PublicToken, &sub.VLESSUUID, &sub.Hysteria2Password, &sub.TemplateID, &sub.TrafficSource, &sub.TrafficServerID, &sub.UpstreamURL, &upstreamEnabled, &sub.UpstreamRefreshHours, &sub.UpstreamStatus, &sub.UpstreamLastError, &sub.UpstreamLastRefreshAt, &sub.TotalBytes, &sub.ManualUploadBytes, &sub.ManualDownloadBytes, &sub.ExpireAt, &sub.CycleType, &sub.CycleDay, &sub.CycleStart, &sub.CycleEnd, &sub.BaselineUploadBytes, &sub.BaselineDownloadBytes, &rateEnabled, &sub.RateLimitPerMinute, &nodeFilterIDs, &includeInternal, &includeExternal, &sub.CreatedAt, &sub.UpdatedAt); err != nil {
 			return nil, err
 		}
 		sub.Enabled = enabled == 1

@@ -361,6 +361,105 @@ func TestMihomoOutputFallsBackToRawURIWhenStoredConfigIsIncomplete(t *testing.T)
 	}
 }
 
+func TestMihomoOutputFallsBackWhenCustomTemplateDuplicatesGeneratedProxyName(t *testing.T) {
+	ctx := context.Background()
+	db, err := sql.Open("sqlite", filepath.Join(t.TempDir(), "data.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if err := ensureSchema(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+	custom := `proxies:
+{{ proxies_yaml }}
+  - name: HK 香港月抛
+    type: trojan
+    server: static.example.com
+    port: 443
+    password: static-password
+proxy-groups:
+  - name: 手动选择
+    type: select
+    proxies:
+{{ proxy_names_yaml | indent 6 }}`
+	if _, err := db.Exec(`INSERT INTO subscription_templates(id,name,format,content) VALUES('custom','冲突模板','clash',?)`, custom); err != nil {
+		t.Fatal(err)
+	}
+	nodes := []Node{{Name: "HK 香港月抛", Type: "trojan", Server: "node.example.com", Port: 443, ConfigJSON: `{"name":"HK 香港月抛","type":"trojan","server":"node.example.com","port":443,"password":"node-password"}`, Enabled: true}}
+	body, _, err := renderOutput(ctx, db, Subscription{Name: "测试", TemplateID: "custom"}, nodes, "clash", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(body, "static.example.com") {
+		t.Fatalf("invalid custom template should fall back to the built-in template:\n%s", body)
+	}
+	if err := validateMihomoOutput(body); err != nil {
+		t.Fatalf("fallback output remains invalid: %v\n%s", err, body)
+	}
+}
+
+func TestMihomoOutputFallsBackWhenPersistedBuiltinTemplateReferencesRemovedNode(t *testing.T) {
+	ctx := context.Background()
+	db, err := sql.Open("sqlite", filepath.Join(t.TempDir(), "data.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if err := ensureSchema(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+	stale := `proxies:
+{{ proxies_yaml }}
+proxy-groups:
+  - name: 手动
+    type: select
+    proxies:
+      - 🇯🇵 已删除节点`
+	if _, err := db.Exec(`INSERT INTO subscription_templates(id,name,format,content,builtin) VALUES('builtin_stale','旧内置模板','clash',?,1)`, stale); err != nil {
+		t.Fatal(err)
+	}
+	nodes := []Node{{Name: "🇭🇰 香港", Type: "vless", Server: "node.example.com", Port: 443, ConfigJSON: `{"name":"🇭🇰 香港","type":"vless","server":"node.example.com","port":443,"uuid":"node"}`, Enabled: true}}
+	body, _, err := renderOutput(ctx, db, Subscription{Name: "测试", TemplateID: "builtin_stale"}, nodes, "clash", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(body, "🇯🇵 已删除节点") {
+		t.Fatalf("stale persisted template was not replaced:\n%s", body)
+	}
+	if err := validateMihomoOutput(body); err != nil {
+		t.Fatalf("fallback output is invalid: %v\n%s", err, body)
+	}
+}
+
+func TestTemplateWriteRejectsInvalidMihomoDefinition(t *testing.T) {
+	ctx := context.Background()
+	db, err := sql.Open("sqlite", filepath.Join(t.TempDir(), "data.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if err := ensureSchema(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+
+	service := New(config.Config{})
+	for name, body := range map[string]string{
+		"unknown placeholder":    `{"name":"错误模板","format":"clash","content":"proxies:\n{{ unknown_nodes }}"}`,
+		"broken group reference": `{"name":"错误模板","format":"clash","content":"proxies: []\nproxy-groups:\n  - name: 手动\n    type: select\n    proxies: [不存在的节点]"}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			req := httptest.NewRequest(http.MethodPost, "/api/subscription/templates", strings.NewReader(body))
+			req.Header.Set("Content-Type", "application/json")
+			service.createTemplate(rec, req, db)
+			if rec.Code != http.StatusBadRequest {
+				t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+			}
+		})
+	}
+}
+
 func TestJSONServerMetadataDoesNotTurnMissingValuesIntoNilText(t *testing.T) {
 	values := map[string]interface{}{"platform": nil, "os": "Ubuntu"}
 	if got := jsonString(values, "platform"); got != "" {
@@ -812,6 +911,7 @@ func TestEnsureSchemaMigratesLegacySubscriptionsToProfiles(t *testing.T) {
 			remark TEXT,
 			enabled INTEGER DEFAULT 1,
 			public_token TEXT NOT NULL UNIQUE,
+			template_id TEXT DEFAULT 'builtin_mihomo_default',
 			traffic_source TEXT DEFAULT 'manual',
 			traffic_server_id TEXT,
 			upstream_url TEXT,
@@ -917,6 +1017,7 @@ func TestEnsureSchemaAddsProfileOwnershipColumnsToLegacyDatabase(t *testing.T) {
 		name TEXT NOT NULL,
 		remark TEXT,
 		enabled INTEGER DEFAULT 1,
+		template_id TEXT DEFAULT 'builtin_mihomo_default',
 		traffic_source TEXT DEFAULT 'manual',
 		traffic_server_id TEXT,
 		total_bytes INTEGER DEFAULT 0,
@@ -969,7 +1070,7 @@ func TestSubscriptionTokenRendersNodesFromProfile(t *testing.T) {
 	if err := ensureSchema(ctx, db); err != nil {
 		t.Fatalf("ensure schema: %v", err)
 	}
-	if _, err := db.ExecContext(ctx, `INSERT INTO subscription_subscriptions (id, profile_id, name, public_token, enabled) VALUES ('link_one', 'profile_one', '公开链接', 'token_one', 1)`); err != nil {
+	if _, err := db.ExecContext(ctx, `INSERT INTO subscription_subscriptions (id, profile_id, name, public_token, enabled, template_id) VALUES ('link_one', 'profile_one', '公开链接', 'token_one', 1, 'builtin_raw_uri')`); err != nil {
 		t.Fatalf("insert subscription: %v", err)
 	}
 	tx, err := db.BeginTx(ctx, nil)
@@ -1016,7 +1117,7 @@ func TestPublicSubscriptionIncludesClientProfileNameHeaders(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open service db: %v", err)
 	}
-	if _, err := db.ExecContext(ctx, `INSERT INTO subscription_subscriptions (id, profile_id, name, public_token, enabled) VALUES ('link_one', 'profile_one', '香港 订阅', 'token_one', 1)`); err != nil {
+	if _, err := db.ExecContext(ctx, `INSERT INTO subscription_subscriptions (id, profile_id, name, public_token, enabled, template_id) VALUES ('link_one', 'profile_one', '香港 订阅', 'token_one', 1, 'builtin_mihomo_default')`); err != nil {
 		t.Fatalf("insert subscription: %v", err)
 	}
 	tx, err := db.BeginTx(ctx, nil)
@@ -1053,6 +1154,37 @@ func TestPublicSubscriptionIncludesClientProfileNameHeaders(t *testing.T) {
 	}
 }
 
+func TestMihomoRenderFallsBackWhenBoundTemplateIsEmpty(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	db, err := sql.Open("sqlite", filepath.Join(t.TempDir(), "data.db"))
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	defer db.Close()
+
+	if err := ensureSchema(ctx, db); err != nil {
+		t.Fatalf("ensure schema: %v", err)
+	}
+	if _, err := db.ExecContext(ctx, `INSERT INTO subscription_templates (id, name, format, content) VALUES ('empty_tpl', '空模板', 'clash', '')`); err != nil {
+		t.Fatalf("insert template: %v", err)
+	}
+	sub := Subscription{ID: "link_one", Name: "DSUK", TemplateID: "empty_tpl", Enabled: true}
+	nodes := []Node{{Name: "HK 节点一", Type: "trojan", Server: "example.com", Port: 443, Raw: "trojan://password@example.com:443#node-one", Enabled: true}}
+
+	body, contentType, err := renderOutput(ctx, db, sub, nodes, "clash", false)
+	if err != nil {
+		t.Fatalf("render output: %v", err)
+	}
+	if contentType != "text/yaml; charset=utf-8" {
+		t.Fatalf("contentType = %q", contentType)
+	}
+	if !strings.Contains(body, "proxies:") || !strings.Contains(body, "HK 节点一") {
+		t.Fatalf("rendered body did not fall back to default template:\n%s", body)
+	}
+}
+
 func TestMihomoRenderUsesEmptyProxyListWhenNoNodes(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -1066,7 +1198,7 @@ func TestMihomoRenderUsesEmptyProxyListWhenNoNodes(t *testing.T) {
 	if err := ensureSchema(ctx, db); err != nil {
 		t.Fatalf("ensure schema: %v", err)
 	}
-	sub := Subscription{ID: "link_one", Name: "DSUK", Enabled: true}
+	sub := Subscription{ID: "link_one", Name: "DSUK", TemplateID: defaultTemplateID, Enabled: true}
 
 	body, _, err := renderOutput(ctx, db, sub, nil, "clash", false)
 	if err != nil {
@@ -1100,7 +1232,7 @@ func TestRenderOutputSkipsDuplicateAndBrokenNodes(t *testing.T) {
 		{Name: "节点一-重复", Type: "trojan", Server: "example.com", Port: 443, Raw: "trojan://password@example.com:443#节点一-重复", Enabled: true},
 		{Name: "坏节点", Type: "trojan", Raw: "not-a-uri", Enabled: true},
 	}
-	rawBody, _, err := renderOutput(ctx, db, Subscription{Name: "测试"}, nodes, "raw", false)
+	rawBody, _, err := renderOutput(ctx, db, Subscription{Name: "测试", TemplateID: rawTemplateID}, nodes, "raw", false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1173,7 +1305,7 @@ func TestPublicSubscriptionHidesNodesWhenHostQuotaIsExhausted(t *testing.T) {
 	if _, err := db.ExecContext(ctx, `INSERT INTO server_accounts (id, name, host, cached_info, traffic_limit_bytes) VALUES ('server-one', 'Server One', 'one.example.com', '{"network":{"rx_total_bytes":600,"tx_total_bytes":500}}', 1000)`); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.ExecContext(ctx, `INSERT INTO subscription_subscriptions (id, profile_id, name, public_token, enabled, include_internal_nodes, include_external_nodes) VALUES ('link_one', 'profile_one', '公开链接', 'token_one', 1, 1, 0)`); err != nil {
+	if _, err := db.ExecContext(ctx, `INSERT INTO subscription_subscriptions (id, profile_id, name, public_token, enabled, template_id, include_internal_nodes, include_external_nodes) VALUES ('link_one', 'profile_one', '公开链接', 'token_one', 1, 'builtin_raw_uri', 1, 0)`); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := db.ExecContext(ctx, `INSERT INTO managed_proxy_nodes(id,server_id,name,protocol,public_host,assigned_port,transport,config_encrypted,client_uri_encrypted,enabled,publishable,apply_status,access_mode,tunnel_hostname) VALUES('managed-one','server-one','节点一','vless-reality','origin.example.com',443,'tcp','',?,1,1,'running','direct','')`, encrypted); err != nil {
@@ -1185,8 +1317,8 @@ func TestPublicSubscriptionHidesNodesWhenHostQuotaIsExhausted(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
 	}
-	if strings.Contains(rec.Body.String(), "origin.example.com") || strings.Contains(rec.Body.String(), "节点一") {
-		t.Fatalf("exhausted host nodes must not appear in the subscription: %q", rec.Body.String())
+	if strings.TrimSpace(rec.Body.String()) != "" {
+		t.Fatalf("exhausted host nodes should be hidden from raw subscription: %q", rec.Body.String())
 	}
 }
 
@@ -1203,7 +1335,7 @@ func TestLoadProfilesReturnsLibrariesWithCountsAndUpstream(t *testing.T) {
 	if err := ensureSchema(ctx, db); err != nil {
 		t.Fatalf("ensure schema: %v", err)
 	}
-	if err := upsertProfile(ctx, db, "profile_one", Subscription{Name: "DSUK", Enabled: true, UpstreamURL: "https://example.com/sub", UpstreamEnabled: true, RateLimitEnabled: true}, "manual", "none", 1, 30, "explicit", false); err != nil {
+	if err := upsertProfile(ctx, db, "profile_one", Subscription{Name: "DSUK", Enabled: true, UpstreamURL: "https://example.com/sub", UpstreamEnabled: true, RateLimitEnabled: true}, defaultTemplateID, "manual", "none", 1, 30, "explicit", false); err != nil {
 		t.Fatalf("upsert profile: %v", err)
 	}
 	if err := upsertDefaultUpstream(ctx, db, "profile_one", Subscription{UpstreamURL: "https://example.com/sub", UpstreamEnabled: true}, 12); err != nil {
@@ -1254,7 +1386,7 @@ func TestDeleteProfileBlocksWhenNodesOrLinksExist(t *testing.T) {
 	if err := ensureSchema(ctx, db); err != nil {
 		t.Fatalf("ensure schema: %v", err)
 	}
-	if err := upsertProfile(ctx, db, "profile_busy", Subscription{Name: "繁忙节点库", Enabled: true}, "manual", "none", 1, 30, "explicit", false); err != nil {
+	if err := upsertProfile(ctx, db, "profile_busy", Subscription{Name: "繁忙节点库", Enabled: true}, defaultTemplateID, "manual", "none", 1, 30, "explicit", false); err != nil {
 		t.Fatalf("upsert profile: %v", err)
 	}
 	if _, err := db.ExecContext(ctx, `INSERT INTO subscription_subscriptions (id, profile_id, name, public_token, enabled) VALUES ('link_busy', 'profile_busy', '公开链接', 'token_busy', 1)`); err != nil {
@@ -1549,6 +1681,67 @@ func TestRefreshingManagedSourcePreservesPlanMembershipWhenEndpointChanges(t *te
 	var relationCount int
 	if err := db.QueryRow(`SELECT COUNT(*) FROM subscription_plan_nodes WHERE plan_id='plan' AND node_id='managed'`).Scan(&relationCount); err != nil || relationCount != 1 {
 		t.Fatalf("membership count=%d err=%v", relationCount, err)
+	}
+}
+
+func TestEnsureBuiltinsPreservesEditedBuiltinButOverwriteRefreshes(t *testing.T) {
+	ctx := context.Background()
+	db, err := sql.Open("sqlite", filepath.Join(t.TempDir(), "data.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if err := ensureSchema(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO subscription_templates(id,name,format,content,builtin) VALUES(?,?,?,?,1)`, defaultTemplateID, "旧模板", "clash", "global-client-fingerprint: chrome"); err != nil {
+		t.Fatal(err)
+	}
+	if err := ensureBuiltins(ctx, db, false); err != nil {
+		t.Fatal(err)
+	}
+	var content string
+	if err := db.QueryRow(`SELECT content FROM subscription_templates WHERE id=?`, defaultTemplateID).Scan(&content); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(content, "global-client-fingerprint") {
+		t.Fatalf("boot should not clobber an edited builtin template, got: %q", content)
+	}
+	if err := ensureBuiltins(ctx, db, true); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.QueryRow(`SELECT content FROM subscription_templates WHERE id=?`, defaultTemplateID).Scan(&content); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(content, "global-client-fingerprint") || !strings.Contains(content, "{{ proxies_yaml }}") {
+		t.Fatalf("explicit restore should refresh builtin template, got: %q", content)
+	}
+}
+
+func TestDeleteTemplateRejectsReferences(t *testing.T) {
+	ctx := context.Background()
+	db, err := sql.Open("sqlite", filepath.Join(t.TempDir(), "data.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if err := ensureSchema(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO subscription_templates(id,name,format,content) VALUES('custom','自定义','clash','x')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO subscription_profiles(id,name,template_id) VALUES('profile','节点池','custom')`); err != nil {
+		t.Fatal(err)
+	}
+	rec := httptest.NewRecorder()
+	New(config.Config{}).deleteTemplate(rec, httptest.NewRequest(http.MethodDelete, "/api/subscription/templates/custom", nil), db, "custom")
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var count int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM subscription_templates WHERE id='custom'`).Scan(&count); err != nil || count != 1 {
+		t.Fatalf("referenced template count=%d err=%v", count, err)
 	}
 }
 

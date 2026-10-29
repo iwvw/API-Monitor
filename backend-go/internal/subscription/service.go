@@ -16,6 +16,9 @@ import (
 )
 
 const (
+	defaultTemplateID     = "builtin_mihomo_default"
+	rawTemplateID         = "builtin_raw_uri"
+	base64TemplateID      = "builtin_base64_uri"
 	defaultNodeLibrary    = "sub_default_nodes"
 	defaultLimitPerMin    = 30
 	defaultRefreshHours   = 24
@@ -49,6 +52,7 @@ type Subscription struct {
 	PublicToken           string           `json:"public_token"`
 	VLESSUUID             string           `json:"vless_uuid"`
 	Hysteria2Password     string           `json:"hysteria2_password"`
+	TemplateID            string           `json:"template_id"`
 	TrafficSource         string           `json:"traffic_source"`
 	TrafficServerID       string           `json:"traffic_server_id,omitempty"`
 	UpstreamURL           string           `json:"upstream_url,omitempty"`
@@ -88,6 +92,7 @@ type NodeLibrary struct {
 	Name                  string      `json:"name"`
 	Remark                string      `json:"remark"`
 	Enabled               bool        `json:"enabled"`
+	TemplateID            string      `json:"template_id"`
 	TrafficSource         string      `json:"traffic_source"`
 	TrafficServerID       string      `json:"traffic_server_id,omitempty"`
 	UpstreamURL           string      `json:"upstream_url,omitempty"`
@@ -148,6 +153,20 @@ type Node struct {
 	Quality          []QualitySummary `json:"quality,omitempty"`
 }
 
+type Template struct {
+	ID              string `json:"id"`
+	Name            string `json:"name"`
+	Format          string `json:"format"`
+	Content         string `json:"content"`
+	Builtin         bool   `json:"builtin"`
+	IsDefault       bool   `json:"is_default"`
+	Valid           bool   `json:"valid"`
+	ValidationError string `json:"validation_error,omitempty"`
+	Description     string `json:"description"`
+	CreatedAt       string `json:"created_at"`
+	UpdatedAt       string `json:"updated_at"`
+}
+
 type TrafficInfo struct {
 	Upload         int64   `json:"upload"`
 	Download       int64   `json:"download"`
@@ -187,6 +206,7 @@ type QualitySummary struct {
 }
 
 type Settings struct {
+	DefaultTemplateID       string `json:"default_template_id"`
 	DefaultRateLimitEnabled bool   `json:"default_rate_limit_enabled"`
 	DefaultRateLimitPerMin  int    `json:"default_rate_limit_per_minute"`
 	DefaultRefreshHours     int    `json:"default_refresh_hours"`
@@ -234,6 +254,9 @@ func (s *Service) Initialize(ctx context.Context) error {
 	return s.schema.Ensure(func() error {
 		return database.WithSchemaLock(ctx, func() error {
 			if err := ensureSchema(ctx, db); err != nil {
+				return err
+			}
+			if err := ensureBuiltins(ctx, db, false); err != nil {
 				return err
 			}
 			return ensureDefaultNodeLibrary(ctx, db)
@@ -458,6 +481,40 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		s.importCommit(w, r, db)
+	case len(parts) == 1 && parts[0] == "templates":
+		switch r.Method {
+		case http.MethodGet:
+			s.listTemplates(w, r, db)
+		case http.MethodPost:
+			s.createTemplate(w, r, db)
+		default:
+			response.Error(w, http.StatusMethodNotAllowed, "method not allowed")
+		}
+	case len(parts) == 2 && parts[0] == "templates":
+		switch r.Method {
+		case http.MethodPut:
+			s.updateTemplate(w, r, db, parts[1])
+		case http.MethodDelete:
+			s.deleteTemplate(w, r, db, parts[1])
+		default:
+			response.Error(w, http.StatusMethodNotAllowed, "method not allowed")
+		}
+	case len(parts) == 3 && parts[0] == "templates" && parts[2] == "default":
+		if r.Method != http.MethodPost {
+			response.Error(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		s.setDefaultTemplate(w, r, db, parts[1])
+	case len(parts) == 2 && parts[0] == "templates" && parts[1] == "restore-builtins":
+		if r.Method != http.MethodPost {
+			response.Error(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		if err := ensureBuiltins(r.Context(), db, true); err != nil {
+			response.Error(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		response.OK(w, map[string]bool{"restored": true})
 	case len(parts) == 1 && parts[0] == "logs":
 		if r.Method != http.MethodGet {
 			response.Error(w, http.StatusMethodNotAllowed, "method not allowed")
@@ -498,6 +555,9 @@ func (s *Service) open(ctx context.Context) (*sql.DB, error) {
 	if err := s.schema.Ensure(func() error {
 		return database.WithSchemaLock(ctx, func() error {
 			if err := ensureSchema(ctx, db); err != nil {
+				return err
+			}
+			if err := ensureBuiltins(ctx, db, false); err != nil {
 				return err
 			}
 			return ensureDefaultNodeLibrary(ctx, db)

@@ -15,19 +15,38 @@ import (
 	"github.com/iwvw/api-monitor/backend-go/internal/response"
 )
 
-func renderOutput(_ context.Context, _ *sql.DB, sub Subscription, nodes []Node, format string, blocked bool) (string, string, error) {
+func renderOutput(ctx context.Context, db *sql.DB, sub Subscription, nodes []Node, format string, blocked bool) (string, string, error) {
 	nodes = preparePublishedNodes(nodes)
 	if blocked {
 		nodes = nil
 	}
 	if format == "" || format == "clash" || format == "mihomo" {
-		body := renderTemplate(loadDefaultMihomoTemplate(), sub, nodes)
+		tpl := loadDefaultMihomoTemplate()
+		usingCustomTemplate := false
+		if sub.TemplateID != "" {
+			var customTemplate string
+			var builtin int
+			_ = db.QueryRowContext(ctx, `SELECT content,builtin FROM subscription_templates WHERE id = ?`, sub.TemplateID).Scan(&customTemplate, &builtin)
+			if strings.TrimSpace(customTemplate) != "" {
+				tpl = customTemplate
+				usingCustomTemplate = builtin == 0
+			}
+		}
+		body := renderTemplate(tpl, sub, nodes)
 		if err := validateMihomoOutput(body); err != nil {
-			// 内置模板的占位符由本包渲染；输出无效说明节点数据异常，
-			// 回退到去节点后的最小配置，避免整个订阅链接不可用。
-			body = renderTemplate(loadDefaultMihomoTemplate(), sub, nil)
+			if !usingCustomTemplate {
+				// Built-in templates are persisted for stable IDs. An older
+				// record can retain removed node names, so fall back to the
+				// current embedded template instead of breaking the feed.
+				body = renderTemplate(loadDefaultMihomoTemplate(), sub, nodes)
+				if fallbackErr := validateMihomoOutput(body); fallbackErr != nil {
+					return "", "", fmt.Errorf("内置 Mihomo 模板输出无效，且当前模板回退失败: %w", fallbackErr)
+				}
+				return body, "text/yaml; charset=utf-8", nil
+			}
+			body = renderTemplate(loadDefaultMihomoTemplate(), sub, nodes)
 			if fallbackErr := validateMihomoOutput(body); fallbackErr != nil {
-				return "", "", fmt.Errorf("内置 Mihomo 模板输出无效，且空节点回退失败: %w", fallbackErr)
+				return "", "", fmt.Errorf("Mihomo 模板输出无效，且内置模板回退失败: %w", fallbackErr)
 			}
 		}
 		return body, "text/yaml; charset=utf-8", nil
@@ -55,6 +74,19 @@ func renderTemplate(tpl string, sub Subscription, nodes []Node) string {
 		out = strings.ReplaceAll(out, key, value)
 	}
 	return out
+}
+
+func normalizeTemplateFormat(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "", "clash", "mihomo", "yaml", "yml":
+		return "clash"
+	case "raw":
+		return "raw"
+	case "base64":
+		return "base64"
+	default:
+		return strings.ToLower(strings.TrimSpace(value))
+	}
 }
 
 // subscriptionFormatFromUA maps known proxy client User-Agents to a concrete
@@ -122,6 +154,12 @@ func (s *Service) servePublicSubscriptionInfo(w http.ResponseWriter, r *http.Req
 		info.NodeCount = len(nodes)
 	}
 	response.OK(w, info)
+}
+
+func templateFormat(ctx context.Context, db *sql.DB, id string) string {
+	var format string
+	_ = db.QueryRowContext(ctx, `SELECT format FROM subscription_templates WHERE id = ?`, id).Scan(&format)
+	return format
 }
 
 func loadDefaultMihomoTemplate() string {

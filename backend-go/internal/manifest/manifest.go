@@ -396,7 +396,7 @@ func buildRoutes() []Route {
 
 		{Prefix: "/api/emailcode", Module: "emailcode", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "通用邮箱验证码收件箱（列表、详情、等待、取用、统计、清理）"},
 		{Prefix: "/api/emailcode/ingest", Module: "emailcode-worker-callback", Owner: OwnerGo, Auth: AuthPublic, ResponseMode: ResponseJSON, Description: "邮件 Worker 投递回调（共享密钥校验，非会话鉴权）", MatchMode: MatchExact},
-		{Prefix: "/api/subscription", Module: "subscription", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Subscription distribution, nodes, logs, and settings"},
+		{Prefix: "/api/subscription", Module: "subscription", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Subscription distribution, nodes, templates, logs, and settings"},
 		{Prefix: "/api/subscription/public/{token}", Module: "subscription-public", Owner: OwnerGo, Auth: AuthPublic, ResponseMode: ResponseJSON, Description: "Public subscription info page payload (no credentials)", MatchMode: MatchPattern},
 		{Prefix: "/sub/{token}", Module: "subscription-public", Owner: OwnerGo, Auth: AuthPublic, ResponseMode: ResponseStream, Description: "Public subscription endpoint (UA-adaptive formats, info page, Clash/raw/base64)", MatchMode: MatchPattern},
 		{Prefix: "/v1", Module: "openai-compatible", Owner: OwnerGo, Auth: AuthAPIKey, ResponseMode: ResponseStream, Description: "OpenAI-compatible API"},
