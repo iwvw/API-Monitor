@@ -193,8 +193,17 @@ func ensureBuiltins(ctx context.Context, db *sql.DB, overwrite bool) error {
 			}
 			continue
 		}
-		if _, err := db.ExecContext(ctx, `INSERT OR IGNORE INTO subscription_templates (id, name, format, content, builtin, is_default, description)
-			VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		// 内置模板的内容以代码为准，但用户可能主动编辑过内置模板（该编辑必须
+		// 保留）。这里只修复「已下线结构」的残留：存量库里若是旧版内置模板
+		// （仍含已删除的「😇 稳定」组或其占位符），就地刷新为当前版本；其余
+		// 情况一律不动，避免覆盖用户编辑。
+		if _, err := db.ExecContext(ctx, `INSERT INTO subscription_templates (id, name, format, content, builtin, is_default, description)
+			VALUES (?, ?, ?, ?, ?, ?, ?)
+			ON CONFLICT(id) DO UPDATE SET name = excluded.name, format = excluded.format,
+				content = excluded.content, description = excluded.description, updated_at = datetime('now')
+			WHERE subscription_templates.builtin = 1
+				AND (subscription_templates.content LIKE '%stable_proxy_names_yaml%'
+					OR subscription_templates.content LIKE '%😇 稳定%')`,
 			tpl.ID, tpl.Name, tpl.Format, tpl.Content, boolToInt(tpl.Builtin), boolToInt(tpl.IsDefault), tpl.Description); err != nil {
 			return err
 		}

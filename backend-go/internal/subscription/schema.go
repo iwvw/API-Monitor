@@ -238,6 +238,17 @@ func ensureSchema(ctx context.Context, db *sql.DB) error {
 	if err := ensureColumn(ctx, db, "subscription_subscriptions", "plan_id", "ALTER TABLE subscription_subscriptions ADD COLUMN plan_id TEXT DEFAULT ''"); err != nil {
 		return err
 	}
+	// 输出模板功能曾下线并删过列，恢复后必须为存量库补回 template_id，
+	// 否则 CREATE TABLE IF NOT EXISTS 不会补列，后续查询直接 no such column。
+	if err := ensureColumn(ctx, db, "subscription_profiles", "template_id", "ALTER TABLE subscription_profiles ADD COLUMN template_id TEXT DEFAULT 'builtin_mihomo_default'"); err != nil {
+		return err
+	}
+	if err := ensureColumn(ctx, db, "subscription_subscriptions", "template_id", "ALTER TABLE subscription_subscriptions ADD COLUMN template_id TEXT DEFAULT 'builtin_mihomo_default'"); err != nil {
+		return err
+	}
+	if err := ensureColumn(ctx, db, "subscription_settings", "default_template_id", "ALTER TABLE subscription_settings ADD COLUMN default_template_id TEXT DEFAULT 'builtin_mihomo_default'"); err != nil {
+		return err
+	}
 	if err := ensureColumn(ctx, db, "subscription_nodes", "profile_id", "ALTER TABLE subscription_nodes ADD COLUMN profile_id TEXT"); err != nil {
 		return err
 	}
