@@ -949,6 +949,12 @@ enum ProjectionMode {
 /// 判断请求是否为「轻量消息列表」请求：GET + 带 X-Lightweight 头 +
 /// 路径形如 /session/{id}/message（v1）或 /api/session/{id}/message（v2）。
 /// 不匹配返回 None，走普通透传。
+///
+/// 另外也匹配 `/api/session/{id}/context`（v2 的「活跃上下文」）：
+/// 它返回的是**最后一次压缩之后的完整消息**，把全部工具大输出都带回来 ——
+/// 实测某会话（50 次 `read`，每次 350~666KB）该响应达 **10.76 MB / 93 条**，
+/// 而客户端只用它读每条 assistant 的 `tokens` 字段算用量与 TPS。
+/// 这类请求同样只需剥大字段、保留 meta，没必要把过程正文传出去。
 fn parse_lightweight_request(head: &[u8]) -> Option<LightweightRequest> {
     let text = std::str::from_utf8(head).ok()?;
     let mut lines = text.split("\r\n");
@@ -990,6 +996,22 @@ fn parse_lightweight_request(head: &[u8]) -> Option<LightweightRequest> {
         && segments[0] == "api"
         && segments[1] == "session"
         && segments[3] == "message";
+    /*
+     * v2 `/context`：语义与 message 不同，详见 `handle_v2_context_lightweight`。
+     * 无论调用方给哪一档，都只做「剥大字段」——它不做分页，也不按轮聚合。
+     */
+    let matches_v2_context = segments.len() == 4
+        && segments[0] == "api"
+        && segments[1] == "session"
+        && segments[3] == "context";
+    if matches_v2_context {
+        return Some(LightweightRequest {
+            path: target.to_string(),
+            authorization,
+            mode: ProjectionMode::Full,
+            probe: false,
+        });
+    }
     if !matches_v1 && !matches_v2 {
         return None;
     }
@@ -1325,6 +1347,9 @@ async fn handle_reuse_request(
 /// 这里带上网关注入的 Authorization，并在 v2 路径下按 cursor 内部翻页取全，
 /// 让客户端只发一次大 limit 请求即可拿到整段压缩对话（与 v1 主机轻量路径对齐）。
 async fn handle_lightweight_request(port: u16, request: &LightweightRequest) -> Result<Vec<u8>, String> {
+    if is_v2_context_path(&request.path) {
+        return handle_v2_context_lightweight(port, &request.path, request.authorization.as_deref()).await;
+    }
     if let Some(session_id) = v2_session_id(&request.path) {
         // 探测请求（limit=1）只用来确认「支持哪一档」，不需要真的翻页取全。
         //
@@ -1580,6 +1605,91 @@ fn v2_session_id(path: &str) -> Option<&str> {
     } else {
         None
     }
+}
+
+/// 是否 v2 的 `/api/session/<id>/context`。
+fn is_v2_context_path(path: &str) -> bool {
+    let path_only = path.split('?').next().unwrap_or(path);
+    let segments: Vec<&str> = path_only.trim_start_matches('/').split('/').collect();
+    segments.len() == 4 && segments[0] == "api" && segments[1] == "session" && segments[3] == "context"
+}
+
+/**
+ * v2 `/api/session/<id>/context` 的轻量版。
+ *
+ * ## 为什么这个端点需要单独处理
+ *
+ * 它返回「最后一次压缩之后的完整消息」，也就是说**把全部工具大输出再带一遍**。
+ * 客户端（OCC）只用它读每条 assistant 的 `tokens`、`cost`、`time` 来算
+ * 累计用量、上下文占用与 TPS —— 工具输出一个字节都不需要。
+ *
+ * 实测某个从 V1 升级上来的会话（50 次 `read`，每次 350~666KB）：
+ *
+ *   原始 `/context`        10.76 MB / 93 条 / 约 2.3~3.9 秒
+ *   剥掉大字段后            约 0.1 MB（只剩 meta 与文本）
+ *
+ * 这 10 MB 还会和首屏的骨架、session info 抢同一条隧道，把首屏从 748ms
+ * 拖到 1885ms（实测）。所以在主机侧就把它裁掉，而不是等传到客户端再丢。
+ *
+ * ## 与 `/message` 的区别
+ *
+ * 不做分页、不按轮聚合 —— `/context` 本身就是「一段完整上下文」，语义是
+ * 「当前发给模型的那一段」。逐条剥大字段即可，保留全部消息与顺序。
+ */
+async fn handle_v2_context_lightweight(
+    port: u16,
+    path: &str,
+    authorization: Option<&str>,
+) -> Result<Vec<u8>, String> {
+    let url = format!("http://127.0.0.1:{}{}", port, path);
+    let client = local_http_client();
+    let mut req = client.get(&url).header(reqwest::header::ACCEPT_ENCODING, "identity");
+    if let Some(auth) = authorization {
+        req = req.header(reqwest::header::AUTHORIZATION, auth);
+    }
+    let resp = req
+        .send()
+        .await
+        .map_err(|err| format!("请求本机 opencode 失败: {}", err))?;
+    let status = resp.status();
+    let body = resp
+        .bytes()
+        .await
+        .map_err(|err| format!("读取 context 响应失败: {}", err))?;
+
+    // 非 2xx 原样回传：投影只服务于成功路径，错误体要让客户端看到真实原因。
+    if !status.is_success() {
+        return Ok(build_http_response(
+            status.as_u16(),
+            "application/json",
+            &body,
+            &[],
+        ));
+    }
+
+    let parsed: serde_json::Value = serde_json::from_slice(&body)
+        .map_err(|err| format!("解析 context 响应失败: {}", err))?;
+    let items = parsed
+        .get("data")
+        .and_then(serde_json::Value::as_array)
+        .cloned()
+        .or_else(|| parsed.as_array().cloned())
+        .unwrap_or_default();
+
+    let projected = crate::aiagent_projection::project_v2_context_meta_list(&items)?;
+    // 保持与原响应同构：`{ "data": [...] }`。原响应若直接是数组则也兼容。
+    // projected 由本进程刚序列化，反序列化不会失败；这里直接产出结构化值，
+    // 不再保留「失败就回退原始 items」的分支——那会把 10MB 原文重新发出去，
+    // 让本次优化静默失效。
+    let projected_value: serde_json::Value = serde_json::from_slice(&projected)
+        .map_err(|err| format!("序列化轻量 context 失败: {}", err))?;
+    let envelope = if parsed.get("data").is_some() {
+        serde_json::json!({ "data": projected_value })
+    } else {
+        projected_value
+    };
+    let out = serde_json::to_vec(&envelope).map_err(|err| format!("序列化轻量 context 失败: {}", err))?;
+    Ok(build_http_response(200, "application/json", &out, &[("X-Lightweight", "1")]))
 }
 
 /// 最小 percent-encoding：游标是 base64url，仅需转义少量字符即可安全放进 query。
@@ -2383,3 +2493,98 @@ Authorization: Basic b3BlbmNvZGU6c2VjcmV0\r\nAccept: */*\r\n\r\n";
         assert_eq!(extract_token("not-json"), "");
     }
 }
+
+    // ── v2 `/context` 轻量投影 ──
+
+    /*
+     * 回归：`/context` 曾原样透传，把工具大输出整段带回客户端。
+     *
+     * 实测（工作主机，V1 升级上来的会话）：50 次 `read`（每次 350~666KB）导致
+     * 该端点返回 **10.76 MB / 93 条 / 约 2.3~3.9 秒**，而客户端只用它读每条
+     * assistant 的 tokens 算用量与 TPS。这 10MB 还会和首屏骨架抢隧道带宽，
+     * 把首屏从 748ms 拖到 1885ms。
+     */
+    #[test]
+    fn context_path_is_recognized_for_projection() {
+        assert!(crate::aiagent::is_v2_context_path("/api/session/ses_abc/context"));
+        assert!(crate::aiagent::is_v2_context_path("/api/session/ses_abc/context?directory=D%3A%5Cx"));
+        // 不能误伤 message 路径
+        assert!(!crate::aiagent::is_v2_context_path("/api/session/ses_abc/message"));
+        assert!(!crate::aiagent::is_v2_context_path("/api/session/ses_abc"));
+        // v1 没有 context 端点
+        assert!(!crate::aiagent::is_v2_context_path("/session/ses_abc/context"));
+    }
+
+    #[test]
+    fn context_request_parses_as_lightweight_with_full_mode() {
+        let head = b"GET /api/session/ses_abc/context HTTP/1.1\r\nHost: 127.0.0.1\r\nX-Lightweight: 1\r\n\r\n";
+        let req = parse_lightweight_request(head).expect("/context 应命中轻量分支");
+        assert!(crate::aiagent::is_v2_context_path(&req.path));
+        // context 不分页，也不该被当成 probe
+        assert!(!req.probe);
+    }
+
+    #[test]
+    fn context_projection_keeps_only_usage_meta() {
+        /*
+         * `/context` 的唯一消费方是「算 token 用量」：
+         *   - 累计消耗 = Σ assistant 的 tokens
+         *   - 上下文占用 = 最后一条带 tokens 的 assistant
+         *   - 按 id 回填骨架消息的 tokens / 时间（TPS、缓存命中率）
+         *
+         * 这些都只读**顶层**字段，正文由 `/message` 另拉。
+         * 实测单条 `read` 读图会带 0.65MB 的 base64，必须在这里剥掉。
+         */
+        let heavy_image = format!("data:image/jpeg;base64,{}", "A".repeat(200_000));
+        let message = serde_json::json!({
+            "id": "msg_1",
+            "type": "assistant",
+            "cost": 0.25,
+            "tokens": { "input": 1234, "output": 56, "reasoning": 7, "cache": { "read": 890, "write": 0 } },
+            "time": { "created": 1, "streamed": 2, "completed": 3 },
+            "model": { "id": "m", "providerID": "p" },
+            "content": [
+                { "type": "reasoning", "text": "x".repeat(100_000) },
+                { "type": "tool", "name": "read", "state": {
+                    "status": "completed",
+                    "content": [{ "type": "file", "uri": heavy_image, "mime": "image/jpeg", "name": "m6.png" }],
+                    "metadata": { "output": "y".repeat(50_000) }
+                } },
+                { "type": "text", "text": "done" }
+            ]
+        });
+
+        let out = crate::aiagent_projection::project_v2_context_meta_list(&[message]).expect("project");
+        let parsed: Vec<serde_json::Value> = serde_json::from_slice(&out).unwrap();
+        let projected = &parsed[0];
+
+        // 用量 meta 必须原样保留
+        assert_eq!(projected["id"], "msg_1");
+        assert_eq!(projected["type"], "assistant");
+        assert_eq!(projected["tokens"]["input"], 1234);
+        assert_eq!(projected["tokens"]["output"], 56);
+        assert_eq!(projected["tokens"]["cache"]["read"], 890);
+        assert_eq!(projected["cost"], 0.25);
+        assert_eq!(projected["time"]["created"], 1);
+        assert_eq!(projected["time"]["streamed"], 2);
+        assert_eq!(projected["time"]["completed"], 3);
+        assert_eq!(projected["model"]["id"], "m");
+
+        // 正文一个字节都不带
+        assert!(projected.get("content").is_none(), "content 必须被剥掉");
+
+        // 350KB 的输入压到 1KB 以内
+        assert!(out.len() < 1024, "投影后仍过大：{} 字节", out.len());
+    }
+
+    #[test]
+    fn context_projection_skips_entries_without_id() {
+        let messages = vec![
+            serde_json::json!({ "type": "idle" }),
+            serde_json::json!({ "id": "msg_2", "type": "user", "time": { "created": 5 } }),
+        ];
+        let out = crate::aiagent_projection::project_v2_context_meta_list(&messages).expect("project");
+        let parsed: Vec<serde_json::Value> = serde_json::from_slice(&out).unwrap();
+        assert_eq!(parsed.len(), 1, "没有 id 的条目应被跳过");
+        assert_eq!(parsed[0]["id"], "msg_2");
+    }

@@ -48,6 +48,70 @@ pub fn project_v2_message_list(messages: &[Value]) -> Result<Vec<u8>, String> {
     serde_json::to_vec(&out).map_err(|err| format!("序列化轻量消息失败: {}", err))
 }
 
+/**
+ * 投影 v2 `/api/session/{id}/context` 的响应：只保留**用量 meta**。
+ *
+ * ## 为什么比 `project_v2_message_list` 更激进
+ *
+ * `/context` 的消费方只有一个用途：算 token 用量。
+ *
+ *   - 累计消耗 = Σ 每条 assistant 的 tokens
+ *   - 上下文占用 = 最后一条带 tokens 的 assistant
+ *   - 按 id 回填骨架消息的 tokens / 时间（TPS、缓存命中率全靠它）
+ *
+ * 这些都只读消息**顶层**的 `id` / `type` / `tokens` / `cost` / `time` / `model`。
+ * 正文由 `/message` 另行拉取，所以这里一个字节的 `content` 都不需要。
+ *
+ * ## 实测（某 1089 条消息的会话）
+ *
+ *   原始                     76.41 MB
+ *   剥大字段（通用投影）        2.92 MB   26×
+ *   只留 meta（本函数）         0.29 MB  265×
+ *
+ * 单条 `read` 工具读图就会带 0.65MB 的 `data:image/jpeg;base64,...`，
+ * 这类字段累计可达 21MB —— 全部在这里剥掉。
+ *
+ * ## 保留的字段
+ *
+ * 顶层原样保留：`id` `type` `tokens` `cost` `time` `model` `agent` `finish`
+ * 其余顶层字段（`content` / `files` / `summary` / `metadata` / ...）全部丢弃。
+ *
+ * ⚠️ 只用于 `/context`。`/message` 不能走这条路径 —— 那里正文就是主角。
+ */
+pub fn project_v2_context_meta_list(messages: &[Value]) -> Result<Vec<u8>, String> {
+    /// `/context` 消费方实际会读的顶层字段。
+    const KEEP: [&str; 9] = [
+        "id",
+        "type",
+        "tokens",
+        "cost",
+        "time",
+        "model",
+        "agent",
+        "finish",
+        "rawFinish",
+    ];
+
+    let mut out: Vec<Value> = Vec::with_capacity(messages.len());
+    for message in messages {
+        let Value::Object(obj) = message else {
+            continue;
+        };
+        let mut kept = Map::new();
+        for key in KEEP {
+            if let Some(value) = obj.get(key) {
+                kept.insert(key.to_string(), value.clone());
+            }
+        }
+        // 连 id 都没有的条目没有回填价值，直接跳过（不该出现，防御性处理）。
+        if !kept.contains_key("id") {
+            continue;
+        }
+        out.push(Value::Object(kept));
+    }
+    serde_json::to_vec(&out).map_err(|err| format!("序列化 context meta 失败: {}", err))
+}
+
 /// 投影 v2 消息列表为**轮次骨架**（每轮只留用户提问 + 最终回复 + 过程计数）。
 ///
 /// 这是「历史记录拉取」的最终形态：默认视图本来就只有「用户 + 助手回复」，
