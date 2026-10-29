@@ -3,10 +3,11 @@ import { Button } from '@cloudflare/kumo/components/button';
 import { Input } from '@cloudflare/kumo/components/input';
 import { Label } from '@cloudflare/kumo/components/label';
 import { Select } from '@cloudflare/kumo/components/select';
+import CodeEditor from '../../components/ui/CodeEditor.jsx';
 import CountryFlag from '../../components/CountryFlag.jsx';
 import { Copy } from '../../components/Icons.jsx';
 import { TRAFFIC_UNITS } from './constants.js';
-import { latencyChipClass, nodeCountryCode, preferredTrafficUnit, trafficDisplayValue, trafficUnitBytes } from './utils.js';
+import { latencyChipClass, nodeCountryCode, preferredTrafficUnit, templateLanguage, trafficDisplayValue, trafficUnitBytes } from './utils.js';
 
 export function NodeFlag({ node }) {
   const code = nodeCountryCode(node);
@@ -52,6 +53,18 @@ export function NodeHostQuality({ node, serverNameById }) {
         )}
       </div>
     </div>
+  );
+}
+
+export function TemplateCodeEditor({ label, value, format, onChange }) {
+  return (
+    <CodeEditor
+      value={value}
+      onChange={onChange}
+      language={templateLanguage(format)}
+      label={label}
+      minHeight="20rem"
+    />
   );
 }
 
