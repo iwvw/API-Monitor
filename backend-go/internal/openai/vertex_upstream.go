@@ -558,33 +558,45 @@ func vertexGenerationConfig(body map[string]interface{}) map[string]interface{} 
 	}
 
 	// 思维链配置（thinkingConfig）：
-	// 1. Google 官方默认 includeThoughts=false，即只计 token 却不输出 thought part 文本。
+	// 1. 当 reasoning_effort=="none" 或明确禁用时，对照 CLIProxyAPI 完全删除 thinkingConfig，
+	//    避免携带 {"includeThoughts":true, "thinkingBudget":0} 导致 Vertex 400 报错。
+	// 2. Google 官方默认 includeThoughts=false，即只计 token 却不输出 thought part 文本。
 	//    为让客户端（如 opencode、Cherry Studio、NextChat 等）能看到 reasoning_content，
-	//    默认开启 includeThoughts: true。
-	// 2. 支持通过 reasoning_effort (low/medium/high/none) 或 extra_body / thinking_budget 控制
+	//    在开启思考时设置 includeThoughts: true。
+	// 3. 支持通过 reasoning_effort (low/medium/high/none) 或 extra_body / thinking_budget 控制
 	//    思考强度与预算。
-	// 3. Gemini 3.x（gemini-3-pro/flash 等）在 Vertex 上改用 thinkingLevel 表达思考等级，
+	// 4. Gemini 3.x（gemini-3-pro/flash 等）在 Vertex 上改用 thinkingLevel 表达思考等级，
 	//    thinkingBudget 仅 Gemini 2.5 系支持；按模型名自动选择，避免 3.x 忽略预算设置。
-	thinkingCfg := map[string]interface{}{
-		"includeThoughts": true,
-	}
-	modelName, _ := body["model"].(string)
-	if effort, ok := body["reasoning_effort"].(string); ok {
-		switch strings.ToLower(effort) {
-		case "none":
-			thinkingCfg["thinkingBudget"] = 0
-		case "low":
-			vertexSetThinkingLevel(thinkingCfg, modelName, 1024)
-		case "medium":
-			vertexSetThinkingLevel(thinkingCfg, modelName, 8192)
-		case "high":
-			vertexSetThinkingLevel(thinkingCfg, modelName, 24576)
+	//    未显式传参时，Gemini 3.x 默认 thinkingLevel: "medium"，避免无节制超长思考（导致数十秒甚至上百秒挂起）。
+	effortStr, hasEffort := body["reasoning_effort"].(string)
+	effortLower := strings.ToLower(strings.TrimSpace(effortStr))
+
+	if hasEffort && effortLower == "none" {
+		// 客户端显式要求关闭思考：彻底不传 thinkingConfig
+		delete(cfg, "thinkingConfig")
+	} else {
+		thinkingCfg := map[string]interface{}{
+			"includeThoughts": true,
 		}
+		modelName, _ := body["model"].(string)
+		if hasEffort {
+			switch effortLower {
+			case "low":
+				vertexSetThinkingLevel(thinkingCfg, modelName, 1024)
+			case "medium":
+				vertexSetThinkingLevel(thinkingCfg, modelName, 8192)
+			case "high":
+				vertexSetThinkingLevel(thinkingCfg, modelName, 24576)
+			}
+		} else if gemini3XModel(modelName) {
+			// 未显式指定 effort 时，Gemini 3.x 默认设为 medium，限制思考深度以保障响应速度与稳定性
+			thinkingCfg["thinkingLevel"] = "medium"
+		}
+		if tb, ok := body["thinking_budget"].(float64); ok {
+			thinkingCfg["thinkingBudget"] = int(tb)
+		}
+		cfg["thinkingConfig"] = thinkingCfg
 	}
-	if tb, ok := body["thinking_budget"].(float64); ok {
-		thinkingCfg["thinkingBudget"] = int(tb)
-	}
-	cfg["thinkingConfig"] = thinkingCfg
 
 	if len(cfg) == 0 {
 		return nil

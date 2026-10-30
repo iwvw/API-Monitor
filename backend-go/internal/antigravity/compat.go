@@ -96,14 +96,15 @@ func (s *Service) handleOpenAIModels(w http.ResponseWriter, r *http.Request) {
 
 // openAIChatRequest 是 OpenAI chat.completions 请求的精简结构。
 type openAIChatRequest struct {
-	Model       string          `json:"model"`
-	Messages    []openAIMessage `json:"messages"`
-	MaxTokens   *int            `json:"max_tokens"`
-	Temperature *float64        `json:"temperature"`
-	TopP        *float64        `json:"top_p"`
-	Stream      bool            `json:"stream"`
-	Tools       []openAITool    `json:"tools,omitempty"`
-	ToolChoice  any             `json:"tool_choice,omitempty"`
+	Model           string          `json:"model"`
+	Messages        []openAIMessage `json:"messages"`
+	MaxTokens       *int            `json:"max_tokens"`
+	Temperature     *float64        `json:"temperature"`
+	TopP            *float64        `json:"top_p"`
+	Stream          bool            `json:"stream"`
+	Tools           []openAITool    `json:"tools,omitempty"`
+	ToolChoice      any             `json:"tool_choice,omitempty"`
+	ReasoningEffort string          `json:"reasoning_effort,omitempty"`
 }
 
 // buildClaudeRequest 把 OpenAI chat.completions 请求转为 Claude Messages 请求。
@@ -117,6 +118,10 @@ func buildClaudeRequest(oai *openAIChatRequest) (*engineag.ClaudeRequest, error)
 	}
 	if oai.MaxTokens != nil && *oai.MaxTokens > 0 {
 		claude.MaxTokens = *oai.MaxTokens
+	}
+	if strings.TrimSpace(oai.ReasoningEffort) != "" {
+		effort := strings.ToLower(strings.TrimSpace(oai.ReasoningEffort))
+		claude.OutputConfig = &engineag.OutputConfig{Effort: effort}
 	}
 
 	// 转换 tools
@@ -341,9 +346,10 @@ type chatCompletionsResponse struct {
 }
 
 type openAIRespMsg struct {
-	Role      string           `json:"role"`
-	Content   *string          `json:"content"`
-	ToolCalls []openAIToolCall `json:"tool_calls,omitempty"`
+	Role             string           `json:"role"`
+	Content          *string          `json:"content"`
+	ReasoningContent *string          `json:"reasoning_content,omitempty"`
+	ToolCalls        []openAIToolCall `json:"tool_calls,omitempty"`
 }
 
 // forwardOpenAIChat 用 Claude 转发链路处理 OpenAI chat.completions 请求，输出 OpenAI 格式。
@@ -440,11 +446,14 @@ func (s *Service) attemptOpenAIChat(ctx context.Context, w http.ResponseWriter, 
 			Model:   oaiReq.Model,
 		}
 		var contentStr string
+		var reasoningStr string
 		var toolCalls []openAIToolCall
 		for _, c := range claudeResp.Content {
 			switch c.Type {
 			case "text":
 				contentStr += c.Text
+			case "thinking":
+				reasoningStr += c.Thinking
 			case "tool_use":
 				argsBytes, _ := json.Marshal(c.Input)
 				tc := openAIToolCall{
@@ -463,6 +472,9 @@ func (s *Service) attemptOpenAIChat(ctx context.Context, w http.ResponseWriter, 
 		}
 		if contentStr != "" || len(toolCalls) == 0 {
 			respMsg.Content = &contentStr
+		}
+		if reasoningStr != "" {
+			respMsg.ReasoningContent = &reasoningStr
 		}
 
 		finishReason := claudeStopReasonToOpenAI(claudeResp.StopReason)
@@ -580,6 +592,19 @@ func (s *Service) pipeOpenAIStream(ctx context.Context, w http.ResponseWriter, b
 			chunk := map[string]any{
 				"id": "chatcmpl-" + reqID24(), "object": "chat.completion.chunk", "created": time.Now().Unix(), "model": oaiReq.Model,
 				"choices": []any{map[string]any{"index": 0, "delta": map[string]any{"content": text}, "finish_reason": nil}},
+			}
+			b, _ := json.Marshal(chunk)
+			sw.write(append([]byte("data: "), append(b, '\n', '\n')...))
+		}
+
+		// 提取 thinking data 里的思考文本，转换为 OpenAI delta.reasoning_content 下发
+		thought := extractClaudeStreamThinkingText(event)
+		if thought != "" {
+			delivered = true
+			wrote = true
+			chunk := map[string]any{
+				"id": "chatcmpl-" + reqID24(), "object": "chat.completion.chunk", "created": time.Now().Unix(), "model": oaiReq.Model,
+				"choices": []any{map[string]any{"index": 0, "delta": map[string]any{"reasoning_content": thought}, "finish_reason": nil}},
 			}
 			b, _ := json.Marshal(chunk)
 			sw.write(append([]byte("data: "), append(b, '\n', '\n')...))
@@ -854,6 +879,40 @@ func extractClaudeStreamText(event []byte) string {
 			continue
 		}
 		return payload.Delta.Text
+	}
+}
+
+// extractClaudeStreamThinkingText 从 Claude SSE 事件中提取思考增量文本（reasoning_content）。
+func extractClaudeStreamThinkingText(event []byte) string {
+	s := string(event)
+	for {
+		idx := strings.Index(s, "data: ")
+		if idx < 0 {
+			return ""
+		}
+		rest := s[idx+len("data: "):]
+		lineEnd := strings.IndexByte(rest, '\n')
+		var dataStr string
+		if lineEnd < 0 {
+			dataStr = strings.TrimSpace(rest)
+			s = ""
+		} else {
+			dataStr = strings.TrimSpace(rest[:lineEnd])
+			s = rest[lineEnd:]
+		}
+		var payload struct {
+			Type  string `json:"type"`
+			Delta struct {
+				Type     string `json:"type"`
+				Thinking string `json:"thinking"`
+			} `json:"delta"`
+		}
+		if err := json.Unmarshal([]byte(dataStr), &payload); err != nil {
+			continue
+		}
+		if payload.Type == "content_block_delta" && payload.Delta.Type == "thinking_delta" {
+			return payload.Delta.Thinking
+		}
 	}
 }
 

@@ -549,35 +549,57 @@ func (s *Service) relayLoop(p relayLoopParams) *relayLoopResult {
 				break
 			}
 
-			// 无切换机会：直接阻塞读首块，读取结果留给下方流式循环继续消费。
+			// 无切换机会：带 streamIdleTimeout 保护等待首块，防止上游停滞时无限挂起。
+			// 读取结果留给下方流式循环继续消费。
 			// 但若上游返回的是限流/5xx 错误（非真正 SSE 数据），不应标记
 			// firstWritten（否则末尾统一判定跳过，retryableUpstream 不被设置，
 			// 导致 failover 循环直接把 429 透传）。
+			type readDirectRes struct {
+				n   int
+				err error
+			}
+			directCh := make(chan readDirectRes, 1)
 			tmp := make([]byte, 4096)
-			n, err := resp.Body.Read(tmp)
-			if n > 0 {
+			go func() {
+				n, err := resp.Body.Read(tmp)
+				directCh <- readDirectRes{n, err}
+			}()
+
+			var dr readDirectRes
+			select {
+			case dr = <-directCh:
+			case <-time.After(streamIdleTimeout):
+				cancel()
+				resp.Body.Close()
+				lastErr = fmt.Errorf("上游首字超时（超过 %s 未返回首字节）", streamIdleTimeout)
+				res.retryableUpstream = true
+				break
+			}
+			if dr.n > 0 {
 				// 429/5xx 错误体不是 SSE 首块，不设 firstWritten。
 				if isRetryableUpstreamResponse(resp, nil) {
 					res.retryableUpstream = true
 					// 流式无切换机会时读到的是上游错误体（非 SSE）：捕获用于透传根因。
 					if res.upstreamErrBody == "" {
-						res.upstreamErrBody = captureUpstreamErrBody(tmp[:n])
+						res.upstreamErrBody = captureUpstreamErrBody(tmp[:dr.n])
 					}
 					if lastErr == nil {
 						lastErr = fmt.Errorf("上游返回 %d（限流/服务端错误，无切换机会）", resp.StatusCode)
 					}
 					break
 				}
-				firstChunk = append([]byte(nil), tmp[:n]...)
+				firstChunk = append([]byte(nil), tmp[:dr.n]...)
 				firstWritten = true
 				ttfbMs = time.Since(res.startTime).Milliseconds()
 				lastKeyIndex = currentKeyIndex
 				break
 			}
-			cancel()
-			lastErr = err
 			if lastErr == nil {
-				lastErr = io.EOF
+				cancel()
+				lastErr = dr.err
+				if lastErr == nil {
+					lastErr = io.EOF
+				}
 			}
 			break
 		}

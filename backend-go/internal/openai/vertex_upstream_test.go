@@ -629,6 +629,14 @@ func TestVertexGenerationConfigCandidateCount(t *testing.T) {
 }
 
 func TestVertexGenerationConfigThinkingLevelFor3X(t *testing.T) {
+	// none 彻底移除 thinkingConfig
+	bodyNone := map[string]interface{}{"model": "gemini-3-pro", "reasoning_effort": "none"}
+	cfgNone := vertexGenerationConfig(bodyNone)
+	if _, ok := cfgNone["thinkingConfig"]; ok {
+		t.Errorf("reasoning_effort=none should drop thinkingConfig completely, got %v", cfgNone["thinkingConfig"])
+	}
+
+	// 显式指定 high
 	body := map[string]interface{}{"model": "gemini-3-pro", "reasoning_effort": "high"}
 	cfg := vertexGenerationConfig(body)
 	tc, _ := cfg["thinkingConfig"].(map[string]interface{})
@@ -638,6 +646,15 @@ func TestVertexGenerationConfigThinkingLevelFor3X(t *testing.T) {
 	if _, ok := tc["thinkingBudget"]; ok {
 		t.Error("gemini-3 should not set thinkingBudget")
 	}
+
+	// 未指定 effort 时，Gemini 3.x 默认 medium
+	bodyDefault := map[string]interface{}{"model": "gemini-3-flash"}
+	cfgDefault := vertexGenerationConfig(bodyDefault)
+	tcDefault, _ := cfgDefault["thinkingConfig"].(map[string]interface{})
+	if tcDefault["thinkingLevel"] != "medium" {
+		t.Errorf("gemini-3 default thinkingLevel = %v; want medium", tcDefault["thinkingLevel"])
+	}
+
 	// 2.5 系仍用 thinkingBudget。
 	body2 := map[string]interface{}{"model": "gemini-2.5-flash", "reasoning_effort": "low"}
 	cfg2 := vertexGenerationConfig(body2)

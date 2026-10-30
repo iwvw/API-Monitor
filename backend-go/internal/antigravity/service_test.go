@@ -64,11 +64,12 @@ func TestBuildClaudeRequest(t *testing.T) {
 	temp := 0.7
 	topP := 0.9
 	req := &openAIChatRequest{
-		Model:       "claude-3-5-sonnet",
-		MaxTokens:   &maxTokens,
-		Temperature: &temp,
-		TopP:        &topP,
-		Stream:      true,
+		Model:           "claude-3-5-sonnet",
+		MaxTokens:       &maxTokens,
+		Temperature:     &temp,
+		TopP:            &topP,
+		Stream:          true,
+		ReasoningEffort: "medium",
 		Messages: []openAIMessage{
 			{Role: "system", Content: "You are helpful."},
 			{Role: "user", Content: "Hello world"},
@@ -87,6 +88,9 @@ func TestBuildClaudeRequest(t *testing.T) {
 	}
 	if !claude.Stream {
 		t.Fatalf("expected stream to be true")
+	}
+	if claude.OutputConfig == nil || claude.OutputConfig.Effort != "medium" {
+		t.Fatalf("expected OutputConfig.Effort=medium, got %+v", claude.OutputConfig)
 	}
 	if string(claude.System) != `"You are helpful."` {
 		t.Fatalf("unexpected system prompt: %s", string(claude.System))
@@ -769,6 +773,68 @@ func TestAttemptOpenAIChat_NonStreamToolCalls(t *testing.T) {
 	}
 	if respMsg.ToolCalls[0].ID != "call_cmd_456" || respMsg.ToolCalls[0].Function.Name != "bash" {
 		t.Errorf("unexpected tool call in response: %+v", respMsg.ToolCalls[0])
+	}
+}
+
+// TestAttemptOpenAIChat_NonStreamReasoningContent 校验非流式请求包含 thinking 块时透出 reasoning_content。
+func TestAttemptOpenAIChat_NonStreamReasoningContent(t *testing.T) {
+	claudeResp := engineag.ClaudeResponse{
+		ID:         "msg_think_test",
+		Type:       "message",
+		Role:       "assistant",
+		Model:      "gemini-3.8-flash",
+		StopReason: "end_turn",
+		Content: []engineag.ClaudeContentItem{
+			{
+				Type:     "thinking",
+				Thinking: "I need to calculate 2 + 2.",
+			},
+			{
+				Type: "text",
+				Text: "4",
+			},
+		},
+		Usage: engineag.ClaudeUsage{
+			InputTokens:  10,
+			OutputTokens: 20,
+		},
+	}
+
+	var contentStr string
+	var reasoningStr string
+	for _, c := range claudeResp.Content {
+		switch c.Type {
+		case "text":
+			contentStr += c.Text
+		case "thinking":
+			reasoningStr += c.Thinking
+		}
+	}
+
+	respMsg := openAIRespMsg{
+		Role: "assistant",
+	}
+	if contentStr != "" {
+		respMsg.Content = &contentStr
+	}
+	if reasoningStr != "" {
+		respMsg.ReasoningContent = &reasoningStr
+	}
+
+	if respMsg.ReasoningContent == nil || *respMsg.ReasoningContent != "I need to calculate 2 + 2." {
+		t.Fatalf("expected reasoning_content, got %+v", respMsg.ReasoningContent)
+	}
+	if respMsg.Content == nil || *respMsg.Content != "4" {
+		t.Fatalf("expected content=4, got %+v", respMsg.Content)
+	}
+}
+
+// TestPipeOpenAIStream_EmitsReasoningContent 校验流式返回 thinking_delta 时透出 choices[0].delta.reasoning_content chunk。
+func TestPipeOpenAIStream_EmitsReasoningContent(t *testing.T) {
+	event := []byte("event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"thinking_delta\",\"thinking\":\"deep thought...\"}}\n\n")
+	text := extractClaudeStreamThinkingText(event)
+	if text != "deep thought..." {
+		t.Fatalf("extractClaudeStreamThinkingText = %q, want deep thought...", text)
 	}
 }
 

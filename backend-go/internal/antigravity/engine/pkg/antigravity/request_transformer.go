@@ -717,43 +717,85 @@ func buildGenerationConfig(req *ClaudeRequest) *GeminiGenerationConfig {
 	}
 
 	// Thinking 配置
-	if req.Thinking != nil && (req.Thinking.Type == "enabled" || req.Thinking.Type == "adaptive") {
+	// 支持三种方式传入：
+	// 1. req.Thinking (Claude 风格: enabled/adaptive/disabled, budget_tokens, level)
+	// 2. req.OutputConfig.Effort (Claude 3.7/Opus 4 风格 或 OpenAI reasoning_effort 映射)
+	effort := ""
+	if req.OutputConfig != nil && strings.TrimSpace(req.OutputConfig.Effort) != "" {
+		effort = strings.ToLower(strings.TrimSpace(req.OutputConfig.Effort))
+	} else if req.Thinking != nil && strings.TrimSpace(req.Thinking.Level) != "" {
+		effort = strings.ToLower(strings.TrimSpace(req.Thinking.Level))
+	}
+
+	thinkingDisabled := (req.Thinking != nil && req.Thinking.Type == "disabled") || effort == "none"
+
+	if !thinkingDisabled && (req.Thinking != nil || effort != "") {
 		config.ThinkingConfig = &GeminiThinkingConfig{
 			IncludeThoughts: true,
 		}
 
-		// - thinking.type=enabled：budget_tokens>0 用显式预算
-		// - thinking.type=adaptive：在 Antigravity 的高阶 Opus 上覆写为高预算
-		budget := -1
-		if req.Thinking.BudgetTokens > 0 {
-			budget = req.Thinking.BudgetTokens
-		}
-		if req.Thinking.Type == "adaptive" && isAntigravityOpusHighTierModel(req.Model) {
-			budget = ClaudeAdaptiveHighThinkingBudgetTokens
-		}
+		limit, hasLimit := LookupModelLimit(req.Model)
+		usesLevels := hasLimit && len(limit.ThinkingLevels) > 0
 
-		// 按模型能力收紧预算：超出上限裁剪，低于最小值则整体移除 thinkingConfig
-		// （上游对此返回 400，不会自动纠正）。
-		budget, keep := clampThinkingBudget(req.Model, budget)
-		if !keep {
-			log.Printf("[Antigravity] thinking budget below model minimum for %s; dropping thinkingConfig", req.Model)
-			config.ThinkingConfig = nil
-		} else if budget > 0 {
-			// 自动修正：max_tokens 必须大于 budget_tokens（Claude 上游要求）
-			if adjusted, ok := ensureMaxTokensGreaterThanBudget(config.MaxOutputTokens, budget); ok {
-				if adjusted > maxLimit {
-					adjusted = maxLimit
-					budget = maxLimit - MaxTokensBudgetPadding
+		if usesLevels {
+			// 模型支持 thinkingLevel（如 Gemini 3.x）
+			if effort != "" && effort != "auto" {
+				config.ThinkingConfig.ThinkingLevel = effort
+			} else {
+				// 未指定或 auto 时，若有预算则转等级，否则默认 medium（对齐 CLIProxyAPI）
+				if req.Thinking != nil && req.Thinking.BudgetTokens > 0 {
+					switch {
+					case req.Thinking.BudgetTokens <= 1024:
+						config.ThinkingConfig.ThinkingLevel = "low"
+					case req.Thinking.BudgetTokens <= 8192:
+						config.ThinkingConfig.ThinkingLevel = "medium"
+					default:
+						config.ThinkingConfig.ThinkingLevel = "high"
+					}
+				} else {
+					config.ThinkingConfig.ThinkingLevel = "medium"
 				}
-				log.Printf("[Antigravity] Auto-adjusted max_tokens from %d to %d (must be > budget_tokens=%d)",
-					config.MaxOutputTokens, adjusted, budget)
-				config.MaxOutputTokens = adjusted
 			}
-			if config.ThinkingConfig != nil {
+		} else {
+			// 模型支持 thinkingBudget（Gemini 2.5 系 / Claude 映射）
+			budget := -1
+			if req.Thinking != nil && req.Thinking.BudgetTokens > 0 {
+				budget = req.Thinking.BudgetTokens
+			} else if effort != "" {
+				switch effort {
+				case "low":
+					budget = 1024
+				case "medium":
+					budget = 8192
+				case "high":
+					budget = 24576
+				}
+			}
+			if req.Thinking != nil && req.Thinking.Type == "adaptive" && isAntigravityOpusHighTierModel(req.Model) {
+				budget = ClaudeAdaptiveHighThinkingBudgetTokens
+			}
+
+			// 按模型能力收紧预算：超出上限裁剪，低于最小值则整体移除 thinkingConfig
+			budget, keep := clampThinkingBudget(req.Model, budget)
+			if !keep {
+				log.Printf("[Antigravity] thinking budget below model minimum for %s; dropping thinkingConfig", req.Model)
+				config.ThinkingConfig = nil
+			} else if budget > 0 {
+				if adjusted, ok := ensureMaxTokensGreaterThanBudget(config.MaxOutputTokens, budget); ok {
+					if adjusted > maxLimit {
+						adjusted = maxLimit
+						budget = maxLimit - MaxTokensBudgetPadding
+					}
+					log.Printf("[Antigravity] Auto-adjusted max_tokens from %d to %d (must be > budget_tokens=%d)",
+						config.MaxOutputTokens, adjusted, budget)
+					config.MaxOutputTokens = adjusted
+				}
+				if config.ThinkingConfig != nil {
+					config.ThinkingConfig.ThinkingBudget = budget
+				}
+			} else if config.ThinkingConfig != nil {
 				config.ThinkingConfig.ThinkingBudget = budget
 			}
-		} else if config.ThinkingConfig != nil {
-			config.ThinkingConfig.ThinkingBudget = budget
 		}
 	}
 
