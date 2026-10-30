@@ -746,10 +746,13 @@ func (s *Service) attemptClaudeForward(ctx context.Context, w http.ResponseWrite
 		return attemptResult{}
 	}
 
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("Connection", "keep-alive")
-	flusher, _ := w.(http.Flusher)
+	// 必须带 X-Accel-Buffering: no —— 否则 openresty 会缓冲 SSE，
+	// 长时间无字节后按 read timeout 给客户端返回 504（见 stream_writer.go）。
+	setStreamHeaders(w)
+	// 统一用 sseStreamWriter 写回：加写锁、延长写超时、周期性发 ping 保活。
+	sw := newSSEStreamWriter(w)
+	stopPing := sw.startPing(ctx)
+	defer stopPing()
 	processor := engineag.NewStreamingProcessor(originalModel)
 	scanner := bufio.NewScanner(resp.Body)
 	scanner.Buffer(make([]byte, 1024*1024), 1024*1024)
@@ -779,23 +782,13 @@ func (s *Service) attemptClaudeForward(ctx context.Context, w http.ResponseWrite
 					cacheWriteTok = u.CacheCreationTokens
 				}
 			}
-			if _, err := w.Write(event); err != nil {
-				return attemptResult{wrote: true}
-			}
-			if flusher != nil {
-				flusher.Flush()
-			}
+			sw.write(event)
 		}
 	}
 	// 收尾：上游流正常结束或中途被截断时，补发缺失的结束事件（message_delta/message_stop）。
 	// Finish 内部对 messageStartSent/messageStopSent 有守卫，正常结束不会产生重复事件。
 	if tail, _ := processor.Finish(); len(tail) > 0 {
-		if _, err := w.Write(tail); err != nil {
-			return attemptResult{wrote: true}
-		}
-		if flusher != nil {
-			flusher.Flush()
-		}
+		sw.write(tail)
 	}
 	if inTok > 0 || outTok > 0 || cacheReadTok > 0 {
 		s.recordUsage(acc.Email, mappedModel, int64(inTok), int64(outTok), int64(cacheReadTok))

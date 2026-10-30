@@ -511,10 +511,14 @@ func (s *Service) attemptOpenAIChat(ctx context.Context, w http.ResponseWriter, 
 
 // pipeOpenAIStream 把上游 Claude SSE 转成 OpenAI SSE 写出。
 func (s *Service) pipeOpenAIStream(ctx context.Context, w http.ResponseWriter, body io.Reader, acc *Account, oaiReq *openAIChatRequest, claudeReq *engineag.ClaudeRequest) attemptResult {
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("Connection", "keep-alive")
-	flusher, _ := w.(http.Flusher)
+	// 必须带 X-Accel-Buffering: no —— 否则 openresty 会缓冲 SSE，
+	// 长时间无字节后按 read timeout 给客户端返回 504（见 stream_writer.go）。
+	setStreamHeaders(w)
+
+	// 统一用 sseStreamWriter 写回：加写锁、延长写超时、周期性发 ping 保活。
+	sw := newSSEStreamWriter(w)
+	stopPing := sw.startPing(ctx)
+	defer stopPing()
 
 	processor := engineag.NewStreamingProcessor(claudeReq.Model)
 	scanner := newScanner(body)
@@ -562,12 +566,7 @@ func (s *Service) pipeOpenAIStream(ctx context.Context, w http.ResponseWriter, b
 			sawToolCall = true
 			delivered = true
 			wrote = true
-			if _, err := w.Write(append([]byte("data: "), append(tcChunk, '\n', '\n')...)); err != nil {
-				return attemptResult{wrote: true}
-			}
-			if flusher != nil {
-				flusher.Flush()
-			}
+			sw.write(append([]byte("data: "), append(tcChunk, '\n', '\n')...))
 		}
 
 		// 提取 data 里的 delta 文本
@@ -580,12 +579,7 @@ func (s *Service) pipeOpenAIStream(ctx context.Context, w http.ResponseWriter, b
 				"choices": []any{map[string]any{"index": 0, "delta": map[string]any{"content": text}, "finish_reason": nil}},
 			}
 			b, _ := json.Marshal(chunk)
-			if _, err := w.Write(append([]byte("data: "), append(b, '\n', '\n')...)); err != nil {
-				return attemptResult{wrote: true}
-			}
-			if flusher != nil {
-				flusher.Flush()
-			}
+			sw.write(append([]byte("data: "), append(b, '\n', '\n')...))
 		}
 
 		// thinking delta 也算上游产出的内容，不能因为「只有 reasoning / 纯 thought」就判为空响应。
@@ -614,12 +608,7 @@ func (s *Service) pipeOpenAIStream(ctx context.Context, w http.ResponseWriter, b
 				},
 			}
 			b, _ := json.Marshal(errChunk)
-			if _, err := w.Write(append([]byte("data: "), append(b, '\n', '\n')...)); err != nil {
-				return attemptResult{wrote: true}
-			}
-			if flusher != nil {
-				flusher.Flush()
-			}
+			sw.write(append([]byte("data: "), append(b, '\n', '\n')...))
 		}
 	}
 
@@ -631,10 +620,7 @@ func (s *Service) pipeOpenAIStream(ctx context.Context, w http.ResponseWriter, b
 	 * 用户看到的仍然是「莫名其妙断了」。
 	 */
 	if upstreamErr != "" {
-		_, _ = w.Write([]byte("data: [DONE]\n\n"))
-		if flusher != nil {
-			flusher.Flush()
-		}
+		sw.write([]byte("data: [DONE]\n\n"))
 		return attemptResult{wrote: true, err: fmt.Errorf("%s", upstreamErr)}
 	}
 
@@ -684,11 +670,8 @@ func (s *Service) pipeOpenAIStream(ctx context.Context, w http.ResponseWriter, b
 		s.recordUsage(acc.Email, claudeReq.Model, int64(inTok), int64(outTok), int64(cacheReadTok))
 	}
 	b, _ := json.Marshal(end)
-	_, _ = w.Write(append([]byte("data: "), append(b, '\n', '\n')...))
-	_, _ = w.Write([]byte("data: [DONE]\n\n"))
-	if flusher != nil {
-		flusher.Flush()
-	}
+	sw.write(append([]byte("data: "), append(b, '\n', '\n')...))
+	sw.write([]byte("data: [DONE]\n\n"))
 	if err := scanner.Err(); err != nil {
 		// 流中途出错时可能已写出部分内容：不可换号重试，直接返回。
 		if wrote || delivered {
