@@ -759,7 +759,8 @@ func (s *Service) attemptClaudeForward(ctx context.Context, w http.ResponseWrite
 	inTok, outTok := 0, 0
 	// 上下文缓存同样要累计：Claude 口径的 input_tokens 不含 cache_read，
 	// 此前这里也丢弃了 cache 字段，导致走 Anthropic 直通路径的请求缓存恒为 0。
-	cacheReadTok, cacheWriteTok := 0, 0
+	// 注：cache_creation（写入量）在这条路径上不落库，故不单独累计。
+	cacheReadTok := 0
 	wrote := false
 	for scanner.Scan() {
 		line := scanner.Text()
@@ -778,9 +779,6 @@ func (s *Service) attemptClaudeForward(ctx context.Context, w http.ResponseWrite
 				if u.CacheReadTokens > 0 {
 					cacheReadTok = u.CacheReadTokens
 				}
-				if u.CacheCreationTokens > 0 {
-					cacheWriteTok = u.CacheCreationTokens
-				}
 			}
 			sw.write(event)
 		}
@@ -791,8 +789,9 @@ func (s *Service) attemptClaudeForward(ctx context.Context, w http.ResponseWrite
 		sw.write(tail)
 	}
 	if inTok > 0 || outTok > 0 || cacheReadTok > 0 {
-		s.recordUsage(acc.Email, mappedModel, int64(inTok), int64(outTok), int64(cacheReadTok))
-		_ = cacheWriteTok // 写入量当前只用于记账口径对齐，暂不单独落库
+		// 与 OpenAI 兼容路径同口径：记账的 prompt 要包含缓存命中部分，
+		// 否则「缓存命中率」会 >100% 被 clamp 成 100%（详见 compat.go 流式路径注释）。
+		s.recordUsage(acc.Email, mappedModel, int64(inTok+cacheReadTok), int64(outTok), int64(cacheReadTok))
 	}
 	if err := scanner.Err(); err != nil {
 		if wrote {

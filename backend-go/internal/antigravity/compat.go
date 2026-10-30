@@ -480,10 +480,13 @@ func (s *Service) attemptOpenAIChat(ctx context.Context, w http.ResponseWriter, 
 			FinishReason: finishReason,
 		})
 		if usage != nil {
-			out.Usage.PromptTokens = usage.InputTokens
+			// OpenAI 口径的 prompt_tokens 包含缓存命中部分，而 Claude 的
+			// input_tokens 已减掉 cache_read，这里必须加回去（详见流式路径注释）。
+			promptTotal := usage.InputTokens + usage.CacheReadInputTokens
+			out.Usage.PromptTokens = promptTotal
 			out.Usage.CompletionTokens = usage.OutputTokens
-			out.Usage.TotalTokens = usage.InputTokens + usage.OutputTokens
-			s.recordUsage(acc.Email, claudeReq.Model, int64(usage.InputTokens), int64(usage.OutputTokens), int64(usage.CacheReadInputTokens))
+			out.Usage.TotalTokens = promptTotal + usage.OutputTokens
+			s.recordUsage(acc.Email, claudeReq.Model, int64(promptTotal), int64(usage.OutputTokens), int64(usage.CacheReadInputTokens))
 		}
 		w.Header().Set("Content-Type", "application/json")
 		if err := json.NewEncoder(w).Encode(out); err != nil {
@@ -654,10 +657,20 @@ func (s *Service) pipeOpenAIStream(ctx context.Context, w http.ResponseWriter, b
 		"choices": []any{map[string]any{"index": 0, "delta": map[string]any{}, "finish_reason": finishReason}},
 	}
 	if inTok > 0 || outTok > 0 || cacheReadTok > 0 {
+		/**
+		 * OpenAI 口径的 prompt_tokens **包含**缓存命中部分（cached_tokens 是它的
+		 * 子集），而 Claude/Gemini 口径的 input_tokens 已经把 cache_read 减掉了。
+		 * 这里必须加回去，否则：
+		 *   - 调用方看到的「输入词元」只有未命中部分（199065 显示成 1551）；
+		 *   - 网关按 cached_tokens / prompt_tokens 算命中率会 > 100%，被 clamp 成 100%。
+		 * 记账同样用回加后的总量，保证与 OpenAI 兼容插件（geminicli/qoder/workbuddy）
+		 * 的「prompt_tokens 含缓存」口径一致。
+		 */
+		promptTotal := inTok + cacheReadTok
 		usageMap := map[string]any{
-			"prompt_tokens":     inTok,
+			"prompt_tokens":     promptTotal,
 			"completion_tokens": outTok,
-			"total_tokens":      inTok + outTok,
+			"total_tokens":      promptTotal + outTok,
 		}
 		// 缓存字段按 OpenAI 口径透出，调用方（含自建 UI）才能看到命中情况。
 		if cacheReadTok > 0 {
@@ -667,7 +680,7 @@ func (s *Service) pipeOpenAIStream(ctx context.Context, w http.ResponseWriter, b
 			usageMap["cache_creation_input_tokens"] = cacheWriteTok
 		}
 		end["usage"] = usageMap
-		s.recordUsage(acc.Email, claudeReq.Model, int64(inTok), int64(outTok), int64(cacheReadTok))
+		s.recordUsage(acc.Email, claudeReq.Model, int64(promptTotal), int64(outTok), int64(cacheReadTok))
 	}
 	b, _ := json.Marshal(end)
 	sw.write(append([]byte("data: "), append(b, '\n', '\n')...))

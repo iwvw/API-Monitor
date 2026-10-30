@@ -2,6 +2,7 @@ package antigravity
 
 import (
 	"context"
+	"encoding/json"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -76,5 +77,54 @@ func TestPipeOpenAIStream_PropagatesCacheUsage(t *testing.T) {
 
 	if !strings.Contains(out, "197514") {
 		t.Fatalf("响应里应带上 cache_read 用量（197514），实际:\n%s", out)
+	}
+}
+
+// OpenAI 口径的 prompt_tokens **包含**缓存命中部分（cached_tokens 是它的子集），
+// 而 Claude/Gemini 口径的 input_tokens 已经把 cache_read 减掉了。
+// 若直接透出 input_tokens，调用方看到的「输入词元」只有未命中部分，
+// 网关按 cached/prompt 算命中率会 >100% 被 clamp 成 100%。
+func TestPipeOpenAIStream_PromptTokensIncludesCached(t *testing.T) {
+	s := newTestAntigravityService(t)
+	rec := httptest.NewRecorder()
+
+	// Gemini: promptTokenCount 含缓存，candidatesTokenCount 为输出。
+	body := strings.NewReader(
+		`data: {"response":{"candidates":[{"content":{"parts":[{"text":"ok"}]}}],"usageMetadata":{"promptTokenCount":199065,"candidatesTokenCount":37,"cachedContentTokenCount":197514}}}` + "\n\n" +
+			`data: {"response":{"candidates":[{"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":199065,"candidatesTokenCount":37,"cachedContentTokenCount":197514}}}` + "\n\n",
+	)
+
+	s.pipeOpenAIStream(
+		context.Background(), rec, body, &Account{},
+		&openAIChatRequest{Model: "gemini-3.8-flash", Stream: true},
+		&engineag.ClaudeRequest{Model: "gemini-3.8-flash"},
+	)
+
+	var lastUsage map[string]any
+	for _, line := range strings.Split(rec.Body.String(), "\n") {
+		line = strings.TrimPrefix(strings.TrimSpace(line), "data: ")
+		if !strings.HasPrefix(line, "{") {
+			continue
+		}
+		var chunk map[string]any
+		if json.Unmarshal([]byte(line), &chunk) != nil {
+			continue
+		}
+		if u, ok := chunk["usage"].(map[string]any); ok {
+			lastUsage = u
+		}
+	}
+	if lastUsage == nil {
+		t.Fatalf("收尾 chunk 应带 usage，实际 body:\n%s", rec.Body.String())
+	}
+	if got := lastUsage["prompt_tokens"]; got != float64(199065) {
+		t.Fatalf("prompt_tokens = %v, want 199065（须含缓存命中部分；直接透出 input_tokens 会得到 1551）", got)
+	}
+	if got := lastUsage["total_tokens"]; got != float64(199102) {
+		t.Fatalf("total_tokens = %v, want 199102（prompt 含缓存 + completion）", got)
+	}
+	details, _ := lastUsage["prompt_tokens_details"].(map[string]any)
+	if details == nil || details["cached_tokens"] != float64(197514) {
+		t.Fatalf("prompt_tokens_details.cached_tokens 应为 197514，实际 %v", lastUsage["prompt_tokens_details"])
 	}
 }
