@@ -578,6 +578,11 @@ func (s *Service) pipeOpenAIStream(ctx context.Context, w http.ResponseWriter, b
 			}
 		}
 
+		// thinking delta 也算上游产出的内容，不能因为「只有 reasoning / 纯 thought」就判为空响应。
+		if extractClaudeStreamThinking(event) {
+			delivered = true
+		}
+
 		/**
 		 * 上游判定的错误（如 MALFORMED_FUNCTION_CALL → error 事件）必须原样
 		 * 传给调用方。
@@ -835,6 +840,43 @@ func extractClaudeStreamText(event []byte) string {
 			continue
 		}
 		return payload.Delta.Text
+	}
+}
+
+// extractClaudeStreamThinking 判断 SSE 事件里是否携带 thinking delta（reasoning 产出）。
+//
+// 长思考模型常以 thought-only 收尾，thinking delta 同样算「上游产出内容」，
+// 不能被空响应守卫误判成空回复。
+func extractClaudeStreamThinking(event []byte) bool {
+	s := string(event)
+	for {
+		idx := strings.Index(s, "data: ")
+		if idx < 0 {
+			return false
+		}
+		rest := s[idx+len("data: "):]
+		// 该 data 行到下一个换行为止（SSE 单行 data）。
+		lineEnd := strings.IndexByte(rest, '\n')
+		var dataStr string
+		if lineEnd < 0 {
+			dataStr = strings.TrimSpace(rest)
+			s = ""
+		} else {
+			dataStr = strings.TrimSpace(rest[:lineEnd])
+			s = rest[lineEnd:]
+		}
+		var payload struct {
+			Type  string `json:"type"`
+			Delta struct {
+				Type string `json:"type"`
+			} `json:"delta"`
+		}
+		if err := json.Unmarshal([]byte(dataStr), &payload); err != nil {
+			continue
+		}
+		if payload.Type == "content_block_delta" && payload.Delta.Type == "thinking_delta" {
+			return true
+		}
 	}
 }
 
