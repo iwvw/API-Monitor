@@ -168,8 +168,17 @@ func (s *Service) applyManagedProxyNodeTask(taskID, id string) {
 	}
 	if accessMode == "direct" {
 		progress(82, "reachability", "正在检查节点公网连通性")
-		if err := verifyManagedNodeReachability(statePublicHost(ctx, db, id), applied.AssignedPort, transport); err != nil {
-			message := fmt.Sprintf("节点服务已启动，但公网地址 %s:%d 无法连接，请检查主机防火墙和云平台安全组", statePublicHost(ctx, db, id), applied.AssignedPort)
+		publicHost := statePublicHost(ctx, db, id)
+		reachable, err := s.verifyManagedNodeReachability(ctx, db, serverID, publicHost, applied.AssignedPort, transport)
+		if err != nil {
+			message := fmt.Sprintf("节点服务已启动，但公网地址 %s:%d 无法连接，请检查主机防火墙和云平台安全组", publicHost, applied.AssignedPort)
+			_, _ = db.ExecContext(ctx, `UPDATE managed_proxy_nodes SET assigned_port=?,apply_status='runtime_running_unreachable',publishable=0,last_error=?,observed_status=?,observed_revision=revision,observed_port=?,observed_at=datetime('now'),health_status='external_unreachable',updated_at=datetime('now') WHERE id=?`, applied.AssignedPort, message, applied.Status, applied.AssignedPort, id)
+			s.taskRegistry.UpdateProgress(taskID, 100, map[string]interface{}{"stage": "reachability", "message": message, "node_id": id})
+			s.taskRegistry.Fail(taskID, message)
+			return
+		}
+		if !reachable {
+			message := fmt.Sprintf("节点服务已启动，但公网地址 %s:%d 无法从其他主机连上，请检查主机防火墙和云平台安全组", publicHost, applied.AssignedPort)
 			_, _ = db.ExecContext(ctx, `UPDATE managed_proxy_nodes SET assigned_port=?,apply_status='runtime_running_unreachable',publishable=0,last_error=?,observed_status=?,observed_revision=revision,observed_port=?,observed_at=datetime('now'),health_status='external_unreachable',updated_at=datetime('now') WHERE id=?`, applied.AssignedPort, message, applied.Status, applied.AssignedPort, id)
 			s.taskRegistry.UpdateProgress(taskID, 100, map[string]interface{}{"stage": "reachability", "message": message, "node_id": id})
 			s.taskRegistry.Fail(taskID, message)
@@ -203,13 +212,19 @@ func (s *Service) applyManagedProxyNodeTask(taskID, id string) {
 }
 
 func syncDirectManagedNodeAddress(ctx context.Context, db *sql.DB, nodeID, serverID string) error {
-	var host, encryptedURI string
-	if err := db.QueryRowContext(ctx, `SELECT COALESCE(a.host,''),n.client_uri_encrypted FROM managed_proxy_nodes n JOIN server_accounts a ON a.id=n.server_id WHERE n.id=? AND n.server_id=?`, nodeID, serverID).Scan(&host, &encryptedURI); err != nil {
+	var host, currentHost, encryptedURI string
+	if err := db.QueryRowContext(ctx, `SELECT COALESCE(a.host,''),COALESCE(n.public_host,''),n.client_uri_encrypted FROM managed_proxy_nodes n JOIN server_accounts a ON a.id=n.server_id WHERE n.id=? AND n.server_id=?`, nodeID, serverID).Scan(&host, &currentHost, &encryptedURI); err != nil {
 		return err
 	}
 	host = strings.TrimSpace(host)
 	if host == "" || host == "0.0.0.0" {
 		return errors.New("host instance has no deployable address")
+	}
+	// 节点可以显式绑定与主机账号不同的地址（典型场景：主机同时具备 IPv4 与 IPv6，
+	// 而客户端只能走 IPv6 出口）。此时保留节点自身的 public_host，不要被账号地址覆盖。
+	currentHost = strings.TrimSpace(currentHost)
+	if currentHost != "" && currentHost != "0.0.0.0" && currentHost != host {
+		host = currentHost
 	}
 	client := secure.SecureDecrypt(encryptedURI)
 	if parsed, err := url.Parse(client); err == nil {
@@ -340,19 +355,66 @@ func statePublicHost(ctx context.Context, db *sql.DB, id string) string {
 	return host
 }
 
-func verifyManagedNodeReachability(host string, port int, transport string) error {
+// verifyManagedNodeReachability 验证节点公网地址是否真的可从外部连上。
+//
+// 关键约束：云厂商普遍不做 NAT 回环，从节点所在主机（或面板容器）拨自己的
+// 公网 IP 可能被安全组拦掉，导致正常节点被误判。因此依次尝试：
+//  1. 其他在线主机的 Agent（真正的第三方视角，最可信）
+//  2. 节点所在主机的 Agent（多数云厂商 NAT 回环可用，可作为等效外部视角）
+//  3. 面板进程本地拨号（最后兜底）
+//
+// 三步全部失败才判定不可达——不存在「因为只有一台主机就跳过校验」的分支。
+// 网络抖动造成的瞬时失败用重试次数抵消，避免刚启动的节点被误判。
+func (s *Service) verifyManagedNodeReachability(ctx context.Context, db *sql.DB, serverID, host string, port int, transport string) (bool, error) {
 	if strings.TrimSpace(host) == "" {
-		return errors.New("managed node public host is empty")
+		return false, errors.New("managed node public host is empty")
 	}
+	// UDP 没有可用的传输层握手，健康信号以运行时状态为准。
 	if transport == "udp" {
-		return nil
-	} // UDP has no transport handshake; runtime active state is the local health signal.
+		return true, nil
+	}
+	attempts := 3
+	var lastErr error
+	for attempt := 0; attempt < attempts; attempt++ {
+		if attempt > 0 {
+			select {
+			case <-ctx.Done():
+				return false, ctx.Err()
+			case <-time.After(time.Duration(attempt) * time.Second):
+			}
+		}
+		if s.probeNodeExternally(ctx, db, serverID, host, port) {
+			return true, nil
+		}
+		lastErr = fmt.Errorf("managed node %s is not reachable after %d attempts", net.JoinHostPort(host, strconv.Itoa(port)), attempt+1)
+	}
+	return false, lastErr
+}
+
+// probeNodeExternally 用「非本机」视角探测一次 host:port。
+// 优先其他主机，其次本机 Agent，最后面板进程本地拨号。
+func (s *Service) probeNodeExternally(ctx context.Context, db *sql.DB, serverID, host string, port int) bool {
+	if s.registry != nil && db != nil {
+		for _, conn := range s.registry.List() {
+			if conn == nil || conn.ServerID == "" || conn.ServerID == serverID {
+				continue
+			}
+			if s.RunForwardHealthProbeAndWait(conn.ServerID, host, port, 5) {
+				return true
+			}
+		}
+	}
+	if _, ok := s.registry.Get(serverID); ok {
+		if s.RunForwardHealthProbeAndWait(serverID, host, port, 5) {
+			return true
+		}
+	}
 	conn, err := net.DialTimeout("tcp", net.JoinHostPort(host, strconv.Itoa(port)), 5*time.Second)
 	if err != nil {
-		return fmt.Errorf("managed node is not externally reachable at %s:%d: %w", host, port, err)
+		return false
 	}
 	_ = conn.Close()
-	return nil
+	return true
 }
 
 func replaceURIClientPort(raw string, port int) string {
