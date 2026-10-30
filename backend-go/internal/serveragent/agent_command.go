@@ -347,35 +347,97 @@ func normalizeExecCommand(command string) string {
 // extractPowerShellScript 提取 powershell -Command/-c 之后的脚本内容。
 // 返回 false 表示不存在 -Command 参数（如 -File 调用），交由原样执行。
 func extractPowerShellScript(rest string) (string, bool) {
-	fields := strings.Fields(rest)
-	idx := -1
-	for i, f := range fields {
-		lf := strings.ToLower(f)
-		if lf == "-command" || lf == "-c" {
-			idx = i
-			break
+	best, argStart := -1, -1
+	for _, flag := range []string{"-command", "-c"} {
+		// 用 EqualFold 而非 ToLower：大小写折叠可能改变字节长度（如 'İ'），
+		// 会让上一步算出的下标切错位置。
+		p := indexExecFlag(rest, flag)
+		if p >= 0 && (best < 0 || p < best) {
+			best, argStart = p, p+len(flag)
 		}
 	}
-	if idx < 0 || idx+1 >= len(fields) {
+	if best < 0 || argStart >= len(rest) {
 		return "", false
 	}
-	script := strings.Join(fields[idx+1:], " ")
-
-	// 若脚本整体被一对引号包裹（如 -Command "..."），剥掉外壳引号，
-	// 避免 PowerShell 把带引号的字符串当作命令名执行。
-	if strings.HasPrefix(script, `"`) {
-		if closeIdx := strings.Index(script[1:], `"`); closeIdx >= 0 {
-			closePos := closeIdx + 1
-			if strings.TrimSpace(script[closePos+1:]) == "" {
-				script = script[1:closePos]
-			}
-		}
-	}
-	script = strings.TrimSpace(script)
+	// 按位置截取而非 strings.Fields：Fields 会把引号内的连续空白压成单空格，
+	// 破坏脚本原文（如 -Command "$a=1;  echo   '$a'"）。
+	script := strings.TrimSpace(rest[argStart:])
 	if script == "" {
 		return "", false
 	}
+
+	// 若脚本整体被一对引号包裹（如 -Command "..."），剥掉外壳引号，
+	// 避免 PowerShell 把带引号的字符串当作命令名执行。
+	if script[0] == '"' {
+		if end, ok := matchClosingQuote(script, 0); ok && strings.TrimSpace(script[end+1:]) == "" {
+			inner := script[1:end]
+			if strings.TrimSpace(inner) == "" {
+				return "", false
+			}
+			// 外壳引号属于命令行层，-EncodedCommand 直接接收裸脚本文本，
+			// 因此还得撤掉命令行层为引号做的 \" 转义，否则 PowerShell 会把
+			// \ 当字面量（`\L$_\ : The term ... is not recognized`）。
+			return unescapeCommandQuotes(inner), true
+		}
+	}
 	return script, true
+}
+
+// indexExecFlag 在参数串中定位以空白分隔的独立 flag（大小写不敏感）。
+// 不用 strings.ToLower，避免折叠改变字节长度影响下标。
+func indexExecFlag(s, flag string) int {
+	for i := 0; i+len(flag) <= len(s); i++ {
+		if !strings.EqualFold(s[i:i+len(flag)], flag) {
+			continue
+		}
+		prevOK := i == 0 || s[i-1] == ' ' || s[i-1] == '\t'
+		nextOK := i+len(flag) == len(s) || s[i+len(flag)] == ' ' || s[i+len(flag)] == '\t'
+		if prevOK && nextOK {
+			return i
+		}
+	}
+	return -1
+}
+
+// matchClosingQuote 从 start（必须是 "）找与之配对的结尾引号。
+// 跳过两类内层引号：\"（前置奇数个反斜杠转义）与 ""（双写转义）。
+func matchClosingQuote(s string, start int) (int, bool) {
+	for i := start + 1; i < len(s); i++ {
+		if s[i] != '"' {
+			continue
+		}
+		backslashes := 0
+		for j := i - 1; j > start && s[j] == '\\'; j-- {
+			backslashes++
+		}
+		if backslashes%2 == 1 {
+			continue
+		}
+		if i+1 < len(s) && s[i+1] == '"' {
+			i++
+			continue
+		}
+		return i, true
+	}
+	return -1, false
+}
+
+// unescapeCommandQuotes 撤销命令行层为引号添加的反斜杠转义（\" -> "）。
+func unescapeCommandQuotes(s string) string {
+	if !strings.Contains(s, `\"`) {
+		return s
+	}
+	var b strings.Builder
+	b.Grow(len(s))
+	for i := 0; i < len(s); i++ {
+		if s[i] == '\\' && i+1 < len(s) && s[i+1] == '"' {
+			b.WriteByte('"')
+			i++
+			continue
+		}
+		b.WriteByte(s[i])
+	}
+	return b.String()
 }
 
 // utf16LEBytes 将字符串编码为 UTF-16LE 字节（PowerShell -EncodedCommand 要求）。

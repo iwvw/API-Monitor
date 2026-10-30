@@ -11,8 +11,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/iwvw/api-monitor/backend-go/internal/response"
 	engineag "github.com/iwvw/api-monitor/backend-go/internal/antigravity/engine/pkg/antigravity"
+	"github.com/iwvw/api-monitor/backend-go/internal/response"
 )
 
 func newScanner(r io.Reader) *bufio.Scanner {
@@ -23,8 +23,30 @@ func newScanner(r io.Reader) *bufio.Scanner {
 
 // openAIMessage 是 OpenAI chat.completions 请求的消息项。
 type openAIMessage struct {
-	Role    string `json:"role"`
-	Content any    `json:"content"`
+	Role       string           `json:"role"`
+	Content    any              `json:"content"`
+	ToolCalls  []openAIToolCall `json:"tool_calls,omitempty"`
+	ToolCallID string           `json:"tool_call_id,omitempty"`
+}
+
+// openAIToolCall 表示一条 OpenAI 工具调用信息。
+type openAIToolCall struct {
+	ID       string `json:"id"`
+	Type     string `json:"type"`
+	Function struct {
+		Name      string `json:"name"`
+		Arguments string `json:"arguments"`
+	} `json:"function"`
+}
+
+// openAITool 表示请求中定义的工具。
+type openAITool struct {
+	Type     string `json:"type"`
+	Function struct {
+		Name        string         `json:"name"`
+		Description string         `json:"description,omitempty"`
+		Parameters  map[string]any `json:"parameters,omitempty"`
+	} `json:"function"`
 }
 
 // handleOpenAIModels 实现 OpenAI 兼容 GET /v1/models：返回已启用模型列表。
@@ -74,12 +96,14 @@ func (s *Service) handleOpenAIModels(w http.ResponseWriter, r *http.Request) {
 
 // openAIChatRequest 是 OpenAI chat.completions 请求的精简结构。
 type openAIChatRequest struct {
-	Model       string           `json:"model"`
-	Messages    []openAIMessage  `json:"messages"`
-	MaxTokens   *int             `json:"max_tokens"`
-	Temperature *float64         `json:"temperature"`
-	TopP        *float64         `json:"top_p"`
-	Stream      bool             `json:"stream"`
+	Model       string          `json:"model"`
+	Messages    []openAIMessage `json:"messages"`
+	MaxTokens   *int            `json:"max_tokens"`
+	Temperature *float64        `json:"temperature"`
+	TopP        *float64        `json:"top_p"`
+	Stream      bool            `json:"stream"`
+	Tools       []openAITool    `json:"tools,omitempty"`
+	ToolChoice  any             `json:"tool_choice,omitempty"`
 }
 
 // buildClaudeRequest 把 OpenAI chat.completions 请求转为 Claude Messages 请求。
@@ -95,6 +119,31 @@ func buildClaudeRequest(oai *openAIChatRequest) (*engineag.ClaudeRequest, error)
 		claude.MaxTokens = *oai.MaxTokens
 	}
 
+	// 转换 tools
+	if len(oai.Tools) > 0 {
+		claude.Tools = make([]engineag.ClaudeTool, 0, len(oai.Tools))
+		for _, t := range oai.Tools {
+			if t.Type != "function" && t.Type != "" {
+				continue
+			}
+			name := strings.TrimSpace(t.Function.Name)
+			if name == "" {
+				continue
+			}
+			schema := t.Function.Parameters
+			if schema == nil {
+				schema = map[string]any{"type": "object", "properties": map[string]any{}}
+			} else {
+				schema = engineag.CleanJSONSchema(schema)
+			}
+			claude.Tools = append(claude.Tools, engineag.ClaudeTool{
+				Name:        name,
+				Description: t.Function.Description,
+				InputSchema: schema,
+			})
+		}
+	}
+
 	var systemParts []string
 	for _, m := range oai.Messages {
 		role := m.Role
@@ -104,9 +153,9 @@ func buildClaudeRequest(oai *openAIChatRequest) (*engineag.ClaudeRequest, error)
 		case "user":
 			claude.Messages = append(claude.Messages, engineag.ClaudeMessage{Role: "user", Content: buildClaudeContent(m.Content)})
 		case "assistant":
-			claude.Messages = append(claude.Messages, engineag.ClaudeMessage{Role: "assistant", Content: buildClaudeContent(m.Content)})
+			claude.Messages = append(claude.Messages, engineag.ClaudeMessage{Role: "assistant", Content: buildAssistantClaudeContent(m)})
 		case "tool", "function":
-			systemParts = append(systemParts, fmt.Sprintf("[tool/function result] %s", messageText(m.Content)))
+			claude.Messages = append(claude.Messages, engineag.ClaudeMessage{Role: "user", Content: buildToolResultClaudeContent(m)})
 		}
 	}
 	if len(systemParts) > 0 {
@@ -114,6 +163,69 @@ func buildClaudeRequest(oai *openAIChatRequest) (*engineag.ClaudeRequest, error)
 		claude.System = b
 	}
 	return claude, nil
+}
+
+// buildAssistantClaudeContent 构建 assistant 消息的 Claude content（支持 text + tool_use 混合）。
+func buildAssistantClaudeContent(m openAIMessage) json.RawMessage {
+	if len(m.ToolCalls) == 0 {
+		return buildClaudeContent(m.Content)
+	}
+	var blocks []map[string]any
+	text := messageText(m.Content)
+	if strings.TrimSpace(text) != "" {
+		blocks = append(blocks, map[string]any{
+			"type": "text",
+			"text": text,
+		})
+	}
+	for _, tc := range m.ToolCalls {
+		var input any
+		if strings.TrimSpace(tc.Function.Arguments) != "" {
+			var parsed any
+			if err := json.Unmarshal([]byte(tc.Function.Arguments), &parsed); err == nil {
+				input = parsed
+			} else {
+				input = tc.Function.Arguments
+			}
+		}
+		if input == nil {
+			input = map[string]any{}
+		}
+		id := strings.TrimSpace(tc.ID)
+		if id == "" {
+			id = fmt.Sprintf("call_%s_%d", tc.Function.Name, time.Now().UnixNano())
+		}
+		blocks = append(blocks, map[string]any{
+			"type":  "tool_use",
+			"id":    id,
+			"name":  tc.Function.Name,
+			"input": input,
+		})
+	}
+	if len(blocks) == 0 {
+		b, _ := json.Marshal("")
+		return b
+	}
+	b, _ := json.Marshal(blocks)
+	return b
+}
+
+// buildToolResultClaudeContent 构建 tool/function 响应消息的 Claude content（tool_result）。
+func buildToolResultClaudeContent(m openAIMessage) json.RawMessage {
+	text := messageText(m.Content)
+	toolUseID := strings.TrimSpace(m.ToolCallID)
+	if toolUseID == "" {
+		toolUseID = "tool_call"
+	}
+	blocks := []map[string]any{
+		{
+			"type":        "tool_result",
+			"tool_use_id": toolUseID,
+			"content":     text,
+		},
+	}
+	b, _ := json.Marshal(blocks)
+	return b
 }
 
 // messageText 提取消息文本（支持字符串或 parts 数组）。
@@ -217,18 +329,21 @@ type chatCompletionsResponse struct {
 	Created int64  `json:"created"`
 	Model   string `json:"model"`
 	Choices []struct {
-		Index        int    `json:"index"`
-		Message      struct {
-			Role    string `json:"role"`
-			Content string `json:"content"`
-		} `json:"message"`
-		FinishReason string `json:"finish_reason"`
+		Index        int           `json:"index"`
+		Message      openAIRespMsg `json:"message"`
+		FinishReason string        `json:"finish_reason"`
 	} `json:"choices"`
 	Usage struct {
 		PromptTokens     int `json:"prompt_tokens"`
 		CompletionTokens int `json:"completion_tokens"`
 		TotalTokens      int `json:"total_tokens"`
 	} `json:"usage"`
+}
+
+type openAIRespMsg struct {
+	Role      string           `json:"role"`
+	Content   *string          `json:"content"`
+	ToolCalls []openAIToolCall `json:"tool_calls,omitempty"`
 }
 
 // forwardOpenAIChat 用 Claude 转发链路处理 OpenAI chat.completions 请求，输出 OpenAI 格式。
@@ -324,27 +439,46 @@ func (s *Service) attemptOpenAIChat(ctx context.Context, w http.ResponseWriter, 
 			Created: time.Now().Unix(),
 			Model:   oaiReq.Model,
 		}
-		var content string
+		var contentStr string
+		var toolCalls []openAIToolCall
 		for _, c := range claudeResp.Content {
-			if c.Type == "text" {
-				content += c.Text
+			switch c.Type {
+			case "text":
+				contentStr += c.Text
+			case "tool_use":
+				argsBytes, _ := json.Marshal(c.Input)
+				tc := openAIToolCall{
+					ID:   c.ID,
+					Type: "function",
+				}
+				tc.Function.Name = c.Name
+				tc.Function.Arguments = string(argsBytes)
+				toolCalls = append(toolCalls, tc)
 			}
 		}
-		if content == "" {
-			content = " "
+
+		respMsg := openAIRespMsg{
+			Role:      "assistant",
+			ToolCalls: toolCalls,
 		}
+		if contentStr != "" || len(toolCalls) == 0 {
+			respMsg.Content = &contentStr
+		}
+
+		finishReason := claudeStopReasonToOpenAI(claudeResp.StopReason)
+		if len(toolCalls) > 0 {
+			finishReason = "tool_calls"
+		}
+
 		out.Choices = append(out.Choices, struct {
-			Index        int    `json:"index"`
-			Message      struct {
-				Role    string `json:"role"`
-				Content string `json:"content"`
-			} `json:"message"`
-			FinishReason string `json:"finish_reason"`
+			Index        int           `json:"index"`
+			Message      openAIRespMsg `json:"message"`
+			FinishReason string        `json:"finish_reason"`
 		}{
-			Index: 0, FinishReason: claudeStopReasonToOpenAI(claudeResp.StopReason),
+			Index:        0,
+			Message:      respMsg,
+			FinishReason: finishReason,
 		})
-		out.Choices[0].Message.Role = "assistant"
-		out.Choices[0].Message.Content = content
 		if usage != nil {
 			out.Usage.PromptTokens = usage.InputTokens
 			out.Usage.CompletionTokens = usage.OutputTokens
@@ -387,14 +521,20 @@ func (s *Service) pipeOpenAIStream(ctx context.Context, w http.ResponseWriter, b
 	inTok, outTok := 0, 0
 	delivered := false
 	wrote := false
+
+	// 工具调用与思考状态追踪
+	sawToolCall := false
+	toolCallIndex := -1
+	currentToolID := ""
+	currentToolName := ""
+
 	for scanner.Scan() {
 		line := scanner.Text()
 		event := processor.ProcessLine(line)
 		if len(event) == 0 {
 			continue
 		}
-		// 提取 Claude SSE 里的 usage（message_start 的 input_tokens / message_delta 的 output_tokens）。
-		// 此前只抽文本增量，token 全程为 0，网关看板统计不到消耗。
+		// 提取 Claude SSE 里的 usage
 		if it, ot, ok := extractClaudeStreamUsage(event); ok {
 			if it > 0 {
 				inTok = it
@@ -403,29 +543,49 @@ func (s *Service) pipeOpenAIStream(ctx context.Context, w http.ResponseWriter, b
 				outTok = ot
 			}
 		}
-		// event 是 Claude SSE 的 "data:{...}\n\n"，提取 data 里的 delta 文本。
+
+		// 检查是否有 tool_use / tool_delta 事件
+		toolChunks := extractClaudeStreamToolCalls(event, &toolCallIndex, &currentToolID, &currentToolName, oaiReq.Model)
+		for _, tcChunk := range toolChunks {
+			sawToolCall = true
+			delivered = true
+			wrote = true
+			if _, err := w.Write(append([]byte("data: "), append(tcChunk, '\n', '\n')...)); err != nil {
+				return attemptResult{wrote: true}
+			}
+			if flusher != nil {
+				flusher.Flush()
+			}
+		}
+
+		// 提取 data 里的 delta 文本
 		text := extractClaudeStreamText(event)
-		if text == "" {
-			continue
-		}
-		delivered = true
-		wrote = true
-		chunk := map[string]any{
-			"id": "chatcmpl-" + reqID24(), "object": "chat.completion.chunk", "created": time.Now().Unix(), "model": oaiReq.Model,
-			"choices": []any{map[string]any{"index": 0, "delta": map[string]any{"content": text}, "finish_reason": nil}},
-		}
-		b, _ := json.Marshal(chunk)
-		if _, err := w.Write(append([]byte("data: "), append(b, '\n', '\n')...)); err != nil {
-			return attemptResult{wrote: true}
-		}
-		if flusher != nil {
-			flusher.Flush()
+		if text != "" {
+			delivered = true
+			wrote = true
+			chunk := map[string]any{
+				"id": "chatcmpl-" + reqID24(), "object": "chat.completion.chunk", "created": time.Now().Unix(), "model": oaiReq.Model,
+				"choices": []any{map[string]any{"index": 0, "delta": map[string]any{"content": text}, "finish_reason": nil}},
+			}
+			b, _ := json.Marshal(chunk)
+			if _, err := w.Write(append([]byte("data: "), append(b, '\n', '\n')...)); err != nil {
+				return attemptResult{wrote: true}
+			}
+			if flusher != nil {
+				flusher.Flush()
+			}
 		}
 	}
-	// 收尾 chunk：携带累计 usage，外部消费方/网关可读出消耗。
+
+	finishReason := "stop"
+	if sawToolCall {
+		finishReason = "tool_calls"
+	}
+
+	// 收尾 chunk：携带累计 usage 与正确的 finish_reason，外部消费方/网关可读出消耗与工具状态。
 	end := map[string]any{
 		"id": "chatcmpl-" + reqID24(), "object": "chat.completion.chunk", "created": time.Now().Unix(), "model": oaiReq.Model,
-		"choices": []any{map[string]any{"index": 0, "delta": map[string]any{}, "finish_reason": "stop"}},
+		"choices": []any{map[string]any{"index": 0, "delta": map[string]any{}, "finish_reason": finishReason}},
 	}
 	if inTok > 0 || outTok > 0 {
 		end["usage"] = map[string]any{
@@ -449,6 +609,116 @@ func (s *Service) pipeOpenAIStream(ctx context.Context, w http.ResponseWriter, b
 		return attemptResult{retryable: true, err: fmt.Errorf("读取上游响应流失败: %w", err)}
 	}
 	return attemptResult{wrote: wrote}
+}
+
+// extractClaudeStreamToolCalls 从 Claude SSE 事件中解析工具调用并组装成 OpenAI chunk。
+// 处理两种 Claude SSE 事件：
+// 1. content_block_start: 当 content_block.type == "tool_use" 时，分配新的 index，输出首个 chunk (带 id, name, empty arguments)。
+// 2. content_block_delta: 当 delta.type == "input_json_delta" 时，向当前 index 追加 arguments delta。
+func extractClaudeStreamToolCalls(event []byte, callIdx *int, curID, curName *string, model string) [][]byte {
+	s := string(event)
+	var out [][]byte
+	for {
+		idx := strings.Index(s, "data: ")
+		if idx < 0 {
+			break
+		}
+		rest := s[idx+len("data: "):]
+		lineEnd := strings.IndexByte(rest, '\n')
+		var dataStr string
+		if lineEnd < 0 {
+			dataStr = strings.TrimSpace(rest)
+			s = ""
+		} else {
+			dataStr = strings.TrimSpace(rest[:lineEnd])
+			s = rest[lineEnd:]
+		}
+		if dataStr == "" || dataStr == "[DONE]" {
+			continue
+		}
+
+		var payload struct {
+			Type         string `json:"type"`
+			Index        int    `json:"index"`
+			ContentBlock struct {
+				Type string `json:"type"`
+				ID   string `json:"id"`
+				Name string `json:"name"`
+			} `json:"content_block"`
+			Delta struct {
+				Type        string `json:"type"`
+				PartialJSON string `json:"partial_json"`
+			} `json:"delta"`
+		}
+		if err := json.Unmarshal([]byte(dataStr), &payload); err != nil {
+			continue
+		}
+
+		switch payload.Type {
+		case "content_block_start":
+			if payload.ContentBlock.Type == "tool_use" {
+				*callIdx++
+				*curID = payload.ContentBlock.ID
+				*curName = payload.ContentBlock.Name
+				chunk := map[string]any{
+					"id":      "chatcmpl-" + reqID24(),
+					"object":  "chat.completion.chunk",
+					"created": time.Now().Unix(),
+					"model":   model,
+					"choices": []any{
+						map[string]any{
+							"index": 0,
+							"delta": map[string]any{
+								"role": "assistant",
+								"tool_calls": []any{
+									map[string]any{
+										"index": *callIdx,
+										"id":    *curID,
+										"type":  "function",
+										"function": map[string]any{
+											"name":      *curName,
+											"arguments": "",
+										},
+									},
+								},
+							},
+							"finish_reason": nil,
+						},
+					},
+				}
+				b, _ := json.Marshal(chunk)
+				out = append(out, b)
+			}
+		case "content_block_delta":
+			if payload.Delta.Type == "input_json_delta" && payload.Delta.PartialJSON != "" {
+				chunk := map[string]any{
+					"id":      "chatcmpl-" + reqID24(),
+					"object":  "chat.completion.chunk",
+					"created": time.Now().Unix(),
+					"model":   model,
+					"choices": []any{
+						map[string]any{
+							"index": 0,
+							"delta": map[string]any{
+								"tool_calls": []any{
+									map[string]any{
+										"index": *callIdx,
+										"function": map[string]any{
+											"arguments": payload.Delta.PartialJSON,
+										},
+									},
+								},
+							},
+							"finish_reason": nil,
+						},
+					},
+				}
+				b, _ := json.Marshal(chunk)
+				out = append(out, b)
+			}
+		}
+	}
+	return out
 }
 
 // claudeStopReasonToOpenAI 映射 Claude stop_reason → OpenAI finish_reason。

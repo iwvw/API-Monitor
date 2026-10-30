@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/iwvw/api-monitor/backend-go/internal/accountpick"
+	engineag "github.com/iwvw/api-monitor/backend-go/internal/antigravity/engine/pkg/antigravity"
 	"github.com/iwvw/api-monitor/backend-go/internal/config"
 )
 
@@ -210,9 +211,9 @@ func TestRefreshLinkedEndpointModelsKeepsModelsOnUpstreamFailure(t *testing.T) {
 	// 无可用账号 → 上游拉取失败。改前缀 agy- → new-。
 	s.mu.Lock()
 	s.settings = Settings{
-		Enabled:     true,
-		ModelPrefix: "new-",
-		ModelAliases: map[string]string{},
+		Enabled:        true,
+		ModelPrefix:    "new-",
+		ModelAliases:   map[string]string{},
 		DisabledModels: []string{},
 	}
 	s.mu.Unlock()
@@ -236,7 +237,6 @@ func TestRefreshLinkedEndpointModelsKeepsModelsOnUpstreamFailure(t *testing.T) {
 		t.Fatalf("models should be migrated off old prefix and not fall back to defaults, got %q", modelsRaw)
 	}
 }
-
 
 // 选号：三种策略各自行为正确，且都跳过不可用、冷却与缺 ProjectID 的账号。
 func TestPickForRelayStrategies(t *testing.T) {
@@ -385,12 +385,12 @@ func TestHandleAccountsExposesTokenState(t *testing.T) {
 	s.mu.Lock()
 	s.settings = Settings{
 		Accounts: []Account{{
-			Email:       "stale@x",
-			AccessToken: "t",
+			Email:        "stale@x",
+			AccessToken:  "t",
 			RefreshToken: "r",
-			ProjectID:   "p1",
-			ExpiresAt:   now - 10,
-			LastError:   "刷新 token 失败: invalid_grant",
+			ProjectID:    "p1",
+			ExpiresAt:    now - 10,
+			LastError:    "刷新 token 失败: invalid_grant",
 		}},
 		DisabledModels: []string{},
 		ModelAliases:   map[string]string{},
@@ -457,8 +457,6 @@ func TestRefreshStaleAccountsSkipsValidAndDisabled(t *testing.T) {
 		}
 	}
 }
-
-
 
 // TestPersistAccountMergesCredentialFieldsOnly 刷新落库不得回退用户对账号
 // 其它字段的并发修改：persistAccount 只覆盖凭据与 LastError 字段。
@@ -536,6 +534,241 @@ func TestPersistAccountFailureKeepsCredentials(t *testing.T) {
 	}
 	if after.LastError != "invalid_grant" {
 		t.Errorf("LastError = %q, want invalid_grant", after.LastError)
+	}
+}
+
+// TestBuildClaudeRequest_WithToolsAndToolCalls 校验带有 tools、assistant tool_calls 与 tool 返回消息时的请求转换。
+func TestBuildClaudeRequest_WithToolsAndToolCalls(t *testing.T) {
+	req := &openAIChatRequest{
+		Model:  "gemini-3.8-flash",
+		Stream: true,
+		Tools: []openAITool{
+			{
+				Type: "function",
+				Function: struct {
+					Name        string         `json:"name"`
+					Description string         `json:"description,omitempty"`
+					Parameters  map[string]any `json:"parameters,omitempty"`
+				}{
+					Name:        "get_weather",
+					Description: "Get the current weather",
+					Parameters: map[string]any{
+						"type": "object",
+						"properties": map[string]any{
+							"city": map[string]any{"type": "string"},
+						},
+						"required": []string{"city"},
+					},
+				},
+			},
+		},
+		Messages: []openAIMessage{
+			{Role: "user", Content: "What is the weather in Beijing?"},
+			{
+				Role:    "assistant",
+				Content: "Let me check.",
+				ToolCalls: []openAIToolCall{
+					{
+						ID:   "call_weather_123",
+						Type: "function",
+						Function: struct {
+							Name      string `json:"name"`
+							Arguments string `json:"arguments"`
+						}{
+							Name:      "get_weather",
+							Arguments: `{"city":"Beijing"}`,
+						},
+					},
+				},
+			},
+			{
+				Role:       "tool",
+				Content:    `{"temp": 20}`,
+				ToolCallID: "call_weather_123",
+			},
+		},
+	}
+
+	claude, err := buildClaudeRequest(req)
+	if err != nil {
+		t.Fatalf("buildClaudeRequest failed: %v", err)
+	}
+
+	// 1. Tools 校验
+	if len(claude.Tools) != 1 {
+		t.Fatalf("expected 1 tool, got %d", len(claude.Tools))
+	}
+	if claude.Tools[0].Name != "get_weather" {
+		t.Errorf("tool name = %q, want get_weather", claude.Tools[0].Name)
+	}
+
+	// 2. Messages 校验 (3 条：user, assistant(text+tool_use), user(tool_result))
+	if len(claude.Messages) != 3 {
+		t.Fatalf("expected 3 messages, got %d", len(claude.Messages))
+	}
+
+	// Assistant 消息应包含 tool_use
+	var assistantBlocks []map[string]any
+	if err := json.Unmarshal(claude.Messages[1].Content, &assistantBlocks); err != nil {
+		t.Fatalf("failed to parse assistant content: %v", err)
+	}
+	if len(assistantBlocks) != 2 {
+		t.Fatalf("expected 2 blocks in assistant (text + tool_use), got %d", len(assistantBlocks))
+	}
+	if assistantBlocks[1]["type"] != "tool_use" || assistantBlocks[1]["id"] != "call_weather_123" {
+		t.Errorf("assistant tool_use block = %+v", assistantBlocks[1])
+	}
+
+	// Tool 返回消息应转为 user 角色的 tool_result block
+	if claude.Messages[2].Role != "user" {
+		t.Errorf("tool result message role = %q, want user", claude.Messages[2].Role)
+	}
+	var toolResultBlocks []map[string]any
+	if err := json.Unmarshal(claude.Messages[2].Content, &toolResultBlocks); err != nil {
+		t.Fatalf("failed to parse tool result content: %v", err)
+	}
+	if len(toolResultBlocks) != 1 {
+		t.Fatalf("expected 1 block in tool result, got %d", len(toolResultBlocks))
+	}
+	if toolResultBlocks[0]["type"] != "tool_result" || toolResultBlocks[0]["tool_use_id"] != "call_weather_123" {
+		t.Errorf("tool result block = %+v", toolResultBlocks[0])
+	}
+}
+
+// TestExtractClaudeStreamToolCalls 校验流式 SSE tool_calls 转换
+func TestExtractClaudeStreamToolCalls(t *testing.T) {
+	callIdx := -1
+	curID := ""
+	curName := ""
+
+	// 1. content_block_start tool_use
+	eventStart := []byte("event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":1,\"content_block\":{\"type\":\"tool_use\",\"id\":\"call_abc\",\"name\":\"bash\",\"input\":{}}}\n\n")
+	chunks := extractClaudeStreamToolCalls(eventStart, &callIdx, &curID, &curName, "gemini-3.8-flash")
+	if len(chunks) != 1 {
+		t.Fatalf("expected 1 chunk from tool_use start, got %d", len(chunks))
+	}
+	var parsed1 struct {
+		Choices []struct {
+			Delta struct {
+				ToolCalls []struct {
+					Index    int    `json:"index"`
+					ID       string `json:"id"`
+					Function struct {
+						Name      string `json:"name"`
+						Arguments string `json:"arguments"`
+					} `json:"function"`
+				} `json:"tool_calls"`
+			} `json:"delta"`
+		} `json:"choices"`
+	}
+	if err := json.Unmarshal(chunks[0], &parsed1); err != nil {
+		t.Fatalf("failed to unmarshal chunk: %v", err)
+	}
+	if len(parsed1.Choices[0].Delta.ToolCalls) != 1 {
+		t.Fatalf("expected 1 tool call delta")
+	}
+	tc := parsed1.Choices[0].Delta.ToolCalls[0]
+	if tc.ID != "call_abc" || tc.Function.Name != "bash" || tc.Function.Arguments != "" {
+		t.Errorf("unexpected tool call start: %+v", tc)
+	}
+
+	// 2. content_block_delta input_json_delta
+	eventDelta := []byte("event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"{\\\"command\\\":\\\"ls\\\"}\"}}\n\n")
+	chunks = extractClaudeStreamToolCalls(eventDelta, &callIdx, &curID, &curName, "gemini-3.8-flash")
+	if len(chunks) != 1 {
+		t.Fatalf("expected 1 chunk from tool_use delta, got %d", len(chunks))
+	}
+	var parsed2 struct {
+		Choices []struct {
+			Delta struct {
+				ToolCalls []struct {
+					Index    int `json:"index"`
+					Function struct {
+						Arguments string `json:"arguments"`
+					} `json:"function"`
+				} `json:"tool_calls"`
+			} `json:"delta"`
+		} `json:"choices"`
+	}
+	if err := json.Unmarshal(chunks[0], &parsed2); err != nil {
+		t.Fatalf("failed to unmarshal chunk: %v", err)
+	}
+	if parsed2.Choices[0].Delta.ToolCalls[0].Function.Arguments != `{"command":"ls"}` {
+		t.Errorf("unexpected arguments delta: %s", parsed2.Choices[0].Delta.ToolCalls[0].Function.Arguments)
+	}
+}
+
+// TestAttemptOpenAIChat_NonStreamToolCalls 校验非流式请求在收到 tool_use 时的响应转换。
+func TestAttemptOpenAIChat_NonStreamToolCalls(t *testing.T) {
+	claudeResp := engineag.ClaudeResponse{
+		ID:         "msg_tool_test",
+		Type:       "message",
+		Role:       "assistant",
+		Model:      "gemini-3.8-flash",
+		StopReason: "tool_use",
+		Content: []engineag.ClaudeContentItem{
+			{
+				Type: "text",
+				Text: "I will execute the command.",
+			},
+			{
+				Type:  "tool_use",
+				ID:    "call_cmd_456",
+				Name:  "bash",
+				Input: map[string]any{"command": "echo 1"},
+			},
+		},
+		Usage: engineag.ClaudeUsage{
+			InputTokens:  15,
+			OutputTokens: 25,
+		},
+	}
+
+	claudeOut, _ := json.Marshal(claudeResp)
+	var claudeParsed engineag.ClaudeResponse
+	if err := json.Unmarshal(claudeOut, &claudeParsed); err != nil {
+		t.Fatal(err)
+	}
+
+	var contentStr string
+	var toolCalls []openAIToolCall
+	for _, c := range claudeParsed.Content {
+		switch c.Type {
+		case "text":
+			contentStr += c.Text
+		case "tool_use":
+			argsBytes, _ := json.Marshal(c.Input)
+			tc := openAIToolCall{
+				ID:   c.ID,
+				Type: "function",
+			}
+			tc.Function.Name = c.Name
+			tc.Function.Arguments = string(argsBytes)
+			toolCalls = append(toolCalls, tc)
+		}
+	}
+
+	respMsg := openAIRespMsg{
+		Role:      "assistant",
+		ToolCalls: toolCalls,
+	}
+	if contentStr != "" || len(toolCalls) == 0 {
+		respMsg.Content = &contentStr
+	}
+
+	finishReason := claudeStopReasonToOpenAI(claudeParsed.StopReason)
+	if len(toolCalls) > 0 {
+		finishReason = "tool_calls"
+	}
+
+	if finishReason != "tool_calls" {
+		t.Errorf("finish_reason = %q, want tool_calls", finishReason)
+	}
+	if len(respMsg.ToolCalls) != 1 {
+		t.Fatalf("expected 1 tool call, got %d", len(respMsg.ToolCalls))
+	}
+	if respMsg.ToolCalls[0].ID != "call_cmd_456" || respMsg.ToolCalls[0].Function.Name != "bash" {
+		t.Errorf("unexpected tool call in response: %+v", respMsg.ToolCalls[0])
 	}
 }
 
