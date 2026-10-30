@@ -119,8 +119,23 @@ func (p *StreamingProcessor) ProcessLine(line string) []byte {
 
 	// 处理 parts
 	if len(geminiResp.Candidates) > 0 && geminiResp.Candidates[0].Content != nil {
-		for _, part := range geminiResp.Candidates[0].Content.Parts {
-			_, _ = result.Write(p.processPart(&part))
+		/**
+		 * 内容过滤类收尾的候选内容不可用，**不能**把它当成正常 part 输出。
+		 *
+		 * 真实故障：上游以 MALFORMED_FUNCTION_CALL 收尾时，candidate 里仍带着
+		 * 一个结构错误的 functionCall（例如 args 为空的 {}）。旧实现照常走
+		 * processPart → processFunctionCall，于是这条坏调用被写成正常的
+		 * `tool_use` / OpenAI `tool_calls` 发给调用方；收尾时也只是 log 一句。
+		 * 调用方会去执行这个空参数工具，再带着坏调用进入下一轮，上游继续
+		 * 拒绝 —— 表现就是「反复中断、且看不到任何错误」。
+		 *
+		 * 对照 CLIProxyAPI：`isAntigravityContentFilterFinishReason` 命中时
+		 * 直接返回错误 payload，不把 candidate 内容当作有效回复。
+		 */
+		if !isContentFilterFinishReason(geminiResp.Candidates[0].FinishReason) {
+			for _, part := range geminiResp.Candidates[0].Content.Parts {
+				_, _ = result.Write(p.processPart(&part))
+			}
 		}
 	}
 
@@ -138,6 +153,20 @@ func (p *StreamingProcessor) ProcessLine(line string) []byte {
 					log.Printf("[Antigravity] Malformed content: %s", string(b))
 				}
 			}
+		}
+		/**
+		 * 内容过滤类收尾一律发 error 事件，不 emitFinish。
+		 *
+		 * 这里不能再走 emitFinish：它会让调用方收到 `stop_reason: tool_use`
+		 * 或 `end_turn` 的**成功**收尾，把「上游明确判为无效的一轮」粉饰成
+		 * 正常结束 —— 用户看到的就是「突然断了、什么提示都没有」。
+		 */
+		if isContentFilterFinishReason(finishReason) {
+			_, _ = result.Write(p.emitStreamError(fmt.Sprintf(
+				"上游以 %s 结束，本轮内容被丢弃（模型生成的工具调用结构错误或触发内容过滤），请重试",
+				finishReason,
+			)))
+			return result.Bytes()
 		}
 		if finishReason != "" {
 			_, _ = result.Write(p.emitFinish(finishReason))
@@ -562,4 +591,43 @@ func (p *StreamingProcessor) formatSSE(eventType string, data any) []byte {
 	}
 
 	return []byte(fmt.Sprintf("event: %s\ndata: %s\n\n", eventType, string(jsonData)))
+}
+
+// emitStreamError 用 Anthropic SSE 的 error 事件结束这一轮。
+//
+// 与「静默 emitFinish」的区别在于调用方能不能看见失败：error 事件会让
+// opencode 把这一轮标成错误并展示原因，而不是当成一次成功的空回复。
+func (p *StreamingProcessor) emitStreamError(message string) []byte {
+	var result bytes.Buffer
+
+	// 先把已打开的块收尾，避免调用方收到没有 content_block_stop 的残缺流。
+	_, _ = result.Write(p.endBlock())
+
+	_, _ = result.Write(p.formatSSE("error", map[string]any{
+		"type": "error",
+		"error": map[string]any{
+			"type":    "api_error",
+			"message": message,
+		},
+	}))
+	p.messageStopSent = true
+	return result.Bytes()
+}
+
+// isContentFilterFinishReason 判断该 finishReason 是否意味着「本轮内容无效」。
+//
+// 取值对照 CLIProxyAPI 的 `isAntigravityContentFilterFinishReason`。
+// 这些值下上游并没有给出可用的回复内容，必须转成错误，不能当正常结束：
+//   - MALFORMED_FUNCTION_CALL：模型生成的工具调用结构坏了（最常见，表现为
+//     「反复中断且没有报错」）；
+//   - MALFORMED_RESPONSE / SAFETY / RECITATION / BLOCKLIST / PROHIBITED_CONTENT /
+//     SPII / IMAGE_SAFETY：内容被判为不安全或被拦截。
+func isContentFilterFinishReason(reason string) bool {
+	switch strings.ToUpper(strings.TrimSpace(reason)) {
+	case "SAFETY", "RECITATION", "BLOCKLIST", "PROHIBITED_CONTENT", "SPII",
+		"IMAGE_SAFETY", "MALFORMED_RESPONSE", "MALFORMED_FUNCTION_CALL":
+		return true
+	default:
+		return false
+	}
 }

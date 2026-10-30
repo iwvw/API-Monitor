@@ -527,6 +527,8 @@ func (s *Service) pipeOpenAIStream(ctx context.Context, w http.ResponseWriter, b
 	toolCallIndex := -1
 	currentToolID := ""
 	currentToolName := ""
+	// 上游判定的致命错误。一旦出现，本轮必须以错误结束，不能再补成功收尾。
+	upstreamErr := ""
 
 	for scanner.Scan() {
 		line := scanner.Text()
@@ -575,11 +577,74 @@ func (s *Service) pipeOpenAIStream(ctx context.Context, w http.ResponseWriter, b
 				flusher.Flush()
 			}
 		}
+
+		/**
+		 * 上游判定的错误（如 MALFORMED_FUNCTION_CALL → error 事件）必须原样
+		 * 传给调用方。
+		 *
+		 * 此前这里只挑 text / tool_calls / usage 三类，error 事件被静默丢弃，
+		 * 于是「上游明确失败」在调用方看来只是「这一轮什么都没输出就结束了」，
+		 * 既没有报错也不会重试 —— 与用户报告的「总是中断、查不出原因」一致。
+		 *
+		 * 以 OpenAI 的 error chunk 形状下发，让 opencode 把它记成这一轮的错误。
+		 */
+		if msg, ok := extractClaudeStreamError(event); ok {
+			delivered = true
+			wrote = true
+			upstreamErr = msg
+			errChunk := map[string]any{
+				"error": map[string]any{
+					"message": msg,
+					"type":    "upstream_error",
+				},
+			}
+			b, _ := json.Marshal(errChunk)
+			if _, err := w.Write(append([]byte("data: "), append(b, '\n', '\n')...)); err != nil {
+				return attemptResult{wrote: true}
+			}
+			if flusher != nil {
+				flusher.Flush()
+			}
+		}
+	}
+
+	/**
+	 * 上游已经给出致命错误 → 只补 [DONE]，不再发 finish_reason。
+	 *
+	 * 发了 finish_reason 就等于告诉调用方「这一轮正常结束了」，与前面的
+	 * error chunk 自相矛盾：opencode 会把它当成功轮收尾，于是错误被吞掉，
+	 * 用户看到的仍然是「莫名其妙断了」。
+	 */
+	if upstreamErr != "" {
+		_, _ = w.Write([]byte("data: [DONE]\n\n"))
+		if flusher != nil {
+			flusher.Flush()
+		}
+		return attemptResult{wrote: true, err: fmt.Errorf("%s", upstreamErr)}
 	}
 
 	finishReason := "stop"
 	if sawToolCall {
 		finishReason = "tool_calls"
+	}
+
+	/**
+	 * 上游一个可解析 payload 都没给 → 不能补发「成功收尾」。
+	 *
+	 * 真实故障形态：上游流被掐断 / 返回空 body 时，这里过去仍会写出
+	 * `finish_reason:"stop"` + `[DONE]`。调用方（opencode）于是把这一轮判成
+	 * 「模型正常回了个空回复」——assistant 消息 `content=[]`、`tokens=0`，
+	 * 界面上什么都没发生，用户只看到「总是中断」，且没有任何错误可排查。
+	 *
+	 * 对照 CLIProxyAPI（internal/translator/antigravity/openai/chat-completions/
+	 * antigravity_openai_response.go:69-92）的 `SawResponse` 守卫：空上游必须
+	 * 保持「可判定为失败」，不能被粉饰成成功的空补全。
+	 *
+	 * 这里不写任何收尾事件并返回可重试错误，交给 forwardOpenAIChat 换号重试；
+	 * 全部账号都失败时错误会如实抛给调用方。
+	 */
+	if !delivered && !wrote {
+		return attemptResult{retryable: true, err: fmt.Errorf("上游未返回任何可解析内容（空响应流）")}
 	}
 
 	// 收尾 chunk：携带累计 usage 与正确的 finish_reason，外部消费方/网关可读出消耗与工具状态。
@@ -770,6 +835,49 @@ func extractClaudeStreamText(event []byte) string {
 			continue
 		}
 		return payload.Delta.Text
+	}
+}
+
+// extractClaudeStreamError 从 Claude SSE 事件里取值 Anthropic error 事件的 message。
+//
+// 上游判定的致命收尾（如 MALFORMED_FUNCTION_CALL）会走
+// `event: error / data: {"type":"error","error":{...,"message":...}}`。
+// 这条事件此前被 pipeOpenAIStream 忽略，必须显式取出来交给调用方。
+func extractClaudeStreamError(event []byte) (string, bool) {
+	s := string(event)
+	for {
+		idx := strings.Index(s, "data: ")
+		if idx < 0 {
+			return "", false
+		}
+		rest := s[idx+len("data: "):]
+		lineEnd := strings.IndexByte(rest, '\n')
+		var dataStr string
+		if lineEnd < 0 {
+			dataStr = strings.TrimSpace(rest)
+			s = ""
+		} else {
+			dataStr = strings.TrimSpace(rest[:lineEnd])
+			s = rest[lineEnd:]
+		}
+		var payload struct {
+			Type  string `json:"type"`
+			Error struct {
+				Type    string `json:"type"`
+				Message string `json:"message"`
+			} `json:"error"`
+		}
+		if err := json.Unmarshal([]byte(dataStr), &payload); err != nil {
+			continue
+		}
+		if payload.Type != "error" {
+			continue
+		}
+		msg := strings.TrimSpace(payload.Error.Message)
+		if msg == "" {
+			msg = "上游返回错误"
+		}
+		return msg, true
 	}
 }
 
