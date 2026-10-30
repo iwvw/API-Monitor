@@ -736,7 +736,7 @@ func init() {
 	routeRequestContracts["/api/server/agent/proxy/nodes"] = obj([]string{"server_id", "name", "protocol", "public_host"}, map[string]prop{
 		"server_id":            {t: "string", req: true, d: "Agent 主机 ID（先调 /api/server/accounts 获取）"},
 		"name":                 {t: "string", req: true, d: "节点名称（同一主机内唯一）"},
-		"protocol":             {t: "string", req: true, e: []string{"vless-reality", "hysteria2", "socks", "http"}, d: "节点协议"},
+		"protocol":             {t: "string", req: true, e: []string{"vless-reality", "hysteria2", "vless-ws", "vless-tls", "trojan", "vmess-ws", "socks", "http"}, d: "节点协议"},
 		"public_host":          {t: "string", req: true, d: "对外地址/主机名"},
 		"preset":               {t: "string", e: []string{"balanced", "low_latency", "stealth", "throughput"}, d: "sing-box 调优预设（GET /api/server/agent/proxy/presets），空值等价 balanced"},
 		"server_name":          {t: "string", d: "REALITY 握手落点，显式值优先于预设"},

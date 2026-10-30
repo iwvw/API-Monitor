@@ -189,12 +189,12 @@ func bindSubscriptionCredential(raw, protocol string, sub Subscription) string {
 		return raw
 	}
 	switch strings.ToLower(strings.TrimSpace(protocol)) {
-	case "vless-reality", "vless-ws-tunnel", "vless":
+	case "vless-reality", "vless-ws-tunnel", "vless", "vless-ws", "vless-tls", "vmess-ws":
 		if strings.TrimSpace(sub.VLESSUUID) == "" {
 			return raw
 		}
 		parsed.User = url.User(sub.VLESSUUID)
-	case "hysteria2", "hy2":
+	case "hysteria2", "hy2", "trojan":
 		if strings.TrimSpace(sub.Hysteria2Password) == "" {
 			return raw
 		}

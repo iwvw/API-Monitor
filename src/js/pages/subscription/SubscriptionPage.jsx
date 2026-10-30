@@ -613,7 +613,7 @@ function SubscriptionPage() {
   const planItems = useMemo(() => plans.map((item) => ({ value: item.id, label: item.enabled ? item.name : `${item.name}（已停用）`, disabled: !item.enabled })), [plans]);
   const firstEnabledPlanID = useMemo(() => plans.find((item) => item.enabled)?.id || '', [plans]);
   const planCandidateNodes = useMemo(() => [
-    ...internalNodes.map((node) => ({ ...node, source_group: 'internal', display_type: node.protocol === 'vless-reality' ? 'vless' : node.protocol })),
+    ...internalNodes.map((node) => ({ ...node, source_group: 'internal', display_type: node.protocol.startsWith('vless') ? 'vless' : node.protocol === 'vmess-ws' ? 'vmess' : node.protocol })),
     ...nodes.map((node) => ({ ...node, source_group: 'external', display_type: String(node.type || 'unknown').toLowerCase() })),
   ], [internalNodes, nodes]);
   const planNodeTypeItems = useMemo(() => [{ value: 'all', label: '全部类型' }, ...Array.from(new Set(planCandidateNodes.map((node) => node.display_type))).sort().map((value) => ({ value, label: value.toUpperCase() }))], [planCandidateNodes]);

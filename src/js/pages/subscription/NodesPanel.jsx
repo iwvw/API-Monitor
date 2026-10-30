@@ -33,7 +33,7 @@ export default function NodesPanel({
           <Table.Body>
             {internalNodes.map((node) => {
               const server = servers.find((item) => item.id === node.server_id);
-              const protocol = node.protocol === 'vless-reality' ? 'vless' : node.protocol;
+              const protocol = node.protocol.startsWith('vless') ? 'vless' : node.protocol === 'vmess-ws' ? 'vmess' : node.protocol;
               const isTunnelNode = node.access_mode === 'cloudflare_tunnel';
               const preferredAddress = preferredAddresses.find((item) => item.id === node.preferred_address_id && item.enabled !== false)
                 || preferredAddresses.find((item) => item.is_default && item.enabled !== false);
@@ -43,9 +43,11 @@ export default function NodesPanel({
               const displayPort = isTunnelNode
                 ? (node.connect_port || preferredAddress?.port || 443)
                 : (node.assigned_port || '-');
+              const protocolLabel = { 'vless-reality': 'VLESS REALITY', 'vless-ws': 'VLESS WS', 'vless-tls': 'VLESS TLS', hysteria2: 'HYSTERIA2', 'vmess-ws': 'VMESS WS', trojan: 'TROJAN', socks: 'SOCKS5', http: 'HTTP' }[node.protocol] || String(node.protocol || 'UNKNOWN').toUpperCase();
+              const protocolTag = { 'vless-reality': 'reality', 'vless-ws': 'ws', 'vless-tls': 'tls', hysteria2: 'tls', 'vmess-ws': 'ws', trojan: 'tls' }[node.protocol] || null;
               const connectionTags = isTunnelNode
                 ? ['ws', 'tls', 'tunnel', node.runtime].filter(Boolean)
-                : [node.transport, node.protocol === 'vless-reality' ? 'reality' : (node.protocol === 'hysteria2' ? 'tls' : null), node.runtime].filter(Boolean);
+                : [node.transport, protocolTag, node.runtime].filter(Boolean);
               const reconciling = !!internalNodeActions[`${node.id}:reconcile`];
               const deleting = !!internalNodeActions[`${node.id}:delete`];
               const deleteConfirmKey = `internal-node-delete:${node.id}`;
@@ -53,7 +55,7 @@ export default function NodesPanel({
               return <Table.Row key={node.id} onDoubleClick={() => onEditInternalNode(node)} className="cursor-pointer">
                 <Table.Cell className="text-center"><Switch size="sm" aria-label={node.enabled ? '停用内部节点' : '启用内部节点'} checked={!!node.enabled} onCheckedChange={(checked) => onToggleInternalNodeEnabled(node, checked)} /></Table.Cell>
                 <Table.Cell><div className="flex min-w-0 items-center gap-1.5 truncate text-sm font-semibold text-kumo-strong">{node.name}</div>{!node.publishable && (() => { const [stateLabel, stateVariant] = managedNodeState(node); return <div className="mt-1"><Badge variant={stateVariant}>{stateLabel}</Badge></div>; })()}</Table.Cell>
-                <Table.Cell className="text-center"><Badge variant={nodeTypeBadgeVariant(protocol)} className="uppercase">{node.protocol === 'vless-reality' ? 'VLESS' : node.protocol === 'hysteria2' ? 'HYSTERIA2' : node.protocol === 'socks' ? 'SOCKS5' : node.protocol === 'http' ? 'HTTP' : String(node.protocol || 'UNKNOWN').toUpperCase()}</Badge></Table.Cell>
+                <Table.Cell className="text-center"><Badge variant={nodeTypeBadgeVariant(protocol)} className="uppercase">{protocolLabel}</Badge></Table.Cell>
                 <Table.Cell><div className="truncate font-mono text-xs text-kumo-strong">{displayHost}:{displayPort}</div><div className="mt-1 flex min-w-0 flex-nowrap items-center gap-1 overflow-x-auto scrollbar-none">{connectionTags.map((tag) => <span key={tag} className={`${tag === node.runtime ? 'hidden cq-sm:inline-flex' : 'inline-flex'} shrink-0 rounded-[3px] border px-1.5 py-0.5 font-mono text-[10px] leading-4 ${nodeNetworkTagClass({ key: tag === 'tls' ? 'tls' : 'network', tone: tag })}`}>{tag}</span>)}</div></Table.Cell>
                 <Table.Cell>{server?.status === 'online' ? <NodeHostQuality node={{ ...node, traffic_server_id: node.server_id }} serverNameById={serverNameById} /> : <div className="flex min-w-0 flex-col items-start gap-1"><span className="inline-flex max-w-full rounded-[3px] border border-kumo-info/25 bg-kumo-info/10 px-1.5 py-0.5 text-[10px] font-semibold leading-4 text-kumo-info"><span className="truncate">{server?.name || node.server_name || node.server_id}</span></span><span className={`inline-flex rounded-[3px] border px-1.5 py-0.5 text-[10px] font-semibold leading-4 ${latencyChipClass(0)}`}>主机离线</span></div>}</Table.Cell>
                 <Table.Cell className="text-center"><div className="inline-flex items-center justify-center gap-2"><Button size="sm" shape="square" variant="secondary" aria-label={`编辑 ${node.name}`} title={`编辑 ${node.name}`} disabled={reconciling || deleting} onClick={(event) => { event.stopPropagation(); onEditInternalNode(node); }} icon={<Edit className="h-3.5 w-3.5" />} /><RefreshButton size="sm" variant="secondary" loading={reconciling} aria-label={`重新部署 ${node.name}`} title={`重新部署 ${node.name}`} disabled={reconciling || deleting} onClick={(event) => { event.stopPropagation(); onReconcileInternalNode(node); }} /><Button size="sm" shape="square" variant={confirmingDelete ? 'destructive' : 'secondary-destructive'} aria-label={confirmingDelete ? `再次确认卸载 ${node.name}` : `卸载 ${node.name}`} title={confirmingDelete ? '再次点击确认卸载' : `卸载 ${node.name}`} disabled={reconciling} loading={deleting} onClick={(event) => { event.stopPropagation(); onDeleteInternalNode(node); }} icon={<Trash className="h-3.5 w-3.5" />} /></div></Table.Cell>

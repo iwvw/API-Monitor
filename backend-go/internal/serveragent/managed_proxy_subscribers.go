@@ -47,14 +47,19 @@ func bindManagedNodeSubscribers(ctx context.Context, db *sql.DB, nodeID, protoco
 	subscriberCount := 0
 	for _, credential := range credentials {
 		switch protocol {
-		case "vless-reality":
+		case "vless-reality", "vless-tls":
 			if credential.VLESSUUID != "" {
 				users = append(users, map[string]interface{}{"name": credential.SubscriptionID, "uuid": credential.VLESSUUID, "flow": "xtls-rprx-vision"})
 				subscriberCount++
 			}
-		case "vless-ws-tunnel", "vless":
+		case "vless-ws-tunnel", "vless", "vless-ws", "vmess-ws":
 			if credential.VLESSUUID != "" {
 				users = append(users, map[string]interface{}{"name": credential.SubscriptionID, "uuid": credential.VLESSUUID})
+				subscriberCount++
+			}
+		case "trojan":
+			if credential.Hysteria2Password != "" {
+				users = append(users, map[string]interface{}{"name": credential.SubscriptionID, "password": credential.Hysteria2Password})
 				subscriberCount++
 			}
 		case "hysteria2", "hy2":

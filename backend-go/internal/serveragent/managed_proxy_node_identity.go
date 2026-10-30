@@ -139,6 +139,86 @@ func generateNodeWithPreset(id, name, protocol, host, serverName, cert, key stri
 		encoded, _ := json.Marshal(root)
 		return string(encoded), fmt.Sprintf("%s://%s:%s@%s:0#%s", protocol, username, password, host, url.QueryEscape(name)), "tcp", nil
 	}
+	// vless-ws：明文 WebSocket 上的 VLESS。不需要证书，可被 Cloudflare 等
+	// 任意 HTTP 反代/CDN 前置，是穿透性最好、握手最轻的组合。
+	if protocol == "vless-ws" {
+		userID := uuid.NewString()
+		wsPath := "/" + strings.ReplaceAll(uuid.NewString(), "-", "")
+		inbound := map[string]interface{}{
+			"type": "vless", "tag": id, "listen": "::", "listen_port": 0,
+			"users":     []interface{}{map[string]interface{}{"uuid": userID}},
+			"transport": map[string]interface{}{"type": "ws", "path": wsPath},
+		}
+		root := map[string]interface{}{"log": map[string]interface{}{"level": "warn"}, "inbounds": []interface{}{inbound}, "outbounds": []interface{}{map[string]interface{}{"type": "direct", "tag": "direct"}}}
+		encoded, _ := json.Marshal(root)
+		q := url.Values{"encryption": {"none"}, "security": {"none"}, "type": {"ws"}, "path": {wsPath}, "host": {host}}
+		return string(encoded), fmt.Sprintf("vless://%s@%s:0?%s#%s", userID, host, q.Encode(), url.QueryEscape(name)), "tcp", nil
+	}
+	// vless-tls：标准 TLS + XTLS Vision（非 REALITY，用自有证书）。
+	// 适合已有域名证书的直连场景，不依赖 REALITY 落点。
+	if protocol == "vless-tls" {
+		if !strings.Contains(cert, "BEGIN CERTIFICATE") || !strings.Contains(key, "BEGIN") {
+			return "", "", "", errors.New("VLESS TLS certificate generation failed")
+		}
+		if strings.TrimSpace(serverName) == "" {
+			serverName = host
+		}
+		userID := uuid.NewString()
+		inbound := map[string]interface{}{
+			"type": "vless", "tag": id, "listen": "::", "listen_port": 0,
+			"users": []interface{}{map[string]interface{}{"uuid": userID, "flow": "xtls-rprx-vision"}},
+			"tls": map[string]interface{}{
+				"enabled":     true,
+				"server_name": serverName,
+				"certificate": strings.Split(strings.TrimSpace(cert), "\n"),
+				"key":         strings.Split(strings.TrimSpace(key), "\n"),
+			},
+		}
+		root := map[string]interface{}{"log": map[string]interface{}{"level": "warn"}, "inbounds": []interface{}{inbound}, "outbounds": []interface{}{map[string]interface{}{"type": "direct", "tag": "direct"}}}
+		encoded, _ := json.Marshal(root)
+		q := url.Values{"encryption": {"none"}, "flow": {"xtls-rprx-vision"}, "security": {"tls"}, "sni": {serverName}, "fp": {"chrome"}, "type": {"tcp"}}
+		return string(encoded), fmt.Sprintf("vless://%s@%s:0?%s#%s", userID, host, q.Encode(), url.QueryEscape(name)), "tcp", nil
+	}
+	// trojan：TLS 之上的类 HTTPS 协议，特征接近普通 HTTPS，兼容性极好。
+	if protocol == "trojan" {
+		if !strings.Contains(cert, "BEGIN CERTIFICATE") || !strings.Contains(key, "BEGIN") {
+			return "", "", "", errors.New("Trojan TLS certificate generation failed")
+		}
+		if strings.TrimSpace(serverName) == "" {
+			serverName = host
+		}
+		passwordBytes := make([]byte, 24)
+		_, _ = rand.Read(passwordBytes)
+		password := base64.RawURLEncoding.EncodeToString(passwordBytes)
+		inbound := map[string]interface{}{
+			"type": "trojan", "tag": id, "listen": "::", "listen_port": 0,
+			"users": []interface{}{map[string]interface{}{"password": password}},
+			"tls": map[string]interface{}{
+				"enabled":     true,
+				"server_name": serverName,
+				"certificate": strings.Split(strings.TrimSpace(cert), "\n"),
+				"key":         strings.Split(strings.TrimSpace(key), "\n"),
+			},
+		}
+		root := map[string]interface{}{"log": map[string]interface{}{"level": "warn"}, "inbounds": []interface{}{inbound}, "outbounds": []interface{}{map[string]interface{}{"type": "direct", "tag": "direct"}}}
+		encoded, _ := json.Marshal(root)
+		q := url.Values{"security": {"tls"}, "sni": {serverName}, "type": {"tcp"}, "allowInsecure": {"1"}}
+		return string(encoded), fmt.Sprintf("trojan://%s@%s:0?%s#%s", password, host, q.Encode(), url.QueryEscape(name)), "tcp", nil
+	}
+	// vmess-ws：VMess over WebSocket，老牌协议，客户端支持面最广。
+	if protocol == "vmess-ws" {
+		userID := uuid.NewString()
+		wsPath := "/" + strings.ReplaceAll(uuid.NewString(), "-", "")
+		inbound := map[string]interface{}{
+			"type": "vmess", "tag": id, "listen": "::", "listen_port": 0,
+			"users":     []interface{}{map[string]interface{}{"uuid": userID, "alterId": 0, "security": "auto"}},
+			"transport": map[string]interface{}{"type": "ws", "path": wsPath},
+		}
+		root := map[string]interface{}{"log": map[string]interface{}{"level": "warn"}, "inbounds": []interface{}{inbound}, "outbounds": []interface{}{map[string]interface{}{"type": "direct", "tag": "direct"}}}
+		encoded, _ := json.Marshal(root)
+		q := url.Values{"encryption": {"none"}, "security": {"none"}, "type": {"ws"}, "path": {wsPath}, "host": {host}}
+		return string(encoded), fmt.Sprintf("vmess://%s@%s:0?%s#%s", userID, host, q.Encode(), url.QueryEscape(name)), "tcp", nil
+	}
 	if protocol == "vless-reality" {
 		serverName = sanitizeRealityServerName(serverName)
 		private := make([]byte, 32)

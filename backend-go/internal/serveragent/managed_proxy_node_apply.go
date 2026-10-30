@@ -304,6 +304,12 @@ func resolveManagedNodeClientURI(ctx context.Context, db *sql.DB, node managedPr
 	if strings.TrimSpace(node.ClientURI) == "" {
 		return node.ClientURI
 	}
+	// Direct 节点直连主机真实地址，不能套用 CDN 优选地址：
+	// REALITY / 裸 TLS 协议无法穿过 Cloudflare 之类的前置代理，
+	// 套用后客户端会连到 CDN 而握手必然失败。
+	if node.AccessMode == "direct" {
+		return node.ClientURI
+	}
 	address, port := strings.TrimSpace(node.ConnectAddress), node.ConnectPort
 	if address == "" && node.PreferredAddressID != "" {
 		_ = db.QueryRowContext(ctx, `SELECT address,port FROM managed_proxy_preferences WHERE id=? AND enabled=1`, node.PreferredAddressID).Scan(&address, &port)
@@ -314,7 +320,7 @@ func resolveManagedNodeClientURI(ctx context.Context, db *sql.DB, node managedPr
 	if address == "" {
 		address = node.TunnelHostname
 	}
-	if address == "" && node.AccessMode == "direct" {
+	if address == "" {
 		return node.ClientURI
 	}
 	if port == 0 {

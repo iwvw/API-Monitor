@@ -306,9 +306,9 @@ func (s *Service) createManagedProxyNode(w http.ResponseWriter, r *http.Request,
 		return
 	}
 	switch input.Protocol {
-	case "vless-reality", "hysteria2", "socks", "http":
+	case "vless-reality", "hysteria2", "socks", "http", "vless-ws", "vless-tls", "trojan", "vmess-ws":
 	default:
-		response.Error(w, 400, "protocol must be vless-reality, hysteria2, socks or http")
+		response.Error(w, 400, "protocol must be vless-reality, hysteria2, vless-ws, vless-tls, trojan, vmess-ws, socks or http")
 		return
 	}
 	if (input.Protocol == "socks" || input.Protocol == "http") && input.AccessMode != "direct" {

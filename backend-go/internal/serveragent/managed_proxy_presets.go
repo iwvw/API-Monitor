@@ -38,7 +38,7 @@ var managedProxyPresetCatalog = []managedProxyPreset{
 		ID:          "balanced",
 		Name:        "均衡（默认）",
 		Description: "REALITY 容忍 1 分钟时钟偏差；Hysteria2 走 BBR 并伪装成普通站点。适合绝大多数主机。",
-		Protocols:   []string{"vless-reality", "hysteria2"},
+		Protocols:   []string{"vless-reality", "hysteria2", "vless-ws", "vless-tls", "trojan", "vmess-ws"},
 		Options: map[string]interface{}{
 			"reality_max_time_difference":       "1m",
 			"hysteria2_ignore_client_bandwidth": true,
@@ -49,7 +49,7 @@ var managedProxyPresetCatalog = []managedProxyPreset{
 		ID:          "low_latency",
 		Name:        "低延迟",
 		Description: "REALITY 收紧时钟容差（10s），客户端需校时准确；Hysteria2 关闭伪装页以减少握手开销。",
-		Protocols:   []string{"vless-reality", "hysteria2"},
+		Protocols:   []string{"vless-reality", "hysteria2", "vless-ws", "vless-tls", "trojan", "vmess-ws"},
 		Options: map[string]interface{}{
 			"reality_max_time_difference":       "10s",
 			"hysteria2_ignore_client_bandwidth": true,
@@ -60,7 +60,7 @@ var managedProxyPresetCatalog = []managedProxyPreset{
 		ID:          "stealth",
 		Name:        "隐蔽优先",
 		Description: "REALITY 握手落到微软主站；Hysteria2 伪装为静态站点，降低被主动探测识别的概率。",
-		Protocols:   []string{"vless-reality", "hysteria2"},
+		Protocols:   []string{"vless-reality", "hysteria2", "vless-ws", "vless-tls", "trojan", "vmess-ws"},
 		Options: map[string]interface{}{
 			"reality_server_name":               "www.microsoft.com",
 			"reality_max_time_difference":       "1m",
@@ -72,7 +72,7 @@ var managedProxyPresetCatalog = []managedProxyPreset{
 		ID:          "throughput",
 		Name:        "吞吐优先",
 		Description: "Hysteria2 显式声明 200Mbps 上下行（禁用 BBR，改由带宽上限约束）；适合高带宽独享主机。REALITY 保持均衡参数。",
-		Protocols:   []string{"vless-reality", "hysteria2"},
+		Protocols:   []string{"vless-reality", "hysteria2", "vless-ws", "vless-tls", "trojan", "vmess-ws"},
 		Options: map[string]interface{}{
 			"reality_max_time_difference": "1m",
 			// sing-box 的 up_mbps/down_mbps 与 ignore_client_bandwidth 互斥：

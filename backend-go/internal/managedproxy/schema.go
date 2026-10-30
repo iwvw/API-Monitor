@@ -14,13 +14,13 @@ import (
 // can assume. SOCKS (socks5) and HTTP inbounds are plaintext transport; they
 // are still individually metered because sing-box populates metadata.User for
 // authenticated users on every inbound type.
-var indexNodeProtocols = []string{"vless-reality", "hysteria2", "vless-ws-tunnel", "socks", "http"}
+var indexNodeProtocols = []string{"vless-reality", "hysteria2", "vless-ws-tunnel", "vless-ws", "vless-tls", "trojan", "vmess-ws", "socks", "http"}
 
 const NodeTableDDL = `CREATE TABLE IF NOT EXISTS managed_proxy_nodes (
 	id TEXT PRIMARY KEY,
 	server_id TEXT NOT NULL,
 	name TEXT NOT NULL,
-	protocol TEXT NOT NULL CHECK(protocol IN ('vless-reality', 'hysteria2', 'vless-ws-tunnel', 'socks', 'http')),
+	protocol TEXT NOT NULL CHECK(protocol IN ('vless-reality', 'hysteria2', 'vless-ws-tunnel', 'vless-ws', 'vless-tls', 'trojan', 'vmess-ws', 'socks', 'http')),
 	runtime TEXT NOT NULL DEFAULT 'sing-box',
 	public_host TEXT NOT NULL,
 	assigned_port INTEGER NOT NULL DEFAULT 0,
