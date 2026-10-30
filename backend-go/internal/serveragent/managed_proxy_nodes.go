@@ -340,11 +340,12 @@ func (s *Service) createManagedProxyNode(w http.ResponseWriter, r *http.Request,
 	if !s.requireAgentCapability(w, input.ServerID, "proxy_user_traffic_v1") {
 		return
 	}
-	// Connection addressing belongs to the host instance. The caller only
-	// chooses the node identity/protocol; changing a host address is done from
-	// Host Instances and is picked up by the next deployment.
+	// 默认使用主机实例地址，但允许调用方显式指定（典型场景：主机同时具备 IPv4
+	// 与 IPv6，而 IPv4 出口被封锁时节点需要绑定 IPv6 地址）。
 	if input.AccessMode == "direct" {
-		input.PublicHost = strings.TrimSpace(accountHost)
+		if strings.TrimSpace(input.PublicHost) == "" || strings.TrimSpace(input.PublicHost) == "0.0.0.0" {
+			input.PublicHost = strings.TrimSpace(accountHost)
+		}
 	}
 	if input.PublicHost == "" || input.PublicHost == "0.0.0.0" {
 		response.Error(w, 400, "host instance has no deployable address")
