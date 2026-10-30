@@ -109,3 +109,25 @@ func TestPipeOpenAIStream_ToolCallOnlyIsNotEmpty(t *testing.T) {
 		t.Fatalf("纯工具调用应以 tool_calls 收尾，实际:\n%s", rec.Body.String())
 	}
 }
+
+// 对照：只有 reasoning（thinking）没有正文也没有工具调用，也算有效产出——
+// 长思考模型常以 thought-only 收尾，不能被「上游未返回任何可解析内容」的
+// 空响应守卫误杀而进入换号重试。
+func TestPipeOpenAIStream_ThinkingOnlyStreamIsNotEmpty(t *testing.T) {
+	s := &Service{}
+	rec := httptest.NewRecorder()
+
+	body := strings.NewReader(
+		`data: {"response":{"candidates":[{"content":{"parts":[{"text":"let me think","thought":true}]},"finishReason":"STOP"}]}}` + "\n\n",
+	)
+
+	res := s.pipeOpenAIStream(
+		context.Background(), rec, body, &Account{},
+		&openAIChatRequest{Model: "gemini-3.8-flash", Stream: true},
+		&engineag.ClaudeRequest{Model: "gemini-3.8-flash"},
+	)
+
+	if res.err != nil {
+		t.Fatalf("thinking-only 流不应判为空响应重试，实际 err: %v", res.err)
+	}
+}
