@@ -754,6 +754,9 @@ func (s *Service) attemptClaudeForward(ctx context.Context, w http.ResponseWrite
 	scanner := bufio.NewScanner(resp.Body)
 	scanner.Buffer(make([]byte, 1024*1024), 1024*1024)
 	inTok, outTok := 0, 0
+	// 上下文缓存同样要累计：Claude 口径的 input_tokens 不含 cache_read，
+	// 此前这里也丢弃了 cache 字段，导致走 Anthropic 直通路径的请求缓存恒为 0。
+	cacheReadTok, cacheWriteTok := 0, 0
 	wrote := false
 	for scanner.Scan() {
 		line := scanner.Text()
@@ -761,13 +764,19 @@ func (s *Service) attemptClaudeForward(ctx context.Context, w http.ResponseWrite
 		if len(event) > 0 {
 			wrote = true
 			// 从 Claude SSE 事件里累计 token 用量（message_start 的 input_tokens /
-			// message_delta 的 output_tokens），流结束后记账。
-			if it, ot, ok := extractClaudeStreamUsage(event); ok {
-				if it > 0 {
-					inTok = it
+			// message_delta 的 output_tokens / cache_* 字段），流结束后记账。
+			if u, ok := extractClaudeStreamUsage(event); ok {
+				if u.InputTokens > 0 {
+					inTok = u.InputTokens
 				}
-				if ot > 0 {
-					outTok = ot
+				if u.OutputTokens > 0 {
+					outTok = u.OutputTokens
+				}
+				if u.CacheReadTokens > 0 {
+					cacheReadTok = u.CacheReadTokens
+				}
+				if u.CacheCreationTokens > 0 {
+					cacheWriteTok = u.CacheCreationTokens
 				}
 			}
 			if _, err := w.Write(event); err != nil {
@@ -788,8 +797,9 @@ func (s *Service) attemptClaudeForward(ctx context.Context, w http.ResponseWrite
 			flusher.Flush()
 		}
 	}
-	if inTok > 0 || outTok > 0 {
-		s.recordUsage(acc.Email, mappedModel, int64(inTok), int64(outTok), 0)
+	if inTok > 0 || outTok > 0 || cacheReadTok > 0 {
+		s.recordUsage(acc.Email, mappedModel, int64(inTok), int64(outTok), int64(cacheReadTok))
+		_ = cacheWriteTok // 写入量当前只用于记账口径对齐，暂不单独落库
 	}
 	if err := scanner.Err(); err != nil {
 		if wrote {

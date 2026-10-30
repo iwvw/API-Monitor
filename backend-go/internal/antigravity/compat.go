@@ -519,6 +519,9 @@ func (s *Service) pipeOpenAIStream(ctx context.Context, w http.ResponseWriter, b
 	processor := engineag.NewStreamingProcessor(claudeReq.Model)
 	scanner := newScanner(body)
 	inTok, outTok := 0, 0
+	// 上下文字段：Claude 口径的 input_tokens 不含 cache_read，必须分开累计，
+	// 否则记账里缓存永远是 0。
+	cacheReadTok, cacheWriteTok := 0, 0
 	delivered := false
 	wrote := false
 
@@ -536,13 +539,20 @@ func (s *Service) pipeOpenAIStream(ctx context.Context, w http.ResponseWriter, b
 		if len(event) == 0 {
 			continue
 		}
-		// 提取 Claude SSE 里的 usage
-		if it, ot, ok := extractClaudeStreamUsage(event); ok {
-			if it > 0 {
-				inTok = it
+		// 提取 Claude SSE 里的 usage（含 cache 读/写，此前只取 input/output，
+		// 导致用量面板缓存恒为 0）
+		if u, ok := extractClaudeStreamUsage(event); ok {
+			if u.InputTokens > 0 {
+				inTok = u.InputTokens
 			}
-			if ot > 0 {
-				outTok = ot
+			if u.OutputTokens > 0 {
+				outTok = u.OutputTokens
+			}
+			if u.CacheReadTokens > 0 {
+				cacheReadTok = u.CacheReadTokens
+			}
+			if u.CacheCreationTokens > 0 {
+				cacheWriteTok = u.CacheCreationTokens
 			}
 		}
 
@@ -657,13 +667,21 @@ func (s *Service) pipeOpenAIStream(ctx context.Context, w http.ResponseWriter, b
 		"id": "chatcmpl-" + reqID24(), "object": "chat.completion.chunk", "created": time.Now().Unix(), "model": oaiReq.Model,
 		"choices": []any{map[string]any{"index": 0, "delta": map[string]any{}, "finish_reason": finishReason}},
 	}
-	if inTok > 0 || outTok > 0 {
-		end["usage"] = map[string]any{
+	if inTok > 0 || outTok > 0 || cacheReadTok > 0 {
+		usageMap := map[string]any{
 			"prompt_tokens":     inTok,
 			"completion_tokens": outTok,
 			"total_tokens":      inTok + outTok,
 		}
-		s.recordUsage(acc.Email, claudeReq.Model, int64(inTok), int64(outTok), 0)
+		// 缓存字段按 OpenAI 口径透出，调用方（含自建 UI）才能看到命中情况。
+		if cacheReadTok > 0 {
+			usageMap["prompt_tokens_details"] = map[string]any{"cached_tokens": cacheReadTok}
+		}
+		if cacheWriteTok > 0 {
+			usageMap["cache_creation_input_tokens"] = cacheWriteTok
+		}
+		end["usage"] = usageMap
+		s.recordUsage(acc.Email, claudeReq.Model, int64(inTok), int64(outTok), int64(cacheReadTok))
 	}
 	b, _ := json.Marshal(end)
 	_, _ = w.Write(append([]byte("data: "), append(b, '\n', '\n')...))
@@ -923,15 +941,28 @@ func extractClaudeStreamError(event []byte) (string, bool) {
 	}
 }
 
+// streamUsage 是一次 SSE 事件里携带的用量快照。
+//
+// 必须把 cache 两个字段一起读出来：上游 Gemini 会把「命中上下文的 token」
+// 放在 cacheReadInputTokens 里，而 Claude 口径的 input_tokens **不含**这部分。
+// 此前只取 input/output，cache 恒为 0 —— 表现为用量面板「缓存全是 0」，
+// 看起来像完全没命中缓存，实际是没读。
+type streamUsage struct {
+	InputTokens         int
+	OutputTokens        int
+	CacheReadTokens     int
+	CacheCreationTokens int
+}
+
 // extractClaudeStreamUsage 从 Claude SSE 事件中提取 token 用量。
 // Claude 在 message_start.message.usage 带 input_tokens（流起点），
 // message_delta.usage.output_tokens 累积输出。只处理这两种事件。
-func extractClaudeStreamUsage(event []byte) (int, int, bool) {
+func extractClaudeStreamUsage(event []byte) (streamUsage, bool) {
 	s := string(event)
 	for {
 		idx := strings.Index(s, "data: ")
 		if idx < 0 {
-			return 0, 0, false
+			return streamUsage{}, false
 		}
 		rest := s[idx+len("data: "):]
 		lineEnd := strings.IndexByte(rest, '\n')
@@ -946,30 +977,40 @@ func extractClaudeStreamUsage(event []byte) (int, int, bool) {
 		if dataStr == "" || dataStr == "[DONE]" {
 			continue
 		}
+		type usagePayload struct {
+			InputTokens         int `json:"input_tokens"`
+			OutputTokens        int `json:"output_tokens"`
+			CacheReadTokens     int `json:"cache_read_input_tokens"`
+			CacheCreationTokens int `json:"cache_creation_input_tokens"`
+		}
 		var payload struct {
 			Type    string `json:"type"`
 			Message struct {
-				Usage struct {
-					InputTokens  int `json:"input_tokens"`
-					OutputTokens int `json:"output_tokens"`
-				} `json:"usage"`
+				Usage usagePayload `json:"usage"`
 			} `json:"message,omitempty"`
-			Usage struct {
-				InputTokens  int `json:"input_tokens"`
-				OutputTokens int `json:"output_tokens"`
-			} `json:"usage,omitempty"`
+			Usage usagePayload `json:"usage,omitempty"`
 		}
 		if json.Unmarshal([]byte(dataStr), &payload) != nil {
 			continue
 		}
+		toStreamUsage := func(u usagePayload) streamUsage {
+			return streamUsage{
+				InputTokens:         u.InputTokens,
+				OutputTokens:        u.OutputTokens,
+				CacheReadTokens:     u.CacheReadTokens,
+				CacheCreationTokens: u.CacheCreationTokens,
+			}
+		}
 		switch payload.Type {
 		case "message_start":
-			if payload.Message.Usage.InputTokens > 0 || payload.Message.Usage.OutputTokens > 0 {
-				return payload.Message.Usage.InputTokens, payload.Message.Usage.OutputTokens, true
+			u := toStreamUsage(payload.Message.Usage)
+			if u.InputTokens > 0 || u.OutputTokens > 0 || u.CacheReadTokens > 0 {
+				return u, true
 			}
 		case "message_delta":
-			if payload.Usage.InputTokens > 0 || payload.Usage.OutputTokens > 0 {
-				return payload.Usage.InputTokens, payload.Usage.OutputTokens, true
+			u := toStreamUsage(payload.Usage)
+			if u.InputTokens > 0 || u.OutputTokens > 0 || u.CacheReadTokens > 0 {
+				return u, true
 			}
 		}
 	}
