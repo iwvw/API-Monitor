@@ -204,6 +204,14 @@ jobs:
           if [ "${{ github.event_name }}" = "push" ] && [ "${{ github.ref }}" = "refs/heads/dev" ]; then
             AGENT="${{ steps.changed.outputs.agent }}"
             RELAY="${{ steps.changed.outputs.relay }}"
+
+            # 如果最新 commit 历史里有 agent-rust 变更未发布，或者当前 release 版本低于 Cargo.toml，强制构建
+            CARGO_VER="$(grep -m1 '^version = ' agent-rust/Cargo.toml | cut -d'"' -f2)"
+            REL_VER="$(gh release view built-agents --repo "$GITHUB_REPOSITORY" --json body --jq '.body' 2>/dev/null | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' | head -1 | tr -d 'v' || true)"
+            if [ -n "$CARGO_VER" ] && [ "$CARGO_VER" != "$REL_VER" ]; then
+              echo "Cargo version ($CARGO_VER) differs from built-agents ($REL_VER); forcing agent build."
+              AGENT="true"
+            fi
             # 若仓库还没有滚动 release 且本次又无二进制变更，强制全流程以完成首次发布。
             # 另外：滚动 release 若**产物不齐**（例如某平台上次构建被并发取消，而后续
             # 推送又因无 delta 一直跳过 build-agent），会永久停留在「新旧混装」状态，
