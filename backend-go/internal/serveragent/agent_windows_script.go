@@ -105,6 +105,11 @@ if ($oldProcess) {
 # 清掉历史遗留的临时下载文件（可能是旧版本的固定名或本版本中断留下的）。
 Get-ChildItem -Path $INSTALL_DIR -Filter "api-monitor-agent*.download.exe" -ErrorAction SilentlyContinue |
     Remove-Item -Force -ErrorAction SilentlyContinue
+# 清掉历史升级备份二进制（.prev.exe / .previous），避免安装目录长期堆积。
+Get-ChildItem -Path $INSTALL_DIR -Filter "api-monitor-agent*.prev.exe" -ErrorAction SilentlyContinue |
+    Remove-Item -Force -ErrorAction SilentlyContinue
+Get-ChildItem -Path $INSTALL_DIR -Filter "api-monitor-agent*.previous" -ErrorAction SilentlyContinue |
+    Remove-Item -Force -ErrorAction SilentlyContinue
 
 if (Test-Path $CONFIG_PATH) {
     Write-Host "Removing old Agent config..."

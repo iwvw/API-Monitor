@@ -2471,7 +2471,7 @@ fn agent_config_path() -> Option<PathBuf> {
     Some(config::agent_base_dir().join("config.json"))
 }
 
-/// 自动清理历史安装/升级产生的陈旧备份文件与临时下载文件（如 .previous, *.bak*, *.download* 等）
+/// 自动清理历史安装/升级产生的陈旧备份文件与临时下载文件（如 .previous, *.prev.exe, *.bak*, *.download* 等）
 fn cleanup_legacy_backups() {
     let base = config::agent_base_dir();
     let Ok(entries) = fs::read_dir(&base) else {
@@ -2485,16 +2485,23 @@ fn cleanup_legacy_backups() {
         let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
             continue;
         };
-        // 匹配 api-monitor-agent.previous, api-monitor-agent.bak-*, *.download, *.download.exe 等
-        let is_legacy = name.ends_with(".previous")
-            || name.contains(".bak-")
-            || name.ends_with(".download")
-            || name.ends_with(".download.exe")
-            || (name.starts_with("api-monitor-agent.") && name.contains(".download.exe"));
-        if is_legacy {
+        if is_legacy_artifact(name) {
             let _ = fs::remove_file(&path);
         }
     }
+}
+
+/// 判断安装目录下的文件名是否为历史安装/升级残留（备份二进制或临时下载文件）。
+fn is_legacy_artifact(name: &str) -> bool {
+    // 备份二进制：api-monitor-agent.previous / api-monitor-agent.prev.exe / *.bak-*
+    let is_backup = name.ends_with(".previous")
+        || name.ends_with(".prev.exe")
+        || name.contains(".bak-");
+    // 临时下载：*.download / *.download.exe
+    let is_download = name.ends_with(".download")
+        || name.ends_with(".download.exe")
+        || (name.starts_with("api-monitor-agent.") && name.contains(".download.exe"));
+    is_backup || is_download
 }
 
 #[cfg(target_os = "windows")]
@@ -3258,6 +3265,32 @@ mod tests {
         );
         for unsafe_dir in ["/", "/opt", "/usr/bin", "/tmp/api-monitor-agent"] {
             assert!(validate_self_uninstall_dir(std::path::Path::new(unsafe_dir)).is_err());
+        }
+    }
+
+    #[test]
+    fn legacy_artifact_matches_upgrade_leftovers_only() {
+        // 历史备份与临时下载：必须被清理
+        for legacy in [
+            "api-monitor-agent.previous",
+            "api-monitor-agent.prev.exe",
+            "api-monitor-agent.bak-20260101",
+            "api-monitor-agent.download",
+            "api-monitor-agent.0123456789abcdef.download.exe",
+            "runtime.download",
+        ] {
+            assert!(is_legacy_artifact(legacy), "{legacy} should be cleaned");
+        }
+        // 正常文件：绝不能被误删
+        for keep in [
+            "api-monitor-agent",
+            "api-monitor-agent.exe",
+            "config.json",
+            "aiagent_processes.json",
+            "launch.vbs",
+            "apimon-snapshot.db.gz",
+        ] {
+            assert!(!is_legacy_artifact(keep), "{keep} must be kept");
         }
     }
 
