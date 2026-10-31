@@ -2162,6 +2162,7 @@ if command -v systemctl >/dev/null 2>&1 && systemctl list-unit-files api-monitor
     done
     $SUDO systemctl disable --now api-monitor-cloudflared.service 2>/dev/null || true
     $SUDO rm -f /etc/systemd/system/api-monitor-cloudflared.service
+    $SUDO rm -rf -- "$INSTALL_DIR/runtimes"
     $SUDO rm -rf -- /opt/api-monitor/proxy /etc/api-monitor/proxy /var/lib/api-monitor/proxy
     $SUDO rm -rf -- /opt/api-monitor/cloudflared /etc/api-monitor/cloudflared
     $SUDO rm -rf -- /opt/api-monitor-relay /etc/api-monitor-relay

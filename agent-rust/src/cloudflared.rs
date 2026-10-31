@@ -65,7 +65,9 @@ fn instance_slug(raw: &str) -> String {
 // ==================== Unix（systemd 服务，按实例隔离） ====================
 
 #[cfg(unix)]
-const RUNTIME_ROOT: &str = "/opt/api-monitor/cloudflared/versions";
+fn cloudflared_runtime_root() -> PathBuf {
+    crate::config::agent_runtime_dir("cloudflared").join("versions")
+}
 
 #[cfg(unix)]
 fn instance_root(instance: &str) -> PathBuf {
@@ -139,6 +141,7 @@ fn remove(request: &Request) -> Result<String, String> {
     if instance.is_empty() {
         // 主机级：清理整块配置与共享运行时
         let _ = fs::remove_dir_all("/etc/api-monitor/cloudflared");
+        let _ = fs::remove_dir_all(crate::config::agent_runtime_dir("cloudflared"));
         let _ = fs::remove_dir_all("/opt/api-monitor/cloudflared");
     } else {
         // 独立实例：只清理该实例配置目录，共享运行时二进制保留
@@ -178,7 +181,9 @@ fn ensure_binary_unix(request: &Request) -> Result<PathBuf, String> {
         arch => return Err(format!("unsupported cloudflared architecture: {arch}")),
     };
     validate_asset(url, digest)?;
-    let version_dir = PathBuf::from(RUNTIME_ROOT).join(request.version.trim());
+    // 优先新路径，旧路径存在则兼容平移
+    let version_dir = cloudflared_runtime_root().join(request.version.trim());
+    let legacy_version_dir = Path::new("/opt/api-monitor/cloudflared/versions").join(request.version.trim());
     let binary = version_dir.join("cloudflared");
     if binary.is_file()
         && Command::new(&binary)
@@ -187,6 +192,20 @@ fn ensure_binary_unix(request: &Request) -> Result<PathBuf, String> {
             .is_ok_and(|output| output.status.success())
     {
         return Ok(binary);
+    }
+    let legacy_binary = legacy_version_dir.join("cloudflared");
+    if legacy_binary.is_file()
+        && Command::new(&legacy_binary)
+            .arg("--version")
+            .output()
+            .is_ok_and(|output| output.status.success())
+    {
+        let _ = fs::create_dir_all(&version_dir);
+        if fs::copy(&legacy_binary, &binary).is_ok() {
+            let _ = fs::set_permissions(&binary, fs::Permissions::from_mode(0o755));
+            return Ok(binary);
+        }
+        return Ok(legacy_binary);
     }
     fs::create_dir_all(&version_dir)
         .map_err(|err| format!("create cloudflared runtime directory: {err}"))?;

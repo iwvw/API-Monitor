@@ -16,7 +16,9 @@ const STATE_ROOT: &str = "/var/lib/api-monitor/proxy/nodes";
 #[cfg(unix)]
 const CONFIG_ROOT: &str = "/etc/api-monitor/proxy/nodes";
 #[cfg(unix)]
-const RUNTIME_ROOT: &str = "/opt/api-monitor/proxy/versions";
+fn proxy_runtime_root() -> PathBuf {
+    crate::config::agent_runtime_dir("proxy").join("versions")
+}
 
 #[cfg(unix)]
 #[derive(Debug, Deserialize)]
@@ -98,10 +100,19 @@ pub fn reconcile(raw: &str) -> Result<String, String> {
             .to_string());
         }
         "status_runtime" => {
-            let binary = PathBuf::from(RUNTIME_ROOT)
+            let mut binary = proxy_runtime_root()
                 .join(runtime)
                 .join(&request.runtime_version)
                 .join(runtime);
+            if !binary.is_file() {
+                let legacy = Path::new("/opt/api-monitor/proxy/versions")
+                    .join(runtime)
+                    .join(&request.runtime_version)
+                    .join(runtime);
+                if legacy.is_file() {
+                    binary = legacy;
+                }
+            }
             let installed = binary.is_file()
                 && Command::new(&binary)
                     .arg("version")
@@ -145,12 +156,13 @@ pub fn reconcile(raw: &str) -> Result<String, String> {
                 );
             }
             for root in [
-                Path::new("/opt/api-monitor/proxy"),
-                Path::new("/etc/api-monitor/proxy"),
-                Path::new("/var/lib/api-monitor/proxy"),
+                crate::config::agent_runtime_dir("proxy"),
+                PathBuf::from("/opt/api-monitor/proxy"),
+                PathBuf::from("/etc/api-monitor/proxy"),
+                PathBuf::from("/var/lib/api-monitor/proxy"),
             ] {
                 if root.exists() {
-                    fs::remove_dir_all(root).map_err(|err| {
+                    fs::remove_dir_all(&root).map_err(|err| {
                         format!("remove proxy runtime data {}: {err}", root.display())
                     })?;
                 }
@@ -332,7 +344,10 @@ fn ensure_runtime(request: &ReconcileRequest, runtime: &str) -> Result<PathBuf, 
     {
         return Err("runtime asset must use HTTPS and a SHA-256 digest".to_string());
     }
-    let version_dir = PathBuf::from(RUNTIME_ROOT)
+    let version_dir = proxy_runtime_root()
+        .join(runtime)
+        .join(&request.runtime_version);
+    let legacy_version_dir = Path::new("/opt/api-monitor/proxy/versions")
         .join(runtime)
         .join(&request.runtime_version);
     let binary = version_dir.join(runtime);
@@ -343,6 +358,20 @@ fn ensure_runtime(request: &ReconcileRequest, runtime: &str) -> Result<PathBuf, 
             .is_ok_and(|out| out.status.success())
     {
         return Ok(binary);
+    }
+    let legacy_binary = legacy_version_dir.join(runtime);
+    if legacy_binary.is_file()
+        && Command::new(&legacy_binary)
+            .arg("version")
+            .output()
+            .is_ok_and(|out| out.status.success())
+    {
+        let _ = fs::create_dir_all(&version_dir);
+        if fs::copy(&legacy_binary, &binary).is_ok() {
+            let _ = fs::set_permissions(&binary, fs::Permissions::from_mode(0o755));
+            return Ok(binary);
+        }
+        return Ok(legacy_binary);
     }
     fs::create_dir_all(&version_dir).map_err(|err| format!("create runtime directory: {err}"))?;
     for dependency in ["curl", "sha256sum"] {
