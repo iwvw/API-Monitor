@@ -179,6 +179,7 @@ pub fn agent_state_dir() -> PathBuf {
 }
 
 /// Agent 外部运行时目录：<agent_base_dir>/runtimes/<component>
+#[allow(dead_code)]
 pub fn agent_runtime_dir(component: &str) -> PathBuf {
     agent_base_dir().join("runtimes").join(component)
 }
