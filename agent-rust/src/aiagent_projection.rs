@@ -142,11 +142,37 @@ pub fn project_v2_turn_skeleton(messages: &[Value]) -> Result<Vec<u8>, String> {
     let mut out: Vec<Value> = Vec::new();
     // 当前轮的累积状态
     let mut turn: Option<SkeletonTurn> = None;
+    /*
+     * 待补发的会话级标记（idle / compaction / *-switched）。
+     *
+     * ⚠️ 不能遇到 idle 就立刻 flush 轮次。后台任务完成通知（`synthetic`）会让
+     * agent 在 idle 之后**继续跑**，同一轮因此有第二段执行：
+     *
+     *   user「继续」 … stop(806) · idle · synthetic<completed> · … · stop(1164) · idle
+     *
+     * 旧实现一遇 idle 就 flush，于是 idle 之后那几条 assistant 变成「没有前置
+     * user 的游离消息」被直接丢弃 —— 实测骨架只返回 stop(806)，第二段结论
+     * stop(1164) 整段消失，刷新后页面上的最终回答与实时视图不一致。
+     *
+     * 现在只把标记**排队**，等真正切轮（下一条 user / 结束）时连同轮次一起落盘，
+     * 顺序仍是「轮次 → 标记」，客户端消费顺序不变。
+     */
+    let mut pending_markers: Vec<Value> = Vec::new();
 
     /// 把已累积的轮次落盘，保证输出顺序与消息时间一致。
-    fn flush(out: &mut Vec<Value>, turn: &mut Option<SkeletonTurn>) {
+    ///
+    /// `pending_markers` 是该轮之后要补发的会话级标记（idle 等）。它们必须排在
+    /// **轮次之后**，客户端按顺序消费时才能把「轮次结论」配到正确的轮上。
+    fn flush(
+        out: &mut Vec<Value>,
+        turn: &mut Option<SkeletonTurn>,
+        pending_markers: &mut Vec<Value>,
+    ) {
         if let Some(finished) = turn.take() {
             out.push(finished.into_value());
+        }
+        if !pending_markers.is_empty() {
+            out.append(pending_markers);
         }
     }
 
@@ -159,7 +185,7 @@ pub fn project_v2_turn_skeleton(messages: &[Value]) -> Result<Vec<u8>, String> {
 
         match msg_type {
             "user" => {
-                flush(&mut out, &mut turn);
+                flush(&mut out, &mut turn, &mut pending_markers);
                 turn = Some(SkeletonTurn::from_user(obj));
             }
             "assistant" => {
@@ -182,12 +208,11 @@ pub fn project_v2_turn_skeleton(messages: &[Value]) -> Result<Vec<u8>, String> {
             }
             // 会话级权威状态：体积小，保留。
             //
-            // 必须先 flush 当前轮：idle / compaction 在消息流里出现在**该轮之后**，
-            // 若直接 push 就会跑到本轮前面，客户端按顺序消费时会把「轮次结论」
-            // 错配到上一轮。
+            // ⚠️ 只**排队**、不 flush 轮次：idle 之后 agent 可能被后台任务完成
+            // 通知唤醒继续跑（见 pending_markers 的说明）。标记本身仍排在该轮
+            // 之后落盘，客户端消费顺序不变。
             "idle" | "compaction" | "agent-switched" | "model-switched" | "location-switched" => {
-                flush(&mut out, &mut turn);
-                out.push(match msg_type {
+                pending_markers.push(match msg_type {
                     // compaction 的 summary / recent 是整段压缩摘要与保留消息全文
                     // （实测 3 条合计 285 KB）。客户端只用它们的**字符数**推算
                     // 压缩后上下文占用，正文没有任何渲染路径读取，换成计数即可。
@@ -200,7 +225,7 @@ pub fn project_v2_turn_skeleton(messages: &[Value]) -> Result<Vec<u8>, String> {
             _ => {}
         }
     }
-    flush(&mut out, &mut turn);
+    flush(&mut out, &mut turn, &mut pending_markers);
 
     serde_json::to_vec(&out).map_err(|err| format!("序列化轮次骨架失败: {}", err))
 }
@@ -226,6 +251,24 @@ struct SkeletonTurn {
     /// 前端 partID 是 `${messageID}-text-${ordinal}`，实时 delta 也用同一规则
     /// 定位。骨架若一律当成 0，正在生成的那段只要不是 0 就会拼错位置。
     reply_ordinal: u32,
+    /// 该轮**全部**已确认的最终回复（按时间顺序）。
+    ///
+    /// ⚠️ 必须用数组而不是单个字段：后台任务完成通知（`synthetic`）会把 agent
+    /// 唤醒继续跑，于是**同一轮**里出现多段执行、多个 `finish=stop` 结论。
+    ///
+    /// 实测（2026-11-01，ARM 主机 ses_e6e0b3d23ffe7YEJI1DItkyUuv）：
+    ///   user「继续」
+    ///   … 26 条 tool-calls …
+    ///   stop(806)  "CI 还在运行，Release 需要约 13 分钟…"
+    ///   idle succeeded
+    ///   synthetic <shell state="completed">        ← 后台任务完成通知
+    ///   tool-calls ×3
+    ///   stop(1164) "全部完成，且都已核实。v2.0.55 已发布…"
+    ///   idle succeeded
+    ///
+    /// 旧实现只保留最后一条，刷新后第一段结论凭空消失 —— 页面上看到的
+    /// 最终回答与实时视图不一致（用户实测反馈「展开/收起后最终回复变了」）。
+    replies: Vec<Value>,
     /// 本条消息处理到目前是否以正文收尾（初始为「尚未见到内容」）。
     ///
     /// 用来判断「这条消息有没有资格提供最终回复」：以 tool 收尾的消息只是过程，
@@ -283,6 +326,7 @@ impl SkeletonTurn {
             reply_text: None,
             reply_message_id: None,
             reply_ordinal: 0,
+            replies: Vec::new(),
             last_part_is_text: false,
             reasoning_count: 0,
             step_count: 0,
@@ -366,6 +410,25 @@ impl SkeletonTurn {
         if !self.last_part_is_text {
             self.reply_text = None;
             self.reply_message_id = None;
+            self.reply_ordinal = 0;
+        } else if let Some(text) = self.reply_text.take() {
+            /*
+             * 本条消息以正文收尾 → 它是一个**已确认的结论**，收进 replies。
+             *
+             * 为什么在消息末尾落账，而不是持续覆盖单个字段：
+             * 后台任务完成通知会让 agent 继续跑，同一轮因此有多个 `stop`。
+             * 只留最后一个会让前面的结论消失（刷新后内容变少）。
+             *
+             * `reply_text` 仍然保留「本条消息的候选」语义 —— 下一条消息若以
+             * tool 收尾，会把它清掉（那条正文只是过程说明）。
+             */
+            let mut reply = serde_json::Map::new();
+            reply.insert("text".to_string(), Value::from(text));
+            if let Some(id) = self.reply_message_id.take() {
+                reply.insert("messageID".to_string(), Value::from(id));
+            }
+            reply.insert("ordinal".to_string(), Value::from(self.reply_ordinal));
+            self.replies.push(Value::Object(reply));
             self.reply_ordinal = 0;
         }
     }
@@ -588,7 +651,18 @@ impl SkeletonTurn {
             }
         }
         obj.insert("user".to_string(), self.user);
-        if let Some(text) = self.reply_text {
+        /*
+         * 该轮全部最终回复。
+         *
+         * `replies` 是权威数组（多段执行时有多条）；`reply` 保留为
+         * 「最后一条」以兼容旧客户端。
+         */
+        if !self.replies.is_empty() {
+            let last = self.replies[self.replies.len() - 1].clone();
+            obj.insert("replies".to_string(), Value::Array(self.replies));
+            obj.insert("reply".to_string(), last);
+        } else if let Some(text) = self.reply_text {
+            // 兜底：正文仍在候选里（轮次最后一条消息还没走落账分支的极端情况）
             let mut reply = serde_json::Map::new();
             reply.insert("text".to_string(), Value::from(text));
             if let Some(id) = self.reply_message_id {
@@ -1223,6 +1297,104 @@ mod tests {
         let skeleton = skeleton_of(messages);
         assert_eq!(skeleton[0]["reply"], serde_json::Value::Null);
         assert_eq!(skeleton[0]["stats"]["stepCount"], 1);
+    }
+
+    /// 回归：后台任务完成通知会把一轮拆成**两段执行**，两段各有结论。
+    ///
+    /// 实测（2026-11-01，ARM 主机 ses_e6e0b3d23ffe7YEJI1DItkyUuv）：
+    ///
+    ///   user「继续」
+    ///   … 26 条 tool-calls …
+    ///   stop(806)  "CI 还在运行，Release 需要约 13 分钟…"
+    ///   idle succeeded
+    ///   synthetic <shell state="completed">      ← 后台任务完成通知
+    ///   tool-calls ×3
+    ///   stop(1164) "全部完成，且都已核实。v2.0.55 已发布…"
+    ///   idle succeeded
+    ///
+    /// 旧实现只保留**最后一条**（`reply_text` 被覆盖），刷新后第一段结论凭空消失，
+    /// 页面上看到的最终回答与实时视图不一致。现在 `replies` 必须带全部结论，
+    /// `reply` 保持「最后一条」以兼容旧客户端。
+    #[test]
+    fn skeleton_keeps_all_replies_when_turn_has_multiple_conclusions() {
+        let messages = vec![
+            json!({ "type": "user", "id": "u1", "text": "继续" }),
+            json!({
+                "type": "assistant", "id": "a1",
+                "content": [
+                    { "type": "text", "text": "继续发版。先确认版本号。" },
+                    { "type": "tool", "name": "bash", "state": { "status": "completed" } }
+                ]
+            }),
+            // 第一段执行的结论
+            json!({
+                "type": "assistant", "id": "a2",
+                "content": [{ "type": "text", "text": "CI 还在运行，需要约 13 分钟。" }]
+            }),
+            json!({ "type": "idle", "id": "i1", "outcome": "succeeded" }),
+            // 后台任务完成通知
+            json!({ "type": "synthetic", "id": "s1", "text": "<shell id=\"sh_1\" state=\"completed\">ok</shell>" }),
+            json!({
+                "type": "assistant", "id": "a3",
+                "content": [
+                    { "type": "text", "text": "Release 已成功完成。" },
+                    { "type": "tool", "name": "bash", "state": { "status": "completed" } }
+                ]
+            }),
+            // 第二段执行的结论
+            json!({
+                "type": "assistant", "id": "a4",
+                "content": [{ "type": "text", "text": "全部完成，且都已核实。" }]
+            })
+        ];
+        let skeleton = skeleton_of(messages);
+        let turn = skeleton
+            .iter()
+            .find(|entry| entry["type"] == "turn")
+            .expect("应有一个 turn 条目");
+        /*
+         * idle 标记会排在 turn 之后（客户端按顺序消费），
+         * 所以这里按 type 找 turn，而不是断言数组长度为 1。
+         */
+        assert_eq!(
+            skeleton.iter().filter(|e| e["type"] == "turn").count(),
+            1,
+            "整轮应只有一个 turn 条目"
+        );
+
+        let replies = turn["replies"].as_array().expect("replies 必须是数组");
+        assert_eq!(replies.len(), 2, "两段执行 → 两个结论");
+        assert_eq!(replies[0]["text"], "CI 还在运行，需要约 13 分钟。");
+        assert_eq!(replies[0]["messageID"], "a2");
+        assert_eq!(replies[1]["text"], "全部完成，且都已核实。");
+        assert_eq!(replies[1]["messageID"], "a4");
+
+        // 兼容字段：最后一条
+        assert_eq!(turn["reply"]["text"], "全部完成，且都已核实。");
+        assert_eq!(turn["reply"]["messageID"], "a4");
+    }
+
+    /// 中间说明不能被当成结论收进 replies（收尾判定仍然有效）。
+    #[test]
+    fn skeleton_excludes_mid_turn_narration_from_replies() {
+        let messages = vec![
+            json!({ "type": "user", "id": "u1", "text": "继续" }),
+            json!({
+                "type": "assistant", "id": "a1",
+                "content": [
+                    { "type": "text", "text": "我先看看代码。" },
+                    { "type": "tool", "name": "read", "state": { "status": "completed" } }
+                ]
+            }),
+            json!({
+                "type": "assistant", "id": "a2",
+                "content": [{ "type": "text", "text": "改好了。" }]
+            })
+        ];
+        let skeleton = skeleton_of(messages);
+        let replies = skeleton[0]["replies"].as_array().expect("replies 必须是数组");
+        assert_eq!(replies.len(), 1, "只有以正文收尾的那条才是结论");
+        assert_eq!(replies[0]["text"], "改好了。");
     }
 
     /// 骨架：轮次必须带 id / time / durationMs。
