@@ -465,6 +465,11 @@ echo "Agent installation completed."
 echo "======================================"
 echo ""
 echo "Service status: $(systemctl is-active api-monitor-agent)"
+PREVIOUS_AGENT="$INSTALL_DIR/api-monitor-agent.previous"
+if [ -f "$PREVIOUS_AGENT" ]; then
+    $SUDO rm -f "$PREVIOUS_AGENT"
+fi
+$SUDO rm -f "$INSTALL_DIR"/api-monitor-agent.bak-* "$INSTALL_DIR"/*.download 2>/dev/null || true
 echo "Install dir: $INSTALL_DIR"
 echo "Server ID: $SERVER_ID"
 echo ""
