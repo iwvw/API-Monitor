@@ -197,6 +197,7 @@ async fn main() {
         }
     };
     persist_runtime_config(&config);
+    cleanup_legacy_backups();
 
     println!("  Server:   {}", config.server_url);
     println!("  ServerID: {}", config.server_id);
@@ -2163,6 +2164,10 @@ if command -v systemctl >/dev/null 2>&1 && systemctl list-unit-files api-monitor
     $SUDO rm -f /etc/systemd/system/api-monitor-cloudflared.service
     $SUDO rm -rf -- /opt/api-monitor/proxy /etc/api-monitor/proxy /var/lib/api-monitor/proxy
     $SUDO rm -rf -- /opt/api-monitor/cloudflared /etc/api-monitor/cloudflared
+    $SUDO rm -rf -- /opt/api-monitor-relay /etc/api-monitor-relay
+    $SUDO rm -rf -- /opt/api-monitor-auth-proxy /opt/api-monitor-stun
+    $SUDO systemctl disable --now api-monitor-relay.service 2>/dev/null || true
+    $SUDO rm -f /etc/systemd/system/api-monitor-relay.service
     # Remove only the now-empty managed parent. rmdir deliberately preserves it
     # if another API Monitor component still owns files below it.
     $SUDO rmdir /opt/api-monitor 2>/dev/null || true
@@ -2462,9 +2467,33 @@ fn persist_runtime_config(config: &Config) {
 }
 
 fn agent_config_path() -> Option<PathBuf> {
-    let exe_path = std::env::current_exe().ok()?;
-    let exe_dir = exe_path.parent()?;
-    Some(exe_dir.join("config.json"))
+    Some(config::agent_base_dir().join("config.json"))
+}
+
+/// 自动清理历史安装/升级产生的陈旧备份文件与临时下载文件（如 .previous, *.bak*, *.download* 等）
+fn cleanup_legacy_backups() {
+    let base = config::agent_base_dir();
+    let Ok(entries) = fs::read_dir(&base) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if !path.is_file() {
+            continue;
+        }
+        let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
+            continue;
+        };
+        // 匹配 api-monitor-agent.previous, api-monitor-agent.bak-*, *.download, *.download.exe 等
+        let is_legacy = name.ends_with(".previous")
+            || name.contains(".bak-")
+            || name.ends_with(".download")
+            || name.ends_with(".download.exe")
+            || (name.starts_with("api-monitor-agent.") && name.contains(".download.exe"));
+        if is_legacy {
+            let _ = fs::remove_file(&path);
+        }
+    }
 }
 
 #[cfg(target_os = "windows")]

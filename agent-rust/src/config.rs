@@ -129,16 +129,12 @@ impl Config {
         })
     }
 
-    fn load_config_json() -> Option<JsonConfig> {
+    pub fn load_config_json() -> Option<JsonConfig> {
         let mut paths = vec![
             PathBuf::from("config.json"),
             PathBuf::from("../config.json"),
         ];
-        if let Ok(exe_path) = std::env::current_exe() {
-            if let Some(exe_dir) = exe_path.parent() {
-                paths.insert(0, exe_dir.join("config.json"));
-            }
-        }
+        paths.insert(0, agent_base_dir().join("config.json"));
         for path in paths {
             if path.exists() {
                 if let Ok(mut file) = File::open(&path) {
@@ -153,4 +149,31 @@ impl Config {
         }
         None
     }
+}
+
+/// Agent 运行基础目录（以当前执行文件所在目录为准，避免在业务代码中硬编码绝对路径）
+pub fn agent_base_dir() -> PathBuf {
+    if let Ok(exe_path) = std::env::current_exe() {
+        if let Some(exe_dir) = exe_path.parent() {
+            return exe_dir.to_path_buf();
+        }
+    }
+    #[cfg(windows)]
+    {
+        PathBuf::from(r"C:\Program Files\APIMonitorAgent")
+    }
+    #[cfg(not(windows))]
+    {
+        PathBuf::from("/opt/api-monitor-agent")
+    }
+}
+
+/// Agent 托管的子二进制程序存放目录：<agent_base_dir>/bin
+pub fn agent_sub_bin_dir() -> PathBuf {
+    agent_base_dir().join("bin")
+}
+
+/// Agent 运行时持久状态目录：默认即为 agent_base_dir
+pub fn agent_state_dir() -> PathBuf {
+    agent_base_dir()
 }

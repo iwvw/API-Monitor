@@ -618,8 +618,8 @@ async fn bootstrap_relay(request: &Request) -> Result<String, String> {
     if !url.starts_with("https://") || sha.len() != 64 || !sha.bytes().all(|b| b.is_ascii_hexdigit()) {
         return Err("relay 资产必须为 HTTPS 地址并带 SHA-256".to_string());
     }
-    let dir = std::path::Path::new("/opt/api-monitor-relay");
-    std::fs::create_dir_all(dir).map_err(|e| format!("创建 relay 目录失败: {e}"))?;
+    let dir = crate::config::agent_sub_bin_dir();
+    std::fs::create_dir_all(&dir).map_err(|e| format!("创建 relay 目录失败: {e}"))?;
     let binary = dir.join("api-monitor-relay");
     let candidate = dir.join(".api-monitor-relay.download");
     let _ = std::fs::remove_file(&candidate);
@@ -742,14 +742,11 @@ async fn bootstrap_relay(request: &Request) -> Result<String, String> {
 fn auth_proxy_root() -> std::path::PathBuf {
     #[cfg(unix)]
     {
-        std::path::PathBuf::from("/opt/api-monitor-auth-proxy")
+        crate::config::agent_sub_bin_dir()
     }
     #[cfg(windows)]
     {
-        std::env::var_os("ProgramData")
-            .map(std::path::PathBuf::from)
-            .unwrap_or_else(|| std::path::PathBuf::from("C:\\ProgramData"))
-            .join("api-monitor-auth-proxy")
+        crate::config::agent_sub_bin_dir()
     }
 }
 

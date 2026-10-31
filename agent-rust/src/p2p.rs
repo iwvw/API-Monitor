@@ -446,17 +446,7 @@ fn stun_entry() -> &'static std::sync::Mutex<Option<StunEntry>> {
 }
 
 fn stun_root() -> std::path::PathBuf {
-    #[cfg(unix)]
-    {
-        std::path::PathBuf::from("/opt/api-monitor-stun")
-    }
-    #[cfg(windows)]
-    {
-        std::env::var_os("ProgramData")
-            .map(std::path::PathBuf::from)
-            .unwrap_or_else(|| std::path::PathBuf::from("C:\\ProgramData"))
-            .join("api-monitor-stun")
-    }
+    crate::config::agent_sub_bin_dir()
 }
 
 fn stun_binary_path() -> std::path::PathBuf {

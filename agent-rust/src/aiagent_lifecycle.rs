@@ -114,14 +114,10 @@ fn state_file() -> PathBuf {
     }
 }
 
-/// 默认状态目录：优先用 Agent 的工作目录。
-///
-/// 仅非 test 配置的 `state_file()` 会用到；测试版本固定写临时目录，
-/// 因此这里在 test 下必然「未被使用」。
+/// 默认状态目录：优先用 Agent 的基准目录。
 #[cfg_attr(test, allow(dead_code))]
 fn dirs_state_dir() -> PathBuf {
-    // 与 tcp_forwarder 等模块一致：优先用 Agent 的工作目录。
-    std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
+    crate::config::agent_state_dir()
 }
 
 /// 允许的端口上限：与云端 Provider 注册表的区间保持一致（默认端口 + 99）。
