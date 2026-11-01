@@ -4,6 +4,9 @@ import (
 	"context"
 	"database/sql"
 	"net/http"
+	"strconv"
+	"strings"
+	"time"
 )
 
 // instanceHostMetrics 是「整机」实时指标（CPU / 内存 / 磁盘 / 负载）。
@@ -19,25 +22,42 @@ type instanceHostMetrics struct {
 	ServerID string `json:"serverId"`
 	// CPUPercent 整机 CPU 使用率（0-100）
 	CPUPercent *float64 `json:"cpuPercent,omitempty"`
-	// CPULoad 1 分钟平均负载（Linux 有意义，Windows 通常缺失）
+	// CPULoad 1 分钟平均负载（Linux / macOS 有意义；Windows 通常缺失）
+	//
+	// ⚠️ 源列 cpu_load 是 **TEXT**，存的是运维惯用的三段格式
+	// `"1.26 2.06 1.89"`（1/5/15 分钟）。这里解析出第一段；原始串另见 CPULoadRaw。
 	CPULoad *float64 `json:"cpuLoad,omitempty"`
+	// CPULoadRaw 原始三段负载文本，原样透出给需要 5/15 分钟值的客户端。
+	CPULoadRaw string `json:"cpuLoadRaw,omitempty"`
 	// CPUCores / CPUThreads 核心数与线程数
 	CPUCores   *int `json:"cpuCores,omitempty"`
 	CPUThreads *int `json:"cpuThreads,omitempty"`
 	// MemPercent 内存使用率（0-100）
 	MemPercent *float64 `json:"memPercent,omitempty"`
-	// MemUsed / MemTotal 内存用量与总量（字节）
+	// MemUsed / MemTotal 内存用量与总量（源表原样透出，**单位不统一**）
+	//
+	// ⚠️ 这两列由主机 Agent 原样上报：Linux 主机是 **MB**（实测 ARM 主机
+	// mem_total=23972，主机实为 24 GB），Windows 主机是 KB（实测笔电
+	// mem_total=24307）。源表没有单位标记，读取侧**不要**当字节换算或相加。
+	// 只需要用量的客户端请用 memPercent。
 	MemUsed  *int64 `json:"memUsed,omitempty"`
 	MemTotal *int64 `json:"memTotal,omitempty"`
 	// DiskPercent 磁盘使用率（0-100）
 	DiskPercent *float64 `json:"diskPercent,omitempty"`
-	// DiskUsed / DiskTotal 磁盘用量与总量（字节）
-	DiskUsed  *int64 `json:"diskUsed,omitempty"`
-	DiskTotal *int64 `json:"diskTotal,omitempty"`
-	// Platform 主机平台（linux / windows / darwin）
+	// DiskUsed / DiskTotal 磁盘用量与总量，**带单位的字符串**（如 "100.2 GB"）
+	//
+	// ⚠️ 源列 disk_used / disk_total 是 TEXT，存的是格式化后的容量串。
+	// 读取侧一律按字符串处理；需要比例请用 diskPercent。
+	DiskUsed  string `json:"diskUsed,omitempty"`
+	DiskTotal string `json:"diskTotal,omitempty"`
+	// Platform 主机平台，取自主机 Agent 上报的平台名（Linux 上是发行版名，
+	// 如 "Ubuntu"；Windows 上是 "Windows"）
 	Platform string `json:"platform,omitempty"`
-	// RecordedAt 该条指标的采集时刻（RFC3339）。前端据此判断数据是否新鲜 ——
-	// 采集停摆时这里会停在旧时间，而不是静默显示一个过时的百分比。
+	// RecordedAt 该条指标的采集时刻，**带时区的 RFC3339**。
+	//
+	// ⚠️ 源列由 serveragent 用 datetime('now') 写入，即 **UTC** 且不带后缀
+	// （如 "2026-11-01 14:35:53"）。原样透出会让客户端按本地时间解析，非 UTC
+	// 站点看到的「新鲜度」差好几个小时。这里统一补成 `...Z`。解析失败时原样返回。
 	RecordedAt string `json:"recordedAt,omitempty"`
 }
 
@@ -84,6 +104,10 @@ func (s *Service) handleInstanceHostMetrics(w http.ResponseWriter, r *http.Reque
 
 	// 没有历史数据时返回 data:null 而不是 404：实例可能是刚建的、或主机 Agent
 	// 还没上报过。前端据此显示「暂无数据」，而不是把整个面板打成错误态。
+	//
+	// 注意不能直接透传 nil：writeOK 用的 response.Envelope 对 data 带
+	// `omitempty`，nil 会让整个 data 字段消失（客户端读到 undefined）。
+	// 判断「无数据」请以 `data === null`（或字段缺失都当成无数据）为准。
 	if metrics == nil {
 		writeOK(w, nil)
 		return
@@ -107,10 +131,13 @@ func readLatestHostMetrics(ctx context.Context, db *sql.DB, serverID string) (*i
 	LIMIT 1`
 
 	var (
-		cpuUsage, cpuLoad, memUsage, diskUsage sql.NullFloat64
-		memUsed, memTotal, diskUsed, diskTotal sql.NullInt64
-		cpuCores, cpuThreads                   sql.NullInt64
-		platform, recordedAt                   sql.NullString
+		cpuUsage, memUsage, diskUsage sql.NullFloat64
+		// cpu_load / disk_used / disk_total 在源表里都是 TEXT（见结构体注释），
+		// 只能按 NullString 扫；按数值扫会 Scan 失败，整个接口变成 500。
+		cpuLoad, diskUsed, diskTotal sql.NullString
+		memUsed, memTotal            sql.NullInt64
+		cpuCores, cpuThreads         sql.NullInt64
+		platform, recordedAt         sql.NullString
 	)
 
 	row := db.QueryRowContext(ctx, query, serverID)
@@ -131,8 +158,14 @@ func readLatestHostMetrics(ctx context.Context, db *sql.DB, serverID string) (*i
 	if cpuUsage.Valid {
 		out.CPUPercent = &cpuUsage.Float64
 	}
-	if cpuLoad.Valid {
-		out.CPULoad = &cpuLoad.Float64
+	if cpuLoad.Valid && cpuLoad.String != "" {
+		out.CPULoadRaw = cpuLoad.String
+		// 三段格式取第一段（1 分钟）；解析不了就只留原始串，不编造数值。
+		if first := strings.Fields(cpuLoad.String); len(first) > 0 {
+			if v, convErr := strconv.ParseFloat(first[0], 64); convErr == nil {
+				out.CPULoad = &v
+			}
+		}
 	}
 	if cpuCores.Valid {
 		v := int(cpuCores.Int64)
@@ -155,16 +188,34 @@ func readLatestHostMetrics(ctx context.Context, db *sql.DB, serverID string) (*i
 		out.DiskPercent = &diskUsage.Float64
 	}
 	if diskUsed.Valid {
-		out.DiskUsed = &diskUsed.Int64
+		out.DiskUsed = diskUsed.String
 	}
 	if diskTotal.Valid {
-		out.DiskTotal = &diskTotal.Int64
+		out.DiskTotal = diskTotal.String
 	}
 	if platform.Valid {
 		out.Platform = platform.String
 	}
 	if recordedAt.Valid {
-		out.RecordedAt = recordedAt.String
+		out.RecordedAt = normalizeRecordedAt(recordedAt.String)
 	}
 	return out, nil
+}
+
+// normalizeRecordedAt 把 server_metrics_history.recorded_at 补成带 UTC 时区的
+// RFC3339。源列由 serveragent 用 datetime('now') 写入，是 UTC 且不带后缀
+// （"2006-01-02 15:04:05"）；原样透出会被客户端按本地时间解析，非 UTC 站点
+// 据此判断「数据新鲜度」会差好几个小时。解析不了就原样返回，不猜。
+func normalizeRecordedAt(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+	if t, err := time.Parse("2006-01-02 15:04:05", raw); err == nil {
+		return t.UTC().Format(time.RFC3339)
+	}
+	if t, err := time.Parse(time.RFC3339, raw); err == nil {
+		return t.UTC().Format(time.RFC3339)
+	}
+	return raw
 }
