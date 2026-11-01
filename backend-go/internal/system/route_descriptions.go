@@ -256,6 +256,7 @@ var routeDescriptions = map[string]string{
 	"/api/aiagent/instances":                    "列出或新增 AI Agent 实例",
 	"/api/aiagent/instances/{id}":               "更新或删除 AI Agent 实例",
 	"/api/aiagent/instances/{id}/status":        "查询实例运行时状态（进程是否运行、端口是否监听、监听端口的 PID）",
+	"/api/aiagent/instances/{id}/metrics":       "读取实例所在主机的整机指标（CPU / 内存 / 磁盘 / 负载）",
 	"/api/aiagent/instances/{id}/lifecycle":     "管理实例进程生命周期（启动/停止/重启，并按期望状态收敛）",
 	"/api/aiagent/instances/batch":              "批量管理实例进程（批量启动/停止/重启，逐个执行）",
 	"/api/aiagent/metrics":                      "读取模块运行期计数（收敛轮次、启停次数、失败数、最近错误）",

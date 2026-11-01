@@ -292,6 +292,10 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.handleBatchLifecycle(w, r)
 	case strings.HasPrefix(path, "/instances/") && strings.HasSuffix(path, "/status") && r.Method == http.MethodGet:
 		s.handleInstanceStatus(w, r, trimSegment(path, "/instances/", "/status"))
+	// 整机指标（CPU/内存/磁盘/负载）。面板自身的 /api/server/metrics/latest/{id}
+	// 要求后台 session Cookie，模块 token 进不去；这里转发同一份数据给已授权实例。
+	case strings.HasPrefix(path, "/instances/") && strings.HasSuffix(path, "/metrics") && r.Method == http.MethodGet:
+		s.handleInstanceHostMetrics(w, r, trimSegment(path, "/instances/", "/metrics"))
 	case strings.HasPrefix(path, "/instances/") && strings.HasSuffix(path, "/lifecycle") && r.Method == http.MethodPost:
 		s.handleInstanceLifecycle(w, r, trimSegment(path, "/instances/", "/lifecycle"))
 	case strings.HasPrefix(path, "/instances/") && strings.HasSuffix(path, "/grants") && r.Method == http.MethodGet:

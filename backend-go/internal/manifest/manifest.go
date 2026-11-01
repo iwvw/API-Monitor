@@ -297,6 +297,7 @@ func buildRoutes() []Route {
 		{Prefix: "/api/aiagent/tokens/{id}/revoke", Module: "aiagent", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "AI Agent token revoke", MatchMode: MatchPattern},
 		{Prefix: "/api/aiagent/tokens", Module: "aiagent", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "AI Agent token list", MatchMode: MatchExact},
 		{Prefix: "/api/aiagent/instances/{id}/status", Module: "aiagent", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "AI Agent instance runtime status", MatchMode: MatchPattern},
+		{Prefix: "/api/aiagent/instances/{id}/metrics", Module: "aiagent", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "AI Agent instance host metrics (CPU/memory/disk)", MatchMode: MatchPattern},
 		{Prefix: "/api/aiagent/instances/{id}/lifecycle", Module: "aiagent", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "AI Agent instance process lifecycle (start/stop/restart)", MatchMode: MatchPattern},
 		{Prefix: "/api/aiagent/instances/batch", Module: "aiagent", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "AI Agent batch instance lifecycle (admin)", MatchMode: MatchExact},
 		{Prefix: "/api/aiagent/instances/{id}/grants", Module: "aiagent", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "AI Agent instance granted users (admin)", MatchMode: MatchPattern},
