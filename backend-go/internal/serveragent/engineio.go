@@ -123,8 +123,27 @@ func (s *EngineIOServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-var upgrader = websocket.Upgrader{
-	CheckOrigin: sameWebSocketOrigin,
+/**
+ * engineIOUpgrader 返回带**白名单感知** Origin 校验的 upgrader。
+ *
+ * ⚠️ 不能用包级 `sameWebSocketOrigin`（严格同源）：engine.io 通道同时服务
+ * 面板自己的页面与外部前端（如 OCC 部署在 https://occ.dmuk.org，面板在
+ * https://dsukhub.com）。跨源时 Origin 的 host 与请求 Host 永远不同，严格
+ * 判断会一律拒绝 —— 实测表现为 WebSocket 立即 CLOSE 1006，即使
+ * CORS_ALLOWED_ORIGINS 里已经列了该来源。
+ *
+ * 方法版 `s.sameWebSocketOrigin` 先做严格判断、再放行白名单，与终端
+ * WebSocket（terminal_ws.go 的 terminalUpgrader）行为一致。
+ *
+ * 这里做成方法而非包级变量，是因为 gorilla 的 CheckOrigin 需要闭包捕获
+ * 本 Service 的配置；包级单例会引入跨实例的状态歧义。
+ */
+func (s *EngineIOServer) engineIOUpgrader() websocket.Upgrader {
+	checkOrigin := sameWebSocketOrigin
+	if s != nil && s.service != nil {
+		checkOrigin = s.service.sameWebSocketOrigin
+	}
+	return websocket.Upgrader{CheckOrigin: checkOrigin}
 }
 
 // HandleWebSocket 处理 WebSocket 升级
@@ -147,7 +166,8 @@ func (s *EngineIOServer) HandleWebSocket(w http.ResponseWriter, r *http.Request)
 		s.mu.Unlock()
 
 		// WebSocket 升级
-		conn, err := upgrader.Upgrade(w, r, nil)
+		up := s.engineIOUpgrader()
+		conn, err := up.Upgrade(w, r, nil)
 		if err != nil {
 			return
 		}
@@ -185,7 +205,8 @@ func (s *EngineIOServer) HandleWebSocket(w http.ResponseWriter, r *http.Request)
 	}
 
 	// WebSocket 升级
-	conn, err := upgrader.Upgrade(w, r, nil)
+	up := s.engineIOUpgrader()
+	conn, err := up.Upgrade(w, r, nil)
 	if err != nil {
 		return
 	}
