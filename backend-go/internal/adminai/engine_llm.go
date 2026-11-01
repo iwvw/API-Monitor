@@ -225,11 +225,18 @@ func (s *Service) callLLMStream(ctx context.Context, model string, messages []ma
 
 	// 首块等待护栏：流式响应首块（含网关 failover 重试总时长）超过
 	// firstTokenTimeout 未到达即中止，避免慢代理池放大后拖垮整轮预算。
+	//
+	// ⚠️ 先在**当前 goroutine** 读一次再交给下面的协程。包级变量虽声明为
+	// 「运行期只读」，但测试会用 defer 改回原值，而护栏协程可能仍在读 ——
+	// 直接闭包引用变量会被 -race 判为数据竞争（实测
+	// TestCallLLMStreamSendsReasoningEffort 就中过）。读进局部变量后协程
+	// 只碰局部量，与测试的还原互不干扰。
+	firstTokenWait := firstTokenTimeout
 	var firstTimedOut atomic.Bool
 	firstData := make(chan struct{}, 1)
 	go func() {
 		select {
-		case <-time.After(firstTokenTimeout):
+		case <-time.After(firstTokenWait):
 			firstTimedOut.Store(true)
 			_ = resp.Body.Close()
 		case <-firstData:
@@ -301,7 +308,7 @@ func (s *Service) callLLMStream(ctx context.Context, model string, messages []ma
 		}
 	}
 	if firstTimedOut.Load() {
-		return nil, fmt.Errorf("LLM 调用超时：%.0f 秒内未收到首个数据块（网关或上游模型响应过慢，可稍后重试）", firstTokenTimeout.Seconds())
+		return nil, fmt.Errorf("LLM 调用超时：%.0f 秒内未收到首个数据块（网关或上游模型响应过慢，可稍后重试）", firstTokenWait.Seconds())
 	}
 	if err := scanner.Err(); err != nil && !errors.Is(err, io.EOF) {
 		return nil, fmt.Errorf("读取 LLM 流失败: %w", err)

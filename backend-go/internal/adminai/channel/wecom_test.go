@@ -27,6 +27,22 @@ type mockWeComServer struct {
 	authOK     bool
 	subCount   int
 	pingCount  int
+	/**
+	 * writeMu 串行化对 conn 的写。
+	 *
+	 * gorilla/websocket 的 `Conn` **不支持并发写**：服务端 handler 协程
+	 * （回 subscribe/ping）与测试主协程（推 aibot_msg_callback）会同时
+	 * `WriteJSON`，`-race` 下必然报 DATA RACE（实测 4 个 WeCom 用例全中）。
+	 * 所有写入统一走 `writeJSON`，由这把锁串起来。
+	 */
+	writeMu sync.Mutex
+}
+
+// writeJSON 串行写入一帧。所有对 mock 连接的写都必须经由它。
+func (m *mockWeComServer) writeJSON(conn *websocket.Conn, v interface{}) error {
+	m.writeMu.Lock()
+	defer m.writeMu.Unlock()
+	return conn.WriteJSON(v)
 }
 
 func newMockWeComServer(authOK bool) *mockWeComServer {
@@ -62,7 +78,7 @@ func newMockWeComServer(authOK bool) *mockWeComServer {
 					Errcode: map[bool]int{true: 0, false: 91001}[ok],
 					Errmsg:  map[bool]string{true: "", false: "invalid secret"}[ok],
 				}
-				_ = conn.WriteJSON(resp)
+				_ = m.writeJSON(conn, resp)
 			case "ping":
 				m.mu.Lock()
 				m.pingCount++
@@ -71,7 +87,7 @@ func newMockWeComServer(authOK bool) *mockWeComServer {
 					Headers: wecomFrameHeaders{ReqID: "pong_" + fmt.Sprint(m.pingCount)},
 					Errcode: 0,
 				}
-				_ = conn.WriteJSON(resp)
+				_ = m.writeJSON(conn, resp)
 			case "aibot_send_msg":
 				var body map[string]interface{}
 				_ = json.Unmarshal(frame.Body, &body)
@@ -84,7 +100,7 @@ func newMockWeComServer(authOK bool) *mockWeComServer {
 					Headers: wecomFrameHeaders{ReqID: frame.Headers.ReqID},
 					Errcode: 0,
 				}
-				_ = conn.WriteJSON(resp)
+				_ = m.writeJSON(conn, resp)
 			case "aibot_respond_msg":
 				var body map[string]interface{}
 				_ = json.Unmarshal(frame.Body, &body)
@@ -96,7 +112,7 @@ func newMockWeComServer(authOK bool) *mockWeComServer {
 					Headers: wecomFrameHeaders{ReqID: frame.Headers.ReqID},
 					Errcode: 0,
 				}
-				_ = conn.WriteJSON(resp)
+				_ = m.writeJSON(conn, resp)
 			}
 		}
 	}))
@@ -216,7 +232,7 @@ func TestWeComInboundAndSend(t *testing.T) {
 	mock.mu.Lock()
 	conn := mock.conns[len(mock.conns)-1]
 	mock.mu.Unlock()
-	_ = conn.WriteJSON(pushFrame)
+	_ = mock.writeJSON(conn, pushFrame)
 
 	select {
 	case env := <-received:
@@ -274,7 +290,7 @@ func TestWeComStreamSendEdit(t *testing.T) {
 	mock.mu.Lock()
 	conn := mock.conns[len(mock.conns)-1]
 	mock.mu.Unlock()
-	_ = conn.WriteJSON(wecomFrame{
+	_ = mock.writeJSON(conn, wecomFrame{
 		Cmd:     "aibot_msg_callback",
 		Headers: wecomFrameHeaders{ReqID: "callback-req-1"},
 		Body: mustJSON(map[string]interface{}{
@@ -349,7 +365,7 @@ func TestWeComNoDoubleFinish(t *testing.T) {
 	mock.mu.Lock()
 	conn := mock.conns[len(mock.conns)-1]
 	mock.mu.Unlock()
-	_ = conn.WriteJSON(wecomFrame{
+	_ = mock.writeJSON(conn, wecomFrame{
 		Cmd:     "aibot_msg_callback",
 		Headers: wecomFrameHeaders{ReqID: "cb-df"},
 		Body: mustJSON(map[string]interface{}{
@@ -414,8 +430,8 @@ func TestWeComDedup(t *testing.T) {
 		"msgid": "dup-1", "msgtype": "text", "chattype": "single",
 		"from": map[string]interface{}{"userid": "u"}, "text": map[string]interface{}{"content": "hi"},
 	})}
-	_ = conn.WriteJSON(frame)
-	_ = conn.WriteJSON(frame)
+	_ = mock.writeJSON(conn, frame)
+	_ = mock.writeJSON(conn, frame)
 
 	select {
 	case <-count:
