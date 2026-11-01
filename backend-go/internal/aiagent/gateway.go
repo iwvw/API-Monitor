@@ -566,6 +566,26 @@ func buildWebSocketUpgradeRequest(r *http.Request, targetPath string, injectAuth
 		if lower == "host" || lower == "content-length" {
 			continue
 		}
+		/**
+		 * ⚠️ `Origin` 必须剥离，不能透传。
+		 *
+		 * 上面把 Host 重写成了 127.0.0.1（目标服务），而浏览器建 WebSocket 时
+		 * 必定带 `Origin: https://<面板域>`。opencode 的升级校验是「Origin 与
+		 * Host 同源」，两者对不上就一律 403 —— 表现为**所有经网关的终端都打不开**
+		 * （本地直连正常，浏览器报 onerror，curl 不带 Origin 却能拿到 101）。
+		 *
+		 * 实测（2026-11-01，网关 + opencode 2.x）：
+		 *   Origin: https://dsukhub.com      -> 403
+		 *   Origin: http://127.0.0.1:4096    -> 101
+		 *   不带 Origin                       -> 101
+		 *
+		 * 因此按「服务端接受空 Origin」放行：剥掉 Origin，同源校验自然通过。
+		 * 这是网关侧的同源反代，上游再做 Origin 校验没有意义；不改成重写 Origin
+		 * 是因为目标服务端口不固定（数据通道隐含），拼不出可靠值。
+		 */
+		if lower == "origin" {
+			continue
+		}
 		// 剥离面板鉴权/转发/逐跳头，避免泄漏云端口令或让上游被伪造来源头欺骗。
 		if hopByHopHeaders[lower] || lower == "authorization" || lower == "cookie" ||
 			strings.HasPrefix(lower, "x-forwarded-") || lower == "x-real-ip" ||

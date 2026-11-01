@@ -260,6 +260,44 @@ func TestBuildWebSocketUpgradeRequest(t *testing.T) {
 	}
 }
 
+// TestBuildWebSocketUpgradeRequestDropsOrigin 回归：`Origin` 不得透传。
+//
+// 升级请求的 Host 会被重写成 127.0.0.1（目标服务），而浏览器建 WebSocket 时
+// 必定带 `Origin: https://<面板域>`。opencode 的升级校验是「Origin 与 Host
+// 同源」，两者对不上就一律 403 —— 表现为所有经网关的终端都打不开。
+//
+// 实测（2026-11-01）：
+//
+//	Origin: https://dsukhub.com   -> 403
+//	Origin: http://127.0.0.1:4096 -> 101
+//	不带 Origin                    -> 101
+func TestBuildWebSocketUpgradeRequestDropsOrigin(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "http://panel.example.com/api/aiagent/gw/inst_1/pty/p1/connect", nil)
+	req.Header.Set("Connection", "Upgrade")
+	req.Header.Set("Upgrade", "websocket")
+	req.Header.Set("Sec-WebSocket-Key", wsTestNonce())
+	req.Header.Set("Sec-WebSocket-Version", "13")
+	req.Header.Set("Origin", "https://panel.example.com")
+
+	raw, err := buildWebSocketUpgradeRequest(req, "/pty/p1/connect", "")
+	if err != nil {
+		t.Fatalf("buildWebSocketUpgradeRequest: %v", err)
+	}
+
+	blob := string(raw)
+	lowerBlob := strings.ToLower(blob)
+	if strings.Contains(lowerBlob, "\r\norigin:") || strings.HasPrefix(lowerBlob, "origin:") {
+		t.Fatalf("Origin must be stripped (upstream rejects it when Host is rewritten):\n%s", blob)
+	}
+	// 握手必需头仍要在，避免「剥 Origin 顺手把握手头也剥了」。
+	// 头名大小写不敏感（Go 的 http.Header 会规范化成 Sec-Websocket-Version）。
+	for _, must := range []string{"connection: upgrade", "upgrade: websocket", "sec-websocket-version: 13"} {
+		if !strings.Contains(lowerBlob, must) {
+			t.Fatalf("missing %q:\n%s", must, blob)
+		}
+	}
+}
+
 func TestIsSSEPath(t *testing.T) {
 	cases := []struct {
 		path string
