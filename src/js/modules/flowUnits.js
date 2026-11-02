@@ -1,4 +1,4 @@
-export const FLOW_UNIT_BADGE_CLASS = 'inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded-[4px] border px-1 font-mono text-[13px] font-bold leading-none shadow-none';
+export const FLOW_UNIT_BADGE_CLASS = 'inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded-[4px] border px-1 font-mono text-[13px] font-semibold leading-none shadow-none';
 
 export const getFlowUnitClassName = (unit) => {
   const normalized = String(unit || 'B').toUpperCase();

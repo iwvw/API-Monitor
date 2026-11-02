@@ -11,6 +11,16 @@ import (
 var routeRequestContracts = map[string]interface{}{}
 
 // requestContractFor 返回某路由前缀对应的请求契约（schema + 示例）。
+// voidRoomCreateContract 是空房间创建接口的请求契约。
+// 实现只识别 mode/persistent（voidRoomRequest），不读取 name/expires，
+// 故这里不设必填字段，避免 AI 调用被历史漂移契约误拦。
+func voidRoomCreateContract() map[string]interface{} {
+	return obj(nil, map[string]prop{
+		"mode":       {t: "string", e: []string{"temporary", "persistent"}, d: "房间模式，默认 temporary（30 分钟）"},
+		"persistent": {t: "boolean", d: "true 等价 mode=persistent"},
+	})
+}
+
 func requestContractFor(prefix string) (map[string]interface{}, interface{}, bool) {
 	raw, ok := routeRequestContracts[prefix]
 	if !ok {
@@ -134,6 +144,59 @@ func containsOption(opts []string, target string) bool {
 }
 
 func init() {
+	// ===== AI Agent 管理模块 =====
+	routeRequestContracts["/api/aiagent/auth/login"] = obj([]string{"username", "password"}, map[string]prop{
+		"username":    {t: "string", req: true, d: "模块用户名"},
+		"password":    {t: "string", req: true, d: "密码"},
+		"deviceLabel": {t: "string", d: "设备标签，便于在令牌列表识别"},
+	})
+	routeRequestContracts["/api/aiagent/users"] = obj([]string{"username", "password"}, map[string]prop{
+		"username":    {t: "string", req: true, d: "登录名（3-32 位字母数字与 - _ .）"},
+		"password":    {t: "string", req: true, d: "密码（至少 8 位）"},
+		"displayName": {t: "string", d: "显示名"},
+	})
+	routeRequestContracts["/api/aiagent/users/{id}"] = obj(nil, map[string]prop{
+		"displayName": {t: "string", d: "显示名"},
+		"disabled":    {t: "boolean", d: "是否禁用"},
+	})
+	routeRequestContracts["/api/aiagent/users/{id}/reset-password"] = obj([]string{"password"}, map[string]prop{
+		"password": {t: "string", req: true, d: "新密码（至少 8 位）"},
+	})
+	routeRequestContracts["/api/aiagent/instances"] = obj([]string{"serverId", "label"}, map[string]prop{
+		"serverId": {t: "string", req: true, d: "主机 ID（复用主机实例模块）"},
+		"provider": {t: "string", e: []string{"opencode", "opencode-v2", "pi", "codex", "claude-code"}, d: "AI Agent 类型"},
+		"label":    {t: "string", req: true, d: "实例名称"},
+		"port":     {t: "integer", d: "本地服务端口，缺省取 Provider 默认端口"},
+		"enabled":  {t: "boolean", d: "是否启用"},
+	})
+	routeRequestContracts["/api/aiagent/instances/{id}"] = obj(nil, map[string]prop{
+		"serverId": {t: "string", d: "主机 ID"},
+		"provider": {t: "string", e: []string{"opencode", "opencode-v2", "pi", "codex", "claude-code"}, d: "AI Agent 类型"},
+		"label":    {t: "string", d: "实例名称"},
+		"port":     {t: "integer", d: "本地服务端口"},
+		"enabled":  {t: "boolean", d: "是否启用"},
+	})
+	routeRequestContracts["/api/aiagent/instances/{id}/status"] = obj(nil, map[string]prop{})
+	// action 与 desiredState 都可省略：只传 desiredState 表示仅改期望状态，
+	// 由后续查询触发收敛；因此两个字段都不是必填。
+	routeRequestContracts["/api/aiagent/instances/{id}/lifecycle"] = obj(nil, map[string]prop{
+		"action":       {t: "string", d: "start / stop / restart；留空表示只改期望状态"},
+		"desiredState": {t: "string", d: "running / stopped；设置后期望状态由云端收敛"},
+	})
+	routeRequestContracts["/api/aiagent/instances/batch"] = obj([]string{"action", "instanceIds"}, map[string]prop{
+		"action":      {t: "string", d: "start / stop / restart"},
+		"instanceIds": {t: "array", d: "实例 ID 列表，最多 50 个"},
+	})
+	routeRequestContracts["/api/aiagent/instances/{id}/access-info"] = obj(nil, map[string]prop{})
+	// 诊断为只读预检：provider 通过 query 传递。
+	routeRequestContracts["/api/aiagent/servers/{id}/diagnose"] = obj(nil, map[string]prop{
+		"provider": {t: "string", d: "Provider ID（query 参数），如 opencode"},
+	})
+	routeRequestContracts["/api/aiagent/instances/{id}/meta"] = obj(nil, map[string]prop{
+		"meta": {t: "string", d: "客户端 UI 偏好 JSON 字符串，上限 64KB"},
+	})
+	routeRequestContracts["/api/aiagent/gw/{instanceId}/stream-token"] = obj(nil, map[string]prop{})
+
 	// ===== 系统内：AI 接入 / API 密钥 / 备份 =====
 	routeRequestContracts["/api/ai-access/mcp-servers"] = obj([]string{"name"}, map[string]prop{
 		"name":        {t: "string", req: true, d: "服务名称"},
@@ -158,9 +221,7 @@ func init() {
 	routeRequestContracts["/api/ai-access/skills/{id}"] = routeRequestContracts["/api/ai-access/skills"]
 	routeRequestContracts["/api/system/ai-access/skills"] = routeRequestContracts["/api/ai-access/skills"]
 	routeRequestContracts["/api/system/ai-access/skills/{id}"] = routeRequestContracts["/api/ai-access/skills"]
-	routeRequestContracts["/api/ai-access/write"] = obj([]string{"writeEnabled"}, map[string]prop{"writeEnabled": {t: "boolean", req: true, d: "是否允许 AI 写操作"}})
-	routeRequestContracts["/api/system/ai-access/write"] = routeRequestContracts["/api/ai-access/write"]
-	routeRequestContracts["/api/ai-access/policy"] = obj([]string{"policy"}, map[string]prop{"policy": {t: "string", req: true, e: []string{"minimal", "standard", "full"}, d: "AI 接入权限模式"}})
+	routeRequestContracts["/api/ai-access/policy"] = obj([]string{"policy"}, map[string]prop{"policy": {t: "string", req: true, e: []string{"minimal", "sensitive", "standard", "full"}, d: "AI 接入权限模式：minimal 只读 / sensitive 敏感（危险命令软拦截）/ standard 标准（硬拦截）/ full 全部权限"}})
 	routeRequestContracts["/api/system/ai-access/policy"] = routeRequestContracts["/api/ai-access/policy"]
 	routeRequestContracts["/api/api-keys"] = obj([]string{"name"}, map[string]prop{
 		"name":      {t: "string", req: true, d: "密钥名称"},
@@ -174,19 +235,72 @@ func init() {
 	routeRequestContracts["/api/system/api-stats"] = obj(nil, map[string]prop{
 		"days": {t: "integer", d: "统计天数（1-90，默认 14）"},
 	})
-	routeRequestContracts["/api/backup/configs"] = obj([]string{"provider"}, map[string]prop{
-		"provider":          {t: "string", req: true, e: []string{"local", "oss", "cos", "s3"}},
+	routeRequestContracts["/api/backup/configs"] = obj(nil, map[string]prop{
 		"local_dir":         {t: "string", d: "本地备份目录"},
 		"cron":              {t: "string", d: "定时表达式"},
-		"endpoint":          {t: "string", d: "云存储端点"},
-		"bucket":            {t: "string", d: "存储桶"},
-		"access_key_id":     {t: "string"},
-		"access_key_secret": {t: "string"},
 		"max_records":       {t: "integer", d: "最大保留备份数量（0=不限制）"},
+		"channels":          {t: "array", d: "备份上传渠道列表（可同时配置多个，一次备份会同时上传到所有渠道）"},
+		"provider":          {t: "string", e: []string{"local", "oss", "cos", "s3", "webdav"}, d: "旧版单渠道类型（仅兼容旧格式，新格式用 channels）"},
+		"endpoint":          {t: "string", d: "旧版单渠道云存储端点"},
+		"bucket":            {t: "string", d: "旧版单渠道存储桶"},
+		"access_key_id":     {t: "string", d: "旧版单渠道访问密钥 ID"},
+		"access_key_secret": {t: "string", d: "旧版单渠道访问密钥 Secret"},
 	})
 	routeRequestContracts["/api/backup/restore"] = obj([]string{"id", "confirm"}, map[string]prop{
 		"id":      {t: "string", req: true},
 		"confirm": {t: "string", req: true, e: []string{"RESTORE"}},
+	})
+
+	// ===== 资产管理 =====
+	routeRequestContracts["/api/assets"] = obj([]string{"name", "category", "asset_type"}, map[string]prop{
+		"name":          {t: "string", req: true, d: "资产名称"},
+		"category":      {t: "string", req: true, e: []string{"physical", "virtual"}, d: "实体或虚拟"},
+		"asset_type":    {t: "string", req: true, d: "资产类型，需与 category 匹配"},
+		"provider":      {t: "string", d: "提供方"},
+		"owner":         {t: "string", d: "负责人"},
+		"location":      {t: "string", d: "位置"},
+		"serial_no":     {t: "string", d: "序列号（实体资产）"},
+		"model":         {t: "string", d: "型号（实体资产）"},
+		"status":        {t: "string", e: []string{"active", "retired", "orphan", "unknown"}, d: "持久状态，默认 active"},
+		"acquire_date":  {t: "string", d: "购置日期"},
+		"expire_at":     {t: "string", d: "到期时刻，RFC3339 或 YYYY-MM-DD"},
+		"warn_days":     {t: "array", d: "覆盖全局的到期告警阈值天数数组"},
+		"auto_renew":    {t: "boolean", d: "是否自动续费，true 时不产生到期告警"},
+		"cost_amount":   {t: "number", d: "成本金额"},
+		"cost_currency": {t: "string", d: "币种，如 CNY / USD"},
+		"cost_cycle":    {t: "string", e: []string{"monthly", "quarterly", "yearly", "one_time", "usage"}, d: "计费周期"},
+		"tags":          {t: "array", d: "标签数组"},
+		"metadata":      {t: "object", d: "扩展字段容器"},
+		"remark":        {t: "string", d: "备注"},
+	})
+	routeRequestContracts["/api/assets/{id}"] = obj(nil, map[string]prop{
+		"name":          {t: "string", d: "资产名称"},
+		"category":      {t: "string", e: []string{"physical", "virtual"}, d: "实体或虚拟"},
+		"asset_type":    {t: "string", d: "资产类型，需与 category 匹配"},
+		"provider":      {t: "string", d: "提供方"},
+		"owner":         {t: "string", d: "负责人"},
+		"location":      {t: "string", d: "位置"},
+		"serial_no":     {t: "string", d: "序列号（实体资产）"},
+		"model":         {t: "string", d: "型号（实体资产）"},
+		"status":        {t: "string", e: []string{"active", "retired", "orphan", "unknown"}, d: "持久状态"},
+		"acquire_date":  {t: "string", d: "购置日期"},
+		"expire_at":     {t: "string", d: "到期时刻，RFC3339 或 YYYY-MM-DD"},
+		"warn_days":     {t: "array", d: "覆盖全局的到期告警阈值天数数组"},
+		"auto_renew":    {t: "boolean", d: "是否自动续费"},
+		"cost_amount":   {t: "number", d: "成本金额"},
+		"cost_currency": {t: "string", d: "币种，如 CNY / USD"},
+		"cost_cycle":    {t: "string", e: []string{"monthly", "quarterly", "yearly", "one_time", "usage"}, d: "计费周期"},
+		"tags":          {t: "array", d: "标签数组"},
+		"metadata":      {t: "object", d: "扩展字段容器"},
+		"remark":        {t: "string", d: "备注"},
+	})
+	routeRequestContracts["/api/assets/settings"] = obj(nil, map[string]prop{
+		"base_currency":  {t: "string", d: "成本合计的基准币种，留空表示不合计"},
+		"exchange_rates": {t: "object", d: "各币种到基准币种的手工汇率，如 {\"USD\": 7.2}"},
+		"warn_days":      {t: "array", d: "全局到期告警阈值天数数组，默认 [30,14,7,1]"},
+	})
+	routeRequestContracts["/api/assets/links"] = obj([]string{"links"}, map[string]prop{
+		"links": {t: "array", req: true, d: "待纳管对象数组，每项含 source_module 与 source_ref_id"},
 	})
 
 	// ===== PaaS：Fly.io =====
@@ -215,6 +329,7 @@ func init() {
 	routeRequestContracts["/api/openai/endpoints"] = obj([]string{"name", "baseUrl", "apiKey"}, map[string]prop{
 		"name":         {t: "string", req: true},
 		"baseUrl":      {t: "string", req: true, d: "OpenAI 兼容地址，如 https://api.example.com/v1"},
+		"modelsUrl":    {t: "string", d: "模型列表 API（可选），默认 {BaseURL}/models；非标准路径端点在此填写完整 URL"},
 		"apiKey":       {t: "string", req: true},
 		"headers":      {t: "array", d: "自定义请求头 [{name,value}]"},
 		"proxyPool":    {t: "array", d: "代理池"},
@@ -248,19 +363,19 @@ func init() {
 
 	// ===== 定时任务 =====
 	routeRequestContracts["/api/scheduler/tasks"] = obj([]string{"name", "command"}, map[string]prop{
-		"name":                 {t: "string", req: true},
-		"description":          {t: "string"},
-		"schedule":             {t: "string", d: "cron 表达式"},
-		"command":              {t: "string", req: true},
-		"type":                 {t: "string", d: "shell | internal | agent | http | ai"},
-		"enabled":              {t: "boolean", d: "是否启用（兼容 0/1 整数）"},
-		"timeout_seconds":      {t: "integer"},
-		"retry_count":          {t: "integer"},
+		"name":                   {t: "string", req: true},
+		"description":            {t: "string"},
+		"schedule":               {t: "string", d: "cron 表达式"},
+		"command":                {t: "string", req: true},
+		"type":                   {t: "string", d: "shell | internal | agent | http | ai"},
+		"enabled":                {t: "boolean", d: "是否启用（兼容 0/1 整数）"},
+		"timeout_seconds":        {t: "integer"},
+		"retry_count":            {t: "integer"},
 		"retry_interval_seconds": {t: "integer"},
-		"max_concurrency":      {t: "integer"},
-		"node_id":              {t: "string"},
-		"node_selector":        {t: "string"},
-		"config":               {t: "string", d: "任务扩展配置 JSON（AI 任务为 {\"model\",\"policy\",\"channelId\"}，policy 仅支持 allow/readonly，默认 allow）"},
+		"max_concurrency":        {t: "integer"},
+		"node_id":                {t: "string"},
+		"node_selector":          {t: "string"},
+		"config":                 {t: "string", d: "任务扩展配置 JSON（AI 任务为 {\"model\",\"policy\",\"channelId\"}，policy 仅支持 allow/readonly，默认 allow）"},
 	})
 	routeRequestContracts["/api/scheduler/tasks/{id}"] = routeRequestContracts["/api/scheduler/tasks"]
 	routeRequestContracts["/api/cron/tasks"] = routeRequestContracts["/api/scheduler/tasks"]
@@ -347,6 +462,60 @@ func init() {
 		"zoneId": {t: "string", req: true},
 	})
 	routeRequestContracts["/api/cloudflare/accounts/{id}/verify"] = obj(nil, map[string]prop{})
+	routeRequestContracts["/api/cloudflare/accounts/{accountId}/email/routing/addresses"] = obj([]string{"email"}, map[string]prop{
+		"email": {t: "string", req: true, d: "目的地邮箱地址，CF 会向其发送验证邮件"},
+	})
+	routeRequestContracts["/api/cloudflare/accounts/{accountId}/email/routing/rules"] = obj([]string{"matchers", "actions"}, map[string]prop{
+		"name":       {t: "string", d: "规则名称"},
+		"enabled":    {t: "boolean", d: "是否启用"},
+		"matchers":   {t: "array", req: true, d: "匹配器数组，可为空"},
+		"actions":    {t: "array", req: true, d: "动作数组，每规则只能一个动作"},
+		"catchAll":   {t: "boolean", d: "是否为 catch-all 规则"},
+		"skipWizard": {t: "boolean", d: "跳过向导"},
+		"priority":   {t: "integer", d: "优先级"},
+		"tag":        {t: "string", d: "标签"},
+		"stop":       {t: "boolean", d: "命中后是否停止后续规则"},
+	})
+	routeRequestContracts["/api/cloudflare/accounts/{accountId}/email/routing/inbox"] = obj([]string{"zoneId"}, map[string]prop{
+		"zoneId":       {t: "string", req: true, d: "目标域名 zone id"},
+		"panelBaseUrl": {t: "string", d: "面板公网地址，缺省读系统设置"},
+		"forwardTo":    {t: "string", d: "续转目标邮箱"},
+		"workerName":   {t: "string", d: "自定义 Worker 脚本名"},
+		"strategy":     {t: "string", e: []string{"forward", "inbox_only", "inbox_and_forward"}, d: "转发策略：只转发 / 只收件 / 收件并续转（默认）"},
+	})
+	routeRequestContracts["/api/emailcode/ingest"] = obj([]string{"mailbox"}, map[string]prop{
+		"mailbox":    {t: "string", req: true, d: "收件人邮箱"},
+		"domain":     {t: "string", d: "收件域名"},
+		"sender":     {t: "string", d: "发件人"},
+		"subject":    {t: "string", d: "主题"},
+		"messageId":  {t: "string", d: "邮件 Message-ID，用于去重"},
+		"raw":        {t: "string", d: "邮件 MIME 原文，面板侧解析提取"},
+		"code":       {t: "string", d: "已提取的验证码（兼容旧版）"},
+		"link":       {t: "string", d: "已提取的验证链接（兼容旧版）"},
+		"snippet":    {t: "string", d: "正文摘要"},
+		"receivedAt": {t: "string", d: "收件时刻（RFC3339）"},
+	})
+	routeRequestContracts["/api/emailcode/wait"] = obj([]string{"mailbox"}, map[string]prop{
+		"mailbox":         {t: "string", req: true, d: "收件人邮箱"},
+		"domain":          {t: "string", d: "收件域名，精确收敛"},
+		"fromDomain":      {t: "string", d: "发件人域名，精确收敛"},
+		"subjectContains": {t: "string", d: "主题关键词过滤"},
+		"since":           {t: "string", d: "只接受该时刻之后的邮件（RFC3339）"},
+		"timeoutSec":      {t: "integer", d: "最长等待秒数"},
+		"consumer":        {t: "string", d: "认领方标识"},
+		"requireCode":     {t: "boolean", d: "是否要求已提取出验证码（默认 true）"},
+	})
+	routeRequestContracts["/api/emailcode/messages/{id}/consume"] = obj(nil, map[string]prop{})
+	routeRequestContracts["/api/emailcode/clear"] = obj(nil, map[string]prop{})
+	routeRequestContracts["/api/posthogcode/signup/start"] = obj(nil, map[string]prop{
+		"region":    {t: "string", d: "区域 us/eu，默认 us"},
+		"prefix":    {t: "string", d: "邮箱前缀，默认 probe"},
+		"domain":    {t: "string", d: "收件域名，需已部署收件箱，缺省用第一个可用域名"},
+		"password":  {t: "string", d: "账号密码，缺省自动生成"},
+		"accountId": {t: "string", d: "指定既有账号则复用其身份"},
+		"email":     {t: "string", d: "手动模式：用户自行在浏览器注册时使用的邮箱"},
+		"manual":    {t: "boolean", d: "人机分工模式：面板只备邮箱密码，由用户在浏览器过 Turnstile，面板接管验证与授权"},
+	})
 
 	// ===== GitHub =====
 	routeRequestContracts["/api/github/tokens"] = obj([]string{"name", "token"}, map[string]prop{
@@ -385,6 +554,8 @@ func init() {
 		"password":   {t: "string"},
 		"privateKey": {t: "string"},
 		"group":      {t: "string"},
+		"remote_desktop_nat_ips":  {t: "string", d: "远程桌面 1:1 NAT/公网 IP 直连广播列表（逗号分隔）"},
+		"remote_desktop_nat_type": {t: "string", e: []string{"host", "srflx"}, d: "上述地址使用的 ICE 候选类型"},
 	})
 	routeRequestContracts["/api/server/accounts/{id}"] = routeRequestContracts["/api/server/accounts"]
 	routeRequestContracts["/api/server/accounts/import"] = obj(nil, map[string]prop{
@@ -493,6 +664,9 @@ func init() {
 		"path":     {t: "string", req: true},
 		"mode":     {t: "integer", req: true},
 	})
+	routeRequestContracts["/api/server/sftp/roots"] = obj([]string{"serverId"}, map[string]prop{
+		"serverId": {t: "string", req: true},
+	})
 	routeRequestContracts["/api/server/sftp/upload"] = obj([]string{"serverId", "path", "content"}, map[string]prop{
 		"serverId": {t: "string", req: true},
 		"path":     {t: "string", req: true},
@@ -508,15 +682,13 @@ func init() {
 		"params":    {t: "object"},
 	})
 	routeRequestContracts["/api/server/v2/docker/overview"] = obj([]string{"serverId"}, map[string]prop{"serverId": {t: "string", req: true}})
-	routeRequestContracts["/api/server/remote-desktop/sessions"] = obj([]string{"serverId"}, map[string]prop{
+	routeRequestContracts["/api/server/remote-desktop/sessions"] = obj([]string{"serverId", "offer"}, map[string]prop{
 		"serverId": {t: "string", req: true},
-		"quality":  {t: "integer", d: "画质 0-100"},
-		"scale":    {t: "number", d: "分辨率缩放"},
+		"offer":    {t: "object", req: true, d: "浏览器端 WebRTC offer (RTCSessionDescription)"},
 	})
 	routeRequestContracts["/api/server/remote-desktop/sessions/{id}"] = noBody
 	routeRequestContracts["/api/server/remote-desktop/sessions/{id}/signals"] = obj([]string{"signal"}, map[string]prop{
-		"signal": {t: "string", req: true},
-		"args":   {t: "object"},
+		"signal": {t: "object", req: true, d: "浏览器端 ICE candidate 信令，原样转发给 Agent"},
 	})
 
 	// Agent
@@ -530,6 +702,19 @@ func init() {
 	routeRequestContracts["/api/server/agent/command/{id}"] = obj([]string{"command"}, map[string]prop{
 		"command": {t: "string", req: true},
 		"timeout": {t: "integer"},
+		"cwd":     {t: "string", d: "工作目录（可选），省去每条命令都写 cd /x && ..."},
+		"wait":    {t: "boolean", d: "false 时立即返回 task_id（202），用 GET /api/server/tasks/{id} 取终态；缺省 true 同步等待"},
+		"confirm": {t: "boolean", d: "危险命令二次确认（敏感模式下软拦截，需带 confirm=true 才会执行）"},
+	})
+	routeRequestContracts["/api/server/agent/fetch-url"] = obj([]string{"serverId", "url", "path"}, map[string]prop{
+		"serverId": {t: "string", req: true, d: "目标 Agent 主机 ID"},
+		"url":      {t: "string", req: true, d: "文件下载地址（http/https，主机需可访问）"},
+		"path":     {t: "string", req: true, d: "主机上的目标文件路径（受 Agent 文件沙箱约束）"},
+	})
+	routeRequestContracts["/api/server/agent/upload"] = obj([]string{"serverId", "path", "file"}, map[string]prop{
+		"serverId": {t: "string", req: true, d: "目标 Agent 主机 ID"},
+		"path":     {t: "string", req: true, d: "主机上的目标文件路径（受 Agent 文件沙箱约束）"},
+		"file":     {t: "string", req: true, d: "multipart/form-data 文件字段（原始字节）"},
 	})
 	routeRequestContracts["/api/server/agent/auto-install/{id}"] = obj(nil, map[string]prop{"protocol": {t: "string"}})
 	routeRequestContracts["/api/server/monitor/collect"] = noBody
@@ -551,12 +736,22 @@ func init() {
 	})
 	routeRequestContracts["/api/server/agent/proxy/{id}/reconcile"] = noBody
 	routeRequestContracts["/api/server/agent/proxy/{id}/traffic"] = obj(nil, map[string]prop{"days": {t: "integer"}})
-	routeRequestContracts["/api/server/agent/proxy/nodes"] = obj([]string{"name"}, map[string]prop{
-		"name":     {t: "string", req: true},
-		"bindIp":   {t: "string"},
-		"port":     {t: "integer"},
-		"serverId": {t: "string"},
+	routeRequestContracts["/api/server/agent/proxy/nodes"] = obj([]string{"server_id", "name", "protocol", "public_host"}, map[string]prop{
+		"server_id":            {t: "string", req: true, d: "Agent 主机 ID（先调 /api/server/accounts 获取）"},
+		"name":                 {t: "string", req: true, d: "节点名称（同一主机内唯一）"},
+		"protocol":             {t: "string", req: true, e: []string{"vless-reality", "hysteria2", "vless-ws", "vless-tls", "trojan", "vmess-ws", "socks", "http"}, d: "节点协议"},
+		"public_host":          {t: "string", req: true, d: "对外地址/主机名"},
+		"preset":               {t: "string", e: []string{"balanced", "low_latency", "stealth", "throughput"}, d: "sing-box 调优预设（GET /api/server/agent/proxy/presets），空值等价 balanced"},
+		"server_name":          {t: "string", d: "REALITY 握手落点，显式值优先于预设"},
+		"certificate_pem":      {t: "string", d: "Hysteria2 证书（留空自动生成）"},
+		"private_key_pem":      {t: "string", d: "Hysteria2 私钥（留空自动生成）"},
+		"access_mode":          {t: "string", e: []string{"direct", "cloudflare_tunnel"}, d: "接入方式，默认 direct"},
+		"preferred_address_id": {t: "string", d: "Cloudflare Tunnel 优选地址 ID"},
+		"connect_address":      {t: "string", d: "客户端连接地址（Tunnel 场景）"},
+		"connect_port":         {t: "integer", d: "客户端连接端口（Tunnel 场景）"},
+		"enabled":              {t: "boolean", d: "是否启用，默认 true"},
 	})
+	routeRequestContracts["/api/server/agent/proxy/presets"] = noBody
 	routeRequestContracts["/api/server/agent/proxy/nodes/{id}"] = routeRequestContracts["/api/server/agent/proxy/nodes"]
 	routeRequestContracts["/api/server/agent/proxy/nodes/{id}/reconcile"] = noBody
 	routeRequestContracts["/api/server/agent/proxy/tunnels"] = obj([]string{"name"}, map[string]prop{
@@ -578,7 +773,6 @@ func init() {
 		"serverId": {t: "string"},
 	})
 	routeRequestContracts["/api/server/agent/proxy/preferred-addresses/{id}"] = routeRequestContracts["/api/server/agent/proxy/preferred-addresses"]
-	routeRequestContracts["/api/server/agent/proxy/preferred-addresses/{id}/check"] = noBody
 	routeRequestContracts["/api/server/agent/proxy/runtimes"] = obj([]string{"name", "version"}, map[string]prop{
 		"name":    {t: "string", req: true},
 		"version": {t: "string", req: true},
@@ -615,6 +809,66 @@ func init() {
 		"siteName":    {t: "string"},
 	})
 	routeRequestContracts["/api/prompts/public/{publicId}"] = obj([]string{"content"}, map[string]prop{"content": {t: "string", req: true}})
+
+	// ===== 网址导航 bookmarks =====
+	routeRequestContracts["/api/bookmarks/groups"] = obj([]string{"title"}, map[string]prop{
+		"title":       {t: "string", req: true},
+		"description": {t: "string"},
+		"icon":        {t: "string"},
+	})
+	routeRequestContracts["/api/bookmarks/groups/sort"] = obj(nil, map[string]prop{
+		"items": {t: "array", d: "排序数组，元素为 {id, sort}"},
+	})
+	routeRequestContracts["/api/bookmarks/groups/public"] = obj([]string{"public"}, map[string]prop{
+		"public": {t: "boolean", req: true, d: "目标公开状态"},
+		"ids":    {t: "array", d: "分组 id 数组；省略或为空表示全部分组"},
+	})
+	routeRequestContracts["/api/bookmarks/groups/{id}"] = routeRequestContracts["/api/bookmarks/groups"]
+	routeRequestContracts["/api/bookmarks/items"] = obj([]string{"group_id", "title", "url"}, map[string]prop{
+		"group_id":      {t: "integer", req: true},
+		"title":         {t: "string", req: true},
+		"url":           {t: "string", req: true},
+		"description":   {t: "string"},
+		"icon_type":     {t: "integer", d: "1=文字 2=图片/网站图标 3=Emoji 字符"},
+		"icon_src":      {t: "string"},
+		"icon_text":     {t: "string"},
+		"icon_bg_color": {t: "string"},
+		"open_method":   {t: "integer", d: "1=当前页 2=新窗口"},
+	})
+	routeRequestContracts["/api/bookmarks/items/sort"] = obj([]string{"group_id"}, map[string]prop{
+		"group_id": {t: "integer", req: true},
+		"items":    {t: "array", d: "排序数组，元素为 {id, sort}"},
+	})
+	routeRequestContracts["/api/bookmarks/items/{id}"] = routeRequestContracts["/api/bookmarks/items"]
+	routeRequestContracts["/api/bookmarks/favicon/fetch"] = obj([]string{"url"}, map[string]prop{
+		"url": {t: "string", req: true},
+	})
+	routeRequestContracts["/api/bookmarks/favicons/fetch-batch"] = obj(nil, map[string]prop{
+		"ids":          {t: "array", d: "指定条目 id；省略表示全部"},
+		"only_missing": {t: "boolean", d: "只处理没有图标的条目，默认 true"},
+		"overwrite":    {t: "boolean", d: "是否覆盖已有图标"},
+		"limit":        {t: "integer", d: "本次最多处理条数，默认 50，上限 200"},
+	})
+	routeRequestContracts["/api/bookmarks/backgrounds/upload"] = obj(nil, map[string]prop{
+		"file": {t: "string", d: "multipart 表单中的图片文件（png/jpg/webp/gif/bmp，最大 8MB）"},
+		"name": {t: "string", d: "可选显示名称"},
+	})
+	routeRequestContracts["/api/bookmarks/backgrounds/{id}"] = noBody
+	routeRequestContracts["/api/bookmarks/public-settings"] = obj(nil, map[string]prop{
+		"config": {t: "object", d: "公开页全局配置（bgImage/bgColor/bgBlur/bgDim/bgSize/bgFixed）"},
+	})
+	routeRequestContracts["/api/bookmarks/import"] = obj([]string{"payload"}, map[string]prop{
+		"payload":              {t: "object", req: true, d: "SunPanel .sun-panel.json 内容（对象或已序列化字符串）"},
+		"group_mode":           {t: "string", d: "new=每组新建 merge=并入同名 single=全部并入指定分组"},
+		"target_group_id":      {t: "integer", d: "group_mode=single 时的目标分组"},
+		"skip_local_icons":     {t: "boolean", d: "跳过 /uploads/ 等相对路径图标，默认 true"},
+		"include_system_cards": {t: "boolean", d: "是否导入无网址的系统卡片，默认 false"},
+		"dry_run":              {t: "boolean", d: "仅解析并回报，不写库"},
+	})
+	routeRequestContracts["/api/bookmarks/public/groups/{slug}"] = noBody
+	routeRequestContracts["/api/bookmarks/public/all"] = noBody
+	routeRequestContracts["/api/bookmarks/public/all/{sort}"] = noBody
+	routeRequestContracts["/api/bookmarks/public/page-by-domain"] = noBody
 
 	// ===== 图编辑器 drawio =====
 	routeRequestContracts["/api/drawio/documents"] = obj([]string{"title"}, map[string]prop{
@@ -660,16 +914,25 @@ func init() {
 	})
 	routeRequestContracts["/api/filebox/shares"] = noBody
 	routeRequestContracts["/api/filebox/access-logs"] = noBody
-	routeRequestContracts["/api/m365/registrations"] = noBody
-	routeRequestContracts["/api/filebox/void/rooms"] = obj([]string{"name"}, map[string]prop{
-		"name":    {t: "string", req: true},
-		"expires": {t: "integer", d: "有效期秒"},
+	routeRequestContracts["/api/filebox/share-from-agent"] = obj([]string{"serverId", "remotePath"}, map[string]prop{
+		"serverId":      {t: "string", req: true, d: "Agent 主机 ID"},
+		"remotePath":    {t: "string", req: true, d: "主机上的文件绝对路径或虚拟路径"},
+		"storageTarget": {t: "string", d: "auto（默认，优先可用节点并用 Agent 直传）/ local / 指定存储节点 serverId"},
+		"expiry":        {t: "string", d: "有效期小时数，如 24"},
+		"burn_after_reading": {t: "boolean", d: "阅后即焚"},
+		"max_downloads": {t: "string", d: "最大下载次数，0 为不限"},
+		"access_password": {t: "string", d: "访问密码"},
 	})
+	routeRequestContracts["/api/m365/registrations"] = noBody
+	routeRequestContracts["/api/filebox/void/rooms"] = voidRoomCreateContract()
 	routeRequestContracts["/api/filebox/void/rooms/{roomId}"] = obj(nil, map[string]prop{
 		"name": {t: "string"},
 	})
 	routeRequestContracts["/api/filebox/void/rooms/{roomId}/participants"] = obj(nil, map[string]prop{
 		"name": {t: "string"},
+	})
+	routeRequestContracts["/api/filebox/void/rooms/{id}/files"] = obj([]string{"code"}, map[string]prop{
+		"code": {t: "string", req: true, d: "要挂载到房间的文件柜分享 code"},
 	})
 
 	// ===== 阿里云 aliyun =====
@@ -753,6 +1016,57 @@ func init() {
 	routeRequestContracts["/api/koyeb/services/{serviceId}/instances"] = obj([]string{"accountId"}, map[string]prop{
 		"accountId": {t: "string", req: true},
 	})
+	routeRequestContracts["/api/koyeb/services/{serviceId}/update"] = obj(nil, map[string]prop{
+		"accountId":    {t: "string", req: true, d: "Koyeb 账号 ID"},
+		"image":        {t: "string", d: "新的容器镜像地址（如 registry.hub.docker.com/xxx/app:latest）"},
+		"command":      {t: "string", d: "容器启动命令"},
+		"args":         {t: "array", d: "启动参数列表"},
+		"env":          {t: "array", d: "环境变量（[{key,value}] 或 [\"K=V\"]）"},
+		"ports":        {t: "array", d: "端口列表（[{port,protocol}]）"},
+		"regions":      {t: "array", d: "部署区域列表"},
+		"instanceType": {t: "string", d: "实例规格（nano/micro/small/medium/large）"},
+		"skipBuild":    {t: "boolean", d: "跳过构建直接复用上次构建镜像"},
+	})
+	routeRequestContracts["/api/koyeb/deployments/{deploymentId}/cancel"] = obj([]string{"accountId"}, map[string]prop{
+		"accountId": {t: "string", req: true},
+	})
+	routeRequestContracts["/api/koyeb/services/{serviceId}/scale"] = obj([]string{"accountId", "scalings"}, map[string]prop{
+		"accountId": {t: "string", req: true},
+		"scalings":  {t: "array", req: true, d: "手动扩容配置（[{scopes,instances}]）"},
+	})
+	routeRequestContracts["/api/koyeb/apps/{appId}/pause"] = obj([]string{"accountId"}, map[string]prop{"accountId": {t: "string", req: true}})
+	routeRequestContracts["/api/koyeb/apps/{appId}/resume"] = obj([]string{"accountId"}, map[string]prop{"accountId": {t: "string", req: true}})
+	routeRequestContracts["/api/koyeb/domains"] = obj([]string{"name"}, map[string]prop{
+		"name":      {t: "string", req: true, d: "域名（CUSTOM）或自动分配域名（AUTOASSIGNED）"},
+		"type":      {t: "string", e: []string{"AUTOASSIGNED", "CUSTOM"}},
+		"accountId": {t: "string", req: true, d: "Koyeb 账号 ID"},
+		"appId":     {t: "string", d: "绑定到的应用 ID"},
+	})
+	routeRequestContracts["/api/koyeb/domains/{domainId}"] = obj([]string{"accountId"}, map[string]prop{"accountId": {t: "string", req: true}})
+	routeRequestContracts["/api/koyeb/domains/{domainId}/refresh"] = obj([]string{"accountId"}, map[string]prop{"accountId": {t: "string", req: true}})
+	routeRequestContracts["/api/koyeb/secrets"] = obj([]string{"name", "value"}, map[string]prop{
+		"name":      {t: "string", req: true, d: "密钥名称"},
+		"value":     {t: "string", req: true, d: "密钥值"},
+		"type":      {t: "string", e: []string{"SIMPLE", "REGISTRY", "MANAGED"}},
+		"accountId": {t: "string", req: true, d: "Koyeb 账号 ID"},
+	})
+	routeRequestContracts["/api/koyeb/secrets/{secretId}"] = obj([]string{"accountId"}, map[string]prop{"accountId": {t: "string", req: true}})
+	routeRequestContracts["/api/koyeb/secrets/{secretId}/update"] = obj([]string{"value"}, map[string]prop{
+		"value":     {t: "string", req: true, d: "新的密钥值"},
+		"accountId": {t: "string", req: true, d: "Koyeb 账号 ID"},
+	})
+	routeRequestContracts["/api/koyeb/services"] = obj([]string{"appId", "name"}, map[string]prop{
+		"accountId":    {t: "string", req: true, d: "Koyeb 账号 ID"},
+		"appId":        {t: "string", req: true, d: "所属应用 ID"},
+		"name":         {t: "string", req: true, d: "服务名称"},
+		"type":         {t: "string", e: []string{"web", "worker", "job"}},
+		"image":        {t: "string", d: "容器镜像地址"},
+		"command":      {t: "string", d: "启动命令"},
+		"env":          {t: "array", d: "环境变量（[{key,value}]）"},
+		"ports":        {t: "array", d: "端口列表（[{port,protocol}]）"},
+		"regions":      {t: "array", d: "部署区域列表"},
+		"instanceType": {t: "string", d: "实例规格（nano/micro/small/medium/large）"},
+	})
 
 	// ===== 定时任务 scheduler / cron =====
 	routeRequestContracts["/api/scheduler/nodes"] = obj([]string{"name"}, map[string]prop{
@@ -808,6 +1122,7 @@ func init() {
 		"url": {t: "string", req: true, d: "订阅链接，必须以 http:// 或 https:// 开头"},
 	})
 	routeRequestContracts["/api/openai/analytics/clear"] = noBody
+	routeRequestContracts["/api/openai/analytics/clear-history"] = noBody
 	routeRequestContracts["/api/openai/relay-errors"] = noBody
 	routeRequestContracts["/api/openai/endpoints/{id}/routing"] = obj([]string{"priority", "weight"}, map[string]prop{
 		"priority": {t: "number", d: "路由优先级（越小越优先），与 weight 至少提供一个"},
@@ -936,6 +1251,25 @@ func init() {
 	routeRequestContracts["/api/flyio/apps/{appName}/config"] = obj(nil, map[string]prop{
 		"config": {t: "object", d: "应用配置 JSON"},
 	})
+
+	// ===== Docker Hub =====
+	routeRequestContracts["/api/dockerhub/accounts"] = obj([]string{"username", "token"}, map[string]prop{
+		"username": {t: "string", req: true, d: "Docker Hub 用户名"},
+		"token":    {t: "string", req: true, d: "Docker Hub 访问令牌（Personal Access Token）"},
+	})
+	routeRequestContracts["/api/dockerhub/accounts/{accountId}/verify"] = noBody
+	routeRequestContracts["/api/dockerhub/accounts/{accountId}/repositories"] = obj(nil, map[string]prop{
+		"page_size": {t: "string", d: "每页条数（查询参数）"},
+	})
+	routeRequestContracts["/api/dockerhub/accounts/{accountId}"] = noBody
+	routeRequestContracts["/api/dockerhub/search"] = obj(nil, map[string]prop{
+		"query":     {t: "string", d: "搜索关键词（查询参数）"},
+		"namespace": {t: "string", d: "命名空间过滤（查询参数）"},
+		"page_size": {t: "string", d: "每页条数（查询参数）"},
+		"accountId": {t: "string", d: "凭据账号 ID，用于访问私有仓库（查询参数）"},
+	})
+	routeRequestContracts["/api/dockerhub/repositories/{namespace}/{name}/tags"] = noBody
+	routeRequestContracts["/api/dockerhub/repositories/{namespace}/{name}"] = noBody
 
 	// ===== 1Panel 快捷控制 =====
 	routeRequestContracts["/api/onepanel/spec"] = noBody
@@ -1076,6 +1410,10 @@ func init() {
 	routeRequestContracts["/api/ai/manifest"] = noBody
 	routeRequestContracts["/api/ai/mcp"] = noBody
 	routeRequestContracts["/api/backup/run"] = noBody
+	routeRequestContracts["/api/assets/settings/reset"] = noBody
+	routeRequestContracts["/api/assets/refresh-all"] = noBody
+	routeRequestContracts["/api/assets/scan-expiry"] = noBody
+	routeRequestContracts["/api/assets/{id}/refresh"] = noBody
 	routeRequestContracts["/api/system/logs/download"] = noBody
 
 	// ===== 管理 AI admin-ai =====
@@ -1088,6 +1426,7 @@ func init() {
 	routeRequestContracts["/api/admin-ai/sessions/{id}"] = obj(nil, map[string]prop{
 		"writeEnabled": {t: "boolean", d: "撤销会话级写授权（仅允许显式 false，授权只能由审批流授予）"},
 	})
+	routeRequestContracts["/api/admin-ai/sessions/{id}/messages"] = noBody
 	routeRequestContracts["/api/admin-ai/messages"] = obj([]string{"sessionId", "prompt"}, map[string]prop{
 		"sessionId": {t: "string", req: true, d: "会话 ID"},
 		"prompt":    {t: "string", req: true, d: "用户消息"},
@@ -1148,6 +1487,7 @@ func init() {
 		"gatewayKey":                    {t: "string", d: "管理 AI 网关密钥"},
 		"admin_ai_enabled":              {t: "string", d: "管理 AI 总开关（true/false）"},
 		"admin_ai_default_model":        {t: "string", d: "默认推理模型"},
+		"admin_ai_reasoning_effort":     {t: "string", e: []string{"", "low", "medium", "high"}, d: "思考强度（留空不传，由上游决定）"},
 		"admin_ai_default_mode":         {t: "string", e: []string{"agent", "ask"}, d: "新会话默认模式（agent=代理可调用工具，ask=询问纯问答）"},
 		"admin_ai_write_enabled":        {t: "string", d: "写操作全局开关（true/false）"},
 		"admin_ai_tool_call_limit":      {t: "string", d: "单轮最大工具调用次数"},
@@ -1163,13 +1503,13 @@ func init() {
 	})
 	routeRequestContracts["/api/scheduler/tasks/{id}/run"] = noBody
 	routeRequestContracts["/api/scheduler/workflows/{id}"] = obj([]string{"name", "nodes"}, map[string]prop{
-		"name":              {t: "string", req: true, d: "工作流名称"},
-		"nodes":             {t: "array", req: true, d: "工作流节点"},
-		"edges":             {t: "array", d: "节点连线"},
-		"schedule":          {t: "string", d: "cron 表达式"},
-		"enabled":           {t: "boolean", d: "是否启用"},
+		"name":               {t: "string", req: true, d: "工作流名称"},
+		"nodes":              {t: "array", req: true, d: "工作流节点"},
+		"edges":              {t: "array", d: "节点连线"},
+		"schedule":           {t: "string", d: "cron 表达式"},
+		"enabled":            {t: "boolean", d: "是否启用"},
 		"concurrency_policy": {t: "string", d: "并发策略"},
-		"failure_policy":    {t: "string", d: "失败策略"},
+		"failure_policy":     {t: "string", d: "失败策略"},
 	})
 	routeRequestContracts["/api/server/accounts/refresh-locations"] = noBody
 	routeRequestContracts["/api/cron/tasks/{id}/run"] = noBody
@@ -1234,9 +1574,9 @@ func init() {
 	routeRequestContracts["/api/server/v2/docker/{serverId}/networks/prune"] = noBody
 	routeRequestContracts["/api/server/v2/docker/{serverId}/volumes/prune"] = noBody
 	routeRequestContracts["/api/server/v2/docker/{serverId}/compose/{project}/{action}"] = obj(nil, map[string]prop{
-		"configFiles":  {t: "array", d: "compose 配置文件路径列表"},
-		"configFile":   {t: "string", d: "单配置文件路径"},
-		"wait":         {t: "boolean", d: "等待完成（默认 true）"},
+		"configFiles": {t: "array", d: "compose 配置文件路径列表"},
+		"configFile":  {t: "string", d: "单配置文件路径"},
+		"wait":        {t: "boolean", d: "等待完成（默认 true）"},
 	})
 	routeRequestContracts["/api/server/v2/docker/{serverId}/stacks/sync"] = noBody
 	routeRequestContracts["/api/server/v2/docker/{serverId}/stacks/{project}/{action}"] = obj(nil, map[string]prop{
@@ -1296,10 +1636,145 @@ func init() {
 	routeRequestContracts["/api/oracle/accounts/{id}/instances/{iid}/actions"] = obj([]string{"action"}, map[string]prop{
 		"action": {t: "string", req: true, d: "start/stop/reboot 等"},
 	})
+	routeRequestContracts["/api/gcp/accounts"] = obj([]string{"name", "serviceAccountJson"}, map[string]prop{
+		"name":               {t: "string", req: true, d: "账号名称"},
+		"serviceAccountJson": {t: "string", req: true, d: "完整 Service Account JSON"},
+		"defaultProjectId":   {t: "string", d: "默认项目 ID（留空取 JSON 内 project_id）"},
+		"description":        {t: "string", d: "备注"},
+	})
+	routeRequestContracts["/api/gcp/accounts/{id}"] = obj(nil, map[string]prop{
+		"name":             {t: "string", d: "账号名称"},
+		"defaultProjectId": {t: "string", d: "默认项目 ID"},
+		"description":      {t: "string", d: "备注"},
+	})
+	routeRequestContracts["/api/gcp/accounts/{id}/verify"] = noBody
+	routeRequestContracts["/api/gcp/accounts/{id}/default-project"] = obj([]string{"defaultProjectId"}, map[string]prop{
+		"defaultProjectId": {t: "string", req: true, d: "默认项目 ID"},
+	})
+	routeRequestContracts["/api/gcp/accounts/{id}/projects/{projectId}/instances/{iid}/actions"] = obj([]string{"action"}, map[string]prop{
+		"action": {t: "string", req: true, e: []string{"start", "stop", "reset", "delete"}, d: "实例动作"},
+	})
+	routeRequestContracts["/api/gcp/accounts/{id}/projects/{projectId}/instances"] = obj([]string{"name", "zone", "machineType"}, map[string]prop{
+		"name":           {t: "string", req: true, d: "实例名称"},
+		"zone":           {t: "string", req: true, d: "可用区（如 us-central1-a）"},
+		"machineType":    {t: "string", req: true, d: "机型（如 e2-micro）"},
+		"image":          {t: "string", d: "启动镜像"},
+		"bootDiskSizeGb": {t: "integer", d: "启动盘大小（GB）"},
+		"network":        {t: "string", d: "网络"},
+		"subnetwork":     {t: "string", d: "子网"},
+		"labels":         {t: "object", d: "标签键值对"},
+	})
+	routeRequestContracts["/api/gcp/accounts/{id}/projects/{projectId}/instances/{iid}/labels"] = obj(nil, map[string]prop{
+		"labels": {t: "object", d: "标签键值对"},
+	})
+	routeRequestContracts["/api/gcp/accounts/{id}/projects/{projectId}/disks/{diskName}/resize"] = obj([]string{"sizeGb"}, map[string]prop{
+		"sizeGb": {t: "integer", req: true, d: "目标大小（GB）"},
+	})
+	routeRequestContracts["/api/gcp/accounts/{id}/projects/{projectId}/disks/{diskName}/snapshot"] = obj(nil, map[string]prop{
+		"snapshotName": {t: "string", d: "快照名（默认 <disk>-snap）"},
+	})
+	routeRequestContracts["/api/gcp/accounts/{id}/projects/{projectId}/firewalls"] = obj(nil, map[string]prop{
+		"name":              {t: "string", req: true, d: "规则名称"},
+		"description":       {t: "string", d: "描述"},
+		"network":           {t: "string", d: "关联网络"},
+		"direction":         {t: "string", e: []string{"INGRESS", "EGRESS"}, d: "方向"},
+		"priority":          {t: "integer", d: "优先级（0-65535，默认 1000）"},
+		"sourceRanges":      {t: "array", d: "来源网段（CIDR）"},
+		"destinationRanges": {t: "array", d: "目标网段（CIDR）"},
+		"allowed":           {t: "array", d: "允许规则 [{ipProtocol,ports}]"},
+		"denied":            {t: "array", d: "拒绝规则 [{ipProtocol,ports}]"},
+		"disabled":          {t: "boolean", d: "禁用规则"},
+	})
+	routeRequestContracts["/api/gcp/accounts/{id}/projects/{projectId}/firewalls/{ruleName}"] = obj(nil, map[string]prop{
+		"description":       {t: "string", d: "描述"},
+		"network":           {t: "string", d: "关联网络"},
+		"direction":         {t: "string", e: []string{"INGRESS", "EGRESS"}, d: "方向"},
+		"priority":          {t: "integer", d: "优先级（0-65535）"},
+		"sourceRanges":      {t: "array", d: "来源网段（CIDR）"},
+		"destinationRanges": {t: "array", d: "目标网段（CIDR）"},
+		"allowed":           {t: "array", d: "允许规则 [{ipProtocol,ports}]"},
+		"denied":            {t: "array", d: "拒绝规则 [{ipProtocol,ports}]"},
+		"disabled":          {t: "boolean", d: "禁用规则"},
+	})
+	routeRequestContracts["/api/gcp/accounts/{id}/buckets"] = obj([]string{"name"}, map[string]prop{
+		"name":         {t: "string", req: true, d: "存储桶名称"},
+		"location":     {t: "string", d: "位置（如 us-central1）"},
+		"storageClass": {t: "string", d: "存储类别"},
+		"versioning":   {t: "boolean", d: "统一版本控制开关"},
+	})
+	routeRequestContracts["/api/huawei/accounts"] = obj([]string{"name", "site", "accessKeyId", "secretAccessKey"}, map[string]prop{
+		"name":             {t: "string", req: true, d: "账号备注名"},
+		"site":             {t: "string", e: []string{"cn", "intl"}, d: "站点：国内站 cn / 国际站 intl，默认 cn"},
+		"accessKeyId":      {t: "string", req: true, d: "AK，明文保存，列表脱敏"},
+		"secretAccessKey":  {t: "string", req: true, d: "SK，加密存储"},
+		"defaultRegion":    {t: "string", d: "默认区域"},
+		"defaultProjectId": {t: "string", d: "默认项目 ID"},
+		"description":      {t: "string", d: "备注"},
+	})
+	routeRequestContracts["/api/huawei/accounts/{id}"] = obj(nil, map[string]prop{
+		"name":             {t: "string", d: "账号备注名"},
+		"site":             {t: "string", e: []string{"cn", "intl"}, d: "站点：国内站 cn / 国际站 intl"},
+		"accessKeyId":      {t: "string", d: "AK，留空不更换"},
+		"secretAccessKey":  {t: "string", d: "SK，留空不更换"},
+		"defaultRegion":    {t: "string", d: "默认区域"},
+		"defaultProjectId": {t: "string", d: "默认项目 ID"},
+		"description":      {t: "string", d: "备注"},
+		"sshUser":          {t: "string", d: "SSH 用户，留空不更换"},
+		"sshPort":          {t: "integer", d: "SSH 端口"},
+		"sshPrivateKey":    {t: "string", d: "SSH 私钥，留空不更换"},
+		"sshPassword":      {t: "string", d: "SSH 密码，留空不更换"},
+	})
+	routeRequestContracts["/api/huawei/accounts/{id}/verify"] = noBody
+	routeRequestContracts["/api/huawei/accounts/{id}/defaults"] = obj(nil, map[string]prop{
+		"defaultRegion":    {t: "string", d: "默认区域"},
+		"defaultProjectId": {t: "string", d: "默认项目 ID"},
+	})
+	routeRequestContracts["/api/huawei/accounts/{id}/flexus-instances/{instanceId}"] = obj([]string{"name"}, map[string]prop{
+		"name": {t: "string", req: true, d: "云主机新名称"},
+	})
+	routeRequestContracts["/api/huawei/accounts/{id}/projects/{projectId}/instances/{instanceId}"] = obj(nil, map[string]prop{
+		"name": {t: "string", d: "实例新名称"},
+	})
+	routeRequestContracts["/api/huawei/accounts/{id}/projects/{projectId}/instances/{instanceId}/reset-password"] = obj([]string{"newPassword"}, map[string]prop{
+		"newPassword": {t: "string", req: true, d: "新密码"},
+	})
+	routeRequestContracts["/api/huawei/accounts/{id}/flexus-instances/{instanceId}/reset-password"] = routeRequestContracts["/api/huawei/accounts/{id}/projects/{projectId}/instances/{instanceId}/reset-password"]
+	routeRequestContracts["/api/huawei/accounts/{id}/projects/{projectId}/instances/actions"] = obj([]string{"action", "serverIds"}, map[string]prop{
+		"action":    {t: "string", e: []string{"start", "stop", "reboot"}, d: "动作"},
+		"serverIds": {t: "array", d: "实例 ID 列表"},
+	})
+	routeRequestContracts["/api/huawei/accounts/{id}/flexus-instances/{instanceId}/actions"] = obj(nil, map[string]prop{
+		"action": {t: "string", e: []string{"start", "stop", "reboot"}, d: "动作"},
+	})
+	routeRequestContracts["/api/huawei/accounts/{id}/projects/{projectId}/dns/zones"] = obj(nil, map[string]prop{
+		"name":  {t: "string", req: true, d: "域名（如 example.com）"},
+		"type":  {t: "string", d: "zone 类型：public/private"},
+		"email": {t: "string", d: "管理员邮箱"},
+	})
+	routeRequestContracts["/api/huawei/accounts/{id}/projects/{projectId}/dns/zones/{zoneId}/recordsets"] = obj([]string{"name", "type", "records"}, map[string]prop{
+		"name":    {t: "string", req: true, d: "记录名（如 www.example.com）"},
+		"type":    {t: "string", e: []string{"A", "AAAA", "CNAME", "MX", "TXT", "SRV"}, d: "记录类型"},
+		"ttl":     {t: "integer", d: "TTL（秒）"},
+		"records": {t: "array", d: "记录值列表"},
+	})
+	routeRequestContracts["/api/huawei/accounts/{id}/projects/{projectId}/dns/zones/{zoneId}/recordsets/{recordsetId}"] = routeRequestContracts["/api/huawei/accounts/{id}/projects/{projectId}/dns/zones/{zoneId}/recordsets"]
+	routeRequestContracts["/api/huawei/accounts/{id}/projects/{projectId}/eips/{eipId}/associate"] = obj(nil, map[string]prop{
+		"instanceType": {t: "string", d: "绑定实例类型，默认 server"},
+		"instanceId":   {t: "string", d: "绑定实例 ID"},
+	})
+	routeRequestContracts["/api/huawei/accounts/{id}/projects/{projectId}/eips/{eipId}/disassociate"] = noBody
+	routeRequestContracts["/api/huawei/accounts/{id}/projects/{projectId}/buckets"] = obj([]string{"name"}, map[string]prop{
+		"name": {t: "string", req: true, d: "OBS 桶名称（全网唯一）"},
+	})
+	routeRequestContracts["/api/huawei/accounts/{id}/projects/{projectId}/buckets/{bucket}/objects"] = noBody
+	routeRequestContracts["/api/huawei/import/accounts"] = obj([]string{"accounts"}, map[string]prop{
+		"accounts":  {t: "array", d: "账号数组（与 /api/huawei/accounts 请求体同格式）"},
+		"overwrite": {t: "boolean", d: "覆盖当前已有账号"},
+	})
 	routeRequestContracts["/api/m365/accounts"] = obj([]string{"name"}, map[string]prop{
-		"name":        {t: "string", req: true, d: "账号名称"},
-		"tenantId":    {t: "string", d: "租户 ID"},
-		"clientId":    {t: "string", d: "应用客户端 ID"},
+		"name":         {t: "string", req: true, d: "账号名称"},
+		"tenantId":     {t: "string", d: "租户 ID"},
+		"clientId":     {t: "string", d: "应用客户端 ID"},
 		"clientSecret": {t: "string", d: "应用密钥"},
 	})
 	routeRequestContracts["/api/m365/import/accounts"] = routeRequestContracts["/api/aliyun/accounts/import"]
@@ -1307,6 +1782,8 @@ func init() {
 		"name": {t: "string", d: "账号名称"},
 	})
 	routeRequestContracts["/api/m365/accounts/{id}/verify"] = noBody
+	routeRequestContracts["/api/m365/accounts/{id}/usage/onedrive"] = noBody
+	routeRequestContracts["/api/m365/accounts/{id}/users/{uid}/drive-quota"] = noBody
 	routeRequestContracts["/api/m365/accounts/{id}/users"] = obj([]string{"userPrincipalName"}, map[string]prop{
 		"userPrincipalName": {t: "string", req: true},
 	})
@@ -1324,8 +1801,8 @@ func init() {
 	})
 	routeRequestContracts["/api/m365/accounts/{id}/groups/{gid}/assign-license"] = routeRequestContracts["/api/m365/accounts/{id}/users/{uid}/assign-license"]
 	routeRequestContracts["/api/m365/public-pages"] = obj(nil, map[string]prop{
-		"title":   {t: "string"},
-		"slug":    {t: "string"},
+		"title":     {t: "string"},
+		"slug":      {t: "string"},
 		"accountId": {t: "string"},
 	})
 	routeRequestContracts["/api/m365/public-pages/{id}"] = obj(nil, map[string]prop{
@@ -1333,8 +1810,8 @@ func init() {
 		"slug":  {t: "string"},
 	})
 	routeRequestContracts["/api/m365/invite-codes"] = obj(nil, map[string]prop{
-		"code":   {t: "string", d: "邀请码"},
-		"limit":  {t: "integer", d: "可用次数"},
+		"code":  {t: "string", d: "邀请码"},
+		"limit": {t: "integer", d: "可用次数"},
 	})
 	routeRequestContracts["/api/m365/invite-codes/{id}"] = routeRequestContracts["/api/m365/invite-codes"]
 	routeRequestContracts["/api/openai/endpoints/reorder"] = obj([]string{"ids"}, map[string]prop{
@@ -1417,10 +1894,10 @@ func init() {
 		"serverId": {t: "string", req: true},
 	})
 	routeRequestContracts["/api/uptime/monitors"] = obj([]string{"name"}, map[string]prop{
-		"name":      {t: "string", req: true},
-		"url":       {t: "string", d: "监测 URL"},
-		"type":      {t: "string", d: "http/tcp/ping"},
-		"interval":  {t: "integer", d: "间隔秒"},
+		"name":     {t: "string", req: true},
+		"url":      {t: "string", d: "监测 URL"},
+		"type":     {t: "string", d: "http/tcp/ping"},
+		"interval": {t: "integer", d: "间隔秒"},
 	})
 	routeRequestContracts["/api/uptime/monitors/{id}"] = routeRequestContracts["/api/uptime/monitors"]
 	routeRequestContracts["/api/uptime/monitors/batch-delete"] = obj([]string{"ids"}, map[string]prop{
@@ -1447,8 +1924,8 @@ func init() {
 	routeRequestContracts["/api/subscription/profiles/{id}"] = routeRequestContracts["/api/subscription/profiles"]
 	routeRequestContracts["/api/subscription/profiles/{id}/refresh-upstream"] = noBody
 	routeRequestContracts["/api/subscription/subscriptions"] = obj([]string{"name"}, map[string]prop{
-		"name":     {t: "string", req: true},
-		"url":      {t: "string", d: "订阅源地址"},
+		"name":      {t: "string", req: true},
+		"url":       {t: "string", d: "订阅源地址"},
 		"profileId": {t: "string", d: "绑定模板"},
 	})
 	routeRequestContracts["/api/subscription/subscriptions/{id}"] = routeRequestContracts["/api/subscription/subscriptions"]
@@ -1460,8 +1937,8 @@ func init() {
 		"ids": {t: "array", req: true},
 	})
 	routeRequestContracts["/api/subscription/nodes/{id}"] = obj(nil, map[string]prop{
-		"name":     {t: "string"},
-		"enabled":  {t: "boolean"},
+		"name":      {t: "string"},
+		"enabled":   {t: "boolean"},
 		"sortOrder": {t: "integer"},
 	})
 	routeRequestContracts["/api/subscription/import/preview"] = obj([]string{"file"}, map[string]prop{
@@ -1481,10 +1958,10 @@ func init() {
 		"enabled": {t: "boolean"},
 	})
 	routeRequestContracts["/api/filebox/rooms"] = obj([]string{"name"}, map[string]prop{
-		"name":  {t: "string", req: true},
+		"name":   {t: "string", req: true},
 		"expiry": {t: "integer", d: "过期秒"},
 	})
-	routeRequestContracts["/api/filebox/void/rooms"] = routeRequestContracts["/api/filebox/rooms"]
+	routeRequestContracts["/api/filebox/void/rooms"] = voidRoomCreateContract()
 	routeRequestContracts["/api/filebox/void/rooms/{id}/participants"] = obj([]string{"userId"}, map[string]prop{
 		"userId": {t: "string", req: true},
 	})
@@ -1497,7 +1974,7 @@ func init() {
 		"by": {t: "integer", d: "增量步数（默认 1）"},
 	})
 	routeRequestContracts["/api/totp/verify"] = obj([]string{"code"}, map[string]prop{
-		"code":     {t: "string", req: true},
+		"code":      {t: "string", req: true},
 		"accountId": {t: "string"},
 	})
 	routeRequestContracts["/api/totp/export"] = noBody
@@ -1522,5 +1999,43 @@ func init() {
 		"clientId":     {t: "string"},
 		"clientSecret": {t: "string"},
 		"enabled":      {t: "boolean"},
+	})
+
+	// ---- server/forward 转发中心（写路由契约补登）----
+	routeRequestContracts["/api/server/forward/{id}"] = obj(nil, map[string]prop{
+		"name":                 {t: "string", d: "转发规则名称"},
+		"server_id":            {t: "string", d: "源主机 ID"},
+		"local_host":           {t: "string", d: "源主机本地监听地址"},
+		"local_port":           {t: "integer", d: "源主机本地端口"},
+		"protocol":             {t: "string", d: "协议"},
+		"transport":            {t: "string", d: "传输方式：cloudflare_tunnel/tcp_relay/p2p"},
+		"relay_server_id":      {t: "string", d: "中继入口主机 ID"},
+		"access_mode":          {t: "string", d: "访问模式"},
+		"group_id":             {t: "string", d: "分组 ID"},
+		"whole_host":           {t: "boolean", d: "是否整域转发"},
+		"udp":                  {t: "boolean", d: "是否支持 UDP"},
+		"tunnel_hostname":      {t: "string", d: "隧道主机名"},
+		"tunnel_account_id":    {t: "string", d: "隧道账号 ID"},
+		"tunnel_zone_id":       {t: "string", d: "隧道域名 ID"},
+		"health_check_enabled": {t: "boolean", d: "是否启用健康检查"},
+		"failover_enabled":     {t: "boolean", d: "是否启用容灾"},
+	})
+	routeRequestContracts["/api/server/forward/{id}/deploy"] = obj(nil, map[string]prop{
+		"transport": {t: "string", d: "传输方式：cloudflare_tunnel/tcp_relay"},
+	})
+	routeRequestContracts["/api/server/forward/{id}/start"] = noBody
+	routeRequestContracts["/api/server/forward/{id}/stop"] = noBody
+	routeRequestContracts["/api/server/forward/{id}/targets"] = obj([]string{"server_id"}, map[string]prop{
+		"server_id": {t: "string", req: true, d: "容灾目标主机 ID"},
+		"priority":  {t: "integer", d: "优先级"},
+		"role":      {t: "string", d: "角色，默认 standby"},
+	})
+	routeRequestContracts["/api/server/forward/preflight"] = obj([]string{"server_id"}, map[string]prop{
+		"forward_id":      {t: "string", d: "转发规则 ID"},
+		"server_id":       {t: "string", req: true, d: "源主机 ID"},
+		"local_host":      {t: "string", d: "本地监听地址"},
+		"transport":       {t: "string", d: "传输方式"},
+		"local_port":      {t: "integer", d: "本地端口"},
+		"relay_server_id": {t: "string", d: "中继主机 ID"},
 	})
 }

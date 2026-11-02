@@ -11,7 +11,10 @@ import (
 	"net/url"
 	"strings"
 
+	"github.com/iwvw/api-monitor/backend-go/internal/aiagent"
+	"github.com/iwvw/api-monitor/backend-go/internal/filebox"
 	"github.com/iwvw/api-monitor/backend-go/internal/manifest"
+	"github.com/iwvw/api-monitor/backend-go/internal/serveragent"
 	systemmetrics "github.com/iwvw/api-monitor/backend-go/internal/system"
 )
 
@@ -38,7 +41,11 @@ func (s *Server) callAPIFromAI(ctx context.Context, call systemmetrics.AICallReq
 		return systemmetrics.AICallResponse{}, fmt.Errorf("密钥管理接口不允许通过 Agent 调用")
 	}
 
-	// 权限模式：minimal 只读 / standard 写需开关且管理 AI 路由不可达 / full 全放开（单用户自用）
+	// 权限模式（四档，逐级放开）：
+	//   minimal   只读，写方法一律拒绝
+	//   sensitive 允许写入，危险命令软拦截（调用方确认后执行）
+	//   standard  允许写入，危险命令硬拦截
+	//   full      等同 SSH root，全部放开
 	accessPolicy, err := s.system.AIAgentAccessPolicy(ctx)
 	if err != nil {
 		return systemmetrics.AICallResponse{}, err
@@ -46,18 +53,9 @@ func (s *Server) callAPIFromAI(ctx context.Context, call systemmetrics.AICallReq
 	if accessPolicy == systemmetrics.AIAccessPolicyMinimal && isWriteAIMethod(method) {
 		return systemmetrics.AICallResponse{}, fmt.Errorf("AI 接入处于只读模式（minimal），写操作已禁用")
 	}
-	if accessPolicy == systemmetrics.AIAccessPolicyStandard {
+	if accessPolicy == systemmetrics.AIAccessPolicyStandard || accessPolicy == systemmetrics.AIAccessPolicySensitive {
 		if strings.HasPrefix(targetPath, "/api/admin-ai/") {
 			return systemmetrics.AICallResponse{}, fmt.Errorf("管理 AI 路由不允许通过 Agent 调用")
-		}
-		if isWriteAIMethod(method) {
-			writeAllowed, err := s.system.AIAgentWriteAllowed(ctx)
-			if err != nil {
-				return systemmetrics.AICallResponse{}, err
-			}
-			if !writeAllowed {
-				return systemmetrics.AICallResponse{}, fmt.Errorf("Agent 写入操作未启用；请在「AI 接入」设置中开启允许写入")
-			}
 		}
 	}
 	if len(call.Body) > 1024*1024 {
@@ -84,19 +82,45 @@ func (s *Server) callAPIFromAI(ctx context.Context, call systemmetrics.AICallReq
 	}
 	// 密钥鉴权路由（AuthAPIKey/AuthAgent）不允许 Agent 调用：serveGoRoute 不再
 	// 重新鉴权，这类端点（如 agent heartbeat）凭据语义与 Agent 会话不同，放行即越权。
+	// 注意：二进制直传端点 /api/server/agent/upload 虽为 AuthAgent，但要求 multipart
+	// 请求体，而 call_api 只发 JSON，经此通道放行也传不了字节；AI 侧的大文件直传
+	// 统一走 agent_upload_file 工具（不经 callAPIFromAI），故此处保持一律拦截。
 	if route.Auth == manifest.AuthAPIKey || route.Auth == manifest.AuthAgent {
 		return systemmetrics.AICallResponse{}, fmt.Errorf("接口需要专用密钥鉴权，不允许通过 Agent 调用")
 	}
+	// aiagent 模块内部有自己的会话鉴权（模块用户 token / 面板会话），但 AI 调用
+	// 会剥掉 bearer 与 cookie（见下），若不做识别会被其 requireAuth 拦成 401。
+	// 因此对 aiagent 路由注入「管理 AI 内部调用」context 标记，让其 resolveAuth
+	// 识别为面板管理员（context 值不可由外部 HTTP 请求伪造）。
+	if route.Module == "aiagent" {
+		ctx = aiagent.WithInternalAICall(ctx)
+	}
+	// filebox 同样有模块级会话鉴权（requireAuth 查会话 Cookie），AI 调用剥离
+	// Cookie 后会被拦成 401，故注入同款内部调用标记。
+	if route.Module == "filebox" {
+		ctx = filebox.WithInternalAICall(ctx)
+	}
+	// 把当前 AI 接入权限模式下传给模块（serveragent 危险命令门控依赖它区分
+	// 硬拦截/软拦截/放行）；context 值不可由外部 HTTP 请求伪造。
+	ctx = serveragent.WithAIPolicyMode(ctx, accessPolicy)
 
 	var body io.Reader
 	if len(call.Body) > 0 {
 		body = bytes.NewReader(call.Body)
 	}
 	req := httptest.NewRequest(method, "http://ai.internal"+targetPath, body).WithContext(ctx)
+	// 管理 AI 完全批准模式：把内部标记写入 request context（而非 HTTP 头，
+	// 因为头可被外部登录用户伪造绕过危险操作拦截）。无该标记时保持默认拦截。
+	if call.Headers != nil {
+		if v, ok := call.Headers["X-Admin-AI-Full-Approve"]; ok && strings.EqualFold(v, "true") {
+			req = req.WithContext(serveragent.WithAdminAIFullApprove(req.Context()))
+		}
+	}
 	for key, value := range call.Headers {
 		// 保留内部专用头不可由 Agent 伪造：X-Internal-Cron 仅服务端 cron 执行器会携带，
 		// 否则侧栏 AI 可借 call_api 触发仅限本机调用的内部端点。
-		if strings.EqualFold(key, "Authorization") || strings.EqualFold(key, "Cookie") || strings.EqualFold(key, "X-Admin-Password") || strings.EqualFold(key, "X-Internal-Cron") {
+		// X-Admin-AI-Full-Approve 已作为 context 标记消费，不再作为普通头下传。
+		if strings.EqualFold(key, "Authorization") || strings.EqualFold(key, "Cookie") || strings.EqualFold(key, "X-Admin-Password") || strings.EqualFold(key, "X-Internal-Cron") || strings.EqualFold(key, "X-Admin-AI-Full-Approve") {
 			continue
 		}
 		req.Header.Set(key, value)

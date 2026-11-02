@@ -1,14 +1,19 @@
 import { describe, expect, it } from 'vitest';
 import {
+  DESKTOP_QUALITY_PRESETS,
+  DEFAULT_DESKTOP_FPS,
+  DEFAULT_DESKTOP_PRESET,
   accelerateTrackpadDelta,
   consumeScrollDelta,
-  initialRemoteDesktopProfile,
+  desktopPresetById,
   isDoubleTap,
   nextPinchTransform,
   nextRemoteDesktopProfile,
+  normalizedDesktopFps,
   normalizedVideoPoint,
   normalizedTrackpadDelta,
   remoteCursorPoint,
+  remoteDesktopProfileForPreset,
   trackpadButtonMessage,
   trackpadPixelDelta,
 } from './remoteDesktopTouch.js';
@@ -58,32 +63,102 @@ describe('remote desktop touch controls', () => {
     expect(trackpadPixelDelta(24, 0, 16).x).toBeGreaterThan(24);
   });
 
-  it('starts coarse-pointer clients in a reaction-first mobile profile', () => {
-    expect(initialRemoteDesktopProfile(true)).toEqual({ fps: 30, bitrate: 6_000_000 });
-    expect(initialRemoteDesktopProfile(false)).toEqual({ fps: 60, bitrate: 12_000_000 });
+  it('exposes a quality preset ladder with resolution and bitrate', () => {
+    expect(DESKTOP_QUALITY_PRESETS.map(preset => preset.id)).toEqual(['smooth', 'balanced', 'sharp', 'ultra']);
+    expect(desktopPresetById('unknown').id).toBe(DEFAULT_DESKTOP_PRESET);
+    // 画质档只描述分辨率 + 码率；帧率默认 30，由独立档位控制。
+    const sharpDesktop = remoteDesktopProfileForPreset('sharp', false);
+    expect(sharpDesktop).toEqual({ fps: 30, bitrate: 24_000_000, maxLongEdge: 2560 });
+    // 超清档对应编码侧允许的最大长边（agent MAX_MAX_LONG_EDGE = 3840）。
+    expect(remoteDesktopProfileForPreset('ultra', false)).toEqual({
+      fps: 30,
+      bitrate: 32_000_000,
+      maxLongEdge: 3840,
+    });
+    // 粗指针移动端压低帧率与码率，但仍保留所选分辨率档。
+    expect(remoteDesktopProfileForPreset('sharp', true)).toEqual({
+      fps: 30,
+      bitrate: 6_000_000,
+      maxLongEdge: 2560,
+    });
   });
 
-  it('reduces frame cadence when the decoder jitter buffer grows', () => {
-    const next = nextRemoteDesktopProfile({
+  it('treats fps as an independent axis capped at the agent limit of 60', () => {
+    // 60 是 Agent 侧 video_config 的硬上限（fps.clamp(30, TARGET_FPS)）。
+    expect(remoteDesktopProfileForPreset('balanced', false, 60)).toEqual({
+      fps: 60,
+      bitrate: 12_000_000,
+      maxLongEdge: 1920,
+    });
+    // 非法/未知帧率一律回落到 30，避免把 undefined 透传给编码器。
+    expect(remoteDesktopProfileForPreset('balanced', false, 144).fps).toBe(30);
+    expect(remoteDesktopProfileForPreset('balanced', false, undefined).fps).toBe(30);
+    expect(normalizedDesktopFps(60)).toBe(60);
+    // Kumo Select 以字符串回传 value，因此 '60' 必须被接受（Number 归一化）。
+    expect(normalizedDesktopFps('60')).toBe(60);
+    expect(normalizedDesktopFps('30')).toBe(30);
+    // 非 60 的任意值（含 144 / 0 / NaN）一律回落到 30。
+    expect(normalizedDesktopFps(144)).toBe(30);
+    expect(normalizedDesktopFps(0)).toBe(30);
+    expect(normalizedDesktopFps('abc')).toBe(30);
+    // 粗指针（移动端）仍封顶 30，即使请求了 60。
+    expect(remoteDesktopProfileForPreset('balanced', true, 60).fps).toBe(30);
+    expect(DEFAULT_DESKTOP_FPS).toBe(30);
+  });
+
+  // 回归：带触摸屏的桌面设备（Windows 笔记本 / Precision Touchpad）不应被当成
+  // 移动端压缩档位。判定必须只看主指针类型，不看设备是否具备触摸能力。
+  it('does not silently downgrade desktop presets for touch-capable machines', () => {
+    const desktop = remoteDesktopProfileForPreset('sharp', false, 60);
+    expect(desktop).toEqual({ fps: 60, bitrate: 24_000_000, maxLongEdge: 2560 });
+    // 同样的选择在移动端（真实粗指针）才允许被压到 30fps / 6Mbps。
+    const mobile = remoteDesktopProfileForPreset('sharp', true, 60);
+    expect(mobile.fps).toBe(30);
+    expect(mobile.bitrate).toBe(6_000_000);
+    // 分辨率档位在两种情况下都保留，只有 fps/bitrate 被压。
+    expect(mobile.maxLongEdge).toBe(desktop.maxLongEdge);
+  });
+
+  it('reduces bitrate and resolution when the link degrades', () => {
+    const base = remoteDesktopProfileForPreset('sharp', false);
+    const moderate = nextRemoteDesktopProfile({
       bufferMs: 90,
       nativeBitrate: 12_000_000,
-      current: { fps: 60, bitrate: 12_000_000 },
+      current: base,
+      base,
     });
-    expect(next.profile.fps).toBe(30);
-    expect(next.profile.bitrate).toBeLessThanOrEqual(8_000_000);
-    expect(next.profile.bitrate).toBeGreaterThanOrEqual(6_000_000);
-    expect(next.healthyIntervals).toBe(0);
-  });
+    expect(moderate.profile.bitrate).toBeLessThanOrEqual(8_000_000);
+    expect(moderate.profile.bitrate).toBeGreaterThanOrEqual(6_000_000);
+    expect(moderate.profile.maxLongEdge).toBe(1920);
+    expect(moderate.healthyIntervals).toBe(0);
 
-  it('deeply degraded links fall back to the 6 Mbps reaction floor', () => {
-    const next = nextRemoteDesktopProfile({
+    const severe = nextRemoteDesktopProfile({
       loss: 8,
       nativeBitrate: 12_000_000,
-      current: { fps: 60, bitrate: 12_000_000 },
+      current: base,
+      base,
     });
-    expect(next.profile.fps).toBe(30);
-    expect(next.profile.bitrate).toBe(6_000_000);
-    expect(next.healthyIntervals).toBe(0);
+    expect(severe.profile.bitrate).toBe(6_000_000);
+    expect(severe.profile.maxLongEdge).toBe(1280);
+    expect(severe.healthyIntervals).toBe(0);
+  });
+
+  it('restores the selected preset after sustained health', () => {
+    const base = remoteDesktopProfileForPreset('sharp', false);
+    let profile = { ...base, bitrate: 6_000_000, maxLongEdge: 1280 };
+    let healthyIntervals = 0;
+    // Two healthy 2s intervals (4s) restore the preset.
+    for (let i = 0; i < 2; i += 1) {
+      const next = nextRemoteDesktopProfile({
+        nativeBitrate: 28_000_000,
+        current: profile,
+        base,
+        healthyIntervals,
+      });
+      profile = next.profile;
+      healthyIntervals = next.healthyIntervals;
+    }
+    expect(profile).toEqual(base);
   });
 
   it('retains sub-threshold two-finger scroll movement', () => {

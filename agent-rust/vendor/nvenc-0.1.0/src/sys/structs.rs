@@ -194,7 +194,7 @@ pub struct NVencRcParams {
     const_qp: NVencQP,
     pub average_bit_rate: u32,
     pub max_bit_rate: u32,
-    vbv_buffer_size: u32,
+    pub vbv_buffer_size: u32,
     vbv_initial_delay: u32,
     // TODO: bit fields
     bit_fields: NVencRcParamsBitFlags,

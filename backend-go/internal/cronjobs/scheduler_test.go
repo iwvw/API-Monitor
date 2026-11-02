@@ -202,9 +202,9 @@ func TestSchedulerWorkflowLegacyTaskNodeExecutesAsShell(t *testing.T) {
 	// 模拟存量工作流：直插 DB 绕开 buildWorkflow 规范化，节点保持 type=task
 	// （旧画布默认类型），验证执行路径兜底按 shell 执行且不重存也可恢复。
 	legacy, err := insertWorkflow(context.Background(), db, Workflow{
-		Name:    "Legacy Task Nodes",
+		Name:     "Legacy Task Nodes",
 		Schedule: "*/5 * * * *",
-		Enabled: 1,
+		Enabled:  1,
 		Nodes: []WorkflowNode{
 			{ID: "start", Name: "开始", Type: "start", Enabled: 1},
 			{ID: "check", Name: "检查主机", Type: "task", Command: "echo legacy-ok", Enabled: 1},
@@ -463,6 +463,84 @@ func (r *flakyAgentRunner) RunCommandTaskAndWait(serverID string, command string
 		return "", fmt.Errorf("temporary failure")
 	}
 	return "agent ok", nil
+}
+
+func (r *flakyAgentRunner) ResolveAgentNode(ctx context.Context, selector string) (string, error) {
+	return "", nil
+}
+
+// selectorAgentRunner 记录收到的命令，并可按标签返回指定节点。
+type selectorAgentRunner struct {
+	lastNode   string
+	lastCmd    string
+	resolveTo  string
+	resolveErr error
+}
+
+func (r *selectorAgentRunner) RunCommandTaskAndWait(serverID string, command string, timeout time.Duration) (string, error) {
+	r.lastNode = serverID
+	r.lastCmd = command
+	return "ok", nil
+}
+
+func (r *selectorAgentRunner) ResolveAgentNode(ctx context.Context, selector string) (string, error) {
+	if r.resolveErr != nil {
+		return "", r.resolveErr
+	}
+	return r.resolveTo, nil
+}
+
+// TestAgentTaskBlocksDangerousCommand 验证 cron agent 任务在下发前拦截破坏性命令。
+func TestAgentTaskBlocksDangerousCommand(t *testing.T) {
+	service := newCronService(t)
+	runner := &selectorAgentRunner{resolveTo: "server-1"}
+	service.SetAgentRunner(runner)
+
+	_, err := service.executeSchedulerTaskCommand(context.Background(), SchedulerTask{
+		Task:   Task{Name: "danger", Type: "agent", Command: "rm -rf /tmp/x"},
+		NodeID: "server-1",
+	})
+	if err == nil {
+		t.Fatal("expected dangerous command to be blocked")
+	}
+	if !strings.Contains(err.Error(), "危险命令已被拦截") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if runner.lastCmd != "" {
+		t.Fatalf("command should not reach agent, got %q", runner.lastCmd)
+	}
+}
+
+// TestAgentTaskResolvesNodeBySelector 验证 node_id 缺省时按标签选择在线节点。
+func TestAgentTaskResolvesNodeBySelector(t *testing.T) {
+	service := newCronService(t)
+	runner := &selectorAgentRunner{resolveTo: "server-9"}
+	service.SetAgentRunner(runner)
+
+	if _, err := service.executeSchedulerTaskCommand(context.Background(), SchedulerTask{
+		Task:         Task{Name: "tag", Type: "agent", Command: "echo ok"},
+		NodeSelector: "win,prod",
+	}); err != nil {
+		t.Fatalf("expected success, got %v", err)
+	}
+	if runner.lastNode != "server-9" {
+		t.Fatalf("expected selector-resolved node, got %q", runner.lastNode)
+	}
+}
+
+// TestAgentTaskSelectorNoMatch 验证标签无匹配时给出明确错误。
+func TestAgentTaskSelectorNoMatch(t *testing.T) {
+	service := newCronService(t)
+	runner := &selectorAgentRunner{resolveTo: ""}
+	service.SetAgentRunner(runner)
+
+	_, err := service.executeSchedulerTaskCommand(context.Background(), SchedulerTask{
+		Task:         Task{Name: "tag", Type: "agent", Command: "echo ok"},
+		NodeSelector: "nope",
+	})
+	if err == nil || !strings.Contains(err.Error(), "没有在线 Agent 节点匹配标签") {
+		t.Fatalf("unexpected error: %v", err)
+	}
 }
 
 func TestSchedulerTaskEnabledIntOrBool(t *testing.T) {

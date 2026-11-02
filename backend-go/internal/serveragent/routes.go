@@ -56,6 +56,14 @@ func (s *Service) handleAgentRoutes(w http.ResponseWriter, r *http.Request, db *
 		accountID := subparts[1]
 		s.handleAgentExecCommand(w, r, db, accountID)
 
+	// POST /api/server/agent/fetch-url
+	case len(subparts) == 1 && subparts[0] == "fetch-url" && r.Method == http.MethodPost:
+		s.handleAgentFetchURL(w, r, db)
+
+	// POST /api/server/agent/upload（Agent Key 鉴权，二进制直传）
+	case len(subparts) == 1 && subparts[0] == "upload" && r.Method == http.MethodPost:
+		s.handleAgentUpload(w, r, db)
+
 	// GET /api/server/agent/install/win/{id}/{key}
 	case len(subparts) == 4 && subparts[0] == "install" && subparts[1] == "win" && r.Method == http.MethodGet:
 		accountID := subparts[2]
@@ -102,12 +110,16 @@ func (s *Service) handleAgentRoutes(w http.ResponseWriter, r *http.Request, db *
 
 	case len(subparts) == 2 && subparts[0] == "proxy" && subparts[1] == "nodes":
 		s.handleManagedProxyNodes(w, r, db, "")
+	case len(subparts) == 2 && subparts[0] == "proxy" && subparts[1] == "presets":
+		s.listManagedProxyPresets(w, r, db)
 	case len(subparts) >= 2 && subparts[0] == "proxy" && subparts[1] == "runtimes":
 		s.handleManagedProxyRuntimeRoutes(w, r, db, subparts[2:])
 	case len(subparts) >= 2 && subparts[0] == "proxy" && subparts[1] == "tunnels":
 		s.handleManagedTunnelRoutes(w, r, db, subparts[2:])
 	case len(subparts) >= 2 && subparts[0] == "proxy" && subparts[1] == "preferred-addresses":
 		s.handlePreferredAddressRoutes(w, r, db, subparts[2:])
+	case len(subparts) >= 1 && subparts[0] == "forward":
+		s.handleManagedForwardRoutes(w, r, db, subparts[1:])
 	case len(subparts) == 3 && subparts[0] == "proxy" && subparts[1] == "nodes":
 		s.handleManagedProxyNodes(w, r, db, subparts[2])
 	case len(subparts) == 4 && subparts[0] == "proxy" && subparts[1] == "nodes" && subparts[3] == "reconcile" && r.Method == http.MethodPost:

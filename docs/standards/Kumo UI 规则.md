@@ -1,0 +1,222 @@
+# Kumo-only UI 规则
+
+最后更新：2026-09-10
+
+本文档是 API Monitor 前端 UI 的硬约束。当前项目以 `@cloudflare/kumo` 2.15.0 为唯一设计系统基线。
+
+## 总规则
+
+1. 页面可以写业务布局、hook 和数据适配，但基础 UI 必须优先使用 Kumo。
+2. 不新增自写 Button、Input、Select、Tabs、Table、Dialog、Toast、Checkbox、Switch、Sidebar、Loader、Badge、Tooltip、Popover、DropdownMenu 等组件。
+3. 不新增通用 UI 包装组件；确需保留的本地组件必须是业务组合或过渡封装，并在待办中记录。
+4. 不用 `<button>` 模拟 Tabs，不用 `<select>` 模拟 Select，不用 div + CSS 模拟 Dialog。
+5. 不硬编码主题色，使用 Kumo token。
+6. 旧 Vue/原生 CSS 只可作为业务逻辑参考，不作为样式来源。
+
+## 组件优先级
+
+| 需求 | 必须优先使用 |
+|------|--------------|
+| 操作按钮 | Kumo `Button` |
+| 文本输入 | Kumo `Input` |
+| 多行输入 | Kumo `Textarea` |
+| 下拉选择 | Kumo `Select`，隐藏标签使用 `aria-label` |
+| 标签切换 | Kumo `Tabs` |
+| 表格 | Kumo `Table` |
+| 表格拖动 | Kumo `Table.ResizeHandle` |
+| 弹窗 | Kumo `Dialog` |
+| 结构化弹窗（Title + Body + Actions） | Kumo `LayerDialog`，主操作按钮用 `LayerDialog.Action` |
+| 删除确认 | Kumo `DeleteResource` |
+| 通知 | Kumo `Toasty` / `createKumoToastManager` |
+| 开关 | Kumo `Switch` |
+| 勾选 | Kumo `Checkbox` |
+| 侧边栏 | Kumo `Sidebar` |
+| 加载 | Kumo `SkeletonLine` / `Loader` / Chart `loading` |
+| 搜索建议 | Kumo `Autocomplete` |
+| 可复制文本 | Kumo `ClipboardText` |
+| 百分比/用量 | Kumo `Meter` |
+| 时间序列图 | Kumo `TimeseriesChart` + `ChartPalette` |
+| 数值 / 区间滑块 | Kumo `Slider` |
+| 自由标签输入 | Kumo `TagInput` |
+| 密集表格内的短值复制 | Kumo `InlineCopyText` |
+| 拆分按钮（主操作 + 关联备选） | Kumo `ButtonGroup`，`LayerDialog` 内用 `LayerDialog.Action` 的 `menu` |
+| 展开收起 | `AnimatedCollapse`，内部必须基于 Kumo `Collapsible` |
+
+## 页面结构
+
+- 页面组件放在 `src/js/pages/<ModuleName>Page.jsx`。
+- 应用壳层由 `src/js/components/MainLayout.jsx` 负责，页面不要自行设置全局宽度。
+- 页面根容器优先使用 `flex min-w-0 flex-col gap-4` 一类紧凑布局。
+- 只有固定底部播放器等真实遮挡场景才额外留底部空间。
+
+## 密度与尺寸
+
+- 全站按钮默认 `size="sm"`。
+- Toolbar、筛选行、内部层级 Tabs 使用 `size="sm"`。
+- 页面或模块主标签可使用默认高度，但仍使用 Kumo `Tabs`。
+- Button、Input、Select 同排时必须高度一致。
+- 图标按钮使用 `shape="square"` 或 `shape="circle"`，并提供 `aria-label`（必要时补 `title`）。
+- 窄屏优先一行或两行内完成主要信息；展开后的卡片也要压缩密度，避免把移动端变成纵向长墙。
+- 固定格式元素设置稳定尺寸（toolbar、icon button、meter、cover、chart 容器），不让同一组指标在不同卡片中跳动。
+- 不按 viewport 宽度缩放字体。
+
+## 颜色与边框
+
+- 使用 Kumo token：`bg-kumo-*`、`text-kumo-*`、`border-kumo-*`、`ring-kumo-*`；不硬编码主题色。
+- 卡片边框统一 `border border-kumo-line`，需要强调时加透明语义边框；不要额外叠页面级 `shadow-*` 或硬编码灰色。
+- 百分比进度条使用 Kumo `Meter` 或 Kumo token 驱动的边框，不用自绘彩条替代设计系统。
+
+## Toolbar（已记录的刻意决策）
+
+官方文档（kumo-ui.com/components/toolbar）已将 `Toolbar` 的 `size` prop 标记为废弃（2.10.0 起，
+未来 major 版本移除）。**本项目刻意保留 `size="sm"`，不迁移**：
+
+- 原因：`Toolbar.Button` / `Toolbar.Input` / `Toolbar.Link` / `Toolbar.InputGroup` 的尺寸由 Toolbar
+  上下文强制注入（其 Props 已 Omit `size`，无法单独设置），官方在 2.15.0 没有任何「非废弃」的紧凑
+  路径。项目 17 处导出/导入工具栏全部使用这些子部件，移除 `size="sm"` 会把行内控件从 sm 撑到 base，
+  违反本页「Toolbar 使用 size=sm」的密度规则。
+- 处置：维持 `size="sm"`；lint 若拦截该废弃项，走白名单放行并引用本条。
+- 迁移预案（Kumo 移除 `size` 后）：将 `Toolbar.Button` 替换为 `Button size="sm"`、`Toolbar.Input`
+  替换为 `Input size="sm"`，并手工补充 Kumo 的分段样式
+  （`rounded-none border-0 bg-transparent shadow-none ring-0 focus-within:z-2 focus:z-2` +
+  Toolbar 容器的 `[&>*:not(:first-child)]:border-l` 分段边线），或整行改为普通紧凑按钮组。
+  迁移时逐处核对工具栏视觉密度。
+
+## 表格布局
+
+- 业务表格继续以 Kumo `Table` 为基础，并通过应用组合层声明语义列角色。
+- 不使用纯百分比列宽。选择、开关、状态、时间、数值和操作列使用有边界的固定宽度；宽表应声明多个 `primary/content` 弹性列共同分配剩余空间，避免单列在宽屏下过度拉伸。
+- 固定布局必须提供语义 `columns` 或有效 `colgroup`，不得依赖浏览器平均分列。
+- 表体默认垂直居中；多行描述列可以显式顶部对齐。操作、选择、状态和控制列始终垂直居中。
+- 数值右对齐，状态、控制和操作居中，主内容与时间左对齐。
+- 三个文字操作必须同排时使用 `actions-xl`（280–400px）并禁止按钮组换行，避免操作列拉高整行。
+- 移动端保留最小可读宽度，溢出限制在表格框架内部；只有存在详情或主列替代信息时才允许隐藏辅助列。
+- 内容过长使用 `truncate`、`title`、`ClipboardText` 或详情弹窗，不让单元格撑爆布局。
+- 需要用户调节列宽时使用 `Table.ResizeHandle` 配合 `useTableResize.js`，并遵守语义角色的最小与最大宽度。
+- 行级管理动作可以支持双击行任意位置进入管理，但按钮、复选框、链接等交互元素要阻止冒泡。
+- 完整设计与迁移计划见 [语义化表格布局与移动端适配 PRD](../prd/语义化表格布局与移动端适配.md)。
+
+## DeleteResource
+
+当前 `@cloudflare/kumo` 已导出 `DeleteResource`：
+
+```jsx
+import { DeleteResource } from '@cloudflare/kumo';
+
+<DeleteResource
+  open={open}
+  onOpenChange={setOpen}
+  resourceType="Zone"
+  resourceName="example.com"
+  onDelete={handleDelete}
+  isDeleting={isDeleting}
+  size="sm"
+  errorMessage={errorMessage}
+/>
+```
+
+资源删除、账号删除、对象删除、批量删除等破坏性删除确认应迁移到 `DeleteResource`。重启、刷新、清缓存、导入覆盖、重新部署等非删除动作可以继续使用普通 confirm。
+
+非删除类的全局 alert/confirm/prompt 走 `src/js/modules/dialog.js` 与 `GlobalDialogHost.jsx`。
+
+## 通知（Toast）
+
+统一使用 `src/js/modules/toast.js`，该 helper 已接入 Kumo `Toasty` 管理器：
+
+```js
+import { toast } from '../modules/toast.js';
+
+toast.success('操作成功');
+toast.error('操作失败');
+toast.warning('请检查配置');
+toast.info('状态已刷新');
+```
+
+## 可复制文本
+
+需要展示并复制命令、token、URL、对象 key 时，优先使用 Kumo `ClipboardText`：
+
+```jsx
+<ClipboardText
+  size="sm"
+  text="npx @cloudflare/kumo help"
+  tooltip={{ text: '复制', copiedText: '已复制', side: 'top' }}
+/>
+```
+
+敏感值展示掩码时使用 `textToCopy` 保存真实复制值。
+
+密集界面（表格单元格、行内元信息）里的短值复制改用 `InlineCopyText`（2.14 起），它是无边框紧凑变体，
+不占 `ClipboardText` 的按钮占位。
+
+## 结构化弹窗（LayerDialog）
+
+业务弹窗统一 `LayerDialog`，主操作按钮是 `LayerDialog.Action`（**不是** `Actions.Primary`——那是 2.15 的弃用别名）：
+
+```jsx
+<LayerDialog.Actions dismissLabel="取消">
+  <LayerDialog.Action type="button" loading={saving} onClick={save}>
+    保存
+  </LayerDialog.Action>
+</LayerDialog.Actions>
+```
+
+- `Actions` 内只能有一个 `LayerDialog.Action`；需要多个并列业务按钮时改用基础 `Dialog`。
+- 有关联的备选提交结果（如「保存为草稿」）时，用 `Action` 的 `menu` + `menuLabel` 渲染拆分按钮，不要塞第二个按钮。
+- 不可逆操作（删除）在 `LayerDialog.Alert` 内用 `variant="destructive"`。
+
+## PageHeader
+
+当前包里 `PageHeader` 和 `ResourceListPage` 是 block source，不是 barrel 运行时导出。不要直接：
+
+```js
+import { PageHeader } from '@cloudflare/kumo';
+```
+
+当前决定：
+
+- 不直接从 Kumo barrel 替换本地顶栏封装。
+- 保留 `src/js/components/AppPageHeader.jsx` 作为紧凑过渡组件。
+- 若要使用官方 block，应通过 Kumo CLI 安装或复制 `blocks-source/page-header`，再适配本项目顶栏：避免双边框、保持 450px 断点、内部 Tabs 使用 `size="sm"`。
+
+## Chart
+
+- 使用 `TimeseriesChart`，不要回退到 Chart.js。
+- 加载时传 `loading`，让 Kumo 显示正弦波骨架，图表画布在加载完成前隐藏。
+- 卡片或滚动容器内传 `tooltipBoundary`，限制 tooltip 不越界。
+- 语义数据使用 `ChartPalette.semantic(...)`；无语义分类数据使用 categorical palette。
+- 小尺寸图表降低轴标签密度、缩短单位，并控制 legend 与 tooltip 体积，避免 label 溢出。
+
+## Collapsible
+
+当前全站展开/收起统一走 `src/js/components/AnimatedCollapse.jsx`（列表展开、卡片详情、Docker 子面板、说明面板等）：
+
+- 继续使用 Kumo `Collapsible.Root` / `Collapsible.Panel`。
+- 高度动画使用 Base UI 暴露的 `--collapsible-panel-height`，并基于 `data-open`、`data-closed`、`data-starting-style`、`data-ending-style` 设置状态。
+- 不新增旧式 `max-height` 魔法数动画，不恢复 `quick-fade-in`、`motion-pop-in`、`app-collapse-panel`。
+- 含 chart 的展开内容应配合 `DeferredRender` 或 Kumo chart `loading` 延迟渲染，减少展开卡顿。
+- 动效要短、稳，可被 `prefers-reduced-motion` 关闭。
+
+## 当前静态基线
+
+以下扫描用于判断是否回潮：
+
+```bash
+npm run ui:governance
+npm run lint
+npm run build
+rg -n --pcre2 '<(?-i:button|select|input|textarea)\b' src/js/pages src/js/components -S
+rg -n 'DialogContent|TabsList|TabsTrigger|@cloudflare/kumo/components/tabs' src -S
+rg -n 'quick-fade-in|motion-pop-in|app-collapse-panel|transition-shadow|hover:shadow|shadow-(xs|sm|md|lg|xl|2xl)' src/js src/css -S
+```
+
+预期结果：0 命中。若出现命中，必须解释是合法例外还是需要迁移。
+
+## 例外规则
+
+如果 Kumo 缺少某项能力，必须：
+
+1. 先确认当前 `@cloudflare/kumo` 包和注册表确实没有对应组件/API。
+2. 在 [重构验证与例外清单](./重构验证与例外清单.md) 记录例外原因。
+3. 使用最小语义实现，不做视觉组件封装。
+4. 后续一旦 Kumo 提供能力，迁回 Kumo。

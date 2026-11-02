@@ -50,8 +50,14 @@ RUN if [ "$USE_PREBUILT_FRONTEND" = "true" ]; then \
     fi && \
     test -f /app/dist/index.html && test -d /app/dist/assets
 
+# 5. 构建期预压缩：为文本资源生成同名 .gz / .br，运行期直接发送（见
+#    backend-go/internal/server/static_precompressed.go）。放在这里而不是
+#    npm run build 里面，是为了让 CI 复用 prebuilt dist 的路径也覆盖到。
+#    跳过 dist/agent/（Agent 二进制下载产物）。
+RUN node tools/precompress-dist.mjs /app/dist
+
 # 阶段 2: 构建 Go 后端 (Go Backend Builder)
-FROM --platform=$BUILDPLATFORM golang:1.26.6-alpine3.24 AS go-builder
+FROM --platform=$BUILDPLATFORM golang:1.27.3-alpine3.24 AS go-builder
 
 # 安装必要的构建工具
 RUN apk add --no-cache gcc musl-dev

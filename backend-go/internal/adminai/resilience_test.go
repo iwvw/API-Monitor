@@ -247,6 +247,51 @@ func TestClampAISetting(t *testing.T) {
 	}
 }
 
+// --- 思考强度真的进了发往网关的请求体；留空则不带该字段 ---
+
+func TestCallLLMStreamSendsReasoningEffort(t *testing.T) {
+	orig := firstTokenTimeout
+	firstTokenTimeout = 200 * time.Millisecond
+	defer func() { firstTokenTimeout = orig }()
+
+	var gotBody map[string]interface{}
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		raw, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(raw, &gotBody)
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.(http.Flusher).Flush()
+		// 立刻回一个终态块，避免触发首字护栏
+		_, _ = w.Write([]byte("data: [DONE]\n\n"))
+		w.(http.Flusher).Flush()
+	}))
+	defer ts.Close()
+
+	port := ts.Listener.Addr().(*net.TCPAddr).Port
+	msgs := []map[string]interface{}{{"role": "user", "content": "hi"}}
+
+	// 显式指定强度 → 请求体带 reasoning_effort
+	s := newTestService(t)
+	s.cfg.Port = port
+	_, _ = s.callLLMStream(context.Background(), "test-model", msgs, make(chan SSEEvent, 8), "aam_1", true, "high")
+	if got, _ := gotBody["reasoning_effort"].(string); got != "high" {
+		t.Fatalf("期望请求体带 reasoning_effort=high，实际 %v", gotBody["reasoning_effort"])
+	}
+
+	// 留空 → 完全不携带该字段（保持上游默认），而不是传空串
+	gotBody = nil
+	_, _ = s.callLLMStream(context.Background(), "test-model", msgs, make(chan SSEEvent, 8), "aam_2", true, "")
+	if _, exists := gotBody["reasoning_effort"]; exists {
+		t.Fatalf("留空时不应携带 reasoning_effort，实际 %v", gotBody["reasoning_effort"])
+	}
+
+	// 非法值 → 同样不携带（归一化在 callLLMStream 内生效）
+	gotBody = nil
+	_, _ = s.callLLMStream(context.Background(), "test-model", msgs, make(chan SSEEvent, 8), "aam_3", true, "bogus")
+	if _, exists := gotBody["reasoning_effort"]; exists {
+		t.Fatalf("非法值不应携带 reasoning_effort，实际 %v", gotBody["reasoning_effort"])
+	}
+}
+
 // --- LLM 首字护栏：网关挂起不发数据时按 firstTokenTimeout 中止 ---
 
 func TestCallLLMStreamFirstTokenTimeout(t *testing.T) {
@@ -269,7 +314,7 @@ func TestCallLLMStreamFirstTokenTimeout(t *testing.T) {
 	s.cfg.Port = port
 
 	start := time.Now()
-	_, err := s.callLLMStream(context.Background(), "test-model", []map[string]interface{}{{"role": "user", "content": "hi"}}, make(chan SSEEvent, 8), "aam_test_1", true)
+	_, err := s.callLLMStream(context.Background(), "test-model", []map[string]interface{}{{"role": "user", "content": "hi"}}, make(chan SSEEvent, 8), "aam_test_1", true, "")
 	if err == nil {
 		t.Fatalf("expected first-token timeout error")
 	}
@@ -303,6 +348,33 @@ func TestParseModelList(t *testing.T) {
 			if got[i] != c.want[i] {
 				t.Errorf("parseModelList(%q)[%d] = %q, want %q", c.in, i, got[i], c.want[i])
 			}
+		}
+	}
+}
+
+// --- 思考强度归一化：只放行 low/medium/high，其余一律归空（不传字段） ---
+
+func TestNormalizeReasoningEffort(t *testing.T) {
+	cases := []struct {
+		in   string
+		want string
+	}{
+		{"low", "low"},
+		{"medium", "medium"},
+		{"high", "high"},
+		{"  HIGH  ", "high"},
+		{"Medium", "medium"},
+		{"", ""},
+		{"   ", ""},
+		{"max", ""},     // 厂商别名不在此层处理，交给网关 normalizeReasoningEffort
+		{"minimal", ""}, // OpenAI 原生档位未纳入统一取值域
+		{"none", ""},    // 关闭推理应由「留空」表达，不用 none
+		{"bogus", ""},   // 拼写错误不得透传给上游
+		{"1", ""},
+	}
+	for _, c := range cases {
+		if got := normalizeReasoningEffort(c.in); got != c.want {
+			t.Errorf("normalizeReasoningEffort(%q) = %q, want %q", c.in, got, c.want)
 		}
 	}
 }

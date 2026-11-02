@@ -1,7 +1,7 @@
 use base64::{engine::general_purpose, Engine as _};
 use serde::{Deserialize, Serialize};
 use std::fs;
-use std::io::{Read, Seek, SeekFrom};
+use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
@@ -15,13 +15,21 @@ const FILES_ROOT: &str = "/var/lib/api-monitor/agent/files";
 #[serde(rename_all = "camelCase")]
 pub struct FileListRequest {
     pub path: String,
+    /// 为 true 时按主机真实绝对路径列目录（仅限白名单根内）
+    #[serde(default)]
+    pub real_path: bool,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct FileEntry {
     pub name: String,
+    /// 面板展示用的虚拟路径：默认沙箱根显示为 `/`。
+    /// 注意这不是可以在 shell 里直接访问的真实路径。
     pub path: String,
+    /// 主机上的真实绝对路径。文件工具返回它，调用方才能拿去做 `sh -c`
+    /// （`agent_run_command` 跑在真实文件系统上，虚拟路径会找不到文件）。
+    pub real_path: String,
     pub is_directory: bool,
     pub is_file: bool,
     pub is_symlink: bool,
@@ -33,9 +41,23 @@ pub struct FileEntry {
 }
 
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct FileListResponse {
     pub files: Vec<FileEntry>,
     pub cwd: String,
+    pub real_cwd: String,
+    pub sandbox_root: String,
+    pub allowed_roots: Vec<String>,
+}
+
+/// 文件沙箱信息：让调用方知道「写下去的路径到底是什么」。
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FileRootsResponse {
+    pub sandbox_root: String,
+    pub allowed_roots: Vec<String>,
+    /// 沙箱语义说明：默认沙箱下绝对路径会被锚定到沙箱根内。
+    pub note: String,
 }
 
 #[derive(Deserialize, Debug)]
@@ -43,6 +65,10 @@ pub struct FileListResponse {
 pub struct FileReadRequest {
     pub path: String,
     pub max_size: Option<i64>,
+    /// 为 true 时要求按主机真实绝对路径访问（仅限白名单根内），
+    /// 未命中白名单直接报错，绝不再静默锚定到沙箱根。
+    #[serde(default)]
+    pub real_path: bool,
 }
 
 #[derive(Deserialize, Debug)]
@@ -50,12 +76,16 @@ pub struct FileReadRequest {
 pub struct FileWriteRequest {
     pub path: String,
     pub content: String,
+    #[serde(default)]
+    pub real_path: bool,
 }
 
 #[derive(Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct FileMkdirRequest {
     pub path: String,
+    #[serde(default)]
+    pub real_path: bool,
 }
 
 #[derive(Deserialize, Debug)]
@@ -63,6 +93,9 @@ pub struct FileMkdirRequest {
 pub struct FileDeleteRequest {
     pub path: String,
     pub recursive: bool,
+    /// 为 true 时按主机真实绝对路径操作（仅限白名单根内）
+    #[serde(default)]
+    pub real_path: bool,
 }
 
 #[derive(Deserialize, Debug)]
@@ -70,12 +103,17 @@ pub struct FileDeleteRequest {
 pub struct FileRenameRequest {
     pub old_path: String,
     pub new_path: String,
+    /// 为 true 时按主机真实绝对路径操作（仅限白名单根内）
+    #[serde(default)]
+    pub real_path: bool,
 }
 
 #[derive(Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct FileStatRequest {
     pub path: String,
+    #[serde(default)]
+    pub real_path: bool,
 }
 
 #[derive(Deserialize, Debug)]
@@ -84,6 +122,9 @@ pub struct FileStatRequest {
 pub struct FileChmodRequest {
     pub path: String,
     pub mode: u32,
+    /// 为 true 时按主机真实绝对路径操作（仅限白名单根内）
+    #[serde(default)]
+    pub real_path: bool,
 }
 
 #[derive(Deserialize, Debug)]
@@ -92,6 +133,61 @@ pub struct FileDownloadChunkRequest {
     pub path: String,
     pub offset: i64,
     pub size: i32,
+    /// 为 true 时按主机真实绝对路径读取（仅限白名单根内）
+    #[serde(default)]
+    pub real_path: bool,
+}
+
+#[derive(Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct FileUploadToUrlRequest {
+    pub path: String,
+    pub url: String,
+    #[serde(default)]
+    pub method: Option<String>,
+    #[serde(default)]
+    pub content_type: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct FileUploadToUrlResponse {
+    pub success: bool,
+    pub status: u16,
+    pub size: i64,
+}
+
+#[derive(Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct FileFetchUrlRequest {
+    pub url: String,
+    pub path: String,
+    #[serde(default)]
+    pub headers: Option<std::collections::HashMap<String, String>>,
+}
+
+#[derive(Serialize)]
+pub struct FileFetchUrlResponse {
+    pub success: bool,
+    pub status: u16,
+    pub size: i64,
+    pub path: String,
+}
+
+#[derive(Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct FileWriteBase64Request {
+    pub path: String,
+    /// base64 编码的字节分块
+    pub data: String,
+    /// 写入起始偏移；0 表示从文件头开始（并截断）
+    #[serde(default)]
+    pub offset: i64,
+    /// 是否在写入前截断文件（仅首块需要）
+    #[serde(default)]
+    pub truncate: bool,
+    /// 为 true 时要求按主机真实绝对路径写入（仅限白名单根内）
+    #[serde(default)]
+    pub real_path: bool,
 }
 
 pub struct FileManager;
@@ -101,10 +197,9 @@ impl FileManager {
         let req: FileListRequest =
             serde_json::from_str(data).map_err(|e| format!("解析请求失败: {}", e))?;
 
-        let abs_path = resolve_path(&req.path)?;
+        let abs_path = resolve_path_for(&req.path, req.real_path)?;
 
         let entries = fs::read_dir(&abs_path).map_err(|e| format!("读取目录失败: {}", e))?;
-        let root = canonical_files_root()?;
 
         let mut files = Vec::new();
         for entry_res in entries {
@@ -112,7 +207,7 @@ impl FileManager {
                 if let Ok(meta) = entry.metadata() {
                     let file_path = entry.path();
                     let file_name = entry.file_name().to_string_lossy().to_string();
-                    let path_str = virtual_path(&file_path, &root);
+                    let path_str = virtual_path(&file_path);
 
                     let mtime = meta
                         .modified()
@@ -139,6 +234,7 @@ impl FileManager {
                     files.push(FileEntry {
                         name: file_name,
                         path: path_str,
+                        real_path: file_path.to_string_lossy().replace('\\', "/"),
                         is_directory: meta.is_dir(),
                         is_file: meta.is_file(),
                         is_symlink: meta.file_type().is_symlink(),
@@ -152,11 +248,41 @@ impl FileManager {
             }
         }
 
+        let allowed: Vec<String> = allowed_roots()
+            .unwrap_or_default()
+            .iter()
+            .map(|p| p.to_string_lossy().replace('\\', "/"))
+            .collect();
         let resp = FileListResponse {
             files,
-            cwd: virtual_path(&abs_path, &root),
+            cwd: virtual_path(&abs_path),
+            real_cwd: abs_path.to_string_lossy().replace('\\', "/"),
+            sandbox_root: canonical_files_root().map(|p| p.to_string_lossy().replace('\\', "/")).unwrap_or_default(),
+            allowed_roots: allowed,
         };
 
+        serde_json::to_string(&resp).map_err(|e| e.to_string())
+    }
+
+    /// 返回文件沙箱的真实根目录与白名单根，供调用方把「上传路径」和
+    /// 「命令里该用的真实路径」对齐。
+    pub fn handle_file_roots() -> Result<String, String> {
+        let sandbox_root = canonical_files_root()?;
+        let allowed: Vec<String> = allowed_roots()?
+            .iter()
+            .map(|p| p.to_string_lossy().replace('\\', "/"))
+            .collect();
+        let resp = FileRootsResponse {
+            sandbox_root: sandbox_root.to_string_lossy().replace('\\', "/"),
+            allowed_roots: allowed,
+            note: "默认沙箱下的绝对路径（如 /opt/a.sh）会被锚定到 sandbox_root 内，"
+                .to_string()
+                + "真实落盘路径见各文件工具的 realPath 字段；"
+                + "只有 allowed_roots 内的路径才按真实绝对路径访问。"
+                + "面板文件管理与 Compose 配置编辑会传 realPath=true：此时路径必须落在 "
+                + "allowed_roots 内，否则直接报错而不会静默写进沙箱。"
+                + "agent_run_command 执行在真实文件系统上，必须使用 realPath。",
+        };
         serde_json::to_string(&resp).map_err(|e| e.to_string())
     }
 
@@ -168,7 +294,7 @@ impl FileManager {
             return Err("文件路径不能为空".to_string());
         }
 
-        let abs_path = resolve_path(&req.path)?;
+        let abs_path = resolve_path_for(&req.path, req.real_path)?;
         let meta = fs::metadata(&abs_path).map_err(|e| format!("获取文件信息失败: {}", e))?;
 
         let max_size = req.max_size.unwrap_or(2 * 1024 * 1024); // 2MB default
@@ -192,14 +318,19 @@ impl FileManager {
             return Err("文件路径不能为空".to_string());
         }
 
-        let abs_path = resolve_path(&req.path)?;
+        let abs_path = resolve_path_for(&req.path, req.real_path)?;
         if let Some(parent) = abs_path.parent() {
             fs::create_dir_all(parent).map_err(|e| format!("创建父目录失败: {}", e))?;
         }
 
         fs::write(&abs_path, req.content.as_bytes()).map_err(|e| format!("写入文件失败: {}", e))?;
 
-        Ok("文件保存成功".to_string())
+        // 回传真实落盘路径，面板可据此提示用户「到底写到了哪」。
+        let payload = serde_json::json!({
+            "message": "文件保存成功",
+            "realPath": abs_path.to_string_lossy().replace('\\', "/"),
+        });
+        Ok(payload.to_string())
     }
 
     pub fn handle_file_mkdir(data: &str) -> Result<String, String> {
@@ -210,7 +341,7 @@ impl FileManager {
             return Err("目录路径不能为空".to_string());
         }
 
-        let abs_path = resolve_path(&req.path)?;
+        let abs_path = resolve_path_for(&req.path, req.real_path)?;
         fs::create_dir_all(&abs_path).map_err(|e| format!("创建目录失败: {}", e))?;
 
         Ok("目录创建成功".to_string())
@@ -224,10 +355,12 @@ impl FileManager {
             return Err("路径不能为空".to_string());
         }
 
-        let abs_path = resolve_path(&req.path)?;
+        let abs_path = resolve_path_for(&req.path, req.real_path)?;
 
-        // Safety checks: do not allow deleting the sandbox root
-        if abs_path == canonical_files_root()? {
+        // Safety checks: 不允许删除任何被放行的根目录本身
+        // （默认沙箱根与 API_MONITOR_FILE_ROOTS 额外根都算，
+        // 否则一次递归删除就能把整棵被授权的目录清空）。
+        if allowed_roots()?.contains(&abs_path) {
             return Err("不允许删除文件根目录".to_string());
         }
 
@@ -256,8 +389,8 @@ impl FileManager {
             return Err("路径不能为空".to_string());
         }
 
-        let old_abs = resolve_path(&req.old_path)?;
-        let new_abs = resolve_path(&req.new_path)?;
+        let old_abs = resolve_path_for(&req.old_path, req.real_path)?;
+        let new_abs = resolve_path_for(&req.new_path, req.real_path)?;
 
         fs::rename(old_abs, new_abs).map_err(|e| format!("重命名失败: {}", e))?;
 
@@ -272,7 +405,7 @@ impl FileManager {
             return Err("路径不能为空".to_string());
         }
 
-        let abs_path = resolve_path(&req.path)?;
+        let abs_path = resolve_path_for(&req.path, req.real_path)?;
         let meta = fs::metadata(&abs_path).map_err(|e| format!("获取文件信息失败: {}", e))?;
 
         let mtime = meta
@@ -302,7 +435,8 @@ impl FileManager {
                 .file_name()
                 .map(|n| n.to_string_lossy().to_string())
                 .unwrap_or_default(),
-            path: virtual_path(&abs_path, &canonical_files_root()?),
+            path: virtual_path(&abs_path),
+            real_path: abs_path.to_string_lossy().replace('\\', "/"),
             is_directory: meta.is_dir(),
             is_file: meta.is_file(),
             is_symlink: meta.file_type().is_symlink(),
@@ -330,7 +464,7 @@ impl FileManager {
 
         #[cfg(unix)]
         {
-            let abs_path = resolve_path(&req.path)?;
+            let abs_path = resolve_path_for(&req.path, req.real_path)?;
             use std::os::unix::fs::PermissionsExt;
             fs::set_permissions(&abs_path, fs::Permissions::from_mode(req.mode))
                 .map_err(|e| format!("修改权限失败: {}", e))?;
@@ -356,7 +490,7 @@ impl FileManager {
             req.size as usize
         };
 
-        let abs_path = resolve_path(&req.path)?;
+        let abs_path = resolve_path_for(&req.path, req.real_path)?;
         let mut file = fs::File::open(&abs_path).map_err(|e| format!("打开文件失败: {}", e))?;
 
         file.seek(SeekFrom::Start(req.offset as u64))
@@ -369,6 +503,227 @@ impl FileManager {
 
         let encoded = general_purpose::STANDARD.encode(&buffer[..bytes_read]);
         Ok(encoded)
+    }
+
+    /// 把主机上的文件直接 PUT 到面板签发的签名 URL（存储节点直传）。
+    /// 字节由 Agent 直接发往目标节点，不经面板中转，节省面板流量。
+    pub async fn handle_file_upload_to_url(data: &str) -> Result<String, String> {
+        let req: FileUploadToUrlRequest =
+            serde_json::from_str(data).map_err(|e| format!("解析请求失败: {}", e))?;
+
+        if req.path.is_empty() {
+            return Err("文件路径不能为空".to_string());
+        }
+        if req.url.is_empty() {
+            return Err("上传地址不能为空".to_string());
+        }
+        let method = req
+            .method
+            .as_deref()
+            .unwrap_or("PUT")
+            .trim()
+            .to_uppercase();
+        if method != "PUT" && method != "POST" {
+            return Err("仅支持 PUT/POST 上传".to_string());
+        }
+
+        let abs_path = resolve_path(&req.path)?;
+        let meta = fs::metadata(&abs_path).map_err(|e| format!("获取文件信息失败: {}", e))?;
+        if !meta.is_file() {
+            return Err("目标不是文件".to_string());
+        }
+        let size = meta.len() as i64;
+
+        let file = tokio::fs::File::open(&abs_path)
+            .await
+            .map_err(|e| format!("打开文件失败: {}", e))?;
+        let stream = tokio_util::io::ReaderStream::new(file);
+        let body = reqwest::Body::wrap_stream(stream);
+
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(3600))
+            .build()
+            .map_err(|e| format!("创建 HTTP 客户端失败: {}", e))?;
+
+        let mut builder = client
+            .request(
+                reqwest::Method::from_bytes(method.as_bytes())
+                    .map_err(|e| format!("非法方法: {}", e))?,
+                &req.url,
+            )
+            .header(
+                reqwest::header::CONTENT_TYPE,
+                req.content_type
+                    .clone()
+                    .unwrap_or_else(|| "application/octet-stream".to_string()),
+            )
+            .header(reqwest::header::CONTENT_LENGTH, size)
+            .body(body);
+
+        if method == "PUT" {
+            builder = builder.header("X-Agent-Upload", "filebox");
+        }
+
+        let resp = builder
+            .send()
+            .await
+            .map_err(|e| format!("上传失败: {}", e))?;
+        let status = resp.status().as_u16();
+        if !(200..300).contains(&status) {
+            let text = resp.text().await.unwrap_or_default();
+            return Err(format!("存储节点拒绝上传 (HTTP {}): {}", status, text));
+        }
+
+        let payload = FileUploadToUrlResponse {
+            success: true,
+            status,
+            size,
+        };
+        serde_json::to_string(&payload).map_err(|e| e.to_string())
+    }
+
+    /// 从 URL 流式下载并写入主机本地路径。字节不经面板中转，适合把已有的
+    /// 可访问地址（文件柜直链、GitHub release 等）直接落到主机上。
+    pub async fn handle_file_fetch_url(data: &str) -> Result<String, String> {
+        let req: FileFetchUrlRequest =
+            serde_json::from_str(data).map_err(|e| format!("解析请求失败: {}", e))?;
+
+        if req.url.is_empty() {
+            return Err("下载地址不能为空".to_string());
+        }
+        if req.path.is_empty() {
+            return Err("目标路径不能为空".to_string());
+        }
+
+        let abs_path = resolve_path(&req.path)?;
+        if let Some(parent) = abs_path.parent() {
+            fs::create_dir_all(parent).map_err(|e| format!("创建父目录失败: {}", e))?;
+        }
+
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(3600))
+            .build()
+            .map_err(|e| format!("创建 HTTP 客户端失败: {}", e))?;
+
+        let mut builder = client.get(&req.url);
+        if let Some(headers) = &req.headers {
+            for (key, value) in headers {
+                builder = builder.header(key.as_str(), value.as_str());
+            }
+        }
+
+        let resp = builder
+            .send()
+            .await
+            .map_err(|e| format!("下载失败: {}", e))?;
+        let status = resp.status().as_u16();
+        if !(200..300).contains(&status) {
+            return Err(format!("下载源返回 HTTP {}", status));
+        }
+
+        let tmp_name = format!(
+            "{}.download.tmp.{}",
+            abs_path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("download"),
+            std::process::id()
+        );
+        let tmp_path = abs_path.with_file_name(tmp_name);
+        let mut file = tokio::fs::File::create(&tmp_path)
+            .await
+            .map_err(|e| format!("创建临时文件失败: {}", e))?;
+
+        use futures_util::StreamExt;
+        use tokio::io::AsyncWriteExt;
+        let mut stream = resp.bytes_stream();
+        let mut written: i64 = 0;
+        while let Some(chunk) = stream.next().await {
+            let chunk = match chunk {
+                Ok(c) => c,
+                Err(e) => {
+                    let _ = tokio::fs::remove_file(&tmp_path).await;
+                    return Err(format!("读取下载流失败: {}", e));
+                }
+            };
+            if let Err(e) = file.write_all(&chunk).await {
+                let _ = tokio::fs::remove_file(&tmp_path).await;
+                return Err(format!("写入文件失败: {}", e));
+            }
+            written += chunk.len() as i64;
+        }
+        if let Err(e) = file.flush().await {
+            let _ = tokio::fs::remove_file(&tmp_path).await;
+            return Err(format!("刷新文件失败: {}", e));
+        }
+        drop(file);
+
+        if let Err(e) = tokio::fs::rename(&tmp_path, &abs_path).await {
+            let _ = tokio::fs::remove_file(&tmp_path).await;
+            return Err(format!("落盘失败: {}", e));
+        }
+
+        let payload = FileFetchUrlResponse {
+            success: true,
+            status,
+            size: written,
+            path: virtual_path(&abs_path),
+        };
+        serde_json::to_string(&payload).map_err(|e| e.to_string())
+    }
+
+    /// 按 base64 分块写入文件字节，支持 offset 续写与首块截断。
+    /// 用于把二进制文件分块传到主机（绕开单帧大小与文本编码限制）。
+    pub fn handle_file_write_base64(data: &str) -> Result<String, String> {
+        let req: FileWriteBase64Request =
+            serde_json::from_str(data).map_err(|e| format!("解析请求失败: {}", e))?;
+
+        if req.path.is_empty() {
+            return Err("文件路径不能为空".to_string());
+        }
+
+        let bytes = general_purpose::STANDARD
+            .decode(req.data.as_bytes())
+            .map_err(|e| format!("base64 解码失败: {}", e))?;
+
+        let abs_path = resolve_path_for(&req.path, req.real_path)?;
+        if let Some(parent) = abs_path.parent() {
+            fs::create_dir_all(parent).map_err(|e| format!("创建父目录失败: {}", e))?;
+        }
+
+        let mut file = if req.truncate {
+            fs::OpenOptions::new()
+                .create(true)
+                .write(true)
+                .truncate(true)
+                .open(&abs_path)
+        } else {
+            fs::OpenOptions::new()
+                .create(true)
+                .write(true)
+                .open(&abs_path)
+        }
+        .map_err(|e| format!("打开文件失败: {}", e))?;
+
+        if req.offset > 0 {
+            file.seek(SeekFrom::Start(req.offset as u64))
+                .map_err(|e| format!("定位写入偏移失败: {}", e))?;
+        }
+        file.write_all(&bytes)
+            .map_err(|e| format!("写入文件失败: {}", e))?;
+        file.flush().map_err(|e| format!("刷新文件失败: {}", e))?;
+        // 返回真实绝对路径：调用方后续用 agent_run_command 执行该文件时必须用它
+        // （虚拟路径只在面板文件管理器里有意义）。
+        let total = file
+            .metadata()
+            .map(|m| m.len())
+            .unwrap_or(req.offset.max(0) as u64 + bytes.len() as u64);
+        let payload = serde_json::json!({
+            "message": format!("已写入 {} 字节", bytes.len()),
+            "realPath": abs_path.to_string_lossy().replace('\\', "/"),
+            "size": total,
+        });
+        Ok(payload.to_string())
     }
 }
 
@@ -389,31 +744,171 @@ fn canonical_files_root() -> Result<PathBuf, String> {
         .clone()
 }
 
-/// 把文件沙箱内的真实路径转换为对外暴露的虚拟路径。
-/// 根目录显示为 `/`，子路径为 `/a/b`，保证前端面包屑始终锚定在 `/`。
-fn virtual_path(abs_path: &Path, root: &Path) -> String {
-    if abs_path == root {
+/// 额外允许的文件根目录，来自环境变量 `API_MONITOR_FILE_ROOTS`
+/// （多路径使用平台分隔符：Windows 为 `;`，类 Unix 为 `:`）。
+/// 未设置时返回空列表，此时文件操作行为与历史版本完全一致，仅限默认沙箱。
+/// 用于显式放行脚本目录等受控路径，避免把整个文件系统暴露给面板。
+fn extra_roots() -> Vec<PathBuf> {
+    static EXTRA_ROOTS_CACHE: OnceLock<Vec<PathBuf>> = OnceLock::new();
+    EXTRA_ROOTS_CACHE
+        .get_or_init(|| {
+            let Ok(raw) = std::env::var("API_MONITOR_FILE_ROOTS") else {
+                return Vec::new();
+            };
+            let mut roots = Vec::new();
+            for p in std::env::split_paths(&raw) {
+                if p.as_os_str().is_empty() {
+                    continue;
+                }
+                if let Ok(canonical) = fs::canonicalize(&p) {
+                    if !roots.contains(&canonical) {
+                        roots.push(canonical);
+                    }
+                }
+            }
+            roots
+        })
+        .clone()
+}
+
+/// 返回全部允许的根目录（默认沙箱在前，额外根在后）。
+fn allowed_roots() -> Result<Vec<PathBuf>, String> {
+    let mut roots = vec![canonical_files_root()?];
+    roots.extend(extra_roots());
+    Ok(roots)
+}
+
+/// 判断路径是否落在某个允许根下，返回命中的根。
+fn matched_root(path: &Path, roots: &[PathBuf]) -> Option<PathBuf> {
+    roots
+        .iter()
+        .find(|root| path.starts_with(root.as_path()))
+        .cloned()
+}
+
+/// 把真实路径转换为对外暴露的虚拟路径。
+/// 默认沙箱根显示为 `/`，子路径为 `/a/b`，保证前端面包屑始终锚定在 `/`。
+/// 额外白名单根下的路径不参与虚拟化，直接返回其规范化绝对路径。
+fn virtual_path(abs_path: &Path) -> String {
+    let fallback = abs_path.to_string_lossy().replace('\\', "/");
+    let Ok(default_root) = canonical_files_root() else {
+        return fallback;
+    };
+    // 非默认根（来自额外白名单）直接用绝对路径展示，避免前端面包屑误锚定。
+    if abs_path != default_root.as_path() && !abs_path.starts_with(&default_root) {
+        return fallback;
+    }
+    if abs_path == default_root.as_path() {
         return "/".to_string();
     }
-    let rel = abs_path.strip_prefix(root).unwrap_or(abs_path);
+    let rel = abs_path.strip_prefix(&default_root).unwrap_or(abs_path);
     let normalized = rel.to_string_lossy().replace('\\', "/");
     format!("/{}", normalized.trim_start_matches('/'))
 }
 
-fn resolve_path(input_path: &str) -> Result<PathBuf, String> {
-    let root = canonical_files_root()?;
+/// 解析输入路径为绝对路径，并返回其所属的允许根。
+/// 优先按「额外白名单根」做绝对路径匹配；未命中再退回历史语义——
+/// 把绝对路径锚定到默认沙箱根内部解析。
+fn resolve_path_root(input_path: &str) -> Result<(PathBuf, PathBuf), String> {
+    let roots = allowed_roots()?;
+    let default_root = canonical_files_root()?;
 
     let normalized = input_path.replace('\\', "/");
     let trimmed = normalized.trim_matches(|c| c == '/' || c == ' ');
-    if trimmed.is_empty() || trimmed == "." {
-        return Ok(root);
+
+    // 额外白名单根：允许用真实绝对路径直接访问（不做沙箱内锚定）。
+    let extra = extra_roots();
+    if !extra.is_empty() && !trimmed.is_empty() && trimmed != "." {
+        let candidate = PathBuf::from(trimmed);
+        if candidate.is_absolute() {
+            if let Ok(canonical) = fs::canonicalize(&candidate) {
+                if let Some(root) = matched_root(&canonical, &extra) {
+                    return Ok((canonical, root));
+                }
+            } else if let Some(parent) = candidate.parent() {
+                if let Ok(parent_canonical) = fs::canonicalize(parent) {
+                    if let Some(file_name) = candidate.file_name() {
+                        let joined = parent_canonical.join(file_name);
+                        if let Some(root) = matched_root(&joined, &extra) {
+                            return Ok((joined, root));
+                        }
+                    }
+                }
+            }
+        }
     }
 
-    // 绝对路径（含 Windows 盘符形式）一律锚定到文件沙箱根目录内解析，
-    // 剥离前导斜杠与盘符前缀后作为沙箱内相对路径校验。
-    let rel = strip_drive_prefix(trimmed.trim_start_matches('/'));
+    if trimmed.is_empty() || trimmed == "." {
+        return Ok((default_root.clone(), default_root));
+    }
 
-    validate_within_allowed_root(&root.join(rel))
+    // 默认沙箱语义：绝对路径（含 Windows 盘符形式）锚定到沙箱根内解析。
+    let rel = strip_drive_prefix(trimmed.trim_start_matches('/'));
+    let abs = validate_within_allowed_root(&default_root.join(rel), &roots)?;
+    Ok((abs, default_root))
+}
+
+/// 解析输入路径为绝对路径（历史签名，供仅需路径的调用点使用）。
+fn resolve_path(input_path: &str) -> Result<PathBuf, String> {
+    resolve_path_root(input_path).map(|(path, _)| path)
+}
+
+/// 按「主机真实绝对路径」解析：只接受落在白名单根（默认沙箱根或
+/// `API_MONITOR_FILE_ROOTS` 额外根）内的路径。
+///
+/// 与 `resolve_path` 的关键区别：**绝不**把未命中的绝对路径锚定到沙箱根。
+/// 面板的文件管理/Compose 配置编辑都要求「读到的就是主机上那份文件」，
+/// 一旦静默改写到 `<sandbox>/opt/x/y.yml`，界面显示保存成功但真实文件没变，
+/// 属于最危险的一类静默数据丢失。因此越界时直接报错。
+fn resolve_real_path(input_path: &str) -> Result<PathBuf, String> {
+    resolve_real_path_with_roots(input_path, &allowed_roots()?)
+}
+
+/// `resolve_real_path` 的可测试内核：根目录由调用方显式传入。
+fn resolve_real_path_with_roots(input_path: &str, roots: &[PathBuf]) -> Result<PathBuf, String> {
+    let normalized = input_path.replace('\\', "/");
+    let trimmed = normalized.trim_matches(|c| c == '/' || c == ' ');
+
+    if trimmed.is_empty() || trimmed == "." {
+        return Err("路径不能为空".to_string());
+    }
+
+    let candidate = PathBuf::from(strip_drive_prefix(trimmed.trim_start_matches('/')));
+    let absolute = if candidate.is_absolute() {
+        candidate
+    } else {
+        PathBuf::from("/").join(candidate)
+    };
+
+    let resolved = if absolute.exists() {
+        fs::canonicalize(&absolute).map_err(|e| format!("无法访问路径: {}", e))?
+    } else {
+        canonicalize_missing_tail(&absolute, "无法访问父目录")?
+    };
+
+    if matched_root(&resolved, roots).is_none() {
+        return Err(format!(
+            "路径不在 Agent 文件白名单内: {}。允许的根目录: {}；请在面板配置 API_MONITOR_AGENT_FILE_ROOTS 并重装/重启 Agent 后重试。",
+            resolved.display(),
+            roots
+                .iter()
+                .map(|r| r.display().to_string())
+                .collect::<Vec<_>>()
+                .join(", ")
+        ));
+    }
+
+    Ok(resolved)
+}
+
+/// 按调用方要求解析路径：`real_path=true` 走白名单强校验，否则沿用历史
+/// 沙箱锚定语义（保持 AI 文件工具与既有脚本行为不变）。
+fn resolve_path_for(input_path: &str, real_path: bool) -> Result<PathBuf, String> {
+    if real_path {
+        resolve_real_path(input_path)
+    } else {
+        resolve_path(input_path)
+    }
 }
 
 /// 剥离 Windows 盘符前缀（如 `C:`），返回去掉前缀后的路径片段。
@@ -427,29 +922,54 @@ fn strip_drive_prefix(p: &str) -> &str {
     }
 }
 
-fn validate_within_allowed_root(path: &Path) -> Result<PathBuf, String> {
-    let root_canonical = canonical_files_root()?;
-
+fn validate_within_allowed_root(path: &Path, roots: &[PathBuf]) -> Result<PathBuf, String> {
     let canonical = if path.exists() {
         fs::canonicalize(path).map_err(|e| format!("无法访问路径: {}", e))?
     } else {
-        let parent = path.parent().ok_or_else(|| "无效的路径".to_string())?;
-        let parent_canonical =
-            fs::canonicalize(parent).map_err(|e| format!("无法访问父目录: {}", e))?;
-        let file_name = path
-            .file_name()
-            .ok_or_else(|| "无效的文件名".to_string())?;
-        parent_canonical.join(file_name)
+        canonicalize_missing_tail(path, "无法访问父目录")?
     };
 
-    if !canonical.starts_with(&root_canonical) {
+    if matched_root(&canonical, roots).is_none() {
         return Err(format!(
             "路径不在允许的文件目录范围内。允许的根目录: {}",
-            root_canonical.display()
+            roots
+                .iter()
+                .map(|r| r.display().to_string())
+                .collect::<Vec<_>>()
+                .join(", ")
         ));
     }
 
     Ok(canonical)
+}
+
+/// 规范化尚未落盘的路径：从自身向上找到第一个已存在的祖先并 canonicalize，
+/// 再把缺失的相对尾段原样拼回。
+/// 允许只拼一层父目录的做法在「父目录本身也不存在」时直接报错
+/// （例如 Compose 配置所在目录被整体移走），因此改为逐级回退。
+fn canonicalize_missing_tail(path: &Path, missing_error: &str) -> Result<PathBuf, String> {
+    let mut current = path;
+    let mut tail: Vec<&std::ffi::OsStr> = Vec::new();
+    loop {
+        if current.exists() {
+            let mut resolved = fs::canonicalize(current).map_err(|e| {
+                if tail.is_empty() {
+                    format!("{}: {}", missing_error, e)
+                } else {
+                    format!("无法访问路径 {}: {}", current.display(), e)
+                }
+            })?;
+            for part in tail.iter().rev() {
+                resolved.push(part);
+            }
+            return Ok(resolved);
+        }
+        let Some(name) = current.file_name() else {
+            return Err(format!("{}: No such file or directory", missing_error));
+        };
+        tail.push(name);
+        current = current.parent().ok_or_else(|| "无效的路径".to_string())?;
+    }
 }
 
 fn format_permissions(meta: &fs::Metadata) -> String {
@@ -480,4 +1000,83 @@ fn format_permissions(meta: &fs::Metadata) -> String {
         }
     }
     s
+}
+
+#[cfg(test)]
+mod tests {
+    use super::canonicalize_missing_tail;
+
+    /// 父目录整体不存在时不应直接失败，而是回退到最近的已存在祖先再拼回尾段。
+    #[test]
+    fn missing_tail_falls_back_to_existing_ancestor() {
+        let base =
+            std::env::temp_dir().join(format!("api-monitor-missing-tail-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(&base).unwrap();
+
+        let target = base.join("moved-away").join("docker-compose.yml");
+        let resolved = canonicalize_missing_tail(&target, "无法访问父目录").unwrap();
+        // 已存在祖先会被 canonicalize（Windows 下带 `\\?\` 前缀、展开 8.3 短名），
+        // 因此只断言解析成功且保留了缺失尾段，不比较字面前缀。
+        assert!(resolved.ends_with("moved-away/docker-compose.yml"));
+
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    /// realPath=true 时，白名单外的路径必须报错，绝不能静默锚定到沙箱根。
+    /// 这是「面板显示保存成功但真实文件没变」的回归防线。
+    #[test]
+    fn real_path_rejects_paths_outside_allowed_roots() {
+        let resolved = super::resolve_real_path("/definitely/not/whitelisted/file.yml");
+        assert!(resolved.is_err(), "expected rejection, got {resolved:?}");
+        let message = resolved.unwrap_err();
+        assert!(
+            message.contains("白名单"),
+            "error should explain whitelist, got: {message}"
+        );
+    }
+
+    /// 默认沙箱根自身是允许的，realPath 解析不应把它判为越界。
+    #[test]
+    fn real_path_accepts_sandbox_root() {
+        let root = super::canonical_files_root().expect("sandbox root");
+        let resolved = super::resolve_real_path(&root.to_string_lossy()).expect("sandbox root allowed");
+        assert_eq!(resolved, root);
+    }
+
+    /// 白名单根下的真实路径应被放行，且解析到主机真实位置（不锚定到沙箱）。
+    #[test]
+    fn real_path_accepts_whitelisted_host_path() {
+        let base = std::env::temp_dir().join(format!("api-monitor-realpath-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(base.join("compose")).unwrap();
+        let target = base.join("compose").join("docker-compose.yml");
+        std::fs::write(&target, "services: {}\n").unwrap();
+
+        let roots = vec![std::fs::canonicalize(&base).unwrap()];
+        let resolved = super::resolve_real_path_with_roots(&target.to_string_lossy(), &roots)
+            .expect("whitelisted path allowed");
+        assert_eq!(resolved, std::fs::canonicalize(&target).unwrap());
+        // 关键断言：解析结果必须是主机真实路径，而不是沙箱内的同名副本。
+        assert!(!resolved.starts_with(super::canonical_files_root().unwrap()));
+
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    /// 同一条路径在白名单缺失时必须被拒绝（回归线上事故的根因）。
+    #[test]
+    fn real_path_rejects_when_root_not_whitelisted() {
+        let base = std::env::temp_dir().join(format!("api-monitor-realpath-reject-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(&base).unwrap();
+        let target = base.join("docker-compose.yml");
+        std::fs::write(&target, "services: {}\n").unwrap();
+
+        let empty: Vec<std::path::PathBuf> = Vec::new();
+        let err = super::resolve_real_path_with_roots(&target.to_string_lossy(), &empty)
+            .expect_err("path outside whitelist must be rejected");
+        assert!(err.contains("白名单"), "unexpected error: {err}");
+
+        let _ = std::fs::remove_dir_all(&base);
+    }
 }

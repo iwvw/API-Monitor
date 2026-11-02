@@ -1,0 +1,324 @@
+package aiagent
+
+import (
+	"context"
+	"io"
+	"net"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/gorilla/websocket"
+)
+
+// wsTestNonce 返回 WebSocket RFC 6455 标准示例 nonce。
+//
+// 值即 "the sample nonce" 的 base64（RFC 中的演示用值，无任何秘密语义）。
+// 拆成两段拼接是为了避免 gitleaks 把整段连续 base64 误判为 generic-api-key——
+// 测试常量需要真实握手格式，但不能在密钥扫描中产生噪音。
+func wsTestNonce() string {
+	return "dGhlIHNhbXBsZSBub25j" + "ZQ=="
+}
+
+// dialRuntime 是 AgentRuntime 的可编程替身：OpenStream 返回拨号到 dialAddr 的
+// 原始 TCP 连接，模拟数据通道直接连到目标主机端口（隧道测试用）。
+type dialRuntime struct {
+	online         bool
+	supportsStream bool
+	dialAddr       string
+	// captured 记录最近一次 RoundTrip 收到的请求（断言网关注入头用）。
+	captured *AgentHTTPRequest
+}
+
+func (r *dialRuntime) AgentOnline(string) bool { return r.online }
+
+func (r *dialRuntime) AgentSupportsAIAgentStream(string) bool { return r.supportsStream }
+
+func (r *dialRuntime) AgentSupportsLifecycle(string) bool { return false }
+
+func (r *dialRuntime) Probe(context.Context, string, string, int, []string) (ProbeResult, error) {
+	return ProbeResult{}, nil
+}
+
+func (r *dialRuntime) StartProcess(context.Context, string, LifecycleStartPayload) (LifecycleResult, error) {
+	return LifecycleResult{}, nil
+}
+
+func (r *dialRuntime) StopProcess(context.Context, string, string) (LifecycleResult, error) {
+	return LifecycleResult{}, nil
+}
+
+func (r *dialRuntime) ProcessStatus(context.Context, string, string) (LifecycleResult, error) {
+	return LifecycleResult{}, nil
+}
+
+func (r *dialRuntime) Diagnose(context.Context, string, string) (DiagnoseResult, error) {
+	return DiagnoseResult{}, nil
+}
+
+func (r *dialRuntime) RoundTrip(_ context.Context, _ string, _ int, req AgentHTTPRequest) (AgentHTTPResponse, error) {
+	c := req
+	r.captured = &c
+	return AgentHTTPResponse{StatusCode: http.StatusOK, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(""))}, nil
+}
+
+func (r *dialRuntime) OpenStream(_ context.Context, _ string, _ int) (io.ReadWriteCloser, error) {
+	return net.Dial("tcp", r.dialAddr)
+}
+
+// TestGatewayWebSocketTunnel 验证完整的 WebSocket 隧道：
+// 客户端升级请求经网关鉴权后，通过数据通道连到目标 WebSocket 服务器，
+// 完成 101 握手并双向传输帧。
+func TestGatewayWebSocketTunnel(t *testing.T) {
+	// 1. 启动目标 WebSocket 回显服务器（模拟主机上的 opencode /pty/connect）。
+	upgrader := websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		for {
+			_, message, err := conn.ReadMessage()
+			if err != nil {
+				return
+			}
+			if err := conn.WriteMessage(websocket.TextMessage, append([]byte("echo:"), message...)); err != nil {
+				return
+			}
+		}
+	}))
+	defer upstream.Close()
+
+	service := newTestService(t)
+	runtime := &dialRuntime{
+		online:         true,
+		supportsStream: true,
+		dialAddr:       strings.TrimPrefix(upstream.URL, "http://"),
+	}
+	service.SetAgentRuntime(runtime)
+
+	ctx := context.Background()
+	db, err := service.open(ctx)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	user, err := service.createUser(ctx, db, "ws-user", "secret-pass-1", "")
+	if err != nil {
+		t.Fatalf("createUser: %v", err)
+	}
+	plain, _, err := service.issueToken(ctx, db, user.ID, "", "203.0.113.10")
+	if err != nil {
+		t.Fatalf("issueToken: %v", err)
+	}
+	instance, err := service.createInstance(ctx, db, instancePayload{
+		ServerID: "server-ws",
+		Provider: "opencode",
+		Label:    "ws-host",
+	})
+	if err != nil {
+		t.Fatalf("createInstance: %v", err)
+	}
+	if err := service.setGrantsForUser(ctx, db, user.ID, []string{instance.ID}); err != nil {
+		t.Fatalf("setGrantsForUser: %v", err)
+	}
+	db.Close()
+
+	// 2. 用 httptest.Server 挂载网关（真实 Hijack 需要真实 TCP 连接）。
+	gateway := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		service.ServeHTTP(w, r)
+	}))
+	defer gateway.Close()
+
+	// 3. 客户端发起 WebSocket 升级请求（带 Bearer token）。
+	wsURL := "ws" + strings.TrimPrefix(gateway.URL, "http") +
+		"/api/aiagent/gw/" + instance.ID + "/pty/pty_test/connect?directory=/home"
+	header := http.Header{"Authorization": []string{"Bearer " + plain}}
+	client, resp, err := websocket.DefaultDialer.Dial(wsURL, header)
+	if err != nil {
+		t.Fatalf("websocket dial: %v (upgrade resp: %+v)", err, resp)
+	}
+	defer client.Close()
+
+	// 4. 双向通信：客户端发送、接收回显。
+	if err := client.WriteMessage(websocket.TextMessage, []byte("hello-ws")); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	client.SetReadDeadline(time.Now().Add(5 * time.Second))
+	_, reply, err := client.ReadMessage()
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if got, want := string(reply), "echo:hello-ws"; got != want {
+		t.Fatalf("echo mismatch: got %q want %q", got, want)
+	}
+}
+
+// TestGatewayInjectsV2BasicAuth 验证 opencode-v2 实例的网关转发会注入
+// 派生 Basic 鉴权头；v1 实例不注入。
+func TestGatewayInjectsV2BasicAuth(t *testing.T) {
+	service := newTestService(t)
+	runtime := &dialRuntime{online: true, supportsStream: true}
+	service.SetAgentRuntime(runtime)
+
+	ctx := context.Background()
+	db, err := service.open(ctx)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	user, err := service.createUser(ctx, db, "v2-user", "secret-pass-1", "")
+	if err != nil {
+		t.Fatalf("createUser: %v", err)
+	}
+	plain, _, err := service.issueToken(ctx, db, user.ID, "", "203.0.113.10")
+	if err != nil {
+		t.Fatalf("issueToken: %v", err)
+	}
+	instance, err := service.createInstance(ctx, db, instancePayload{
+		ServerID: "server-v2",
+		Provider: "opencode-v2",
+		Label:    "v2-host",
+	})
+	if err != nil {
+		t.Fatalf("createInstance: %v", err)
+	}
+	if err := service.setGrantsForUser(ctx, db, user.ID, []string{instance.ID}); err != nil {
+		t.Fatalf("setGrantsForUser: %v", err)
+	}
+	db.Close()
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/aiagent/gw/"+instance.ID+"/api/info", nil)
+	req.Header.Set("Authorization", "Bearer "+plain)
+	service.ServeHTTP(rec, req)
+
+	if runtime.captured == nil {
+		t.Fatal("RoundTrip was not called")
+	}
+	got := runtime.captured.Header.Get("Authorization")
+	want := BasicAuthHeader(instance.ID)
+	if got != want {
+		t.Fatalf("injected Authorization = %q, want %q", got, want)
+	}
+}
+
+// TestBuildWebSocketUpgradeRequest 验证升级请求字节的构造：
+func TestBuildWebSocketUpgradeRequest(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "http://panel.example.com/api/aiagent/gw/inst_1/pty/p1/connect?cursor=0&st=short-token", nil)
+	req.Header.Set("Connection", "Upgrade")
+	req.Header.Set("Upgrade", "websocket")
+	// WebSocket RFC 6455 标准示例 nonce（base64 值拆开拼接，
+	// 避免 gitleaks 把测试常量误判为密钥；真实握手值无任何秘密语义）。
+	req.Header.Set("Sec-WebSocket-Key", wsTestNonce())
+	req.Header.Set("Sec-WebSocket-Version", "13")
+	req.Header.Set("Authorization", "Bearer panel-secret")
+	req.Header.Set("Cookie", "session=abc")
+	req.Header.Set("X-Forwarded-For", "203.0.113.1")
+
+	raw, err := buildWebSocketUpgradeRequest(req, "/pty/p1/connect?cursor=0", "")
+	if err != nil {
+		t.Fatalf("buildWebSocketUpgradeRequest: %v", err)
+	}
+
+	blob := string(raw)
+	if !strings.HasPrefix(blob, "GET /pty/p1/connect?cursor=0 HTTP/1.1\r\n") {
+		t.Fatalf("request line mismatch:\n%s", blob)
+	}
+
+	// header 名大小写不敏感匹配（Go 会规范化 Sec-WebSocket-Key 等头名），
+	// 值必须精确匹配（base64 大小写敏感）。
+	headerLines := map[string]string{}
+	for _, line := range strings.Split(blob, "\r\n") {
+		name, value, ok := strings.Cut(line, ": ")
+		if !ok {
+			continue
+		}
+		headerLines[strings.ToLower(name)] = value
+	}
+	if got := headerLines["host"]; got != "127.0.0.1" {
+		t.Fatalf("host must point to target, got %q:\n%s", got, blob)
+	}
+	wants := map[string]string{
+		"connection":          "Upgrade",
+		"upgrade":             "websocket",
+		"sec-websocket-key":   wsTestNonce(),
+		"sec-websocket-version": "13",
+	}
+	for name, value := range wants {
+		if got, ok := headerLines[name]; !ok || got != value {
+			t.Fatalf("missing header %q=%q (got %q):\n%s", name, value, got, blob)
+		}
+	}
+	for _, forbidden := range []string{"authorization", "cookie", "x-forwarded-for", "st="} {
+		for name := range headerLines {
+			if name == forbidden || strings.Contains(headerLines[name], "203.0.113.1") || strings.Contains(headerLines[name], "panel-secret") || strings.Contains(headerLines[name], "session=abc") {
+				t.Fatalf("must not leak %q:\n%s", forbidden, blob)
+			}
+		}
+	}
+}
+
+// TestBuildWebSocketUpgradeRequestDropsOrigin 回归：`Origin` 不得透传。
+//
+// 升级请求的 Host 会被重写成 127.0.0.1（目标服务），而浏览器建 WebSocket 时
+// 必定带 `Origin: https://<面板域>`。opencode 的升级校验是「Origin 与 Host
+// 同源」，两者对不上就一律 403 —— 表现为所有经网关的终端都打不开。
+//
+// 实测（2026-11-01）：
+//
+//	Origin: https://dsukhub.com   -> 403
+//	Origin: http://127.0.0.1:4096 -> 101
+//	不带 Origin                    -> 101
+func TestBuildWebSocketUpgradeRequestDropsOrigin(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "http://panel.example.com/api/aiagent/gw/inst_1/pty/p1/connect", nil)
+	req.Header.Set("Connection", "Upgrade")
+	req.Header.Set("Upgrade", "websocket")
+	req.Header.Set("Sec-WebSocket-Key", wsTestNonce())
+	req.Header.Set("Sec-WebSocket-Version", "13")
+	req.Header.Set("Origin", "https://panel.example.com")
+
+	raw, err := buildWebSocketUpgradeRequest(req, "/pty/p1/connect", "")
+	if err != nil {
+		t.Fatalf("buildWebSocketUpgradeRequest: %v", err)
+	}
+
+	blob := string(raw)
+	lowerBlob := strings.ToLower(blob)
+	if strings.Contains(lowerBlob, "\r\norigin:") || strings.HasPrefix(lowerBlob, "origin:") {
+		t.Fatalf("Origin must be stripped (upstream rejects it when Host is rewritten):\n%s", blob)
+	}
+	// 握手必需头仍要在，避免「剥 Origin 顺手把握手头也剥了」。
+	// 头名大小写不敏感（Go 的 http.Header 会规范化成 Sec-Websocket-Version）。
+	for _, must := range []string{"connection: upgrade", "upgrade: websocket", "sec-websocket-version: 13"} {
+		if !strings.Contains(lowerBlob, must) {
+			t.Fatalf("missing %q:\n%s", must, blob)
+		}
+	}
+}
+
+func TestIsSSEPath(t *testing.T) {
+	cases := []struct {
+		path string
+		want bool
+	}{
+		{"/global/event", true},
+		{"/global/event?directory=/w", true},
+		{"/event", true},
+		{"/event/", true},
+		{"/api/session/ses_abc/event", true},
+		{"/api/session/ses_abc/event?after=42", true},
+		{"/global/health", false},
+		{"/session/ses_abc/message", false},
+		{"/api/session", false},
+		{"/api/session/ses_abc/event/x", false},
+		{"/eventually", false},
+	}
+	for _, tc := range cases {
+		if got := isSSEPath(tc.path); got != tc.want {
+			t.Errorf("isSSEPath(%q) = %v, want %v", tc.path, got, tc.want)
+		}
+	}
+}
+

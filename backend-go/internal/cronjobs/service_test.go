@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/iwvw/api-monitor/backend-go/internal/config"
 )
@@ -252,5 +253,28 @@ func TestTaskAndWorkflowNotifyOnResult(t *testing.T) {
 	}
 	if !workflowTriggered {
 		t.Fatalf("workflow execution did not trigger notifier, calls=%#v", notifier.calls)
+	}
+}
+
+// TestTruncateOutputRuneSafe 验证超长输出按 rune 截断，不会把多字节字符从中间切断。
+func TestTruncateOutputRuneSafe(t *testing.T) {
+	// 每个中文 3 字节；构造远超上限的内容，截断后必须仍是合法 UTF-8。
+	long := strings.Repeat("测", maxLogOutput)
+	got := truncateOutput(long)
+	if len(got) > maxLogOutput {
+		t.Fatalf("truncated length %d exceeds budget %d", len(got), maxLogOutput)
+	}
+	for _, r := range got {
+		if r == '\uFFFD' {
+			t.Fatal("detected invalid rune, byte-based truncation leaked through")
+		}
+	}
+	if !utf8.ValidString(got) {
+		t.Fatal("truncated output is not valid UTF-8")
+	}
+	// 未超限时原样返回。
+	short := "hello 世界"
+	if truncateOutput(short) != short {
+		t.Fatal("short output should be returned unchanged")
 	}
 }

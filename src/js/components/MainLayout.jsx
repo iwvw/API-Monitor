@@ -6,6 +6,7 @@ import useStore, {
   getModuleName,
   store,
 } from '../store.js';
+import { useShallow } from 'zustand/react/shallow';
 import { Sidebar, useSidebar } from '@cloudflare/kumo/components/sidebar';
 import { Tooltip } from '@cloudflare/kumo/components/tooltip';
 import { Button } from '@cloudflare/kumo/components/button';
@@ -14,6 +15,7 @@ import { SkeletonLine } from '@cloudflare/kumo/components/loader';
 import { TOOL_TABS_PROPS } from '../modules/kumoTabs.js';
 import { APP_VERSION } from '../modules/appVersion.js';
 import AppPageHeader, { AppBreadcrumbs } from './AppPageHeader.jsx';
+import { HeaderToolsContext } from '../modules/headerToolsContext.js';
 import { AppCard } from './ui/AppPrimitives.jsx';
 import { AlertTriangle } from './IconsCore.jsx';
 import {
@@ -32,31 +34,37 @@ import {
 } from './Icons.jsx';
 
 const DashboardPage = lazy(() => import('../pages/DashboardPage.jsx'));
+const AssetsPage = lazy(() => import('../pages/assets/AssetsPage.jsx'));
 const ServerPage = lazy(() => import('../pages/ServerPage.jsx'));
 const TotpPage = lazy(() => import('../pages/TotpPage.jsx'));
-const FileboxPage = lazy(() => import('../pages/FileboxPage.jsx'));
-const UptimePage = lazy(() => import('../pages/UptimePage.jsx'));
-const NotificationPage = lazy(() => import('../pages/NotificationPage.jsx'));
+const FileboxPage = lazy(() => import('../pages/filebox/FileboxPage.jsx'));
+const UptimePage = lazy(() => import('../pages/uptime/UptimePage.jsx'));
+const NotificationPage = lazy(() => import('../pages/notification/NotificationPage.jsx'));
 const OpenAIPage = lazy(() => import('../pages/OpenAIPage.jsx'));
 const SubscriptionPage = lazy(() => import('../pages/SubscriptionPage.jsx'));
 const GitHubPage = lazy(() => import('../pages/GitHubPage.jsx'));
+const DockerHubPage = lazy(() => import('../pages/DockerHubPage.jsx'));
 
-const PaasPage = lazy(() => import('../pages/PaasPage.jsx'));
-const DnsPage = lazy(() => import('../pages/DnsPage.jsx'));
+const PaasPage = lazy(() => import('../pages/paas/PaasPage.jsx'));
+const DnsPage = lazy(() => import('../pages/dns/DnsPage.jsx'));
 const AliyunPage = lazy(() => import('../pages/AliyunPage.jsx'));
 const TencentPage = lazy(() => import('../pages/TencentPage.jsx'));
 const OraclePage = lazy(() => import('../pages/OraclePage.jsx'));
 const M365Page = lazy(() => import('../pages/M365Page.jsx'));
+const GcpPage = lazy(() => import('../pages/GcpPage.jsx'));
+const HuaweiPage = lazy(() => import('../pages/HuaweiPage.jsx'));
 const SettingsPage = lazy(() => import('../pages/SettingsPage.jsx'));
 const SchedulerPage = lazy(() => import('../pages/SchedulerPage.jsx'));
 const ApiDocsPage = lazy(() => import('../pages/ApiDocsPage.jsx'));
 const SystemLogsPage = lazy(() => import('../pages/SystemLogsPage.jsx'));
 const DrawioPage = lazy(() => import('../pages/DrawioPage.jsx'));
 const PromptLibraryPage = lazy(() => import('../pages/PromptLibraryPage.jsx'));
+const BookmarksPage = lazy(() => import('../pages/BookmarksPage.jsx'));
 const AdminAIPage = lazy(() => import('../pages/AdminAIPage.jsx'));
+const AiAgentPage = lazy(() => import('../pages/AiAgentPage.jsx'));
 
 import { pageStackClass } from './ui/AppPrimitives.jsx';
-import AskAiPanel from './adminai/AskAiPanel.jsx';
+import AskAiPanel from './adminai/AskAiPanel/index.jsx';
 
 const PageLoadingFallback = () => (
   <div className={`${pageStackClass} pt-3 cq-sm:pt-4`}>
@@ -121,7 +129,7 @@ class ModuleErrorBoundary extends React.Component {
                   url.searchParams.set('_reload', String(Date.now()));
                   window.location.replace(url.toString());
                 }}
-                className="font-bold"
+                className="font-semibold"
               >
                 重新加载
               </Button>
@@ -444,8 +452,31 @@ function MainLayout() {
     logout,
     showAskAI,
     setShowAskAI,
-  } = useStore();
+  } = useStore(
+    useShallow(s => ({
+      mainActiveTab: s.mainActiveTab,
+      setMainActiveTab: s.setMainActiveTab,
+      sidebarCollapsed: s.sidebarCollapsed,
+      setSidebarCollapsed: s.setSidebarCollapsed,
+      themeMode: s.themeMode,
+      setThemeMode: s.setThemeMode,
+      dashboardFooterVisible: s.dashboardFooterVisible,
+      dashboardFooterRecordNumber: s.dashboardFooterRecordNumber,
+      appProcessUptimeSeconds: s.appProcessUptimeSeconds,
+      appProcessUptimeMeasuredAt: s.appProcessUptimeMeasuredAt,
+      moduleVisibility: s.moduleVisibility,
+      moduleOrder: s.moduleOrder,
+      userSettingsLoaded: s.userSettingsLoaded,
+      loadUserSettings: s.loadUserSettings,
+      triggerHaptic: s.triggerHaptic,
+      logout: s.logout,
+      showAskAI: s.showAskAI,
+      setShowAskAI: s.setShowAskAI,
+    }))
+  );
   const [runtimeClock, setRuntimeClock] = useState(() => Date.now());
+  // 面包屑栏工具区容器：页面内容组件（TilesBoard 控制栏）经 portal 渲染到这里
+  const [headerToolsEl, setHeaderToolsEl] = useState(null);
   const displayedAppProcessUptime =
     appProcessUptimeSeconds > 0
       ? appProcessUptimeSeconds + Math.max(0, runtimeClock - appProcessUptimeMeasuredAt) / 1000
@@ -603,10 +634,11 @@ function MainLayout() {
     };
   }, [triggerHaptic]);
 
-const viewportWorkspaceModule = ['systemlogs', 'drawio', 'prompts'].includes(mainActiveTab);
+  const viewportWorkspaceModule = ['systemlogs', 'drawio', 'prompts'].includes(mainActiveTab);
   const stickyHeaderScrollModule = [
     'server',
     'github',
+    'dockerhub',
     'settings',
     'paas',
     'scheduler',
@@ -616,13 +648,18 @@ const viewportWorkspaceModule = ['systemlogs', 'drawio', 'prompts'].includes(mai
     'filebox',
     'subscription',
     'openai',
+    'aiagent',
     'apidocs',
     'dns',
     'oracle',
+    'gcp',
+    'huawei',
     'aliyun',
     'tencent',
     'm365',
     'adminai',
+    'bookmarks',
+    'assets',
   ].includes(mainActiveTab);
   const mainCanvasClassName =
     (stickyHeaderScrollModule
@@ -646,7 +683,9 @@ const viewportWorkspaceModule = ['systemlogs', 'drawio', 'prompts'].includes(mai
   const renderActivePage = () => {
     switch (mainActiveTab) {
       case 'dashboard':
-        return <DashboardPage onNavigate={navigateToModule} />;
+        return <DashboardPage />;
+      case 'assets':
+        return <AssetsPage />;
       case 'openai':
         return <OpenAIPage />;
       case 'subscription':
@@ -662,6 +701,10 @@ const viewportWorkspaceModule = ['systemlogs', 'drawio', 'prompts'].includes(mai
         return <TencentPage />;
       case 'oracle':
         return <OraclePage />;
+      case 'gcp':
+        return <GcpPage />;
+      case 'huawei':
+        return <HuaweiPage />;
       case 'm365':
         return <M365Page />;
       case 'server':
@@ -676,6 +719,8 @@ const viewportWorkspaceModule = ['systemlogs', 'drawio', 'prompts'].includes(mai
         return <NotificationPage />;
       case 'github':
         return <GitHubPage />;
+      case 'dockerhub':
+        return <DockerHubPage />;
       case 'settings':
         return <SettingsPage />;
       case 'scheduler':
@@ -688,8 +733,12 @@ const viewportWorkspaceModule = ['systemlogs', 'drawio', 'prompts'].includes(mai
         return <DrawioPage />;
       case 'prompts':
         return <PromptLibraryPage />;
+      case 'bookmarks':
+        return <BookmarksPage />;
       case 'adminai':
         return <AdminAIPage />;
+      case 'aiagent':
+        return <AiAgentPage />;
       default:
         const ActiveIcon = getModuleIconComponent(mainActiveTab, Server);
         return (
@@ -700,7 +749,7 @@ const viewportWorkspaceModule = ['systemlogs', 'drawio', 'prompts'].includes(mai
             <div className="mb-5 flex h-16 w-16 items-center justify-center rounded-full border border-kumo-line bg-kumo-recessed text-brand shadow-none">
               <ActiveIcon className="w-7 h-7" />
             </div>
-            <h2 className="text-base font-bold text-kumo-strong mb-2.5">
+            <h2 className="text-base font-semibold text-kumo-strong mb-2.5">
               {getModuleName(mainActiveTab)} 模块重构中
             </h2>
             <p className="text-xs text-kumo-subtle max-w-sm leading-relaxed">
@@ -851,6 +900,7 @@ return (
                   </AppBreadcrumbs>
                 }
               >
+                <div ref={setHeaderToolsEl} className="flex items-center gap-2" />
               </AppPageHeader>
               <Button
                 onClick={() => store.toggleAskAI()}
@@ -868,6 +918,7 @@ return (
             </header>
 
           {/* 主内容画布（@container：页面布局按内容实际可用宽度自适应，侧栏让位后自动降级） */}
+          <HeaderToolsContext.Provider value={headerToolsEl}>
           <main className={mainCanvasClassName}>
             <div className={mainCanvasInnerClassName}>
               <ModuleErrorBoundary moduleId={mainActiveTab}>
@@ -875,6 +926,7 @@ return (
               </ModuleErrorBoundary>
             </div>
           </main>
+          </HeaderToolsContext.Provider>
           {mainActiveTab === 'dashboard' && dashboardFooterVisible && (
             <footer className="app-main-footer flex h-12 shrink-0 items-center justify-between gap-4 border-t border-kumo-line px-3 text-[11px] text-kumo-subtle @[450px]:px-4 cq-md:px-6 transition-[margin-right] duration-300 ease-in-out lg:mr-[var(--askai-sidebar-w,0px)]">
               <div className="flex min-w-0 items-center gap-2">
@@ -893,7 +945,7 @@ return (
                     href="https://beian.miit.gov.cn/"
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="min-w-0 truncate text-right text-kumo-subtle transition-colors hover:text-kumo-strong hover:underline"
+                    className="min-w-0 truncate text-right text-kumo-subtle hover:text-kumo-strong hover:underline"
                   >
                     {dashboardFooterRecordNumber}
                   </a>
@@ -902,7 +954,7 @@ return (
                   href="https://github.com/iwvw/API-Monitor"
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="shrink-0 text-kumo-subtle transition-colors hover:text-kumo-strong hover:underline"
+                  className="shrink-0 text-kumo-subtle hover:text-kumo-strong hover:underline"
                 >
                   GitHub
                 </a>

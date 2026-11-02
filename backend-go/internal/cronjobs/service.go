@@ -17,9 +17,11 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"log/slog"
 
+	"github.com/iwvw/api-monitor/backend-go/internal/commandguard"
 	"github.com/iwvw/api-monitor/backend-go/internal/config"
 	"github.com/iwvw/api-monitor/backend-go/internal/database"
 	"github.com/iwvw/api-monitor/backend-go/internal/response"
@@ -60,6 +62,8 @@ func (s *Service) SetNotifier(notifier Notifier) {
 
 type AgentRunner interface {
 	RunCommandTaskAndWait(serverID string, command string, timeout time.Duration) (string, error)
+	// ResolveAgentNode 按标签在在线 Agent 节点中选一个；无匹配返回空串。
+	ResolveAgentNode(ctx context.Context, selector string) (string, error)
 }
 
 type Task struct {
@@ -611,11 +615,11 @@ func (s *Service) notifyTaskResult(ctx context.Context, task SchedulerTask, stat
 		eventType = "task.failed"
 	}
 	payload := map[string]interface{}{
-		"taskId":   task.ID,
-		"taskName": task.Name,
-		"status":   status,
-		"output":   truncateOutput(output),
-		"duration": duration,
+		"taskId":    task.ID,
+		"taskName":  task.Name,
+		"status":    status,
+		"output":    truncateOutput(output),
+		"duration":  duration,
 		"eventType": "cron." + eventType,
 	}
 	_ = s.notifier.Trigger(ctx, "cron", eventType, payload)
@@ -690,6 +694,10 @@ func (s *Service) executeSchedulerTaskAttempt(ctx context.Context, task Schedule
 		if !s.cfg.LocalShellTasksAllowed() {
 			return "", fmt.Errorf("本地 Shell 任务已在当前环境禁用，请显式设置 ALLOW_LOCAL_SHELL_TASKS=true")
 		}
+		// 与 Agent 任务同口径的破坏性命令拦截：本机 shell 直连宿主，破坏半径更大。
+		if danger := commandguard.Detect(task.Command); danger.Dangerous {
+			return "", fmt.Errorf("危险命令已被拦截: %s", commandguard.JoinReasons(danger.Reasons))
+		}
 		return executeShellTask(ctx, task.Command, timeout)
 	default:
 		return "", fmt.Errorf("不支持的任务类型: %s", task.Type)
@@ -701,8 +709,24 @@ func (s *Service) executeAgentTask(ctx context.Context, task SchedulerTask, time
 		return "", fmt.Errorf("Agent 执行器未初始化")
 	}
 	nodeID := task.NodeID
+	// node_selector 兜底：未显式指定 node_id 时，按标签在在线节点中自动选择。
+	if (nodeID == "" || nodeID == "local") && strings.TrimSpace(task.NodeSelector) != "" {
+		resolved, err := s.agentRunner.ResolveAgentNode(ctx, task.NodeSelector)
+		if err != nil {
+			return "", fmt.Errorf("按标签选择 Agent 节点失败: %w", err)
+		}
+		if resolved == "" {
+			return "", fmt.Errorf("没有在线 Agent 节点匹配标签 %q", task.NodeSelector)
+		}
+		nodeID = resolved
+	}
 	if nodeID == "" || nodeID == "local" {
 		return "", fmt.Errorf("Agent 任务需要选择在线 Agent 节点")
+	}
+	// 与 /api/server/agent/command 一致的破坏性命令拦截：cron 为无人值守执行，
+	// 缺少人工确认环节，更需要在下发前拦下递归删除、关机、格式化等命令。
+	if danger := commandguard.Detect(task.Command); danger.Dangerous {
+		return "", fmt.Errorf("危险命令已被拦截: %s", commandguard.JoinReasons(danger.Reasons))
 	}
 	return s.agentRunner.RunCommandTaskAndWait(nodeID, task.Command, timeout)
 }
@@ -1220,7 +1244,23 @@ func truncateOutput(value string) string {
 	if len(value) <= maxLogOutput {
 		return value
 	}
-	return value[:maxLogOutput]
+	// 按 rune（而非字节）截断，避免把多字节 UTF-8 字符从中间切断产生乱码。
+	// maxLogOutput 作为字节预算，逐 rune 累加，预留足以放下一个字符的余量。
+	var b strings.Builder
+	b.Grow(maxLogOutput)
+	used := 0
+	for _, r := range value {
+		size := utf8.RuneLen(r)
+		if size < 0 {
+			size = len(string(r))
+		}
+		if used+size > maxLogOutput {
+			break
+		}
+		b.WriteRune(r)
+		used += size
+	}
+	return b.String()
 }
 
 func formatBody(body []byte) string {

@@ -106,7 +106,6 @@ func TestAuditWriteRouteMethodsExposed(t *testing.T) {
 		{"/api/admin-ai/cancel", manifest.MatchExact, []string{"POST"}},
 		{"/api/admin-ai/settings", manifest.MatchExact, []string{"GET", "PUT"}},
 		{"/api/admin-ai/approvals/{id}/resolve", manifest.MatchPattern, []string{"POST"}},
-		{"/api/system/ai-access/write", manifest.MatchExact, []string{"PUT"}},
 		{"/api/system/ai-access/policy", manifest.MatchExact, []string{"PUT"}},
 		{"/api/system/ai-access/mcp-servers", manifest.MatchExact, []string{"POST"}},
 		{"/api/ai-access/audit/clear", manifest.MatchExact, []string{"POST"}},

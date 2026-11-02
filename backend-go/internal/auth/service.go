@@ -26,6 +26,7 @@ import (
 
 	"github.com/iwvw/api-monitor/backend-go/internal/apikeys"
 	"github.com/iwvw/api-monitor/backend-go/internal/applog"
+	"github.com/iwvw/api-monitor/backend-go/internal/authcache"
 	"github.com/iwvw/api-monitor/backend-go/internal/config"
 	"github.com/iwvw/api-monitor/backend-go/internal/database"
 	"github.com/iwvw/api-monitor/backend-go/internal/response"
@@ -50,6 +51,12 @@ type Service struct {
 	cfg   config.Config
 	store *database.Store
 	keys  *apikeys.Manager
+
+	// sessionCache 缓存「sid → 会话有效」，把鉴权热路径上的 SQLite 查询降到接近零。
+	// 键是 sid 的完整 sha256 摘要，不存明文。AUTH_CACHE_TTL<=0 时为 nil（缓存关闭）。
+	sessionCache *authcache.Cache[*cachedSession]
+	// sessionCacheTTL 是构造期解析出的 TTL，缓存启用时才 > 0。
+	sessionCacheTTL time.Duration
 }
 
 type loginRequest struct {
@@ -106,7 +113,14 @@ type sessionRecord struct {
 }
 
 func New(cfg config.Config) *Service {
-	return &Service{cfg: cfg, store: database.New(cfg), keys: apikeys.New(cfg)}
+	ttl := authcache.TTL()
+	return &Service{
+		cfg:             cfg,
+		store:           database.New(cfg),
+		keys:            apikeys.New(cfg),
+		sessionCache:    authcache.New[*cachedSession](ttl),
+		sessionCacheTTL: ttl,
+	}
 }
 
 func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -177,14 +191,26 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Service) IsAuthenticated(ctx context.Context, r *http.Request) (bool, error) {
+	sid, ok := requestSID(r)
+	if !ok {
+		return false, nil
+	}
+
+	// 命中缓存时必须先于 openDB：openDB 要做 MkdirAll + 连接池引用 + ensureSchema
+	// + sql.OpenDB，成本远大于一次 map 查找。只有未命中或需要落库
+	// last_accessed_at 时才打开数据库。
+	if valid, err, handled := s.authenticateCachedSession(ctx, nil, sid); handled {
+		return valid, err
+	}
+
 	db, err := s.openDB(ctx)
 	if err != nil {
 		return false, err
 	}
 	defer db.Close()
 
-	_, ok, err := s.validateRequestSession(ctx, db, r)
-	return ok, err
+	_, valid, err := s.validateSession(ctx, db, sid)
+	return valid, err
 }
 
 func (s *Service) checkPassword(w http.ResponseWriter, r *http.Request) {
@@ -208,6 +234,18 @@ func (s *Service) checkPassword(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Service) session(w http.ResponseWriter, r *http.Request) {
+	// 前端轮询最频繁的接口：命中缓存时不要 openDB。
+	if sid, ok := requestSID(r); ok {
+		if valid, err, handled := s.authenticateCachedSession(r.Context(), nil, sid); handled {
+			if err != nil {
+				response.Error(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+			response.JSON(w, http.StatusOK, map[string]bool{"authenticated": valid})
+			return
+		}
+	}
+
 	db, err := s.openDB(r.Context())
 	if err != nil {
 		response.Error(w, http.StatusInternalServerError, err.Error())
@@ -245,14 +283,9 @@ func (s *Service) login(w http.ResponseWriter, r *http.Request) {
 			"ip":     clientIP,
 			"reason": "ip_locked",
 		}, clientIP, r.UserAgent())
-		remainingMinutes := (lockStatus.RemainingSeconds + 59) / 60
-		if remainingMinutes < 1 {
-			remainingMinutes = 1
-		}
 		response.JSON(w, http.StatusTooManyRequests, map[string]interface{}{
-			"success":   false,
-			"error":     fmt.Sprintf("登录尝试过多，请 %d 分钟后再试", remainingMinutes),
-			"lockUntil": lockStatus.LockUntil,
+			"success": false,
+			"error":   "登录尝试过多，请稍后再试",
 		})
 		return
 	}
@@ -285,15 +318,14 @@ func (s *Service) login(w http.ResponseWriter, r *http.Request) {
 			}, clientIP, r.UserAgent())
 			if attempt.Locked {
 				response.JSON(w, http.StatusTooManyRequests, map[string]interface{}{
-					"success":   false,
-					"error":     "登录尝试过多，账户已锁定 15 分钟",
-					"lockUntil": attempt.LockUntil,
+					"success": false,
+					"error":   "登录尝试过多，请稍后再试",
 				})
 				return
 			}
 			response.JSON(w, http.StatusUnauthorized, map[string]interface{}{
 				"success": false,
-				"error":   fmt.Sprintf("密码错误，还剩 %d 次尝试机会", attempt.RemainingAttempts),
+				"error":   "用户名或密码错误",
 			})
 			return
 		}
@@ -475,6 +507,8 @@ func (s *Service) revokeSessionByID(w http.ResponseWriter, r *http.Request) {
 		response.Error(w, http.StatusNotFound, "会话不存在")
 		return
 	}
+	// 安全红线：撤销单个会话后缓存必须立即失效。
+	s.invalidateSessionCache(id)
 	response.OK(w, map[string]bool{"success": true})
 }
 
@@ -491,6 +525,8 @@ func (s *Service) revokeAllSessions(w http.ResponseWriter, r *http.Request) {
 		response.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	// 安全红线：撤销全部会话后缓存必须整体失效。
+	s.invalidateAllSessionCache()
 	response.OK(w, map[string]bool{"success": true})
 }
 
@@ -720,6 +756,8 @@ func (s *Service) changePassword(w http.ResponseWriter, r *http.Request) {
 	_ = s.logOperation(r.Context(), db, "PASSWORD_CHANGED", "auth", map[string]interface{}{
 		"ip": clientIP,
 	}, clientIP, r.UserAgent())
+	// 安全红线：改密码后全部 session 缓存必须失效。
+	s.invalidateAllSessionCache()
 	response.JSON(w, http.StatusOK, map[string]bool{"success": true})
 }
 
@@ -976,11 +1014,19 @@ func sessionFingerprint(value string) string {
 }
 
 func (s *Service) validateRequestSession(ctx context.Context, db *sql.DB, r *http.Request) (sessionRecord, bool, error) {
-	cookie, err := r.Cookie("sid")
-	if err != nil || strings.TrimSpace(cookie.Value) == "" {
+	sid, ok := requestSID(r)
+	if !ok {
 		return sessionRecord{}, false, nil
 	}
-	return s.validateSession(ctx, db, cookie.Value)
+	// 缓存优先：session() / requireSession() 等调用方已经打开了 db，
+	// 这里省掉的是那条 SELECT 本身。
+	if valid, err, handled := s.authenticateCachedSession(ctx, db, sid); handled {
+		if !valid || err != nil {
+			return sessionRecord{}, false, err
+		}
+		return sessionRecord{ID: sid, IsActive: 1}, true, nil
+	}
+	return s.validateSession(ctx, db, sid)
 }
 
 func (s *Service) validateSession(ctx context.Context, db *sql.DB, sid string) (sessionRecord, bool, error) {
@@ -1006,21 +1052,32 @@ func (s *Service) validateSession(ctx context.Context, db *sql.DB, sid string) (
 		return sessionRecord{}, false, fmt.Errorf("get session: %w", err)
 	}
 	if session.IsActive == 0 {
+		// 缓存只存「有效」结果，正常流程下这里不会有条目；但若外部直接把
+		// is_active 置 0（绕过 API），残留条目必须在这里清掉。
+		s.invalidateSessionCache(sid)
 		return session, false, nil
 	}
 	expiresAt, err := parseDBTime(session.ExpiresAt)
 	if err != nil || time.Now().UTC().After(expiresAt) {
 		_, _ = db.ExecContext(ctx, `UPDATE sessions SET is_active = 0 WHERE session_id = ?`, sid)
+		// 安全红线：会话被置灰后缓存必须立即失效，不能等 TTL 过期。
+		s.invalidateSessionCache(sid)
 		return session, false, nil
 	}
 	// 节流写入：last_accessed_at 仅用于会话排序与展示，60s 粒度足够。
 	// SQLite 单写者模型下，避免每个鉴权请求都产生一次写事务。
 	if lastAccessed, parseErr := parseDBTime(session.LastAccessedAt); parseErr != nil || time.Now().UTC().Sub(lastAccessed) >= time.Minute {
-		_, err = db.ExecContext(ctx, `UPDATE sessions SET last_accessed_at = ? WHERE session_id = ?`, formatTime(time.Now().UTC()), sid)
+		touched := formatTime(time.Now().UTC())
+		_, err = db.ExecContext(ctx, `UPDATE sessions SET last_accessed_at = ? WHERE session_id = ?`, touched, sid)
 		if err != nil {
 			return sessionRecord{}, false, fmt.Errorf("touch session: %w", err)
 		}
+		// 回填缓存时要用刚写入的值，否则缓存条目的节流起点会停在旧值上，
+		// 导致下一次命中又立刻写一次库（节流失效）。
+		session.LastAccessedAt = touched
 	}
+	// 回填缓存（DB 错误已在上面的分支返回，不会缓存故障）。
+	s.storeCachedSession(session)
 	return session, true, nil
 }
 
@@ -1033,6 +1090,8 @@ func (s *Service) destroySession(ctx context.Context, db *sql.DB, r *http.Reques
 	if err != nil {
 		return false, fmt.Errorf("destroy session: %w", err)
 	}
+	// 安全红线：登出后缓存必须立即失效，不能等 TTL 过期。
+	s.invalidateSessionCache(cookie.Value)
 	changes, _ := result.RowsAffected()
 	return changes > 0, nil
 }
@@ -1286,22 +1345,46 @@ func decodeJSON(w http.ResponseWriter, r *http.Request, target interface{}) bool
 }
 
 func (s *Service) requestClientIP(r *http.Request) string {
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err == nil && host != "" {
-		if s.isTrustedProxy(net.ParseIP(host)) {
-			if forwarded := strings.TrimSpace(r.Header.Get("X-Forwarded-For")); forwarded != "" {
-				candidate := strings.TrimSpace(strings.Split(forwarded, ",")[0])
-				if ip := net.ParseIP(candidate); ip != nil {
-					return ip.String()
-				}
+	direct := ""
+	if host, _, err := net.SplitHostPort(strings.TrimSpace(r.RemoteAddr)); err == nil {
+		direct = host
+	} else if r.RemoteAddr != "" {
+		direct = strings.Trim(strings.TrimSpace(r.RemoteAddr), "[]")
+	}
+	if direct == "" {
+		return "unknown"
+	}
+
+	ip := net.ParseIP(direct)
+	trusted := false
+	if ip != nil {
+		if s.isTrustedProxy(ip) {
+			trusted = true
+		} else if !s.cfg.IsProduction() && ip.IsLoopback() {
+			trusted = true
+		}
+	}
+	if trusted {
+		// Cloudflare 会用 CF-Connecting-IP 覆盖真实来源，优先采信；
+		// 其后是通用的 X-Forwarded-For（取最左的原始客户端），最后是 X-Real-IP。
+		if candidate := strings.TrimSpace(r.Header.Get("CF-Connecting-IP")); candidate != "" {
+			if parsed := net.ParseIP(candidate); parsed != nil {
+				return parsed.String()
 			}
 		}
-		return host
+		if forwarded := strings.TrimSpace(r.Header.Get("X-Forwarded-For")); forwarded != "" {
+			candidate := strings.TrimSpace(strings.Split(forwarded, ",")[0])
+			if parsed := net.ParseIP(candidate); parsed != nil {
+				return parsed.String()
+			}
+		}
+		if candidate := strings.TrimSpace(r.Header.Get("X-Real-IP")); candidate != "" {
+			if parsed := net.ParseIP(candidate); parsed != nil {
+				return parsed.String()
+			}
+		}
 	}
-	if r.RemoteAddr != "" {
-		return r.RemoteAddr
-	}
-	return "unknown"
+	return direct
 }
 
 func (s *Service) isTrustedProxy(ip net.IP) bool {

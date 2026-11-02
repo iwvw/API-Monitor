@@ -6,55 +6,19 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/iwvw/api-monitor/backend-go/internal/commandguard"
 )
-
-type DangerousPattern struct {
-	Pattern *regexp.Regexp
-	Reason  string
-}
-
-var dangerousPatterns = []DangerousPattern{
-	{regexp.MustCompile(`(?i)\brm\s+-[^\n;|&]*r[^\n;|&]*f\b`), "递归强制删除文件"},
-	// 单参数内 r/f 任意组合（-fr / -rfv / -vfr 等）
-	{regexp.MustCompile(`(?i)\brm\s+(?:-[a-z]*[rR][a-z]*f[a-z]*|-[a-z]*f[a-z]*[rR][a-z]*)`), "递归强制删除文件"},
-	// GNU 长参数形式（--recursive + --force，顺序任意）
-	{regexp.MustCompile(`(?i)\brm\s+--(?:recursive|force)\b[^\n]*(?:--(?:recursive|force)\b)`), "递归强制删除文件"},
-	// 短参数与长参数混合（-r --force / -f --recursive，顺序任意）
-	{regexp.MustCompile(`(?i)\brm\s+(?:-[a-z]*r\b[^\n;|&]*--force\b|--force\b[^\n;|&]*-[a-z]*r\b|-[a-z]*f\b[^\n;|&]*--recursive\b|--recursive\b[^\n;|&]*-[a-z]*f\b)`), "递归强制删除文件"},
-	{regexp.MustCompile(`(?i)\bdd\s+if=.*\bof=`), "直接写入磁盘或块设备"},
-	{regexp.MustCompile(`(?i)\bmkfs(?:\.[a-z0-9]+)?\b`), "格式化文件系统"},
-	// 只拦截作为命令名的关机/重启（wsl --shutdown 等选项参数形态不算，前面是连字符）
-	{regexp.MustCompile(`(?i)(^|[^-\w])(shutdown|reboot|poweroff|halt)\b`), "重启或关闭主机"},
-	{regexp.MustCompile(`(?i)\bdocker\s+(?:system\s+prune|rm|rmi|volume\s+rm)\b`), "删除 Docker 资源"},
-	{regexp.MustCompile(`(?i)\bkubectl\s+delete\b`), "删除 Kubernetes 资源"},
-	{regexp.MustCompile(`(?i)\bDROP\s+(?:DATABASE|TABLE)\b`), "删除数据库对象"},
-	{regexp.MustCompile(`(?i)\bRemove-Item\b[^\n;|]*\s-(?:Recurse|r)\b`), "PowerShell 递归删除"},
-	{regexp.MustCompile(`(?i)\b(Stop-Computer|Restart-Computer)\b`), "重启或关闭 Windows 主机"},
-}
 
 type DangerResult struct {
 	Dangerous bool     `json:"dangerous"`
 	Reasons   []string `json:"reasons"`
 }
 
+// DetectDangerousCommand 委托给共享的 commandguard 包，规则唯一来源在那里。
 func DetectDangerousCommand(command string) DangerResult {
-	var reasons []string
-	seen := make(map[string]bool)
-	for _, dp := range dangerousPatterns {
-		if dp.Pattern.MatchString(command) {
-			if !seen[dp.Reason] {
-				seen[dp.Reason] = true
-				reasons = append(reasons, dp.Reason)
-			}
-		}
-	}
-	if reasons == nil {
-		reasons = []string{}
-	}
-	return DangerResult{
-		Dangerous: len(reasons) > 0,
-		Reasons:   reasons,
-	}
+	r := commandguard.Detect(command)
+	return DangerResult{Dangerous: r.Dangerous, Reasons: r.Reasons}
 }
 
 func NormalizeList(value interface{}) []string {

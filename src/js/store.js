@@ -17,6 +17,12 @@ export const MODULE_CONFIG = {
     icon: 'fa-tachometer-alt',
     description: '系统概览',
   },
+  assets: {
+    name: '资产管理',
+    shortName: '资产',
+    icon: 'fa-boxes',
+    description: '实体与虚拟资产',
+  },
   settings: {
     name: '系统设置',
     shortName: '设置',
@@ -72,6 +78,12 @@ export const MODULE_CONFIG = {
     icon: 'fa-github',
     description: '仓库与 Actions',
   },
+  dockerhub: {
+    name: 'Docker Hub',
+    shortName: 'Docker Hub',
+    icon: 'fa-docker',
+    description: '账号与镜像仓库',
+  },
   tencent: {
     name: '腾讯云',
     shortName: '腾讯',
@@ -83,6 +95,18 @@ export const MODULE_CONFIG = {
     shortName: 'Oracle',
     icon: 'fa-cloud',
     description: 'OCI 实例',
+  },
+  gcp: {
+    name: 'Google Cloud',
+    shortName: 'GCP',
+    icon: 'fa-cloud',
+    description: 'GCP 资源',
+  },
+  huawei: {
+    name: '华为云',
+    shortName: 'Huawei',
+    icon: 'fa-cloud',
+    description: '华为云资源',
   },
   server: {
     name: '主机实例',
@@ -138,11 +162,23 @@ export const MODULE_CONFIG = {
     icon: 'fa-message',
     description: '管理与发布',
   },
+  bookmarks: {
+    name: '网址导航',
+    shortName: '导航',
+    icon: 'fa-bookmark',
+    description: '收藏与快速访问',
+  },
   adminai: {
     name: '管理 AI',
     shortName: 'AI',
     icon: 'fa-robot',
     description: '智能助手',
+  },
+  aiagent: {
+    name: 'AI Agent',
+    shortName: 'Agent',
+    icon: 'fa-terminal',
+    description: '管理各主机上的 AI 编码 Agent 并原生转发',
   },
 };
 
@@ -163,12 +199,12 @@ export const MODULE_GROUPS = [
       {
         id: 'cloud-vendors',
         name: '云厂商',
-        modules: ['dns', 'aliyun', 'tencent', 'oracle', 'm365'],
+        modules: ['dns', 'aliyun', 'tencent', 'huawei', 'oracle', 'm365', 'gcp'],
       },
       {
         id: 'devops',
         name: 'DevOps',
-        modules: ['github'],
+        modules: ['github', 'dockerhub'],
       },
     ],
     trailingModules: ['server', 'paas'],
@@ -187,7 +223,7 @@ export const MODULE_GROUPS = [
       {
         id: 'utility-tools',
         name: '实用工具',
-        modules: ['filebox', 'drawio', 'prompts'],
+        modules: ['filebox', 'drawio', 'prompts', 'bookmarks', 'assets'],
       },
     ],
     trailingModules: ['totp'],
@@ -196,7 +232,7 @@ export const MODULE_GROUPS = [
     id: 'api-gateway',
     name: 'API 服务',
     icon: 'fa-bolt',
-    modules: ['openai', 'subscription'],
+    modules: ['openai', 'subscription', 'aiagent'],
   },
   {
     id: 'system',
@@ -1177,6 +1213,23 @@ const useStore = create((set, get) => ({
     } finally {
       set({ loginLoading: false });
     }
+  },
+
+  // 处理会话过期（由 authGuard 在受保护接口返回 401 时触发）
+  handleAuthExpired: () => {
+    if (!get().isAuthenticated) return;
+    clearPendingAuthProvider();
+    set({
+      isAuthenticated: false,
+      showLoginModal: true,
+      showSetPasswordModal: false,
+      loginPassword: '',
+      loginError: '',
+      loginLoading: false,
+      loginRequire2FA: false,
+      loginTotpToken: '',
+    });
+    toastManager.warning('登录已过期，请重新登录');
   },
 
   // 登出

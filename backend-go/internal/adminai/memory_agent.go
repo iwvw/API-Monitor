@@ -46,19 +46,23 @@ type memoryCaptureOperation struct {
 // startMemoryCapture 启动自动记忆提炼后台循环（由 StartBackground 调用，幂等）。
 func (s *Service) startMemoryCapture() {
 	s.captureOnce.Do(func() {
-		s.stopCapture = make(chan struct{})
-		go s.memoryCaptureLoop()
+		stop, ok := s.registerCapture()
+		if !ok {
+			return
+		}
+		go s.memoryCaptureLoop(stop)
 	})
 }
 
 // memoryCaptureLoop 周期扫描空闲会话并提炼（OpenClaw dreaming 的轻量版：
 // 无独立 cron，直接寄生在 service 后台循环；按会话空闲 + 增量消息触发，每会话一次）。
-func (s *Service) memoryCaptureLoop() {
+// stop 由调用方传入（goroutine 只读局部变量，避免与 StopBackground 竞争）。
+func (s *Service) memoryCaptureLoop(stop <-chan struct{}) {
 	ticker := time.NewTicker(memoryCaptureInterval)
 	defer ticker.Stop()
 	for {
 		select {
-		case <-s.stopCapture:
+		case <-stop:
 			return
 		case <-ticker.C:
 			_ = s.runMemoryCaptureOnce()
@@ -201,13 +205,14 @@ func (s *Service) captureSessionMemory(ctx context.Context, db *sql.DB, sessionI
 	}()
 
 	// 本会话待提炼消息（用户 + 助手正文，排除 tool 行）。
-	// 游标为 (created_at, id) 字典序：同一秒内的多条消息也不会漏或重复。
+	// 游标按 seq 单调递增：同一秒内的多条消息也不会漏或重复。oldMsgID 为空表示
+	// 尚未提炼过，从最早开始；否则以其 seq 为界取更新的行。
 	rows, err := db.QueryContext(ctx, `
 		SELECT id, role, created_at, content FROM admin_ai_messages
 		WHERE session_id = ? AND role IN ('user', 'assistant') AND content <> ''
-		  AND (created_at > ? OR (created_at = ? AND id > ?))
-		ORDER BY created_at ASC, id ASC LIMIT ?`,
-		sessionID, oldExtracted, oldExtracted, oldMsgID, memoryCaptureMaxMessages)
+		  AND seq > COALESCE((SELECT seq FROM admin_ai_messages WHERE id = ? AND session_id = ?), 0)
+		ORDER BY seq ASC LIMIT ?`,
+		sessionID, oldMsgID, sessionID, memoryCaptureMaxMessages)
 	if err != nil {
 		return err
 	}

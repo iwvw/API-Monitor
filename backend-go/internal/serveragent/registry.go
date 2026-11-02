@@ -261,6 +261,7 @@ func (c *AgentConnection) SendEvent(event string, data interface{}) error {
 		} else {
 			session.PendingMessages = append(session.PendingMessages, frame)
 		}
+		notifyPendingMessagesLocked(session)
 		session.mu.Unlock()
 		return nil
 	}

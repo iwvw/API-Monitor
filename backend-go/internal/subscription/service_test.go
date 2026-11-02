@@ -14,7 +14,6 @@ import (
 
 	"github.com/iwvw/api-monitor/backend-go/internal/config"
 	"github.com/iwvw/api-monitor/backend-go/internal/secure"
-	"github.com/iwvw/api-monitor/backend-go/internal/subscriptionledger"
 	"gopkg.in/yaml.v3"
 	_ "modernc.org/sqlite"
 )
@@ -74,9 +73,6 @@ func TestManagedSubscriptionNodesApplyPreferredAddress(t *testing.T) {
 	}
 	if !strings.Contains(nodes[0].Raw, "sni=origin.example.com") {
 		t.Fatalf("Tunnel SNI must remain owned hostname: %s", nodes[0].Raw)
-	}
-	if nodes[0].Stable {
-		t.Fatal("managed nodes must not enter the stable group without an explicit stability policy")
 	}
 }
 
@@ -852,32 +848,29 @@ proxies:
 
 func TestStableProxyNamesOnlyIncludesExplicitStableNodes(t *testing.T) {
 	nodes := []Node{
-		{Name: "🇺🇸 洛杉矶", Enabled: true, Stable: true},
-		{Name: "🇯🇵 日本", Enabled: true, Stable: false},
+		{Name: "🇺🇸 洛杉矶", Enabled: true},
+		{Name: "🇯🇵 日本", Enabled: true},
 	}
 
-	body := stableProxyNamesYAML(nodes, 0)
+	body := proxyNamesYAML(nodes, 0)
 	var names []string
 	if err := yaml.Unmarshal([]byte(strings.TrimSpace(body)), &names); err != nil {
-		t.Fatalf("stable proxy names should parse: %v\n%s", err, body)
+		t.Fatalf("proxy names should parse: %v\n%s", err, body)
 	}
 	joined := strings.Join(names, "\n")
-	if !strings.Contains(joined, "🇺🇸 洛杉矶") {
-		t.Fatalf("stable node missing from stable proxy names: %#v", names)
-	}
-	if strings.Contains(joined, "🇯🇵 日本") {
-		t.Fatalf("non-stable node should not be in stable proxy names:\n%s", body)
+	if !strings.Contains(joined, "🇺🇸 洛杉矶") || !strings.Contains(joined, "🇯🇵 日本") {
+		t.Fatalf("all enabled nodes should be listed: %#v", names)
 	}
 }
 
-func TestStableProxyNamesFallsBackToDirect(t *testing.T) {
-	body := stableProxyNamesYAML([]Node{{Name: "普通节点", Enabled: true}}, 0)
+func TestProxyNamesFallsBackToDirect(t *testing.T) {
+	body := proxyNamesYAML([]Node{{Name: "普通节点", Enabled: false}}, 0)
 	var names []string
 	if err := yaml.Unmarshal([]byte(strings.TrimSpace(body)), &names); err != nil {
-		t.Fatalf("stable proxy names should parse: %v\n%s", err, body)
+		t.Fatalf("proxy names should parse: %v\n%s", err, body)
 	}
 	if len(names) != 1 || names[0] != "DIRECT" {
-		t.Fatalf("stable group without explicitly stable nodes = %#v, want DIRECT", names)
+		t.Fatalf("empty group should be DIRECT, got %#v", names)
 	}
 }
 
@@ -954,7 +947,7 @@ func TestEnsureSchemaMigratesLegacySubscriptionsToProfiles(t *testing.T) {
 			location TEXT,
 			tags TEXT,
 			enabled INTEGER DEFAULT 1,
-			stable INTEGER DEFAULT 0,
+
 			sort_order INTEGER DEFAULT 0,
 			raw_encrypted TEXT,
 			config_encrypted TEXT,
@@ -1691,7 +1684,7 @@ func TestRefreshingManagedSourcePreservesPlanMembershipWhenEndpointChanges(t *te
 	}
 }
 
-func TestEnsureBuiltinsRefreshesStaleBuiltinTemplate(t *testing.T) {
+func TestEnsureBuiltinsPreservesEditedBuiltinButOverwriteRefreshes(t *testing.T) {
 	ctx := context.Background()
 	db, err := sql.Open("sqlite", filepath.Join(t.TempDir(), "data.db"))
 	if err != nil {
@@ -1711,8 +1704,17 @@ func TestEnsureBuiltinsRefreshesStaleBuiltinTemplate(t *testing.T) {
 	if err := db.QueryRow(`SELECT content FROM subscription_templates WHERE id=?`, defaultTemplateID).Scan(&content); err != nil {
 		t.Fatal(err)
 	}
+	if !strings.Contains(content, "global-client-fingerprint") {
+		t.Fatalf("boot should not clobber an edited builtin template, got: %q", content)
+	}
+	if err := ensureBuiltins(ctx, db, true); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.QueryRow(`SELECT content FROM subscription_templates WHERE id=?`, defaultTemplateID).Scan(&content); err != nil {
+		t.Fatal(err)
+	}
 	if strings.Contains(content, "global-client-fingerprint") || !strings.Contains(content, "{{ proxies_yaml }}") {
-		t.Fatalf("builtin template was not refreshed: %q", content)
+		t.Fatalf("explicit restore should refresh builtin template, got: %q", content)
 	}
 }
 
@@ -1901,11 +1903,11 @@ func TestSubscriptionUsageReportsAreIdempotentAndCycleScoped(t *testing.T) {
 }
 
 func TestPlanCycleWindowUsesPlanResetDay(t *testing.T) {
-	start, end := planCycleWindow(time.Date(2026, time.July, 22, 12, 0, 0, 0, time.UTC), "monthly", 9)
+	start, end := planCycleWindow(time.Date(2026, time.July, 22, 12, 0, 0, 0, time.UTC), "monthly", 9, time.UTC)
 	if start != "2026-07-09T00:00:00Z" || end != "2026-08-09T00:00:00Z" {
 		t.Fatalf("cycle window=%q..%q", start, end)
 	}
-	start, end = planCycleWindow(time.Date(2026, time.February, 15, 12, 0, 0, 0, time.UTC), "monthly", 31)
+	start, end = planCycleWindow(time.Date(2026, time.February, 15, 12, 0, 0, 0, time.UTC), "monthly", 31, time.UTC)
 	if start != "2026-01-31T00:00:00Z" || end != "2026-02-28T00:00:00Z" {
 		t.Fatalf("clamped cycle window=%q..%q", start, end)
 	}
@@ -2064,7 +2066,7 @@ func TestRefreshUpstreamPreservesBoundNodeProperties(t *testing.T) {
 	if err := tx.Commit(); err != nil {
 		t.Fatalf("commit tx: %v", err)
 	}
-	if _, err := db.ExecContext(ctx, `UPDATE subscription_nodes SET name = '自定义香港', country_code = 'SG', location = '自定义地区', tags = 'stable,premium', traffic_server_id = 'server_one', enabled = 0, stable = 1, sort_order = 7 WHERE id = 'node_existing'`); err != nil {
+	if _, err := db.ExecContext(ctx, `UPDATE subscription_nodes SET name = '自定义香港', country_code = 'SG', location = '自定义地区', tags = 'stable,premium', traffic_server_id = 'server_one', enabled = 0, sort_order = 7 WHERE id = 'node_existing'`); err != nil {
 		t.Fatalf("customize node: %v", err)
 	}
 
@@ -2080,7 +2082,7 @@ func TestRefreshUpstreamPreservesBoundNodeProperties(t *testing.T) {
 		t.Fatalf("len(nodes) = %d, want 1", len(loaded))
 	}
 	node := loaded[0]
-	if node.ID != "node_existing" || node.Name != "自定义香港" || node.TrafficServerID != "server_one" || node.Enabled || !node.Stable || node.SortOrder != 7 {
+	if node.ID != "node_existing" || node.Name != "自定义香港" || node.TrafficServerID != "server_one" || node.Enabled || node.SortOrder != 7 {
 		t.Fatalf("node local fields not preserved: %#v", node)
 	}
 	if node.CountryCode != "SG" || node.Location != "自定义地区" || node.Tags != "stable,premium" {
@@ -2234,6 +2236,14 @@ func TestGetSubscriptionUsage(t *testing.T) {
 	if err := ensureSchema(ctx, db); err != nil {
 		t.Fatal(err)
 	}
+	// 站点时区固定为 UTC，保证插入的周期窗口与 getSubscriptionUsage 内部
+	// CycleWindow（按 user_settings.time_zone 求值）一致，测试与机器本地时区无关。
+	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS user_settings(id INTEGER PRIMARY KEY, time_zone TEXT)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO user_settings(id,time_zone) VALUES(1,'UTC') ON CONFLICT(id) DO UPDATE SET time_zone='UTC'`); err != nil {
+		t.Fatal(err)
+	}
 	// ledger 表由 subscriptionledger.EnsureSchema 建，测试按同构列自行建。
 	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS subscription_usage_cycles (
 		subscription_id TEXT NOT NULL, cycle_start TEXT NOT NULL, cycle_end TEXT NOT NULL DEFAULT '',
@@ -2255,9 +2265,10 @@ func TestGetSubscriptionUsage(t *testing.T) {
 		VALUES('sub-u','sub_default_nodes','plan-u','UsageSub','tok-u','uuid-u','pwd-u',1,'2026-08-01 00:00:00','panel')`); err != nil {
 		t.Fatal(err)
 	}
-	// 用与生产代码一致的 CycleWindow 计算「当前周期」，避免硬编码日期
-	// 在跨月后使种子数据不再属于当前周期（cycle used 变为 0）。
-	cycleStart, cycleEnd := subscriptionledger.CycleWindow(time.Now().UTC(), "monthly", 1, "2026-08-01 00:00:00")
+	// 以当前时刻动态计算 monthly/cycle_day=1 的周期窗口，使测试不受"跨过月界后
+	// CycleWindow 回滚到新周期"的影响（否则硬编码 2026-08-01~09-01 在 9/1 后
+	// 会被判定为旧周期，cycle used 归零）。
+	cycleStart, cycleEnd := planCycleWindow(time.Now(), "monthly", 1, time.UTC)
 	if _, err := db.Exec(`INSERT INTO subscription_usage_cycles(subscription_id,cycle_start,cycle_end,upload_bytes,download_bytes,updated_at)
 		VALUES('sub-u',?,?,10,20,datetime('now'))`, cycleStart, cycleEnd); err != nil {
 		t.Fatal(err)
@@ -2317,5 +2328,58 @@ func TestGetSubscriptionUsage(t *testing.T) {
 	}
 	if resp.Data.Points[0].UploadBytes != 5 || resp.Data.Points[0].DownloadBytes != 7 {
 		t.Fatalf("hourly point mismatch: %+v", resp.Data.Points[0])
+	}
+}
+
+func TestPlanPublishedCountsMatchSubscriptionNodeCount(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	db, err := sql.Open("sqlite", filepath.Join(t.TempDir(), "data.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	db.SetMaxOpenConns(1)
+	if err := ensureSchema(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+	for id, enabled := range map[string]int{"managed-one": 1, "managed-off": 0} {
+		if _, err := db.ExecContext(ctx, `INSERT INTO managed_proxy_nodes(id,server_id,name,protocol,runtime,public_host,assigned_port,transport,config_encrypted,client_uri_encrypted,enabled,publishable,apply_status) VALUES(?,?,?,?,?,?,?,?,?,?,?,'ready','accept-reject-pending')`, id, "host-"+id, "托管节点"+id, "vless-reality", "sing-box", "node.example.com", 45654, "tcp", "", "", enabled); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := db.ExecContext(ctx, `UPDATE managed_proxy_nodes SET publishable=1,apply_status='running' WHERE id='managed-one'`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.ExecContext(ctx, `INSERT INTO subscription_nodes(id,subscription_id,profile_id,name,type,server,port,enabled) VALUES('ext-one','pool','pool','外部节点','vless','node.example.com',443,1)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.ExecContext(ctx, `INSERT INTO subscription_plans(id,name,enabled,total_bytes,cycle_type,cycle_day,selection_mode,include_internal_nodes,include_external_nodes) VALUES('plan','套餐',1,0,'none',1,'explicit',1,1)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.ExecContext(ctx, `INSERT INTO subscription_plan_nodes(plan_id,node_id,source) VALUES('plan','managed-one','internal'),('plan','ext-one','external')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.ExecContext(ctx, `INSERT INTO subscription_subscriptions(id,profile_id,plan_id,name,public_token,enabled) VALUES('sub','pool','plan','订阅','token',1)`); err != nil {
+		t.Fatal(err)
+	}
+
+	plans, err := loadPlans(ctx, db, "plan")
+	if err != nil || len(plans) != 1 {
+		t.Fatalf("load plans: len=%d err=%v", len(plans), err)
+	}
+	if plans[0].IncludeInternalNodes != true || plans[0].IncludeExternalNodes != true {
+		t.Fatalf("plan include flags = %v/%v", plans[0].IncludeInternalNodes, plans[0].IncludeExternalNodes)
+	}
+	if plans[0].InternalPublishedCount != 1 || plans[0].ExternalPublishedCount != 1 {
+		t.Fatalf("plan counts = internal %d external %d, want 1/1", plans[0].InternalPublishedCount, plans[0].ExternalPublishedCount)
+	}
+
+	items, err := loadSubscriptions(ctx, db, "sub")
+	if err != nil || len(items) != 1 {
+		t.Fatalf("load subscriptions: len=%d err=%v", len(items), err)
+	}
+	if items[0].NodeCount != 2 {
+		t.Fatalf("subscription node_count = %d, want 2", items[0].NodeCount)
 	}
 }

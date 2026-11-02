@@ -1,0 +1,28 @@
+# 行尾统一为 LF：消除 Windows 下 core.autocrlf=true 造成的假阳性修改噪音。
+# 文本文件统一 LF 存储与检出；二进制文件显式标记，避免被误判为文本。
+* text=auto eol=lf
+
+# 二进制文件：不进行行尾转换。
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.svg binary
+*.webp binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.otf binary
+*.eot binary
+*.zip binary
+*.gz binary
+*.tar binary
+*.pdf binary
+*.exe binary
+*.dll binary
+*.so binary
+*.dylib binary
+*.db binary
+*.sqlite binary
+*.sqlite3 binary

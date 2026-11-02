@@ -470,6 +470,58 @@ func TestSettingsRoundTrip(t *testing.T) {
 	}
 }
 
+// 思考强度设置：合法值持久化，非法值经 clampAISetting 归空（不传字段），
+// 未配置时回默认空串。
+func TestReasoningEffortSetting(t *testing.T) {
+	s := newTestService(t)
+
+	read := func() map[string]string {
+		getRec := httptest.NewRecorder()
+		s.ServeHTTP(getRec, httptest.NewRequest(http.MethodGet, "/api/admin-ai/settings", nil))
+		var resp struct {
+			Data struct {
+				Settings map[string]string `json:"settings"`
+			} `json:"data"`
+		}
+		if err := json.Unmarshal(getRec.Body.Bytes(), &resp); err != nil {
+			t.Fatalf("GET 解析失败: %v", err)
+		}
+		return resp.Data.Settings
+	}
+
+	// 未配置：回默认空串
+	if got := read()["admin_ai_reasoning_effort"]; got != "" {
+		t.Fatalf("未配置时期望空串，实际 %q", got)
+	}
+
+	put := func(raw string) {
+		body := strings.NewReader(`{"admin_ai_reasoning_effort":"` + raw + `"}`)
+		req := httptest.NewRequest(http.MethodPut, "/api/admin-ai/settings", body)
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		s.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("PUT %q 状态码 %d: %s", raw, rec.Code, rec.Body.String())
+		}
+	}
+
+	put("high")
+	if got := read()["admin_ai_reasoning_effort"]; got != "high" {
+		t.Fatalf("期望持久化 high，实际 %q", got)
+	}
+
+	put("MEDIUM")
+	if got := read()["admin_ai_reasoning_effort"]; got != "medium" {
+		t.Fatalf("期望大小写归一为 medium，实际 %q", got)
+	}
+
+	// 非法值归空：拼写错误不得落库、更不得透传给上游
+	put("bogus")
+	if got := read()["admin_ai_reasoning_effort"]; got != "" {
+		t.Fatalf("非法值期望归空，实际 %q", got)
+	}
+}
+
 // toolDesc 具体路径也要命中模板路径的中文描述（/api/aliyun/accounts/1/domains
 // → 清单里 /api/aliyun/accounts/{id}/domains 的「列出或添加域名」）。
 func TestToolDescTemplatePathMatch(t *testing.T) {

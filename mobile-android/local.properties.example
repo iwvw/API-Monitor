@@ -1,0 +1,3 @@
+# Android SDK 路径。本文件不入库（见 .gitignore），
+# 交给 Android Studio 自动生成，或复制本文件为 local.properties 后按本机路径修改。
+sdk.dir=E\:\\Android\\Sdk

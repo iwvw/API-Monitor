@@ -177,6 +177,7 @@ function VoidRoomPage() {
   const [sending, setSending] = useState(false);
   const [connectedPeers, setConnectedPeers] = useState({});
   const [qrCode, setQrCode] = useState('');
+  const [roomFiles, setRoomFiles] = useState([]);
 
   const roleRef = useRef(role);
   const participantRef = useRef(participant);
@@ -243,6 +244,17 @@ function VoidRoomPage() {
       type,
       payload,
     });
+  }, [roomId]);
+
+  const loadRoomFiles = useCallback(async () => {
+    if (!roomId) return;
+    try {
+      const res = await axios.get(`/api/filebox/void/rooms/${encodeURIComponent(roomId)}/files`);
+      const files = Array.isArray(res.data?.data) ? res.data.data : [];
+      setRoomFiles(files);
+    } catch {
+      // 房间文件列表读取失败不阻断会话
+    }
   }, [roomId]);
 
   const flushPendingIce = useCallback(async (peerId, peer) => {
@@ -509,6 +521,12 @@ function VoidRoomPage() {
     }
   }, [handleSignal, roomId]);
 
+  // 房间挂载文件随 room.files 变化刷新（file.attached/detached 信号也会改写 room）。
+  const roomFilesKey = (room?.files || []).join(',');
+  useEffect(() => {
+    loadRoomFiles();
+  }, [loadRoomFiles, roomFilesKey]);
+
   useEffect(() => {
     let timer;
     const startPolling = () => {
@@ -738,7 +756,7 @@ function VoidRoomPage() {
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-kumo-line pb-3">
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
-              <h1 className="text-base font-bold text-kumo-strong">虚空传输</h1>
+              <h1 className="text-base font-semibold text-kumo-strong">虚空传输</h1>
               <Badge variant={role === 'owner' ? 'success' : 'secondary'}>{role === 'owner' ? '房主' : '访客'}</Badge>
               <Badge variant={isPersistentRoom ? 'success' : 'secondary'}>{isPersistentRoom ? '持久' : '临时'}</Badge>
               <Badge variant={canSend ? 'success' : 'warning'}>{connectionStatusLabel}</Badge>
@@ -844,6 +862,35 @@ function VoidRoomPage() {
                   })}
                 </div>
               </div>
+            </SectionCard>
+
+            <SectionCard title="房间文件" icon={<Paperclip className="h-4 w-4 text-brand" />} meta={<Badge variant="secondary">{roomFiles.length}</Badge>} bodyClassName="grid gap-2 text-xs">
+              {roomFiles.length === 0 ? (
+                <div className="rounded-md border border-kumo-line bg-kumo-recessed/20 p-3 text-center text-kumo-subtle">
+                  暂无挂载文件（文件柜分享可挂到房间）
+                </div>
+              ) : (
+                <div className="divide-y divide-kumo-line rounded-md border border-kumo-line">
+                  {roomFiles.map((file) => (
+                    <div key={file.code} className="flex items-center justify-between gap-3 px-3 py-2">
+                      <div className="min-w-0">
+                        <div className="truncate font-semibold text-kumo-strong">{file.originalName || file.filename}</div>
+                        <div className="font-mono text-[10px] text-kumo-subtle">
+                          {file.code} · {formatFileSize(file.size || 0)}
+                        </div>
+                      </div>
+                      <a
+                        className="shrink-0 rounded-md border border-kumo-line px-2 py-1 text-[11px] font-semibold text-kumo-strong hover:border-kumo-interact"
+                        href={`/api/filebox/d/${encodeURIComponent(file.code)}`}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        下载
+                      </a>
+                    </div>
+                  ))}
+                </div>
+              )}
             </SectionCard>
           </div>
         </div>

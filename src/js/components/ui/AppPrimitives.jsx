@@ -9,7 +9,7 @@ import { Table } from '@cloudflare/kumo/components/table';
 import { LayerCard } from '@cloudflare/kumo';
 import { Info } from '../IconsCore.jsx';
 import { Menu, Search } from '../Icons.jsx';
-import { resolveTableColumns } from '../../modules/tableLayout.js';
+import { allocateColumnWidths, resolveTableColumns } from '../../modules/tableLayout.js';
 
 export const pageStackClass = 'flex w-full min-w-0 flex-col gap-3 cq-sm:gap-4 pb-4 cq-sm:pb-8';
 export const viewportPageStackClass = 'flex w-full min-w-0 flex-col gap-3 cq-sm:gap-4 pb-0';
@@ -18,9 +18,9 @@ export const pageToolbarClass =
 export const stickyTabsBaseClass =
   'sticky top-0 z-30 flex min-h-(--app-header-height) items-center bg-[var(--app-main-surface)] px-[var(--app-tab-gutter-x)] -mx-[var(--app-canvas-gutter-x)]';
 export const sectionCardHeaderClass =
-  'flex min-h-[52px] items-center justify-between gap-3 border-b border-kumo-line bg-kumo-elevated px-4 py-2.5 cq-sm:min-h-[56px] cq-sm:flex-row cq-sm:flex-wrap cq-sm:items-center cq-sm:py-3.5';
+  'flex min-h-[52px] items-center justify-between gap-3 border-b border-kumo-line bg-kumo-recessed px-4 py-2.5 cq-sm:min-h-[56px] cq-sm:flex-row cq-sm:flex-wrap cq-sm:items-center cq-sm:py-3.5';
 export const sectionCardTitleClass =
-  'inline-flex min-w-0 max-w-full items-center gap-2 text-sm font-bold text-kumo-strong';
+  'inline-flex min-w-0 max-w-full items-center gap-2 text-sm font-semibold text-kumo-strong';
 export const iconButtonIconClass = 'h-3.5 w-3.5';
 export const actionIconClass = 'h-4 w-4';
 
@@ -67,7 +67,7 @@ export function TabBarOverflowActions({
       {items.map(item => {
         if (item.type === 'select') {
           return (
-            <Select
+            <Select alignItemWithTrigger
               key={item.key}
               size="sm"
               aria-label={item.label}
@@ -106,7 +106,7 @@ export function TabBarOverflowActions({
             {item.icon}
             {item.label}
           </span>
-          <Select
+          <Select alignItemWithTrigger
             size="sm"
             aria-label={item.label}
             value={item.value}
@@ -315,7 +315,7 @@ export function AppCard({
       className={cx(
         'rounded-lg border border-kumo-line bg-kumo-base shadow-none ring-0',
         cardPaddingClass[padding] || cardPaddingClass.md,
-        interactive && 'transition-colors hover:border-brand/60',
+        interactive && 'hover:border-brand/60',
         className
       )}
     >
@@ -464,6 +464,7 @@ export function DataTableFrame({
 export function AppTable({
   columns,
   widths,
+  columnWidths,
   fitContent = false,
   tableId,
   layout,
@@ -476,6 +477,9 @@ export function AppTable({
     ? widths.map((width) => Math.max(Number(width) || 0, 0))
     : [];
   const totalWeight = columnWeights.reduce((total, width) => total + width, 0);
+  // columnWidths：外部托管的逐列像素覆盖（如 useTableResize 的拖拽调宽）。
+  // 与语义 columns 配合：有覆盖时按覆盖值渲染，未提供的位置回退到角色分配。
+  const overrideWidths = Array.isArray(columnWidths) ? columnWidths : null;
   const semanticLayout = React.useMemo(
     () => resolveTableColumns(Array.isArray(columns) ? columns : []),
     [columns]
@@ -489,8 +493,17 @@ export function AppTable({
     if (hasSemanticColumns && hasExplicitColgroup) {
       warnings.push({ code: 'semantic-columns-with-explicit-colgroup' });
     }
+    // 覆盖宽度必须与语义列数一致：短于列数时多出的列既无覆盖宽度、又因
+    // overrideWidths 存在而禁用容器分配，会静默退化为浏览器均分。
+    if (overrideWidths && hasSemanticColumns && overrideWidths.length !== semanticLayout.columns.length) {
+      warnings.push({
+        code: 'column-widths-length-mismatch',
+        expected: semanticLayout.columns.length,
+        actual: overrideWidths.length,
+      });
+    }
     return warnings;
-  }, [hasExplicitColgroup, hasSemanticColumns, semanticLayout.warnings]);
+  }, [hasExplicitColgroup, hasSemanticColumns, semanticLayout.warnings, semanticLayout.columns.length, overrideWidths]);
   const warningKey = JSON.stringify(layoutWarnings);
 
   React.useEffect(() => {
@@ -498,10 +511,58 @@ export function AppTable({
     console.warn(`[AppTable${tableId ? `:${tableId}` : ''}] layout warnings`, layoutWarnings);
   }, [layoutWarnings, tableId, warningKey]);
 
+  // 动态列宽：table-layout: fixed 下 <col> 不支持「(100% - 固定列) × 权重」这类
+  // 相对计算（浏览器会忽略），因此弹性列必须由 JS 按容器实测宽度算出像素。
+  // 固定列保持角色像素不随容器伸缩；弹性列按 grow 权重分剩余空间。
+  const tableRef = React.useRef(null);
+  const [allocatedWidths, setAllocatedWidths] = React.useState(null);
+  // 有外部覆盖宽度（拖拽调宽）时不再用容器分配，避免与用户手动宽度冲突。
+  const canAllocate = hasSemanticColumns && !hasExplicitColgroup && !overrideWidths;
+
+  React.useEffect(() => {
+    if (!canAllocate) return undefined;
+    const node = tableRef.current;
+    if (!node || typeof ResizeObserver !== 'function') return undefined;
+
+    let frame = 0;
+    const measure = () => {
+      // 用父容器宽度（表格自身 width:100%，直接量它会形成反馈循环）。
+      const parent = node.parentElement;
+      const available = parent ? parent.clientWidth : node.clientWidth;
+      setAllocatedWidths(current => {
+        const next = allocateColumnWidths(semanticLayout, available);
+        if (!next) return null;
+        if (current && current.length === next.length && current.every((v, i) => v === next[i])) {
+          return current;
+        }
+        return next;
+      });
+    };
+    const schedule = () => {
+      window.cancelAnimationFrame(frame);
+      frame = window.requestAnimationFrame(measure);
+    };
+
+    schedule();
+    const observer = new ResizeObserver(schedule);
+    if (node.parentElement) observer.observe(node.parentElement);
+    observer.observe(node);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      observer.disconnect();
+    };
+  }, [canAllocate, semanticLayout]);
+
+  // 有拖拽宽度覆盖时，表格的 min-width 必须等于覆盖列宽之和：否则会沿用角色
+  // 推导出的更大 minWidth，把列拉伸到超出拖拽设定，内容横向溢出侵入相邻列。
+  const overrideTotal = overrideWidths
+    ? overrideWidths.reduce((total, width) => total + Math.max(Number(width) || 0, 0), 0)
+    : 0;
+  const semanticMinWidth = overrideWidths ? overrideTotal : semanticLayout.minWidth;
   const semanticStyle = hasSemanticColumns
     ? {
-        minWidth: semanticLayout.minWidth,
-        width: fitContent ? semanticLayout.minWidth : '100%',
+        minWidth: semanticMinWidth,
+        width: fitContent ? semanticMinWidth : '100%',
       }
     : undefined;
   const legacyStyle = totalWeight > 0
@@ -512,6 +573,7 @@ export function AppTable({
   return (
     <Table
       {...props}
+      ref={tableRef}
       layout={layout || (hasSemanticColumns || totalWeight > 0 ? 'fixed' : undefined)}
       {...semanticLayout.dataAttributes}
       data-app-table-id={tableId}
@@ -527,14 +589,21 @@ export function AppTable({
       {shouldRenderGeneratedColgroup && (
         <colgroup>
           {hasSemanticColumns
-            ? semanticLayout.columns.map((column) => (
-                <col
-                  key={column.id}
-                  data-column-id={column.id}
-                  data-column-role={column.role}
-                  style={column.width === null ? undefined : { width: column.width }}
-                />
-              ))
+            ? semanticLayout.columns.map((column, index) => {
+                // 有分配结果时用像素；否则回退到「固定列像素 + 弹性列不设宽（浏览器均分）」。
+                const allocated = overrideWidths
+                  ? overrideWidths[index]
+                  : (allocatedWidths ? allocatedWidths[index] : null);
+                const width = allocated ?? column.width;
+                return (
+                  <col
+                    key={column.id}
+                    data-column-id={column.id}
+                    data-column-role={column.role}
+                    style={width === null ? undefined : { width }}
+                  />
+                );
+              })
             : columnWeights.map((width, index) => (
                 <col
                   key={index}

@@ -1,93 +1,72 @@
-async function parseResponse(response) {
-  const data = await response.json().catch(() => ({}));
-  if (!response.ok || data.success === false) {
-    const error = new Error(data.error || '1Panel 请求失败');
-    error.code = data.code;
-    error.details = data.details;
-    throw error;
-  }
-  return data;
-}
+import { del, get, post, put } from './apiClient.js';
 
-function request(method, path, body) {
-  const options = { method, headers: {} };
-  if (body !== undefined) {
-    options.headers['Content-Type'] = 'application/json';
-    options.body = JSON.stringify(body);
-  }
-  return fetch(path, options).then(parseResponse);
-}
+const FALLBACK = '1Panel 请求失败';
+
+const enc = (value) => encodeURIComponent(value);
 
 // === 配置管理 ===
 export function listOnepanelConfigs() {
-  return request('GET', '/api/onepanel/config');
+  return get('/api/onepanel/config', { fallbackMessage: FALLBACK });
 }
 
 export function createOnepanelConfig(payload) {
-  return request('POST', '/api/onepanel/config', payload);
+  return post('/api/onepanel/config', payload, { fallbackMessage: FALLBACK });
 }
 
 export function updateOnepanelConfig(serverId, payload) {
-  return request('PUT', `/api/onepanel/config/${encodeURIComponent(serverId)}`, payload);
+  return put(`/api/onepanel/config/${enc(serverId)}`, payload, { fallbackMessage: FALLBACK });
 }
 
 export function deleteOnepanelConfig(serverId) {
-  return request('DELETE', `/api/onepanel/config/${encodeURIComponent(serverId)}`);
+  return del(`/api/onepanel/config/${enc(serverId)}`, { fallbackMessage: FALLBACK });
 }
 
 // === 面板与总览 ===
-export async function getOnepanelOverview(serverId) {
-  const response = await fetch(`/api/onepanel/${encodeURIComponent(serverId)}/overview`);
-  return parseResponse(response);
+export function getOnepanelOverview(serverId) {
+  return get(`/api/onepanel/${enc(serverId)}/overview`, { fallbackMessage: FALLBACK });
 }
 
-export async function getOnepanelHealth(serverId) {
-  const response = await fetch(`/api/onepanel/${encodeURIComponent(serverId)}/health`);
-  return parseResponse(response);
+export function getOnepanelHealth(serverId) {
+  return get(`/api/onepanel/${enc(serverId)}/health`, { fallbackMessage: FALLBACK });
 }
 
-export async function getOnepanelDashboardCurrent(serverId) {
-  const response = await fetch(`/api/onepanel/${encodeURIComponent(serverId)}/dashboard/current`);
-  return parseResponse(response);
+export function getOnepanelDashboardCurrent(serverId) {
+  return get(`/api/onepanel/${enc(serverId)}/dashboard/current`, { fallbackMessage: FALLBACK });
 }
 
 // === 网站 ===
-export async function listOnepanelWebsites(serverId) {
-  const response = await fetch(`/api/onepanel/${encodeURIComponent(serverId)}/websites`);
-  return parseResponse(response);
+export function listOnepanelWebsites(serverId) {
+  return get(`/api/onepanel/${enc(serverId)}/websites`, { fallbackMessage: FALLBACK });
 }
 
 export function operateOnepanelWebsite(serverId, websiteId, operate) {
-  return request('POST', `/api/onepanel/${encodeURIComponent(serverId)}/websites/${websiteId}/operate`, { id: websiteId, operate });
+  return post(`/api/onepanel/${enc(serverId)}/websites/${websiteId}/operate`, { id: websiteId, operate }, { fallbackMessage: FALLBACK });
 }
 
 // === 容器 ===
-export async function listOnepanelContainers(serverId) {
-  const response = await fetch(`/api/onepanel/${encodeURIComponent(serverId)}/containers`);
-  return parseResponse(response);
+export function listOnepanelContainers(serverId) {
+  return get(`/api/onepanel/${enc(serverId)}/containers`, { fallbackMessage: FALLBACK });
 }
 
 export function operateOnepanelContainers(serverId, names, operation) {
-  return request('POST', `/api/onepanel/${encodeURIComponent(serverId)}/containers/operate`, { names, operation });
+  return post(`/api/onepanel/${enc(serverId)}/containers/operate`, { names, operation }, { fallbackMessage: FALLBACK });
 }
 
 // === OpenResty ===
 export function reloadOnepanelOpenresty(serverId) {
-  return request('POST', `/api/onepanel/${encodeURIComponent(serverId)}/openresty/reload`);
+  return post(`/api/onepanel/${enc(serverId)}/openresty/reload`, undefined, { fallbackMessage: FALLBACK });
 }
 
 // === 通用代理 ===
 export function proxyOnepanel(serverId, method, path, body) {
-  return request('POST', `/api/onepanel/${encodeURIComponent(serverId)}/proxy`, { method, path, body: body === undefined ? {} : body });
+  return post(`/api/onepanel/${enc(serverId)}/proxy`, { method, path, body: body === undefined ? {} : body }, { fallbackMessage: FALLBACK });
 }
 
 // === 内置 API 目录 ===
-export async function getOnepanelSpec() {
-  const response = await fetch('/api/onepanel/spec');
-  return parseResponse(response);
+export function getOnepanelSpec() {
+  return get('/api/onepanel/spec', { fallbackMessage: FALLBACK });
 }
 
-export async function getOnepanelCatalog(serverId) {
-  const response = await fetch(`/api/onepanel/${encodeURIComponent(serverId)}/proxy/catalog`);
-  return parseResponse(response);
+export function getOnepanelCatalog(serverId) {
+  return get(`/api/onepanel/${enc(serverId)}/proxy/catalog`, { fallbackMessage: FALLBACK });
 }

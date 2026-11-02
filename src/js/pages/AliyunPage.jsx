@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Button } from '@cloudflare/kumo/components/button';
-import { Dialog } from '@cloudflare/kumo/components/dialog';
+import { LayerDialog } from '@cloudflare/kumo/components/layer-dialog';
 import { Input, Textarea } from '@cloudflare/kumo/components/input';
 import { Select } from '@cloudflare/kumo/components/select';
 import { Table } from '@cloudflare/kumo/components/table';
@@ -8,6 +8,7 @@ import { Tabs, Toolbar } from '@cloudflare/kumo';
 import { SkeletonLine } from '@cloudflare/kumo/components/loader';
 import useTableResize from '../composables/useTableResize.js';
 import { dialog } from '../modules/dialog.js';
+import { get, post, put, del } from '../modules/apiClient.js';
 import { toast } from '../modules/toast.js';
 import { useConfirmPress } from '../hooks/useConfirmPress.js';
 import { MODULE_TABS_PROPS } from '../modules/kumoTabs.js';
@@ -31,6 +32,24 @@ const ALIYUN_INSTANCE_COLUMNS = [
   { id: 'specification', role: 'meta', grow: 1, minWidth: 176 },
   { id: 'platform', role: 'meta', grow: 1, minWidth: 176 },
   { id: 'actions', role: 'actions-md', width: 144 },
+];
+
+// DNS 域名表：配合 useTableResize 拖拽调宽（columnWidths 覆盖），语义列提供对齐与兜底宽度。
+const ALIYUN_DNS_COLUMNS = [
+  { id: 'domain', role: 'primary', minWidth: 200 },
+  { id: 'records', role: 'count' },
+  { id: 'status', role: 'status' },
+  { id: 'remark', role: 'content', minWidth: 200, verticalAlign: 'middle' },
+  { id: 'actions', role: 'actions-md' },
+];
+
+// 账号表：同样配合拖拽调宽。
+const ALIYUN_ACCOUNT_COLUMNS = [
+  { id: 'name', role: 'primary', minWidth: 160 },
+  { id: 'accessKey', role: 'identifier', minWidth: 200 },
+  { id: 'region', role: 'meta', minWidth: 140 },
+  { id: 'description', role: 'content', minWidth: 200, verticalAlign: 'middle' },
+  { id: 'actions', role: 'actions-md' },
 ];
 
 const instanceIP = (inst) => inst.PublicIpAddress?.IpAddress?.[0] || inst.VpcAttributes?.PrivateIpAddress?.IpAddress?.[0] || '-';
@@ -130,14 +149,9 @@ function AliyunPage() {
   const [dnsColWidths, startDnsResize] = useTableResize([240, 100, 100, 320, 120]);
   const [accountsColWidths, startAccountsResize] = useTableResize([180, 240, 150, 280, 120]);
 
-  const getAuthHeaders = useCallback(() => ({
-    'Content-Type': 'application/json',
-  }), []);
-
   const loadAccounts = useCallback(async () => {
     try {
-      const response = await fetch('/api/aliyun/accounts', { headers: getAuthHeaders() });
-      const data = await response.json();
+      const data = await get('/api/aliyun/accounts');
       if (Array.isArray(data)) {
         setAccounts(data);
         if (data.length > 0 && !selectedAccountId) setSelectedAccountId(String(data[0].id));
@@ -146,7 +160,7 @@ function AliyunPage() {
       console.error('[Aliyun] 加载账号失败:', error);
       toast.error('加载阿里云账号失败');
     }
-  }, [getAuthHeaders, selectedAccountId]);
+  }, [selectedAccountId]);
 
   const accountImportInputRef = useRef(null);
   const [accountImporting, setAccountImporting] = useState(false);
@@ -154,9 +168,8 @@ function AliyunPage() {
   const exportAccounts = async () => {
     if (accounts.length === 0) { toast.warning('暂无账号可导出'); return; }
     try {
-      const response = await fetch('/api/aliyun/accounts/export', { headers: getAuthHeaders() });
-      const payload = await response.json().catch(() => ({}));
-      if (!response.ok || payload.success !== true) throw new Error(payload.error || '导出账号失败');
+      const payload = await get('/api/aliyun/accounts/export', { fallbackMessage: '导出账号失败' });
+      if (payload.success !== true) throw new Error(payload.error || '导出账号失败');
       const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
       const anchor = document.createElement('a');
@@ -182,13 +195,8 @@ function AliyunPage() {
       const list = Array.isArray(data) ? data : (data.accounts || []);
       if (list.length === 0) throw new Error('文件中没有账号数据');
       if (!(await dialog.confirm(`确认导入 ${list.length} 个账号？已存在相同 AccessKey ID 的账号会自动跳过。`))) return;
-      const response = await fetch('/api/aliyun/accounts/import', {
-        method: 'POST',
-        headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
-        body: JSON.stringify({ accounts: list, overwrite: false }),
-      });
-      const payload = await response.json().catch(() => ({}));
-      if (!response.ok || payload.success !== true) throw new Error(payload.error || '导入账号失败');
+      const payload = await post('/api/aliyun/accounts/import', { accounts: list, overwrite: false }, { fallbackMessage: '导入账号失败' });
+      if (payload.success !== true) throw new Error(payload.error || '导入账号失败');
       await loadAccounts();
       toast.success(`导入完成：新增 ${payload.imported ?? 0} 个，跳过 ${payload.skipped ?? 0} 个`);
     } catch (error) {
@@ -201,41 +209,38 @@ function AliyunPage() {
   const loadDnsData = useCallback(async (accountId) => {
     setLoadingData(true);
     try {
-      const response = await fetch(`/api/aliyun/accounts/${accountId}/domains`, { headers: getAuthHeaders() });
-      const result = await response.json();
+      const result = await get(`/api/aliyun/accounts/${accountId}/domains`);
       setDomains(result.Domains?.Domain || []);
     } catch {
       toast.error('加载域名列表失败');
     } finally {
       setLoadingData(false);
     }
-  }, [getAuthHeaders]);
+  }, []);
 
   const loadEcsData = useCallback(async (accountId) => {
     setLoadingData(true);
     try {
-      const response = await fetch(`/api/aliyun/accounts/${accountId}/instances`, { headers: getAuthHeaders() });
-      const result = await response.json();
+      const result = await get(`/api/aliyun/accounts/${accountId}/instances`);
       setInstances(result.instances || []);
     } catch {
       toast.error('加载 ECS 实例失败');
     } finally {
       setLoadingData(false);
     }
-  }, [getAuthHeaders]);
+  }, []);
 
   const loadSwasData = useCallback(async (accountId) => {
     setLoadingData(true);
     try {
-      const response = await fetch(`/api/aliyun/accounts/${accountId}/swas`, { headers: getAuthHeaders() });
-      const result = await response.json();
+      const result = await get(`/api/aliyun/accounts/${accountId}/swas`);
       setSwasInstances(result.instances || []);
     } catch {
       toast.error('加载轻量服务器失败');
     } finally {
       setLoadingData(false);
     }
-  }, [getAuthHeaders]);
+  }, []);
 
   const refreshData = useCallback(() => {
     if (!selectedAccountId) return;
@@ -266,12 +271,9 @@ function AliyunPage() {
     setSubmittingAccount(true);
     try {
       const isEdit = !!editingAccount;
-      const response = await fetch(isEdit ? `/api/aliyun/accounts/${editingAccount.id}` : '/api/aliyun/accounts', {
-        method: isEdit ? 'PUT' : 'POST',
-        headers: getAuthHeaders(),
-        body: JSON.stringify(accountForm),
-      });
-      const result = await response.json();
+      const result = isEdit
+        ? await put(`/api/aliyun/accounts/${editingAccount.id}`, accountForm, { fallbackMessage: '保存失败' })
+        : await post('/api/aliyun/accounts', accountForm, { fallbackMessage: '保存失败' });
       if (!result.success && !result.id) throw new Error(result.error || '操作失败');
       toast.success(isEdit ? '账号已更新' : '账号已添加');
       setShowAddAccountModal(false);
@@ -288,8 +290,7 @@ function AliyunPage() {
   const deleteAccount = async (account) => {
     if (!confirmPress(`account:${account.id}`, `删除阿里云账号「${account.name}」`)) return;
     try {
-      const response = await fetch(`/api/aliyun/accounts/${account.id}`, { method: 'DELETE', headers: getAuthHeaders() });
-      const result = await response.json();
+      const result = await del(`/api/aliyun/accounts/${account.id}`, { fallbackMessage: '删除失败' });
       if (!result.success) throw new Error(result.error || '删除失败');
       toast.success('账号已删除');
       if (selectedAccountId === String(account.id)) setSelectedAccountId('');
@@ -322,12 +323,7 @@ function AliyunPage() {
     if (!(await dialog.confirm(`确认${actionText}实例 ${instance.InstanceName || instance.InstanceId} 吗？`))) return;
     try {
       const endpoint = kind === 'swas' ? 'swas' : 'instances';
-      const response = await fetch(`/api/aliyun/accounts/${selectedAccountId}/${endpoint}/${instance.InstanceId}/${action}`, {
-        method: 'POST',
-        headers: getAuthHeaders(),
-        body: JSON.stringify({ regionId: instance.RegionId }),
-      });
-      const result = await response.json();
+      const result = await post(`/api/aliyun/accounts/${selectedAccountId}/${endpoint}/${instance.InstanceId}/${action}`, { regionId: instance.RegionId }, { fallbackMessage: `${actionText}请求异常` });
       if (!result.success) throw new Error(result.error || `${actionText}失败`);
       toast.success(`${actionText}指令已下发`);
       setTimeout(refreshData, 2000);
@@ -339,8 +335,7 @@ function AliyunPage() {
   const renderDns = () => (
     <SectionCard title="DNS 域名" icon={<Globe className="h-4 w-4 text-brand" />} bodyPadding="none">
       <DataTableFrame variant="embedded" density="compact">
-        <AppTable layout="fixed" widths={dnsColWidths}>
-          <colgroup>{dnsColWidths.map((width, index) => <col key={index} style={{ width }} />)}</colgroup>
+        <AppTable columns={ALIYUN_DNS_COLUMNS} columnWidths={dnsColWidths}>
           <Table.Header sticky variant="compact">
             <Table.Row>
               <Table.Head className="relative pr-6">域名<Table.ResizeHandle onMouseDown={(event) => startDnsResize(0, event)} /></Table.Head>
@@ -449,8 +444,7 @@ function AliyunPage() {
       bodyPadding="none"
     >
       <DataTableFrame variant="embedded" density="compact">
-        <AppTable layout="fixed" widths={accountsColWidths}>
-          <colgroup>{accountsColWidths.map((width, index) => <col key={index} style={{ width }} />)}</colgroup>
+        <AppTable columns={ALIYUN_ACCOUNT_COLUMNS} columnWidths={accountsColWidths}>
           <Table.Header sticky variant="compact">
             <Table.Row>
               <Table.Head className="relative pr-6">名称<Table.ResizeHandle onMouseDown={(event) => startAccountsResize(0, event)} /></Table.Head>
@@ -500,13 +494,12 @@ function AliyunPage() {
       {activeTab === 'swas' && renderInstances('swas')}
       {activeTab === 'accounts' && renderAccounts()}
 
-      <Dialog.Root open={showAddAccountModal} onOpenChange={setShowAddAccountModal}>
-        <Dialog className="@container flex max-h-[min(calc(100dvh-2rem),34rem)] w-[min(calc(100vw-2rem),34rem)] flex-col overflow-hidden p-0">
-          <div className="border-b border-kumo-line bg-kumo-recessed/20 px-5 py-4">
-            <Dialog.Title className="text-base font-semibold text-kumo-strong">{editingAccount ? '编辑阿里云账号' : '添加阿里云账号'}</Dialog.Title>
-            <Dialog.Description className="mt-1 text-xs text-kumo-subtle">建议使用最小权限 RAM 账号。</Dialog.Description>
-          </div>
-          <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-5 py-4">
+      <LayerDialog.Root open={showAddAccountModal} onOpenChange={setShowAddAccountModal}>
+        <LayerDialog.Content size="sm">
+          <LayerDialog.Title>{editingAccount ? '编辑阿里云账号' : '添加阿里云账号'}</LayerDialog.Title>
+          <LayerDialog.Description>建议使用最小权限 RAM 账号。</LayerDialog.Description>
+          <LayerDialog.Body>
+          <div className="@container space-y-4">
             <Input size="sm" label="备注名称" value={accountForm.name} onChange={(event) => setAccountForm((prev) => ({ ...prev, name: event.target.value }))} placeholder="生产环境" />
             <div className="grid gap-3 cq-sm:grid-cols-2">
               <Input size="sm" label="AccessKey ID" value={accountForm.accessKeyId} onChange={(event) => setAccountForm((prev) => ({ ...prev, accessKeyId: event.target.value }))} className="font-mono" placeholder="LTAI..." />
@@ -515,12 +508,12 @@ function AliyunPage() {
             <Input size="sm" label="AccessKey Secret" value={accountForm.accessKeySecret} onChange={(event) => setAccountForm((prev) => ({ ...prev, accessKeySecret: event.target.value }))} placeholder={editingAccount ? '不修改请留空' : undefined} autoComplete="off" spellCheck={false} className="font-mono" />
             <Textarea size="sm" label="账号描述" value={accountForm.description} onChange={(event) => setAccountForm((prev) => ({ ...prev, description: event.target.value }))} className="min-h-20" />
           </div>
-          <div className="flex justify-end gap-2 border-t border-kumo-line bg-kumo-recessed/25 px-5 py-3">
-            <Dialog.Close render={(props) => <Button size="sm" variant="secondary" {...props}>取消</Button>} />
-            <Button size="sm" onClick={saveAccount} loading={submittingAccount}>保存账号</Button>
-          </div>
-        </Dialog>
-      </Dialog.Root>
+          </LayerDialog.Body>
+          <LayerDialog.Actions dismissLabel="取消">
+            <LayerDialog.Action type="button" onClick={saveAccount} loading={submittingAccount}>保存账号</LayerDialog.Action>
+          </LayerDialog.Actions>
+        </LayerDialog.Content>
+      </LayerDialog.Root>
     </PageStack>
   );
 }

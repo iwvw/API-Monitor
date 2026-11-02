@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '@cloudflare/kumo/components/button';
 import { Dialog } from '@cloudflare/kumo/components/dialog';
+import { LayerDialog } from '@cloudflare/kumo/components/layer-dialog';
 import { Input } from '@cloudflare/kumo/components/input';
 import { Table } from '@cloudflare/kumo/components/table';
 import { DropdownMenu } from '@cloudflare/kumo';
@@ -21,6 +22,15 @@ import {
 } from '../../modules/server-sftp.js';
 import { ArrowLeft, Copy, Download, Edit, Eye, FileText, Folder, FolderOpen, Key, RefreshCw, Save, Trash, Upload, X } from '../Icons.jsx';
 import CodeEditor from '../ui/CodeEditor.jsx';
+import { AppTable } from '../ui/AppPrimitives.jsx';
+
+const SFTP_FILE_COLUMNS = [
+  { id: 'path', role: 'primary', minWidth: 220, grow: 3 },
+  { id: 'size', role: 'count', minWidth: 88 },
+  { id: 'mtime', role: 'datetime', minWidth: 120 },
+  { id: 'permissions', role: 'meta', minWidth: 96 },
+  { id: 'actions', role: 'actions-sm' },
+];
 
 const contextMenuItemClassName = 'relative flex cursor-default items-center gap-2 rounded-md px-2 py-1.5 text-sm outline-hidden select-none focus:text-kumo-default focus:ring-kumo-focus/50 focus-visible:ring-2 focus-visible:ring-kumo-brand data-disabled:pointer-events-none data-disabled:opacity-50 data-highlighted:bg-kumo-overlay';
 const contextMenuDangerItemClassName = 'relative flex cursor-default items-center gap-2 rounded-md px-2 py-1.5 text-sm text-kumo-danger outline-hidden select-none focus:text-kumo-danger focus:ring-kumo-focus/50 focus-visible:ring-2 focus-visible:ring-kumo-brand data-disabled:pointer-events-none data-disabled:opacity-50 data-highlighted:bg-kumo-danger/5 data-highlighted:text-kumo-danger';
@@ -314,7 +324,7 @@ export default function SftpPanel({ serverId, serverName, initialPath = '.', onC
               loadDirectory(pathInput);
             }}
           >
-            <Button shape="square" size="sm" variant="secondary" icon={<ArrowLeft className="h-3.5 w-3.5" />} onClick={() => loadDirectory(breadcrumbs.at(-2)?.path || breadcrumbs[0]?.path || currentPath)} />
+            <Button shape="square" size="sm" variant="secondary" icon={<ArrowLeft className="h-3.5 w-3.5" />} aria-label="返回上级目录" onClick={() => loadDirectory(breadcrumbs.at(-2)?.path || breadcrumbs[0]?.path || currentPath)} />
             <Input size="sm" aria-label="SFTP 路径" value={pathInput} onChange={event => setPathInput(event.target.value)} className="min-w-0 flex-1 font-mono" />
             <Button size="sm" variant="primary" type="submit">跳转</Button>
           </form>
@@ -336,13 +346,13 @@ export default function SftpPanel({ serverId, serverName, initialPath = '.', onC
               ) : error ? (
                 <div className="m-3 rounded-md border border-kumo-danger/30 bg-kumo-danger/10 p-3 text-xs text-kumo-danger">{error}</div>
               ) : (
-                <Table size="sm">
+                <AppTable tableId="sftp-files" columns={SFTP_FILE_COLUMNS} size="sm">
                   <Table.Header>
                     <Table.Row>
-                      <Table.Head className="w-[45%]">路径</Table.Head>
-                      <Table.Head className="w-[12%]">大小</Table.Head>
-                      <Table.Head className="w-[18%]">最后修改</Table.Head>
-                      <Table.Head className="w-[15%]">权限</Table.Head>
+                      <Table.Head>路径</Table.Head>
+                      <Table.Head>大小</Table.Head>
+                      <Table.Head>最后修改</Table.Head>
+                      <Table.Head>权限</Table.Head>
                       <Table.Head className="app-table-action">操作</Table.Head>
                     </Table.Row>
                   </Table.Header>
@@ -395,7 +405,7 @@ export default function SftpPanel({ serverId, serverName, initialPath = '.', onC
                       );
                     })}
                   </Table.Body>
-                </Table>
+                </AppTable>
               )}
             </div>
           </div>
@@ -407,7 +417,7 @@ export default function SftpPanel({ serverId, serverName, initialPath = '.', onC
       <Dialog.Root open={editorOpen && Boolean(editFile)} onOpenChange={(open) => (open ? setEditorOpen(true) : requestCloseEditor())}>
         <Dialog size="xl" className="flex h-[min(72dvh,720px)] w-[min(920px,calc(100vw-2rem))] max-h-[calc(100dvh-1rem)] max-w-none flex-col overflow-hidden p-0">
           <div className="flex items-center justify-between gap-3 border-b border-kumo-line px-4 py-3">
-            <Dialog.Title className="min-w-0 truncate text-sm font-bold text-kumo-strong">编辑 {editFile?.name}</Dialog.Title>
+            <Dialog.Title className="min-w-0 truncate text-sm font-semibold text-kumo-strong">编辑 {editFile?.name}</Dialog.Title>
             <Dialog.Close />
           </div>
           <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-hidden p-4">
@@ -428,44 +438,41 @@ export default function SftpPanel({ serverId, serverName, initialPath = '.', onC
         </Dialog>
       </Dialog.Root>
 
-      <Dialog.Root open={mkdirOpen} onOpenChange={setMkdirOpen}>
-        <Dialog size="sm" className="flex max-h-[calc(100dvh-1rem)] !w-[min(32rem,calc(100vw-2rem))] !max-w-[min(32rem,calc(100vw-2rem))] flex-col overflow-hidden p-0">
-          <div className="flex items-center justify-between gap-3 border-b border-kumo-line px-4 py-3"><Dialog.Title className="text-sm font-bold text-kumo-strong">新建目录</Dialog.Title><Dialog.Close /></div>
-          <div className="p-4">
+      <LayerDialog.Root open={mkdirOpen} onOpenChange={setMkdirOpen}>
+        <LayerDialog.Content size="sm">
+          <LayerDialog.Title>新建目录</LayerDialog.Title>
+          <LayerDialog.Body>
             <Input size="sm" label="目录名" value={mkdirName} onChange={event => setMkdirName(event.target.value)} />
-          </div>
-          <div className="flex justify-end gap-2 border-t border-kumo-line px-4 py-3">
-            <Button size="sm" variant="secondary" onClick={() => setMkdirOpen(false)}>取消</Button>
-            <Button size="sm" variant="primary" onClick={createDirectory}>创建</Button>
-          </div>
-        </Dialog>
-      </Dialog.Root>
+          </LayerDialog.Body>
+          <LayerDialog.Actions dismissLabel="取消">
+            <LayerDialog.Action type="button" onClick={createDirectory}>创建</LayerDialog.Action>
+          </LayerDialog.Actions>
+        </LayerDialog.Content>
+      </LayerDialog.Root>
 
-      <Dialog.Root open={Boolean(renameFile)} onOpenChange={open => !open && setRenameFile(null)}>
-        <Dialog size="sm" className="flex max-h-[calc(100dvh-1rem)] !w-[min(32rem,calc(100vw-2rem))] !max-w-[min(32rem,calc(100vw-2rem))] flex-col overflow-hidden p-0">
-          <div className="flex items-center justify-between gap-3 border-b border-kumo-line px-4 py-3"><Dialog.Title className="text-sm font-bold text-kumo-strong">重命名</Dialog.Title><Dialog.Close /></div>
-          <div className="p-4">
+      <LayerDialog.Root open={Boolean(renameFile)} onOpenChange={open => !open && setRenameFile(null)}>
+        <LayerDialog.Content size="sm">
+          <LayerDialog.Title>重命名</LayerDialog.Title>
+          <LayerDialog.Body>
             <Input size="sm" label="新名称" value={renameValue} onChange={event => setRenameValue(event.target.value)} />
-          </div>
-          <div className="flex justify-end gap-2 border-t border-kumo-line px-4 py-3">
-            <Button size="sm" variant="secondary" onClick={() => setRenameFile(null)}>取消</Button>
-            <Button size="sm" variant="primary" onClick={renamePath}>保存</Button>
-          </div>
-        </Dialog>
-      </Dialog.Root>
+          </LayerDialog.Body>
+          <LayerDialog.Actions dismissLabel="取消">
+            <LayerDialog.Action type="button" onClick={renamePath}>保存</LayerDialog.Action>
+          </LayerDialog.Actions>
+        </LayerDialog.Content>
+      </LayerDialog.Root>
 
-      <Dialog.Root open={Boolean(chmodFile)} onOpenChange={open => !open && setChmodFile(null)}>
-        <Dialog size="sm" className="flex max-h-[calc(100dvh-1rem)] !w-[min(32rem,calc(100vw-2rem))] !max-w-[min(32rem,calc(100vw-2rem))] flex-col overflow-hidden p-0">
-          <div className="flex items-center justify-between gap-3 border-b border-kumo-line px-4 py-3"><Dialog.Title className="text-sm font-bold text-kumo-strong">修改权限</Dialog.Title><Dialog.Close /></div>
-          <div className="p-4">
+      <LayerDialog.Root open={Boolean(chmodFile)} onOpenChange={open => !open && setChmodFile(null)}>
+        <LayerDialog.Content size="sm">
+          <LayerDialog.Title>修改权限</LayerDialog.Title>
+          <LayerDialog.Body>
             <Input size="sm" label="权限值" value={chmodValue} onChange={event => setChmodValue(event.target.value)} className="font-mono" />
-          </div>
-          <div className="flex justify-end gap-2 border-t border-kumo-line px-4 py-3">
-            <Button size="sm" variant="secondary" onClick={() => setChmodFile(null)}>取消</Button>
-            <Button size="sm" variant="primary" onClick={chmodPath}>保存</Button>
-          </div>
-        </Dialog>
-      </Dialog.Root>
+          </LayerDialog.Body>
+          <LayerDialog.Actions dismissLabel="取消">
+            <LayerDialog.Action type="button" onClick={chmodPath}>保存</LayerDialog.Action>
+          </LayerDialog.Actions>
+        </LayerDialog.Content>
+      </LayerDialog.Root>
     </>
   );
 }

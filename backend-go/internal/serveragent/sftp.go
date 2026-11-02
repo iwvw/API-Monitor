@@ -1,0 +1,1323 @@
+package serveragent
+
+import (
+	"bytes"
+	"context"
+	"database/sql"
+	"encoding/base64"
+	"encoding/json"
+	"fmt"
+	"io"
+	"mime"
+	"net/http"
+	"os"
+	pathpkg "path"
+	"path/filepath"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/iwvw/api-monitor/backend-go/internal/response"
+	"github.com/iwvw/api-monitor/backend-go/internal/secure"
+	"github.com/pkg/sftp"
+	"golang.org/x/crypto/ssh"
+)
+
+// ==========================================
+// SFTP OPERATIONS
+// ==========================================
+
+// errAgentFileRealPathUnsupported 表示主机 Agent 版本过低，无法按真实路径
+// 读写文件。此时绝不能退回 Agent 沙箱写路径——那会把文件静默写到
+// `<sandbox>/opt/...` 而主机真实文件不变。
+var errAgentFileRealPathUnsupported = fmt.Errorf(
+	"AGENT_TOO_OLD: 主机 Agent 版本低于 %s，不支持按真实路径读写文件，且该主机未配置可用的 SSH 凭据。"+
+		"请先升级 Agent，或为该主机补全 SSH 密码/私钥后重试",
+	minAgentFileRealPathVersion,
+)
+
+func (s *Service) handleSFTPRoutes(w http.ResponseWriter, r *http.Request, db *sql.DB, subparts []string) {
+	if len(subparts) == 0 {
+		response.Error(w, http.StatusBadRequest, "SFTP operation not specified")
+		return
+	}
+
+	operation := subparts[0]
+
+	switch operation {
+	case "list":
+		s.handleSFTPList(w, r, db)
+	case "read":
+		s.handleSFTPRead(w, r, db)
+	case "write":
+		s.handleSFTPWrite(w, r, db)
+	case "mkdir":
+		s.handleSFTPMkdir(w, r, db)
+	case "rename":
+		s.handleSFTPRename(w, r, db)
+	case "delete":
+		s.handleSFTPDelete(w, r, db)
+	case "rmdir":
+		s.handleSFTPRmdir(w, r, db)
+	case "chmod":
+		s.handleSFTPChmod(w, r, db)
+	case "roots":
+		s.handleSFTPRoots(w, r, db)
+	case "upload":
+		s.handleSFTPUpload(w, r, db)
+	case "download":
+		if len(subparts) >= 2 {
+			s.handleSFTPDownload(w, r, db, subparts[1])
+		} else {
+			response.Error(w, http.StatusBadRequest, "server ID required for download")
+		}
+	default:
+		response.Error(w, http.StatusNotFound, "SFTP operation not found: "+operation)
+	}
+}
+
+func (s *Service) handleSFTPList(w http.ResponseWriter, r *http.Request, db *sql.DB) {
+	var req struct {
+		ServerID string `json:"serverId"`
+		Path     string `json:"path"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		response.Error(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	switch s.resolveAgentFileMode(db, req.ServerID) {
+	case agentFileViaAgent:
+		// realPath=true：要求 Agent 按主机真实绝对路径访问（仅限其文件白名单内），
+		// 越界直接报错。否则 Agent 会把 /opt/x 静默锚定到沙箱根，面板看到的
+		// 目录与主机上的实际目录不是同一份。
+		// 旧版 Agent 会忽略该字段 → 由 resolveAgentFileMode 做版本门禁。
+		result, err := s.runAgentTransientFileTask(req.ServerID, agentFileListTask, map[string]interface{}{
+			"path":     normalizeRemotePath(req.Path),
+			"realPath": true,
+		}, agentFileTimeout)
+		if err != nil {
+			// Agent 白名单拒绝该路径时回退 SSH/SFTP：配置了 SSH 凭据的主机
+			// 仍应能浏览真实文件系统，而不是只能看到沙箱那棵空树。
+			if s.canFallbackToSSH(db, req.ServerID) {
+				break
+			}
+			writeSFTPError(w, err)
+			return
+		}
+		var parsed struct {
+			Files []map[string]interface{} `json:"files"`
+			Cwd   string                   `json:"cwd"`
+		}
+		if jsonErr := json.Unmarshal([]byte(result), &parsed); jsonErr != nil {
+			writeSFTPError(w, fmt.Errorf("AGENT_FILE_ERROR: %w", jsonErr))
+			return
+		}
+		if parsed.Files == nil {
+			parsed.Files = []map[string]interface{}{}
+		}
+		response.JSON(w, http.StatusOK, map[string]interface{}{
+			"success":   true,
+			"transport": "agent",
+			"data":      parsed.Files,
+			"files":     parsed.Files,
+			"path":      firstNonEmpty(parsed.Cwd, normalizeRemotePath(req.Path)),
+		})
+		return
+	case agentFileUnavailable:
+		writeSFTPError(w, errAgentFileRealPathUnsupported)
+		return
+	}
+
+	client, cleanup, err := s.openSFTPClient(r, db, req.ServerID)
+	if err != nil {
+		writeSFTPError(w, err)
+		return
+	}
+	defer cleanup()
+
+	remotePath := normalizeRemotePath(req.Path)
+	realPath, err := client.RealPath(remotePath)
+	if err != nil {
+		writeSFTPError(w, err)
+		return
+	}
+	entries, err := client.ReadDir(realPath)
+	if err != nil {
+		writeSFTPError(w, err)
+		return
+	}
+	files := make([]map[string]interface{}, 0, len(entries))
+	for _, entry := range entries {
+		files = append(files, fileInfoPayload(realPath, entry))
+	}
+	response.JSON(w, http.StatusOK, map[string]interface{}{
+		"success": true,
+		"data":    files,
+		"files":   files,
+		"path":    realPath,
+	})
+}
+
+// agentFileMode 表示面板文件操作应当使用哪种传输通道。
+type agentFileMode int
+
+const (
+	// agentFileViaAgent：走 Agent 的真实路径任务。
+	agentFileViaAgent agentFileMode = iota
+	// agentFileViaSSH：走 SSH/SFTP 直连。
+	agentFileViaSSH
+	// agentFileUnavailable：两者都不可用，调用方须返回 errAgentFileRealPathUnsupported。
+	agentFileUnavailable
+)
+
+// resolveAgentFileMode 决定文件操作走 Agent 还是 SSH。
+//
+// Agent 只有在版本 >= minAgentFileRealPathVersion 时才认 realPath=true；
+// 旧版 Agent 会忽略该字段并把路径锚定到沙箱根，导致「面板显示保存成功、
+// 主机真实文件没变」。因此版本不达标时绝不交给 Agent。
+func (s *Service) resolveAgentFileMode(db *sql.DB, serverID string) agentFileMode {
+	if !s.hasAgentConnection(serverID) {
+		return agentFileViaSSH
+	}
+	if s.agentSupportsFileRealPath(serverID) {
+		return agentFileViaAgent
+	}
+	if s.canFallbackToSSH(db, serverID) {
+		return agentFileViaSSH
+	}
+	return agentFileUnavailable
+}
+
+func (s *Service) handleSFTPRead(w http.ResponseWriter, r *http.Request, db *sql.DB) {
+	var req struct {
+		ServerID string `json:"serverId"`
+		Path     string `json:"path"`
+		MaxSize  int64  `json:"maxSize"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		response.Error(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	maxSize := req.MaxSize
+	if maxSize <= 0 || maxSize > 8*1024*1024 {
+		maxSize = 1024 * 1024
+	}
+
+	switch s.resolveAgentFileMode(db, req.ServerID) {
+	case agentFileViaAgent:
+		content, agentErr := s.runAgentTransientFileTask(req.ServerID, agentFileReadTask, map[string]interface{}{
+			"path":     normalizeRemotePath(req.Path),
+			"maxSize":  maxSize,
+			"realPath": true,
+		}, agentFileTimeout)
+		if agentErr != nil {
+			if s.canFallbackToSSH(db, req.ServerID) {
+				break
+			}
+			writeSFTPError(w, agentErr)
+			return
+		}
+		response.JSON(w, http.StatusOK, map[string]interface{}{
+			"success":   true,
+			"transport": "agent",
+			"data":      content,
+			"content":   content,
+		})
+		return
+	case agentFileUnavailable:
+		writeSFTPError(w, errAgentFileRealPathUnsupported)
+		return
+	}
+
+	client, cleanup, err := s.openSFTPClient(r, db, req.ServerID)
+	if err != nil {
+		writeSFTPError(w, err)
+		return
+	}
+	defer cleanup()
+
+	content, err := readRemoteFile(client, normalizeRemotePath(req.Path), maxSize)
+	if err != nil {
+		writeSFTPError(w, err)
+		return
+	}
+	response.JSON(w, http.StatusOK, map[string]interface{}{
+		"success": true,
+		"data":    content,
+		"content": content,
+	})
+}
+
+func (s *Service) handleSFTPWrite(w http.ResponseWriter, r *http.Request, db *sql.DB) {
+	var req struct {
+		ServerID string `json:"serverId"`
+		Path     string `json:"path"`
+		Content  string `json:"content"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		response.Error(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	switch s.resolveAgentFileMode(db, req.ServerID) {
+	case agentFileViaAgent:
+		message, agentErr := s.runAgentFileTask(req.ServerID, agentFileWriteTask, map[string]interface{}{
+			"path":     normalizeRemotePath(req.Path),
+			"content":  req.Content,
+			"realPath": true,
+		}, agentFileTimeout)
+		if agentErr != nil {
+			if s.canFallbackToSSH(db, req.ServerID) {
+				break
+			}
+			writeSFTPError(w, agentErr)
+			return
+		}
+		response.JSON(w, http.StatusOK, map[string]interface{}{
+			"success":   true,
+			"transport": "agent",
+			"message":   firstNonEmpty(message, "file saved"),
+			"path":      normalizeRemotePath(req.Path),
+		})
+		return
+	case agentFileUnavailable:
+		writeSFTPError(w, errAgentFileRealPathUnsupported)
+		return
+	}
+
+	client, cleanup, err := s.openSFTPClient(r, db, req.ServerID)
+	if err != nil {
+		writeSFTPError(w, err)
+		return
+	}
+	defer cleanup()
+	if err := writeRemoteFile(client, normalizeRemotePath(req.Path), []byte(req.Content)); err != nil {
+		writeSFTPError(w, err)
+		return
+	}
+	response.JSON(w, http.StatusOK, map[string]interface{}{
+		"success": true,
+		"message": "文件保存成功",
+	})
+}
+
+func (s *Service) handleSFTPMkdir(w http.ResponseWriter, r *http.Request, db *sql.DB) {
+	var req struct {
+		ServerID string `json:"serverId"`
+		Path     string `json:"path"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		response.Error(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	switch s.resolveAgentFileMode(db, req.ServerID) {
+	case agentFileViaAgent:
+		message, agentErr := s.runAgentFileTask(req.ServerID, agentFileMkdirTask, map[string]interface{}{
+			"path":     normalizeRemotePath(req.Path),
+			"realPath": true,
+		}, agentFileTimeout)
+		if agentErr != nil {
+			if s.canFallbackToSSH(db, req.ServerID) {
+				break
+			}
+			writeSFTPError(w, agentErr)
+			return
+		}
+		response.JSON(w, http.StatusOK, map[string]interface{}{
+			"success":   true,
+			"transport": "agent",
+			"message":   firstNonEmpty(message, "directory created"),
+		})
+		return
+	case agentFileUnavailable:
+		writeSFTPError(w, errAgentFileRealPathUnsupported)
+		return
+	}
+
+	client, cleanup, err := s.openSFTPClient(r, db, req.ServerID)
+	if err != nil {
+		writeSFTPError(w, err)
+		return
+	}
+	defer cleanup()
+	if err := client.Mkdir(normalizeRemotePath(req.Path)); err != nil {
+		writeSFTPError(w, err)
+		return
+	}
+	response.JSON(w, http.StatusOK, map[string]interface{}{
+		"success": true,
+		"message": "目录创建成功",
+	})
+}
+
+// handleSFTPRoots 返回该主机的文件可访问范围：Agent 沙箱根 + 白名单根，
+// 或 SSH 模式下的提示。面板据此告诉用户「哪些目录能读写」，
+// 避免出现「路径看起来合法但读不到」的黑盒错误。
+func (s *Service) handleSFTPRoots(w http.ResponseWriter, r *http.Request, db *sql.DB) {
+	var req struct {
+		ServerID string `json:"serverId"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		response.Error(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	serverID := strings.TrimSpace(req.ServerID)
+	if serverID == "" {
+		response.Error(w, http.StatusBadRequest, "serverId required")
+		return
+	}
+
+	if s.hasAgentConnection(serverID) {
+		supportsRealPath := s.agentSupportsFileRealPath(serverID)
+		roots, err := s.AgentFileRoots(r.Context(), serverID)
+		if err == nil {
+			response.JSON(w, http.StatusOK, map[string]interface{}{
+				"success":          true,
+				"transport":        "agent",
+				"supportsRealPath": supportsRealPath,
+				"agentVersion":     agentVersionOf(s, serverID),
+				"data":             roots,
+				"sandboxRoot":      firstNonEmpty(stringFromAny(roots["sandboxRoot"]), ""),
+				"allowedRoots":     roots["allowedRoots"],
+				"note": firstNonEmpty(
+					stringFromAny(roots["note"]),
+					"",
+				),
+			})
+			return
+		}
+		if !s.canFallbackToSSH(db, serverID) {
+			writeSFTPError(w, err)
+			return
+		}
+	}
+
+	// SSH/SFTP 模式没有沙箱限制，可访问当前用户能读到的全部路径。
+	response.JSON(w, http.StatusOK, map[string]interface{}{
+		"success":          true,
+		"transport":        "ssh",
+		"supportsRealPath": true,
+		"sandboxRoot":      "",
+		"allowedRoots":     []string{},
+		"note":             "当前主机通过 SSH/SFTP 直连，未启用 Agent 文件沙箱，可访问该用户有权限的全部路径。",
+	})
+}
+
+// agentVersionOf 返回连接上报的 Agent 版本（未连接或未上报时为空）。
+func agentVersionOf(s *Service, serverID string) string {
+	conn, ok := s.registry.Get(serverID)
+	if !ok {
+		return ""
+	}
+	meta := conn.GetMetadata()
+	for _, key := range []string{"agent_version", "version"} {
+		if value, ok := meta[key].(string); ok && strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
+}
+
+// canFallbackToSSH 判断该主机是否具备可用的 SSH 凭据，从而在 Agent 文件
+// 白名单拒绝路径时改走 SFTP 直连。凭据缺失时返回 false，让调用方把
+// Agent 的原始错误透出（而不是用另一个必然失败的错误覆盖）。
+func (s *Service) canFallbackToSSH(db *sql.DB, serverID string) bool {
+	var host, username, authType string
+	var password, privateKey sql.NullString
+	err := db.QueryRow(`
+		SELECT host, username, auth_type, password, private_key
+		FROM server_accounts WHERE id = ?`, serverID).
+		Scan(&host, &username, &authType, &password, &privateKey)
+	if err != nil {
+		return false
+	}
+	if strings.TrimSpace(host) == "" || strings.TrimSpace(username) == "" {
+		return false
+	}
+	if authType == "key" {
+		return strings.TrimSpace(privateKey.String) != ""
+	}
+	return strings.TrimSpace(password.String) != ""
+}
+
+func (s *Service) handleSFTPRename(w http.ResponseWriter, r *http.Request, db *sql.DB) {
+	var req struct {
+		ServerID string `json:"serverId"`
+		OldPath  string `json:"oldPath"`
+		NewPath  string `json:"newPath"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		response.Error(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	switch s.resolveAgentFileMode(db, req.ServerID) {
+	case agentFileViaAgent:
+		result, err := s.runAgentFileTask(req.ServerID, agentFileRenameTask, map[string]interface{}{
+			"oldPath":  normalizeRemotePath(req.OldPath),
+			"newPath":  normalizeRemotePath(req.NewPath),
+			"realPath": true,
+		}, agentFileTimeout)
+		if err == nil {
+			response.JSON(w, http.StatusOK, map[string]interface{}{
+				"success":   true,
+				"transport": "agent",
+				"message":   firstNonEmpty(result, "file renamed"),
+			})
+			return
+		}
+		writeSFTPError(w, err)
+		return
+	case agentFileUnavailable:
+		writeSFTPError(w, errAgentFileRealPathUnsupported)
+		return
+	}
+
+	client, cleanup, err := s.openSFTPClient(r, db, req.ServerID)
+	if err != nil {
+		writeSFTPError(w, err)
+		return
+	}
+	defer cleanup()
+	if err := client.Rename(normalizeRemotePath(req.OldPath), normalizeRemotePath(req.NewPath)); err != nil {
+		writeSFTPError(w, err)
+		return
+	}
+	response.JSON(w, http.StatusOK, map[string]interface{}{
+		"success": true,
+		"message": "重命名成功",
+	})
+}
+
+func (s *Service) handleSFTPDelete(w http.ResponseWriter, r *http.Request, db *sql.DB) {
+	var req struct {
+		ServerID string `json:"serverId"`
+		Path     string `json:"path"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		response.Error(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	switch s.resolveAgentFileMode(db, req.ServerID) {
+	case agentFileViaAgent:
+		result, err := s.runAgentFileTask(req.ServerID, agentFileDeleteTask, map[string]interface{}{
+			"path":      normalizeRemotePath(req.Path),
+			"recursive": false,
+			"realPath":  true,
+		}, agentFileTimeout)
+		if err == nil {
+			response.JSON(w, http.StatusOK, map[string]interface{}{
+				"success":   true,
+				"transport": "agent",
+				"message":   firstNonEmpty(result, "file deleted"),
+			})
+			return
+		}
+		writeSFTPError(w, err)
+		return
+	case agentFileUnavailable:
+		writeSFTPError(w, errAgentFileRealPathUnsupported)
+		return
+	}
+
+	client, cleanup, err := s.openSFTPClient(r, db, req.ServerID)
+	if err != nil {
+		writeSFTPError(w, err)
+		return
+	}
+	defer cleanup()
+	if err := client.Remove(normalizeRemotePath(req.Path)); err != nil {
+		writeSFTPError(w, err)
+		return
+	}
+	response.JSON(w, http.StatusOK, map[string]interface{}{
+		"success": true,
+		"message": "文件删除成功",
+	})
+}
+
+func (s *Service) handleSFTPRmdir(w http.ResponseWriter, r *http.Request, db *sql.DB) {
+	var req struct {
+		ServerID  string `json:"serverId"`
+		Path      string `json:"path"`
+		Recursive bool   `json:"recursive"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		response.Error(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	switch s.resolveAgentFileMode(db, req.ServerID) {
+	case agentFileViaAgent:
+		result, err := s.runAgentFileTask(req.ServerID, agentFileDeleteTask, map[string]interface{}{
+			"path":      normalizeRemotePath(req.Path),
+			"recursive": req.Recursive,
+			"realPath":  true,
+		}, agentFileTimeout)
+		if err == nil {
+			response.JSON(w, http.StatusOK, map[string]interface{}{
+				"success":   true,
+				"transport": "agent",
+				"message":   firstNonEmpty(result, "directory deleted"),
+			})
+			return
+		}
+		writeSFTPError(w, err)
+		return
+	case agentFileUnavailable:
+		writeSFTPError(w, errAgentFileRealPathUnsupported)
+		return
+	}
+
+	client, cleanup, err := s.openSFTPClient(r, db, req.ServerID)
+	if err != nil {
+		writeSFTPError(w, err)
+		return
+	}
+	defer cleanup()
+	remotePath := normalizeRemotePath(req.Path)
+	if req.Recursive {
+		err = removeRemoteDirRecursive(client, remotePath)
+	} else {
+		err = client.RemoveDirectory(remotePath)
+	}
+	if err != nil {
+		writeSFTPError(w, err)
+		return
+	}
+	response.JSON(w, http.StatusOK, map[string]interface{}{
+		"success": true,
+		"message": "目录删除成功",
+	})
+}
+
+func (s *Service) handleSFTPChmod(w http.ResponseWriter, r *http.Request, db *sql.DB) {
+	var req struct {
+		ServerID string `json:"serverId"`
+		Path     string `json:"path"`
+		Mode     string `json:"mode"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		response.Error(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	mode, err := strconv.ParseUint(strings.TrimPrefix(req.Mode, "0"), 8, 32)
+	if err != nil {
+		response.Error(w, http.StatusBadRequest, "invalid chmod mode")
+		return
+	}
+	switch s.resolveAgentFileMode(db, req.ServerID) {
+	case agentFileViaAgent:
+		result, agentErr := s.runAgentFileTask(req.ServerID, agentFileChmodTask, map[string]interface{}{
+			"path":     normalizeRemotePath(req.Path),
+			"mode":     uint32(mode),
+			"realPath": true,
+		}, agentFileTimeout)
+		if agentErr == nil {
+			response.JSON(w, http.StatusOK, map[string]interface{}{
+				"success":   true,
+				"transport": "agent",
+				"message":   firstNonEmpty(result, "permissions changed"),
+			})
+			return
+		}
+		writeSFTPError(w, agentErr)
+		return
+	case agentFileUnavailable:
+		writeSFTPError(w, errAgentFileRealPathUnsupported)
+		return
+	}
+
+	client, cleanup, err := s.openSFTPClient(r, db, req.ServerID)
+	if err != nil {
+		writeSFTPError(w, err)
+		return
+	}
+	defer cleanup()
+	if err := client.Chmod(normalizeRemotePath(req.Path), os.FileMode(mode)); err != nil {
+		writeSFTPError(w, err)
+		return
+	}
+	response.JSON(w, http.StatusOK, map[string]interface{}{
+		"success": true,
+		"message": "权限修改成功",
+	})
+}
+
+func (s *Service) handleSFTPUpload(w http.ResponseWriter, r *http.Request, db *sql.DB) {
+	if err := r.ParseMultipartForm(64 << 20); err != nil {
+		response.Error(w, http.StatusBadRequest, "invalid multipart form")
+		return
+	}
+	serverID := r.FormValue("serverId")
+	remoteDir := normalizeRemotePath(r.FormValue("path"))
+	relativePath := strings.ReplaceAll(r.FormValue("relativePath"), "\\", "/")
+	file, header, err := r.FormFile("file")
+	if err != nil {
+		response.Error(w, http.StatusBadRequest, "file required")
+		return
+	}
+	defer file.Close()
+
+	target := pathpkg.Join(remoteDir, header.Filename)
+	if relativePath != "" {
+		target = pathpkg.Join(remoteDir, relativePath)
+	}
+	switch s.resolveAgentFileMode(db, serverID) {
+	case agentFileViaAgent:
+		// 必须走分块 base64 写入，不能把字节塞进 string：Go string 里的非法
+		// UTF-8 序列在 json.Marshal 时会被替换成 U+FFFD，二进制文件（zip/图片/
+		// 可执行文件）会静默损坏。同时分块也避开单帧体积上限。
+		var buf bytes.Buffer
+		if _, err := io.Copy(&buf, file); err != nil {
+			writeSFTPError(w, err)
+			return
+		}
+		written, werr := s.WriteAgentFileBytesDetailedMode(r.Context(), serverID, target, buf.Bytes(), 5*time.Minute, true)
+		if werr != nil {
+			writeSFTPError(w, werr)
+			return
+		}
+		response.JSON(w, http.StatusOK, map[string]interface{}{
+			"success":   true,
+			"transport": "agent",
+			"message":   "上传成功",
+			"path":      target,
+			"realPath":  written.RealPath,
+			"size":      written.Size,
+		})
+		return
+	case agentFileUnavailable:
+		writeSFTPError(w, errAgentFileRealPathUnsupported)
+		return
+	}
+
+	client, cleanup, err := s.openSFTPClient(r, db, serverID)
+	if err != nil {
+		writeSFTPError(w, err)
+		return
+	}
+	defer cleanup()
+	if err := client.MkdirAll(pathpkg.Dir(target)); err != nil {
+		writeSFTPError(w, err)
+		return
+	}
+	var buf bytes.Buffer
+	if _, err := io.Copy(&buf, file); err != nil {
+		writeSFTPError(w, err)
+		return
+	}
+	if err := writeRemoteFile(client, target, buf.Bytes()); err != nil {
+		writeSFTPError(w, err)
+		return
+	}
+	response.JSON(w, http.StatusOK, map[string]interface{}{
+		"success": true,
+		"message": "上传成功",
+		"path":    target,
+	})
+}
+
+func (s *Service) handleSFTPDownload(w http.ResponseWriter, r *http.Request, db *sql.DB, serverID string) {
+	remotePath := normalizeRemotePath(r.URL.Query().Get("path"))
+	if serverID == "" || remotePath == "" || remotePath == "." {
+		response.Error(w, http.StatusBadRequest, "serverId and path required")
+		return
+	}
+	switch s.resolveAgentFileMode(db, serverID) {
+	case agentFileViaAgent:
+		s.handleAgentFileDownload(w, serverID, remotePath)
+		return
+	case agentFileUnavailable:
+		writeSFTPError(w, errAgentFileRealPathUnsupported)
+		return
+	}
+
+	client, cleanup, err := s.openSFTPClient(r, db, serverID)
+	if err != nil {
+		writeSFTPError(w, err)
+		return
+	}
+	defer cleanup()
+	file, err := client.Open(remotePath)
+	if err != nil {
+		writeSFTPError(w, err)
+		return
+	}
+	defer file.Close()
+	stat, err := file.Stat()
+	if err != nil {
+		writeSFTPError(w, err)
+		return
+	}
+	filename := pathpkg.Base(remotePath)
+	w.Header().Set("Content-Type", mime.TypeByExtension(filepath.Ext(filename)))
+	if w.Header().Get("Content-Type") == "" {
+		w.Header().Set("Content-Type", "application/octet-stream")
+	}
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, strings.ReplaceAll(filename, `"`, "")))
+	w.Header().Set("Content-Length", strconv.FormatInt(stat.Size(), 10))
+	w.WriteHeader(http.StatusOK)
+	_, _ = io.Copy(w, file)
+}
+
+const (
+	agentFileListTask          = 30
+	agentFileReadTask          = 31
+	agentFileWriteTask         = 32
+	agentFileMkdirTask         = 33
+	agentFileDeleteTask        = 34
+	agentFileRenameTask        = 35
+	agentFileChmodTask         = 37
+	agentFileDownloadChunkTask = 38
+	agentFileStatTask          = 36
+	agentFileUploadToURLTask   = 39
+	agentFileFetchURLTask      = 41
+	agentFileWriteBase64Task   = 42
+	agentFileRootsTask         = 43
+	agentFileTimeout           = 30 * time.Second
+	agentFileChunkSize         = 1024 * 1024
+)
+
+// FetchURLToAgentFile 让指定 Agent 主机从 URL 拉取文件并写入本地路径。
+// 字节由主机直接下载，不经面板中转；适合把已有的可访问地址落到主机上。
+func (s *Service) FetchURLToAgentFile(ctx context.Context, serverID, url, remotePath string, timeout time.Duration) (string, error) {
+	serverID = strings.TrimSpace(serverID)
+	url = strings.TrimSpace(url)
+	remotePath = strings.TrimSpace(remotePath)
+	if serverID == "" {
+		return "", fmt.Errorf("server id is required")
+	}
+	if url == "" {
+		return "", fmt.Errorf("url is required")
+	}
+	if remotePath == "" {
+		return "", fmt.Errorf("path is required")
+	}
+	if !s.hasAgentConnection(serverID) {
+		return "", fmt.Errorf("agent offline")
+	}
+	if timeout <= 0 {
+		timeout = 10 * time.Minute
+	}
+	payload, err := json.Marshal(map[string]interface{}{
+		"url":  url,
+		"path": normalizeRemotePath(remotePath),
+	})
+	if err != nil {
+		return "", fmt.Errorf("AGENT_FILE_ERROR: %w", err)
+	}
+	return s.runAgentTaskAndWaitCtx(ctx, serverID, agentFileFetchURLTask, string(payload), timeout)
+}
+
+// WriteAgentFileBase64 把一块 base64 字节写入主机文件（支持 offset 续写与首块截断）。
+func (s *Service) WriteAgentFileBase64(ctx context.Context, serverID, remotePath, data string, offset int64, truncate bool, timeout time.Duration) (string, error) {
+	return s.writeAgentFileBase64Raw(ctx, serverID, remotePath, data, offset, truncate, timeout)
+}
+
+// writeAgentFileBase64Raw 与 WriteAgentFileBase64 相同，但原始返回 Agent 的 JSON。
+func (s *Service) writeAgentFileBase64Raw(ctx context.Context, serverID, remotePath, data string, offset int64, truncate bool, timeout time.Duration) (string, error) {
+	return s.writeAgentFileBase64RawMode(ctx, serverID, remotePath, data, offset, truncate, timeout, false)
+}
+
+// writeAgentFileBase64RawMode 在 writeAgentFileBase64Raw 基础上允许指定
+// realPath：面板文件管理/上传必须传 true（按主机真实路径写），AI 文件工具
+// 保持 false（沿用沙箱语义，避免改变既有工具行为）。
+func (s *Service) writeAgentFileBase64RawMode(ctx context.Context, serverID, remotePath, data string, offset int64, truncate bool, timeout time.Duration, realPath bool) (string, error) {
+	serverID = strings.TrimSpace(serverID)
+	if serverID == "" {
+		return "", fmt.Errorf("server id is required")
+	}
+	if !s.hasAgentConnection(serverID) {
+		return "", fmt.Errorf("agent offline")
+	}
+	if timeout <= 0 {
+		timeout = agentFileTimeout
+	}
+	payload := map[string]interface{}{
+		"path":     normalizeRemotePath(remotePath),
+		"data":     data,
+		"offset":   offset,
+		"truncate": truncate,
+	}
+	if realPath {
+		payload["realPath"] = true
+	}
+	encoded, err := json.Marshal(payload)
+	if err != nil {
+		return "", fmt.Errorf("AGENT_FILE_ERROR: %w", err)
+	}
+	return s.runAgentTaskAndWaitCtx(ctx, serverID, agentFileWriteBase64Task, string(encoded), timeout)
+}
+
+// AgentFileWriteResult 是一次分块写入的结果。
+type AgentFileWriteResult struct {
+	// Size 是目标文件当前的总字节数（含此前写入的块）。
+	Size int64 `json:"size"`
+	// RealPath 是主机上的真实绝对路径。agent_run_command 执行在真实文件系统上，
+	// 必须用它；面板展示的虚拟路径（沙箱根为 "/"）在 shell 里找不到文件。
+	RealPath string `json:"realPath"`
+	Message  string `json:"message"`
+}
+
+// parseAgentFileWriteResult 解析 Agent 的写入回报。旧版 Agent 只返回纯文本
+// 「已写入 N 字节」，此时 RealPath 为空，调用方应回退为提示用户查询目录。
+func parseAgentFileWriteResult(raw string) AgentFileWriteResult {
+	trimmed := strings.TrimSpace(raw)
+	result := AgentFileWriteResult{Message: trimmed}
+	if strings.HasPrefix(trimmed, "{") {
+		var parsed struct {
+			Message  string `json:"message"`
+			RealPath string `json:"realPath"`
+			Size     int64  `json:"size"`
+		}
+		if err := json.Unmarshal([]byte(trimmed), &parsed); err == nil {
+			result.Size = parsed.Size
+			result.RealPath = strings.TrimSpace(parsed.RealPath)
+			if parsed.Message != "" {
+				result.Message = parsed.Message
+			}
+			return result
+		}
+	}
+	return result
+}
+
+// WriteAgentFileBytes 把整块字节分块写入 Agent 主机文件，返回写入字节数与真实路径。
+// 供 AI 侧直传工具复用：绕开 call_api 的 JSON + 1MB 限制与手工 base64 分块。
+func (s *Service) WriteAgentFileBytes(ctx context.Context, serverID, remotePath string, data []byte, timeout time.Duration) (int64, error) {
+	result, err := s.WriteAgentFileBytesDetailed(ctx, serverID, remotePath, data, timeout)
+	return result.Size, err
+}
+
+// WriteAgentFileBytesDetailed 与 WriteAgentFileBytes 相同，但额外返回真实路径。
+func (s *Service) WriteAgentFileBytesDetailed(ctx context.Context, serverID, remotePath string, data []byte, timeout time.Duration) (AgentFileWriteResult, error) {
+	return s.WriteAgentFileBytesDetailedMode(ctx, serverID, remotePath, data, timeout, false)
+}
+
+// WriteAgentFileBytesDetailedMode 支持指定 realPath：面板文件上传必须传 true，
+// 否则大文件会被静默写进 Agent 沙箱而不是目标路径。
+func (s *Service) WriteAgentFileBytesDetailedMode(ctx context.Context, serverID, remotePath string, data []byte, timeout time.Duration, realPath bool) (AgentFileWriteResult, error) {
+	serverID = strings.TrimSpace(serverID)
+	if serverID == "" {
+		return AgentFileWriteResult{}, fmt.Errorf("server id is required")
+	}
+	if !s.hasAgentConnection(serverID) {
+		return AgentFileWriteResult{}, fmt.Errorf("agent offline")
+	}
+	if timeout <= 0 {
+		timeout = 10 * time.Minute
+	}
+	total := int64(len(data))
+	if total == 0 {
+		raw, err := s.writeAgentFileBase64RawMode(ctx, serverID, remotePath, "", 0, true, timeout, realPath)
+		if err != nil {
+			return AgentFileWriteResult{}, err
+		}
+		return parseAgentFileWriteResult(raw), nil
+	}
+	var result AgentFileWriteResult
+	for offset := int64(0); offset < total; {
+		end := offset + int64(agentFileChunkSize)
+		if end > total {
+			end = total
+		}
+		encoded := base64.StdEncoding.EncodeToString(data[offset:end])
+		raw, err := s.writeAgentFileBase64RawMode(ctx, serverID, remotePath, encoded, offset, offset == 0, timeout, realPath)
+		if err != nil {
+			return result, err
+		}
+		result = parseAgentFileWriteResult(raw)
+		offset = end
+	}
+	if result.Size <= 0 {
+		result.Size = total
+	}
+	return result, nil
+}
+
+// WriteAgentFileChunk 写入单个分块（按 offset 续写），供 AI 侧大文件分块上传。
+// 客户端自己读文件切片、自己算 sha256，模型只传 offset/长度这类元数据，
+// 因此不受模型输出长度限制。
+func (s *Service) WriteAgentFileChunk(ctx context.Context, serverID, remotePath string, data []byte, offset int64, truncate bool, timeout time.Duration) (AgentFileWriteResult, error) {
+	serverID = strings.TrimSpace(serverID)
+	if serverID == "" {
+		return AgentFileWriteResult{}, fmt.Errorf("server id is required")
+	}
+	if !s.hasAgentConnection(serverID) {
+		return AgentFileWriteResult{}, fmt.Errorf("agent offline")
+	}
+	if offset < 0 {
+		return AgentFileWriteResult{}, fmt.Errorf("offset 不能为负")
+	}
+	if timeout <= 0 {
+		timeout = 2 * time.Minute
+	}
+	encoded := base64.StdEncoding.EncodeToString(data)
+	raw, err := s.writeAgentFileBase64Raw(ctx, serverID, remotePath, encoded, offset, truncate, timeout)
+	if err != nil {
+		return AgentFileWriteResult{}, err
+	}
+	result := parseAgentFileWriteResult(raw)
+	if result.Size <= 0 {
+		result.Size = offset + int64(len(data))
+	}
+	return result, nil
+}
+
+// AgentFileRoots 返回目标主机的文件沙箱根目录与白名单根目录。
+func (s *Service) AgentFileRoots(ctx context.Context, serverID string) (map[string]interface{}, error) {
+	serverID = strings.TrimSpace(serverID)
+	if serverID == "" {
+		return nil, fmt.Errorf("server id is required")
+	}
+	if !s.hasAgentConnection(serverID) {
+		return nil, fmt.Errorf("agent offline")
+	}
+	raw, err := s.runAgentTransientFileTask(serverID, agentFileRootsTask, map[string]interface{}{}, agentFileTimeout)
+	if err != nil {
+		return nil, err
+	}
+	var parsed map[string]interface{}
+	if err := json.Unmarshal([]byte(raw), &parsed); err != nil {
+		return nil, fmt.Errorf("AGENT_FILE_ERROR: %w", err)
+	}
+	if parsed == nil {
+		parsed = map[string]interface{}{}
+	}
+	return parsed, nil
+}
+
+// AgentFileStat 返回目标主机上某个路径的信息（含真实路径）。
+func (s *Service) AgentFileStat(ctx context.Context, serverID, remotePath string) (map[string]interface{}, error) {
+	serverID = strings.TrimSpace(serverID)
+	if serverID == "" {
+		return nil, fmt.Errorf("server id is required")
+	}
+	if !s.hasAgentConnection(serverID) {
+		return nil, fmt.Errorf("agent offline")
+	}
+	raw, err := s.runAgentTransientFileTask(serverID, agentFileStatTask, map[string]interface{}{
+		"path": normalizeRemotePath(remotePath),
+	}, agentFileTimeout)
+	if err != nil {
+		return nil, err
+	}
+	var parsed map[string]interface{}
+	if err := json.Unmarshal([]byte(raw), &parsed); err != nil {
+		return nil, fmt.Errorf("AGENT_FILE_ERROR: %w", err)
+	}
+	return parsed, nil
+}
+
+// AgentFileChmod 修改目标主机上的文件权限（用于让上传的脚本可执行）。
+func (s *Service) AgentFileChmod(ctx context.Context, serverID, remotePath string, mode uint32) (string, error) {
+	serverID = strings.TrimSpace(serverID)
+	if serverID == "" {
+		return "", fmt.Errorf("server id is required")
+	}
+	if !s.hasAgentConnection(serverID) {
+		return "", fmt.Errorf("agent offline")
+	}
+	return s.runAgentFileTask(serverID, agentFileChmodTask, map[string]interface{}{
+		"path": normalizeRemotePath(remotePath),
+		"mode": mode,
+	}, agentFileTimeout)
+}
+
+func (s *Service) handleAgentFileMkdir(w http.ResponseWriter, serverID, remotePath string) {
+	message, err := s.runAgentFileTask(serverID, agentFileMkdirTask, map[string]interface{}{
+		"path": normalizeRemotePath(remotePath),
+	}, agentFileTimeout)
+	if err != nil {
+		writeSFTPError(w, err)
+		return
+	}
+	response.JSON(w, http.StatusOK, map[string]interface{}{
+		"success":   true,
+		"transport": "agent",
+		"message":   firstNonEmpty(message, "directory created"),
+	})
+}
+
+func (s *Service) handleAgentFileRename(w http.ResponseWriter, serverID, oldPath, newPath string) {
+	message, err := s.runAgentFileTask(serverID, agentFileRenameTask, map[string]interface{}{
+		"oldPath": normalizeRemotePath(oldPath),
+		"newPath": normalizeRemotePath(newPath),
+	}, agentFileTimeout)
+	if err != nil {
+		writeSFTPError(w, err)
+		return
+	}
+	response.JSON(w, http.StatusOK, map[string]interface{}{
+		"success":   true,
+		"transport": "agent",
+		"message":   firstNonEmpty(message, "file renamed"),
+	})
+}
+
+func (s *Service) handleAgentFileDelete(w http.ResponseWriter, serverID, remotePath string, recursive bool) {
+	message, err := s.runAgentFileTask(serverID, agentFileDeleteTask, map[string]interface{}{
+		"path":      normalizeRemotePath(remotePath),
+		"recursive": recursive,
+	}, agentFileTimeout)
+	if err != nil {
+		writeSFTPError(w, err)
+		return
+	}
+	response.JSON(w, http.StatusOK, map[string]interface{}{
+		"success":   true,
+		"transport": "agent",
+		"message":   firstNonEmpty(message, "file deleted"),
+	})
+}
+
+func (s *Service) handleAgentFileChmod(w http.ResponseWriter, serverID, remotePath string, mode uint32) {
+	message, err := s.runAgentFileTask(serverID, agentFileChmodTask, map[string]interface{}{
+		"path": normalizeRemotePath(remotePath),
+		"mode": mode,
+	}, agentFileTimeout)
+	if err != nil {
+		writeSFTPError(w, err)
+		return
+	}
+	response.JSON(w, http.StatusOK, map[string]interface{}{
+		"success":   true,
+		"transport": "agent",
+		"message":   firstNonEmpty(message, "permissions changed"),
+	})
+}
+
+func (s *Service) handleAgentFileDownload(w http.ResponseWriter, serverID, remotePath string) {
+	filename := pathpkg.Base(remotePath)
+	w.Header().Set("Content-Type", mime.TypeByExtension(filepath.Ext(filename)))
+	if w.Header().Get("Content-Type") == "" {
+		w.Header().Set("Content-Type", "application/octet-stream")
+	}
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, strings.ReplaceAll(filename, `"`, "")))
+	w.WriteHeader(http.StatusOK)
+
+	for offset := int64(0); ; offset += agentFileChunkSize {
+		encoded, err := s.runAgentTransientFileTask(serverID, agentFileDownloadChunkTask, map[string]interface{}{
+			"path":     remotePath,
+			"offset":   offset,
+			"size":     agentFileChunkSize,
+			"realPath": true,
+		}, agentFileTimeout)
+		if err != nil {
+			return
+		}
+		chunk, err := base64.StdEncoding.DecodeString(encoded)
+		if err != nil || len(chunk) == 0 {
+			return
+		}
+		if _, err := w.Write(chunk); err != nil {
+			return
+		}
+		if len(chunk) < agentFileChunkSize {
+			return
+		}
+	}
+}
+
+type sftpServerConfig struct {
+	Host       string
+	Port       int
+	Username   string
+	AuthType   string
+	Password   string
+	PrivateKey string
+	Passphrase string
+}
+
+func (s *Service) openSFTPClient(r *http.Request, db *sql.DB, serverID string) (*sftp.Client, func(), error) {
+	if strings.TrimSpace(serverID) == "" {
+		return nil, nil, fmt.Errorf("SERVER_NOT_FOUND: 缺少服务器 ID")
+	}
+	cfg, err := s.getSFTPServerConfig(r, db, serverID)
+	if err != nil {
+		return nil, nil, err
+	}
+	authMethods := []ssh.AuthMethod{}
+	if cfg.AuthType == "key" {
+		var signer ssh.Signer
+		if cfg.Passphrase != "" {
+			signer, err = ssh.ParsePrivateKeyWithPassphrase([]byte(cfg.PrivateKey), []byte(cfg.Passphrase))
+		} else {
+			signer, err = ssh.ParsePrivateKey([]byte(cfg.PrivateKey))
+		}
+		if err != nil {
+			return nil, nil, fmt.Errorf("AUTH_FAILED: SSH 私钥解析失败")
+		}
+		authMethods = append(authMethods, ssh.PublicKeys(signer))
+	} else if cfg.Password != "" {
+		authMethods = append(authMethods, ssh.Password(cfg.Password))
+	}
+	if len(authMethods) == 0 {
+		return nil, nil, fmt.Errorf("CONFIG_INCOMPLETE: SSH 凭据不完整，无法使用 SFTP")
+	}
+	sshConfig := &ssh.ClientConfig{
+		User:            cfg.Username,
+		Auth:            authMethods,
+		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+		Timeout:         20 * time.Second,
+	}
+	addr := fmt.Sprintf("%s:%d", cfg.Host, cfg.Port)
+	sshClient, err := ssh.Dial("tcp", addr, sshConfig)
+	if err != nil {
+		return nil, nil, fmt.Errorf("CONNECTION_FAILED: %w", err)
+	}
+	client, err := sftp.NewClient(sshClient)
+	if err != nil {
+		_ = sshClient.Close()
+		return nil, nil, fmt.Errorf("CONNECTION_FAILED: %w", err)
+	}
+	cleanup := func() {
+		_ = client.Close()
+		_ = sshClient.Close()
+	}
+	return client, cleanup, nil
+}
+
+func (s *Service) getSFTPServerConfig(r *http.Request, db *sql.DB, serverID string) (sftpServerConfig, error) {
+	var cfg sftpServerConfig
+	var password, privateKey, passphrase sql.NullString
+	err := db.QueryRowContext(r.Context(), `
+		SELECT host, port, username, auth_type, password, private_key, passphrase
+		FROM server_accounts WHERE id = ?`, serverID).
+		Scan(&cfg.Host, &cfg.Port, &cfg.Username, &cfg.AuthType, &password, &privateKey, &passphrase)
+	if err == sql.ErrNoRows {
+		return cfg, fmt.Errorf("SERVER_NOT_FOUND: 服务器配置不存在")
+	}
+	if err != nil {
+		return cfg, err
+	}
+	cfg.Password = secure.SecureDecrypt(password.String)
+	cfg.PrivateKey = secure.SecureDecrypt(privateKey.String)
+	cfg.Passphrase = secure.SecureDecrypt(passphrase.String)
+	if cfg.Port == 0 {
+		cfg.Port = 22
+	}
+	if cfg.Host == "" || cfg.Username == "" {
+		return cfg, fmt.Errorf("CONFIG_INCOMPLETE: SSH 主机或用户名不完整，无法使用 SFTP")
+	}
+	return cfg, nil
+}
+
+func normalizeRemotePath(remotePath string) string {
+	text := strings.TrimSpace(remotePath)
+	if text == "" {
+		return "."
+	}
+	return pathpkg.Clean(strings.ReplaceAll(text, "\\", "/"))
+}
+
+func fileInfoPayload(parent string, info os.FileInfo) map[string]interface{} {
+	mode := info.Mode()
+	fullPath := pathpkg.Join(parent, info.Name())
+	return map[string]interface{}{
+		"name":        info.Name(),
+		"path":        fullPath,
+		"isDirectory": info.IsDir(),
+		"isFile":      !info.IsDir(),
+		"size":        info.Size(),
+		"mode":        uint32(mode.Perm()),
+		"mtime":       info.ModTime().UnixMilli(),
+		"permissions": formatFileMode(mode),
+	}
+}
+
+func formatFileMode(mode os.FileMode) string {
+	perms := []string{"---", "--x", "-w-", "-wx", "r--", "r-x", "rw-", "rwx"}
+	raw := uint32(mode.Perm())
+	prefix := "-"
+	if mode.IsDir() {
+		prefix = "d"
+	}
+	return prefix + perms[(raw>>6)&7] + perms[(raw>>3)&7] + perms[raw&7]
+}
+
+func readRemoteFile(client *sftp.Client, remotePath string, maxSize int64) (string, error) {
+	file, err := client.Open(remotePath)
+	if err != nil {
+		return "", err
+	}
+	defer file.Close()
+	stat, err := file.Stat()
+	if err != nil {
+		return "", err
+	}
+	if stat.Size() > maxSize {
+		return "", fmt.Errorf("FILE_TOO_LARGE: 文件过大，最大支持 %d 字节", maxSize)
+	}
+	data, err := io.ReadAll(file)
+	if err != nil {
+		return "", err
+	}
+	return string(data), nil
+}
+
+func writeRemoteFile(client *sftp.Client, remotePath string, data []byte) error {
+	file, err := client.Create(remotePath)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+	_, err = file.Write(data)
+	return err
+}
+
+func removeRemoteDirRecursive(client *sftp.Client, remotePath string) error {
+	entries, err := client.ReadDir(remotePath)
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		child := pathpkg.Join(remotePath, entry.Name())
+		if entry.IsDir() {
+			if err := removeRemoteDirRecursive(client, child); err != nil {
+				return err
+			}
+		} else if err := client.Remove(child); err != nil {
+			return err
+		}
+	}
+	return client.RemoveDirectory(remotePath)
+}
+
+func writeSFTPError(w http.ResponseWriter, err error) {
+	msg := err.Error()
+	code := "SFTP_ERROR"
+	status := http.StatusInternalServerError
+	if parts := strings.SplitN(msg, ":", 2); len(parts) == 2 && strings.ToUpper(parts[0]) == parts[0] {
+		code = parts[0]
+		msg = strings.TrimSpace(parts[1])
+	}
+	switch code {
+	case "SERVER_NOT_FOUND":
+		status = http.StatusNotFound
+	case "CONFIG_INCOMPLETE":
+		status = http.StatusBadRequest
+	case "AGENT_TOO_OLD":
+		status = http.StatusConflict
+	case "AUTH_FAILED":
+		status = http.StatusUnauthorized
+	case "PERMISSION_DENIED":
+		status = http.StatusForbidden
+	case "TIMEOUT":
+		status = http.StatusGatewayTimeout
+	case "CONNECTION_FAILED":
+		status = http.StatusBadGateway
+	case "FILE_TOO_LARGE":
+		status = http.StatusRequestEntityTooLarge
+	}
+	response.JSON(w, status, map[string]interface{}{
+		"success": false,
+		"error":   msg,
+		"code":    code,
+	})
+}

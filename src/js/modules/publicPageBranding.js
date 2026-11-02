@@ -1,6 +1,6 @@
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { Activity, Server } from '../components/Icons.jsx';
+import { Activity, Bookmark, Server } from '../components/Icons.jsx';
 
 export const PUBLIC_PAGE_ICON_CONFIG_KEY = 'publicIconId';
 
@@ -41,6 +41,10 @@ const DEFAULT_ICON_DEFS = {
   github: {
     renderIcon: (props = {}) => React.createElement(GitHubGlyphIcon, props),
     faviconHref: GITHUB_FAVICON_HREF,
+  },
+  bookmarks: {
+    renderIcon: (props = {}) => React.createElement(Bookmark, props),
+    faviconHref: svgToDataUrl(renderToStaticMarkup(React.createElement(Bookmark, { size: 64, color: DEFAULT_ICON_COLOR }))),
   },
 };
 

@@ -26,10 +26,6 @@ proxy-groups:
     interval: 300
     proxies:
 {{ proxy_names_yaml | indent 6 }}
-  - name: 😇 稳定
-    type: select
-    proxies:
-{{ stable_proxy_names_yaml | indent 6 }}
   - name: 🐟 漏网
     type: select
     proxies:
@@ -131,8 +127,8 @@ rule-providers:
 rules:
   - PROCESS-NAME,agy.exe,🚀 手动
   - DOMAIN-SUFFIX,googleapis.com,🚀 手动
-  - DOMAIN-SUFFIX,google.com,😇 稳定
-  - DOMAIN-SUFFIX,gstatic.com,😇 稳定
+  - DOMAIN-SUFFIX,google.com,🚀 手动
+  - DOMAIN-SUFFIX,gstatic.com,🚀 手动
 
   - DOMAIN-SUFFIX,worldofwarships.jp,🚀 手动 # 战舰世界
   - DOMAIN-SUFFIX,login1.worldofwarships.jp,🚀 手动 # 战舰世界
@@ -144,9 +140,9 @@ rules:
   - IP-CIDR,92.223.16.154/32,🚀 手动 # 战舰世界
 
   - DOMAIN-SUFFIX,pan.dsuk.top,🚀 手动
-  - DOMAIN-SUFFIX,discord.com,😇 稳定
-  - DOMAIN-SUFFIX,nvidia.com,😇 稳定
-  - DOMAIN-SUFFIX,linux.do,😇 稳定
+  - DOMAIN-SUFFIX,discord.com,🚀 手动
+  - DOMAIN-SUFFIX,nvidia.com,🚀 手动
+  - DOMAIN-SUFFIX,linux.do,🚀 手动
   - DOMAIN-SUFFIX,sharepoint.com,🚀 手动
   - DOMAIN-SUFFIX,oracle.com,🎯 直连
   - DOMAIN-SUFFIX,sharedchat.cc,🎯 直连

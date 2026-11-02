@@ -24,6 +24,8 @@ func ledgerTestDB(t *testing.T) *sql.DB {
 		`CREATE TABLE managed_proxy_nodes(id TEXT PRIMARY KEY,server_id TEXT,enabled INTEGER,apply_status TEXT,stats_port INTEGER)`,
 		`CREATE TABLE subscription_plan_nodes(plan_id TEXT,node_id TEXT,source TEXT,PRIMARY KEY(plan_id,node_id,source))`,
 		`CREATE TABLE subscription_profiles(id TEXT PRIMARY KEY,selection_mode TEXT,include_internal_nodes INTEGER,enabled INTEGER,total_bytes INTEGER,cycle_type TEXT,cycle_day INTEGER)`,
+		`CREATE TABLE IF NOT EXISTS user_settings(id INTEGER PRIMARY KEY,time_zone TEXT)`,
+		`INSERT OR IGNORE INTO user_settings(id,time_zone) VALUES(1,'UTC')`,
 	}
 	for _, statement := range statements {
 		if _, err := db.Exec(statement); err != nil {
@@ -75,7 +77,7 @@ func TestActiveCredentialsExcludeExhaustedSubscriber(t *testing.T) {
 	_, _ = db.Exec(`INSERT INTO managed_proxy_nodes VALUES('node','host',1,'running',21000)`)
 	_, _ = db.Exec(`INSERT INTO subscription_plan_nodes VALUES('plan','node','internal')`)
 	now := time.Date(2026, 7, 22, 12, 0, 0, 0, time.UTC)
-	start, end := CycleWindow(now, "monthly", 1, "")
+	start, end := CycleWindow(now, "monthly", 1, "", time.UTC)
 	_, _ = db.Exec(`INSERT INTO subscription_usage_cycles(subscription_id,cycle_start,cycle_end,upload_bytes,download_bytes) VALUES('spent',?,?,60,40)`, start, end)
 	items, err := ActiveCredentialsForNode(ctx, db, "node", "vless-reality", now)
 	if err != nil || len(items) != 1 || items[0].SubscriptionID != "active" || items[0].VLESSUUID != "uuid-a" {
@@ -270,7 +272,7 @@ func TestProfileSubscriptionLedgerSharesCycleAndQuotaCaliber(t *testing.T) {
 	}
 
 	// 记账窗口必须使用 profile 的周期口径（monthly / day=15），而非默认 none
-	wantStart, wantEnd := CycleWindow(now, "monthly", 15, "2026-01-01 00:00:00")
+	wantStart, wantEnd := CycleWindow(now, "monthly", 15, "2026-01-01 00:00:00", time.UTC)
 	var storedStart, storedEnd string
 	var upload, download int64
 	if err := db.QueryRow(`SELECT cycle_start,cycle_end,upload_bytes,download_bytes FROM subscription_usage_cycles WHERE subscription_id='profsub'`).Scan(&storedStart, &storedEnd, &upload, &download); err != nil {

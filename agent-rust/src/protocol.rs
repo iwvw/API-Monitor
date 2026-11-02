@@ -63,6 +63,9 @@ pub struct TaskPayload {
     pub task_type: i32,
     pub data: String,
     pub timeout: i32,
+    /// 命令类任务（type=1）的工作目录；缺省时沿用 Agent 进程的当前目录。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cwd: Option<String>,
 }
 
 #[derive(Serialize, Debug, Clone)]
@@ -73,6 +76,10 @@ pub struct TaskResultPayload {
     pub successful: bool,
     pub data: String,
     pub delay: i64, // milliseconds
+    /// 命令类任务的进程退出码（None 表示非进程类任务或未取到）。
+    /// 非零退出码本身不算失败：命令已执行完且可能产出有效输出。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exit_code: Option<i32>,
 }
 
 #[derive(Deserialize, Debug, Clone)]

@@ -38,6 +38,12 @@ func TestFindAPIRecallQuality(t *testing.T) {
 		{"给 onepanel 应用安装", "/api/onepanel/{serverId}/apps/install"},
 		{"获取 github 仓库列表", "/api/github/repositories"},
 		{"查看 2fa 状态", "/api/auth/2fa/status"},
+		{"列出所有主机", "/api/server/accounts"},
+		{"查看主机服务器列表", "/api/server/accounts"},
+		{"检查远程主机容器镜像是否有更新", "/api/server/docker/check-update"},
+		{"查看AI助手侧的对话记录", "/api/admin-ai/sessions"},
+		{"获取AI的会话列表", "/api/admin-ai/sessions"},
+		{"查看某个会话的对话历史消息", "/api/admin-ai/sessions/{id}/messages"},
 	}
 
 	hitTop, hitAny, total := 0, 0, len(intents)
@@ -83,3 +89,34 @@ func anyHit(routes []map[string]interface{}, want string) bool {
 }
 
 var _ = manifest.OwnerGo
+
+func TestFindAPIRecallsAgentCommand(t *testing.T) {
+	s := New(config.Config{Version: "test", DataDir: t.TempDir(), DBName: "data.db", Host: "127.0.0.1", Port: 0})
+	intents := []string{
+		"在主机上执行 shell 命令",
+		"远程执行命令",
+		"运行一个 shell 命令",
+		"exec command on host",
+	}
+	for _, intent := range intents {
+		res, err := s.aiFindAPIs(map[string]interface{}{"intent": intent, "limit": 5})
+		if err != nil {
+			t.Fatalf("intent %q err: %v", intent, err)
+		}
+		routes := res.(map[string]interface{})["routes"].([]map[string]interface{})
+		found := false
+		for _, r := range routes {
+			if r["path"] == "/api/server/agent/command/{id}" {
+				found = true
+				break
+			}
+		}
+		if !found {
+			paths := make([]string, 0, len(routes))
+			for _, r := range routes {
+				paths = append(paths, r["path"].(string))
+			}
+			t.Fatalf("intent %q did not recall agent command; got %v", intent, paths)
+		}
+	}
+}

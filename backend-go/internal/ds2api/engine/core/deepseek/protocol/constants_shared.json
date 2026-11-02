@@ -1,0 +1,25 @@
+{
+  "client": {
+    "name": "DeepSeek",
+    "platform": "web",
+    "version": "2.2.0",
+    "locale": "zh_CN"
+  },
+  "base_headers": {
+    "Host": "chat.deepseek.com",
+    "Accept": "application/json",
+    "Content-Type": "application/json"
+  },
+  "skip_contains_patterns": [
+    "quasi_status",
+    "elapsed_secs",
+    "pending_fragment",
+    "conversation_mode",
+    "fragments/-1/status",
+    "fragments/-2/status",
+    "fragments/-3/status"
+  ],
+  "skip_exact_paths": [
+    "response/search_status"
+  ]
+}

@@ -20,9 +20,10 @@ var iconIDPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
 
 // 公开页类型，用于选择默认图标。
 const (
-	KindUptime = "uptime"
-	KindServer = "server"
-	KindGitHub = "github"
+	KindUptime    = "uptime"
+	KindServer    = "server"
+	KindGitHub    = "github"
+	KindBookmarks = "bookmarks"
 )
 
 // DefaultIconColor 与前端 DEFAULT_ICON_COLOR 保持一致。
@@ -35,6 +36,9 @@ const svgHeader = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256"
 const pulsePath = `<path d="M240,128a8,8,0,0,1-8,8H204.94l-37.78,75.58A8,8,0,0,1,160,216h-.4a8,8,0,0,1-7.08-5.14L95.35,60.76,63.28,131.31A8,8,0,0,1,56,136H24a8,8,0,0,1,0-16H50.85L88.72,36.69a8,8,0,0,1,14.76.46l57.51,151,31.85-63.71A8,8,0,0,1,200,120h32A8,8,0,0,1,240,128Z"/>`
 
 const hardDrivesPath = `<path d="M208,136H48a16,16,0,0,0-16,16v48a16,16,0,0,0,16,16H208a16,16,0,0,0,16-16V152A16,16,0,0,0,208,136Zm0,64H48V152H208v48Zm0-160H48A16,16,0,0,0,32,56v48a16,16,0,0,0,16,16H208a16,16,0,0,0,16-16V56A16,16,0,0,0,208,40Zm0,64H48V56H208v48ZM192,80a12,12,0,1,1-12-12A12,12,0,0,1,192,80Zm0,96a12,12,0,1,1-12-12A12,12,0,0,1,192,176Z"/>`
+
+// bookmarkSimplePath 取自 @phosphor-icons/react regular 权重（BookmarkSimple）。
+const bookmarkSimplePath = `<path d="M184,28H72A20,20,0,0,0,52,48V224a12,12,0,0,0,18.36,10.18l57.63-36,57.65,36A12,12,0,0,0,204,224V48A20,20,0,0,0,184,28Zm-4,174.35-45.65-28.53a12,12,0,0,0-12.72,0L76,202.35V52H180Z"/>`
 
 const ( // GitHub 图标 viewBox 与前端一致。
 	githubViewBox   = "0 0 1230 1200"
@@ -96,6 +100,8 @@ func DefaultGlyphSVG(kind string) string {
 		return svgHeader + hardDrivesPath + `</svg>`
 	case KindGitHub:
 		return githubSvgHeader + `<path d="` + githubPathData + `"/></svg>`
+	case KindBookmarks:
+		return svgHeader + bookmarkSimplePath + `</svg>`
 	default:
 		return svgHeader + pulsePath + `</svg>`
 	}

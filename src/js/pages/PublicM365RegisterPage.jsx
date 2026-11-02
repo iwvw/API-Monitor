@@ -312,7 +312,7 @@ function PublicM365RegisterPage() {
             style={{ filter: theme === 'dark' ? 'brightness(0) invert(1)' : 'none' }}
           />
           <div className="min-w-0">
-            <div className="text-base font-bold text-kumo-strong">Microsoft 365 公开注册</div>
+            <div className="text-base font-semibold text-kumo-strong">Microsoft 365 公开注册</div>
             <div className="mt-1">
               <Badge variant="secondary">{batch || code || '-'}</Badge>
             </div>
@@ -373,7 +373,7 @@ function PublicM365RegisterPage() {
               {requiresTargetSelection ? (
                 <div className="grid gap-2">
                   <div className="text-xs text-kumo-subtle">注册域名</div>
-                  <Select
+                  <Select alignItemWithTrigger
                     aria-label="注册域名"
                     value={selectedTargetValue}
                     placeholder="点击选择"

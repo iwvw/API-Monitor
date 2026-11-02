@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"log"
 	"log/slog"
 	"net"
 	"net/http"
@@ -70,7 +71,23 @@ func Init(dataDir string, maxFileSizeMB int) error {
 	stdoutHandler := &consoleHandler{level: slog.LevelInfo}
 	logger = slog.New(&multiHandler{handlers: []slog.Handler{jsonHandler, stdoutHandler}})
 	slog.SetDefault(logger)
+	// 桥接标准库 log：把散落的 log.Printf 调用统一到 applog 格式（console + app.log）。
+	// 去掉标准库自带时间前缀，避免与 applog 时间重复。
+	log.SetOutput(&stdlogWriter{})
+	log.SetFlags(0)
 	return nil
+}
+
+// stdlogWriter 把标准库 log 的每一行转成 applog 日志，统一格式。
+type stdlogWriter struct{}
+
+func (w *stdlogWriter) Write(p []byte) (int, error) {
+	msg := strings.TrimRight(string(p), "\n")
+	if msg == "" {
+		return len(p), nil
+	}
+	Logger().Info("std", "msg", msg)
+	return len(p), nil
 }
 
 func Logger() *slog.Logger {
@@ -300,6 +317,11 @@ func shouldSkipRequestLog(r *http.Request, status int) bool {
 	if status < http.StatusBadRequest && r.URL.Path == "/api/system/host-metrics" {
 		return true
 	}
+	// MCP 端点只支持 POST（GET 按 MCP 规范返回 405）；真正的工具调用仍照常记录。
+	// 405 属于客户端错误，status>=400 不会命中本分支，无需额外处理。
+	if status < http.StatusBadRequest && r.Method == http.MethodGet && r.URL.Path == "/api/ai/mcp" {
+		return true
+	}
 	if status < http.StatusBadRequest && isStaticAssetRequest(r.URL.Path) {
 		return true
 	}
@@ -475,9 +497,15 @@ func (h *consoleHandler) Handle(ctx context.Context, r slog.Record) error {
 			case "path":
 				path = a.Value.String()
 			case "status":
-				status = a.Value.Int64()
+				// 业务日志可能以任意类型携带 status（如字符串状态码），
+				// 仅在确为整数时解析，避免 Int64() 对 String 取值 panic。
+				if a.Value.Kind() == slog.KindInt64 {
+					status = a.Value.Int64()
+				}
 			case "duration_ms":
-				duration = a.Value.Int64()
+				if a.Value.Kind() == slog.KindInt64 {
+					duration = a.Value.Int64()
+				}
 			default:
 				if a.Key != "user_agent" && a.Key != "remote_addr" {
 					extraAttrs = append(extraAttrs, fmt.Sprintf("%s=%v", a.Key, a.Value.Any()))

@@ -1,0 +1,496 @@
+package workbuddy
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"strings"
+	"time"
+)
+
+// tokenExpiringWindow 是判定 access token「即将过期」的阈值。
+const tokenExpiringWindow = 30 * time.Minute
+
+// maskNickname 把昵称打码为「首字符 + *」，避免真实姓名下发前端。
+// 空昵称保持空（前端会退回 uid/id 展示）。
+func maskNickname(name string) string {
+	s := strings.TrimSpace(name)
+	if s == "" {
+		return ""
+	}
+	r := []rune(s)
+	if len(r) <= 1 {
+		return string(r) + "*"
+	}
+	return string(r[0]) + "*"
+}
+
+// toAccountView 把账号脱敏成可下发前端的视图（不下发任何 token）。
+// 昵称打码为「姓+*」，避免真实姓名下发到前端。
+func (s *Service) toAccountView(a Account) AccountView {
+	view := AccountView{
+		ID:           a.ID,
+		Nickname:     maskNickname(a.Nickname),
+		UID:          a.UID,
+		EnterpriseID: a.EnterpriseID,
+		Region:       normalizeRegion(a.Region),
+		Disabled:     a.Disabled,
+		// 签到维度独立于转发维度：即便账号被转发停用，签到开关仍单独展示。
+		CheckinDisabled: a.CheckinDisabled,
+		TokenState:      tokenState(a),
+		ExpiresAt:       a.ExpiresAt,
+		Available:       accountAvailable(a),
+		CallCount:       s.callDisplay(a.ID),
+		LastError:       a.LastError,
+		// 签到与余额状态：国际版账号无签到体系，LastCheckinAt 恒为空。
+		LastCheckinAt: a.LastCheckinAt,
+		Credits:       a.Credits,
+		// 模型级限流（ratelimit.go）：只是这些模型暂时不可用，账号本身仍可用。
+		LimitedModels: s.accountModelLimits(a.ID),
+	}
+	if a.ExpiresAt > 0 {
+		if left := a.ExpiresAt - time.Now().Unix(); left > 0 {
+			view.ExpiresInSeconds = left
+		}
+	}
+	return view
+}
+
+// tokenState 依据过期时刻给出 token 状态。
+func tokenState(a Account) string {
+	if a.AccessToken == "" {
+		return "unknown"
+	}
+	if a.ExpiresAt <= 0 {
+		return "unknown"
+	}
+	left := time.Until(time.Unix(a.ExpiresAt, 0))
+	if left <= 0 {
+		return "expired"
+	}
+	if left < tokenExpiringWindow {
+		return "expiring"
+	}
+	return "valid"
+}
+
+// accountAvailable 表示账号当前是否可用于转发。
+// 无凭据、被停用或 access token 已过期都视为不可用；
+// ExpiresAt 缺失（tokenState = unknown）仍视为可用，避免误伤未记录过期时刻的旧凭据。
+func accountAvailable(a Account) bool {
+	if a.Disabled || a.ID == "" || a.AccessToken == "" {
+		return false
+	}
+	return tokenState(a) != "expired"
+}
+
+// -----------------------------------------------------------------------------
+// 扫码登录
+// -----------------------------------------------------------------------------
+
+// handleLoginStart 发起扫码登录，返回二维码内容（authUrl）与 state。
+// 请求体可选 {"region":"cn|intl"}，缺省国内版（向后兼容）。
+func (s *Service) handleLoginStart(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		responseJSON(w, http.StatusMethodNotAllowed, map[string]interface{}{"success": false, "error": "method not allowed"})
+		return
+	}
+	var body struct {
+		Region string `json:"region"`
+	}
+	// 请求体可空：解析失败按缺省区域处理，不报错。
+	_ = json.NewDecoder(r.Body).Decode(&body)
+	region := normalizeRegion(body.Region)
+
+	ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
+	defer cancel()
+	s.cleanupLoginStates()
+	state, authURL, err := s.startLogin(ctx, region)
+	if err != nil {
+		// 502（而非 501）：失败原因是上游不可用，不是本服务不支持该功能。
+		responseJSON(w, http.StatusBadGateway, map[string]interface{}{"success": false, "error": err.Error()})
+		return
+	}
+	responseJSON(w, map[string]interface{}{
+		"success":   true,
+		"state":     state,
+		"url":       authURL,
+		"region":    region,
+		"expiresAt": time.Now().Add(loginTTL).UTC().Format(time.RFC3339),
+	})
+}
+
+// handleLoginPoll 单次轮询登录状态；轮询节奏由前端驱动。
+func (s *Service) handleLoginPoll(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		responseJSON(w, http.StatusMethodNotAllowed, map[string]interface{}{"success": false, "error": "method not allowed"})
+		return
+	}
+	var body struct {
+		State string `json:"state"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		responseJSON(w, http.StatusBadRequest, map[string]interface{}{"success": false, "error": "请求体解析失败"})
+		return
+	}
+	state := strings.TrimSpace(body.State)
+	if state == "" {
+		responseJSON(w, http.StatusBadRequest, map[string]interface{}{"success": false, "error": "缺少 state"})
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
+	defer cancel()
+	acc, done, err := s.pollLogin(ctx, state)
+	if err != nil {
+		responseJSON(w, http.StatusBadGateway, map[string]interface{}{"success": false, "error": err.Error()})
+		return
+	}
+	if !done {
+		responseJSON(w, map[string]interface{}{"success": true, "status": "pending"})
+		return
+	}
+	if acc.ID == "" {
+		acc.ID = strings.TrimSpace(firstNonEmpty(acc.UID, acc.Nickname))
+	}
+	if acc.ID == "" {
+		responseJSON(w, http.StatusBadGateway, map[string]interface{}{"success": false, "error": "登录返回缺少账号标识"})
+		return
+	}
+	if acc.CreatedAt == "" {
+		acc.CreatedAt = time.Now().UTC().Format(time.RFC3339)
+	}
+	if err := s.upsertAccount(ctx, acc); err != nil {
+		responseJSON(w, http.StatusInternalServerError, map[string]interface{}{"success": false, "error": err.Error()})
+		return
+	}
+	s.forgetLoginState(state)
+	responseJSON(w, map[string]interface{}{
+		"success": true,
+		"status":  "success",
+		"account": s.toAccountView(acc),
+	})
+}
+
+// cleanupLoginStates 清理已过期的登录会话，避免 map 长期增长。
+func (s *Service) cleanupLoginStates() {
+	now := time.Now()
+	s.loginMu.Lock()
+	defer s.loginMu.Unlock()
+	for k, v := range s.loginStates {
+		if v == nil || now.After(v.expires) {
+			delete(s.loginStates, k)
+		}
+	}
+}
+
+// forgetLoginState 丢弃已完成的登录会话。
+func (s *Service) forgetLoginState(state string) {
+	s.loginMu.Lock()
+	defer s.loginMu.Unlock()
+	delete(s.loginStates, state)
+}
+
+// -----------------------------------------------------------------------------
+// 账号管理
+// -----------------------------------------------------------------------------
+
+// handleAccounts 管理账号列表（登录产生的凭据，需扫码获取，故不提供手工新增）。
+func (s *Service) handleAccounts(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		responseJSON(w, http.StatusMethodNotAllowed, map[string]interface{}{"success": false, "error": "method not allowed"})
+		return
+	}
+	st := s.Settings()
+	out := make([]AccountView, 0, len(st.Accounts))
+	for _, a := range st.Accounts {
+		out = append(out, s.toAccountView(a))
+	}
+	responseJSON(w, map[string]interface{}{"success": true, "accounts": out})
+}
+
+// handleDeleteAccount 删除账号。
+func (s *Service) handleDeleteAccount(w http.ResponseWriter, r *http.Request, id string) {
+	if r.Method != http.MethodDelete {
+		responseJSON(w, http.StatusMethodNotAllowed, map[string]interface{}{"success": false, "error": "method not allowed"})
+		return
+	}
+	id = strings.TrimSpace(id)
+	if _, ok := s.findAccount(id); !ok {
+		responseJSON(w, http.StatusNotFound, map[string]interface{}{"success": false, "error": "账号不存在"})
+		return
+	}
+	if err := s.removeAccount(r.Context(), id); err != nil {
+		responseJSON(w, http.StatusInternalServerError, map[string]interface{}{"success": false, "error": err.Error()})
+		return
+	}
+	// 账号没了，它的限流记录也失去了主人：留着只会在库里积垃圾。
+	s.clearModelLimitRow(id)
+	responseJSON(w, map[string]interface{}{"success": true})
+}
+
+// handleUpdateAccount 修改账号备注名（昵称）。
+func (s *Service) handleUpdateAccount(w http.ResponseWriter, r *http.Request, id string) {
+	if r.Method != http.MethodPut {
+		responseJSON(w, http.StatusMethodNotAllowed, map[string]interface{}{"success": false, "error": "method not allowed"})
+		return
+	}
+	var body struct {
+		Nickname string `json:"nickname"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		responseJSON(w, http.StatusBadRequest, map[string]interface{}{"success": false, "error": "请求体解析失败"})
+		return
+	}
+	id = strings.TrimSpace(id)
+	acc, ok := s.findAccount(id)
+	if !ok {
+		responseJSON(w, http.StatusNotFound, map[string]interface{}{"success": false, "error": "账号不存在"})
+		return
+	}
+	// 前端编辑框回填的是打码值（maskNickname 的「首字符+*」）。若提交值恰好就是
+	// 当前真名的打码形态且未改动，视为「保持原名」，不落库打码串，避免用户仅点
+	// 保存就把真实姓名永久覆盖成「首字符+*」。
+	if name := strings.TrimSpace(body.Nickname); name != maskNickname(acc.Nickname) {
+		acc.Nickname = name
+	}
+	if err := s.upsertAccount(r.Context(), acc); err != nil {
+		responseJSON(w, http.StatusInternalServerError, map[string]interface{}{"success": false, "error": err.Error()})
+		return
+	}
+	responseJSON(w, map[string]interface{}{"success": true})
+}
+
+// handleToggleAccount 启用/停用账号的「转发」维度。
+// 请求体的 disabled 只作用于转发；签到维度由 handleToggleAccountCheckin 独立控制，
+// 因此停用转发不会中断该账号的每日签到。
+func (s *Service) handleToggleAccount(w http.ResponseWriter, r *http.Request, id string) {
+	if r.Method != http.MethodPost {
+		responseJSON(w, http.StatusMethodNotAllowed, map[string]interface{}{"success": false, "error": "method not allowed"})
+		return
+	}
+	var body struct {
+		Disabled bool `json:"disabled"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		responseJSON(w, http.StatusBadRequest, map[string]interface{}{"success": false, "error": "请求体解析失败"})
+		return
+	}
+	id = strings.TrimSpace(id)
+	acc, ok := s.findAccount(id)
+	if !ok {
+		responseJSON(w, http.StatusNotFound, map[string]interface{}{"success": false, "error": "账号不存在"})
+		return
+	}
+	acc.Disabled = body.Disabled
+	if !body.Disabled {
+		acc.LastError = ""
+	}
+	if err := s.upsertAccount(r.Context(), acc); err != nil {
+		responseJSON(w, http.StatusInternalServerError, map[string]interface{}{"success": false, "error": err.Error()})
+		return
+	}
+	responseJSON(w, map[string]interface{}{"success": true})
+}
+
+// handleToggleAccountCheckin 启用/停用账号的「签到」维度（独立于转发）。
+// 签到开关只影响每日签到/活跃上报/连登管家；停用后不影响转发选号与自动刷新。
+func (s *Service) handleToggleAccountCheckin(w http.ResponseWriter, r *http.Request, id string) {
+	if r.Method != http.MethodPost {
+		responseJSON(w, http.StatusMethodNotAllowed, map[string]interface{}{"success": false, "error": "method not allowed"})
+		return
+	}
+	var body struct {
+		Disabled bool `json:"disabled"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		responseJSON(w, http.StatusBadRequest, map[string]interface{}{"success": false, "error": "请求体解析失败"})
+		return
+	}
+	id = strings.TrimSpace(id)
+	acc, ok := s.findAccount(id)
+	if !ok {
+		responseJSON(w, http.StatusNotFound, map[string]interface{}{"success": false, "error": "账号不存在"})
+		return
+	}
+	acc.CheckinDisabled = body.Disabled
+	if !body.Disabled {
+		acc.LastError = ""
+	}
+	if err := s.upsertAccount(r.Context(), acc); err != nil {
+		responseJSON(w, http.StatusInternalServerError, map[string]interface{}{"success": false, "error": err.Error()})
+		return
+	}
+	responseJSON(w, map[string]interface{}{"success": true})
+}
+
+// handleRefreshAccount 立即刷新指定账号的 access token。
+func (s *Service) handleRefreshAccount(w http.ResponseWriter, r *http.Request, id string) {
+	if r.Method != http.MethodPost {
+		responseJSON(w, http.StatusMethodNotAllowed, map[string]interface{}{"success": false, "error": "method not allowed"})
+		return
+	}
+	acc, ok := s.findAccount(strings.TrimSpace(id))
+	if !ok {
+		responseJSON(w, http.StatusNotFound, map[string]interface{}{"success": false, "error": "账号不存在"})
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	defer cancel()
+	if err := s.refreshAccessToken(ctx, &acc); err != nil {
+		acc.LastError = err.Error()
+		_ = s.upsertAccount(ctx, acc)
+		responseJSON(w, http.StatusBadGateway, map[string]interface{}{"success": false, "error": err.Error()})
+		return
+	}
+	acc.LastError = ""
+	acc.LastRefreshAt = time.Now().UTC().Format(time.RFC3339)
+	if err := s.upsertAccount(ctx, acc); err != nil {
+		responseJSON(w, http.StatusInternalServerError, map[string]interface{}{"success": false, "error": err.Error()})
+		return
+	}
+	responseJSON(w, map[string]interface{}{"success": true, "account": s.toAccountView(acc)})
+}
+
+// handleTestAccount 对指定账号做一次连通性测试。
+// 用 refresh 作为探针：它同时验证 refresh token 是否仍然有效（比拉目录更有意义，
+// 目录本身与账号无关，登录前也能拿到）。
+func (s *Service) handleTestAccount(w http.ResponseWriter, r *http.Request, id string) {
+	if r.Method != http.MethodPost {
+		responseJSON(w, http.StatusMethodNotAllowed, map[string]interface{}{"success": false, "error": "method not allowed"})
+		return
+	}
+	acc, ok := s.findAccount(strings.TrimSpace(id))
+	if !ok {
+		responseJSON(w, http.StatusNotFound, map[string]interface{}{"success": false, "error": "账号不存在"})
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	defer cancel()
+	if err := s.refreshAccessToken(ctx, &acc); err != nil {
+		acc.LastError = err.Error()
+		_ = s.upsertAccount(ctx, acc)
+		responseJSON(w, http.StatusBadGateway, map[string]interface{}{"success": false, "error": err.Error()})
+		return
+	}
+	// 必须落库：refreshAccessToken 会轮换 access token，并可能一并轮换 refresh token。
+	// 探针若只验证不保存，轮换后的 refresh token 就丢了，账号会在下次刷新时失效。
+	acc.LastError = ""
+	if err := s.upsertAccount(ctx, acc); err != nil {
+		responseJSON(w, http.StatusInternalServerError, map[string]interface{}{"success": false, "error": err.Error()})
+		return
+	}
+	responseJSON(w, map[string]interface{}{"success": true, "tokenSet": acc.AccessToken != ""})
+}
+
+// -----------------------------------------------------------------------------
+// 导出 / 导入
+// -----------------------------------------------------------------------------
+
+// exportPayload 是账号导出文件的形状（含 token，属敏感数据）。
+type exportPayload struct {
+	Version  int       `json:"version"`
+	Exported string    `json:"exportedAt"`
+	Accounts []Account `json:"accounts"`
+}
+
+// handleExportAccounts 导出全部账号（含 token，仅本机会话可下载，用于迁移/备份）。
+func (s *Service) handleExportAccounts(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		responseJSON(w, http.StatusMethodNotAllowed, map[string]interface{}{"success": false, "error": "method not allowed"})
+		return
+	}
+	st := s.Settings()
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Content-Disposition",
+		fmt.Sprintf("attachment; filename=workbuddy-accounts-%s.json", time.Now().UTC().Format("20060102")))
+	_ = json.NewEncoder(w).Encode(exportPayload{
+		Version:  1,
+		Exported: time.Now().UTC().Format(time.RFC3339),
+		Accounts: st.Accounts,
+	})
+}
+
+// handleImportAccounts 导入账号，按 ID 去重合并（已存在则保留本机版本，不覆盖）。
+// 兼容两种形状：{"accounts":[...]} 或裸数组。
+func (s *Service) handleImportAccounts(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		responseJSON(w, http.StatusMethodNotAllowed, map[string]interface{}{"success": false, "error": "method not allowed"})
+		return
+	}
+	raw, err := decodeImportBody(r)
+	if err != nil {
+		responseJSON(w, http.StatusBadRequest, map[string]interface{}{"success": false, "error": err.Error()})
+		return
+	}
+	if len(raw) == 0 {
+		responseJSON(w, http.StatusBadRequest, map[string]interface{}{"success": false, "error": "没有可导入的账号"})
+		return
+	}
+	st := s.Settings()
+	seen := map[string]bool{}
+	for _, a := range st.Accounts {
+		seen[a.ID] = true
+	}
+	added := 0
+	for _, a := range raw {
+		// 区域：显式 region 优先；否则按 domain / token issuer 自证。
+		if strings.TrimSpace(a.Region) == "" {
+			if a.Domain != "" {
+				a.Region = regionOfDomain(a.Domain)
+			} else {
+				a.Region = regionCN
+			}
+		}
+		a.Region = normalizeRegion(a.Region)
+		// 账号 ID 区域化：国际版加前缀，避免同一 uid 跨区互相覆盖。
+		if a.UID != "" || a.Nickname != "" {
+			a.ID = accountIDForRegion(a.Region, firstNonEmpty(a.UID, a.Nickname))
+		}
+		if a.ID == "" || seen[a.ID] {
+			continue
+		}
+		seen[a.ID] = true
+		st.Accounts = append(st.Accounts, a)
+		added++
+	}
+	if err := s.SaveSettings(r.Context(), st); err != nil {
+		responseJSON(w, http.StatusInternalServerError, map[string]interface{}{"success": false, "error": err.Error()})
+		return
+	}
+	responseJSON(w, map[string]interface{}{"success": true, "added": added})
+}
+
+// decodeImportBody 解析导入请求体，同时支持 {"accounts":[...]} 与裸数组。
+func decodeImportBody(r *http.Request) ([]Account, error) {
+	var probe json.RawMessage
+	if err := json.NewDecoder(r.Body).Decode(&probe); err != nil {
+		return nil, fmt.Errorf("请求体解析失败")
+	}
+	trimmed := strings.TrimSpace(string(probe))
+	if trimmed == "" {
+		return nil, fmt.Errorf("请求体为空")
+	}
+	if strings.HasPrefix(trimmed, "[") {
+		var arr []Account
+		if err := json.Unmarshal(probe, &arr); err != nil {
+			return nil, fmt.Errorf("账号解析失败: %w", err)
+		}
+		return arr, nil
+	}
+	var wrapper exportPayload
+	if err := json.Unmarshal(probe, &wrapper); err != nil {
+		return nil, fmt.Errorf("配置解析失败: %w", err)
+	}
+	return wrapper.Accounts, nil
+}
+
+// firstNonEmpty 返回第一个非空字符串。
+func firstNonEmpty(vals ...string) string {
+	for _, v := range vals {
+		if strings.TrimSpace(v) != "" {
+			return v
+		}
+	}
+	return ""
+}

@@ -5,6 +5,25 @@ import (
 	"testing"
 )
 
+// 小内存主机（≤512MB）用更保守的 GOMEMLIMIT 比率，大主机保持默认 0.70。
+func TestLimitRatioForSmallHost(t *testing.T) {
+	cases := []struct {
+		name  string
+		limit uint64
+		want  float64
+	}{
+		{"200MB 主机（本次加固目标）", 200 << 20, smallHostLimitRatio},
+		{"512MB 边界", 512 << 20, smallHostLimitRatio},
+		{"513MB", 513 << 20, defaultLimitRatio},
+		{"1GB", 1 << 30, defaultLimitRatio},
+	}
+	for _, c := range cases {
+		if got := limitRatioFor(c.limit); got != c.want {
+			t.Fatalf("%s: limitRatioFor(%d) = %v, want %v", c.name, c.limit, got, c.want)
+		}
+	}
+}
+
 // cgroup 正常值（容器设了 256MB 上限）→ 可信采纳。
 func TestTrustedCgroupLimit(t *testing.T) {
 	cases := []struct {

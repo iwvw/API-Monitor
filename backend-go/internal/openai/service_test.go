@@ -66,6 +66,27 @@ func TestOpenAINormalization(t *testing.T) {
 	}
 }
 
+func TestEnsureVersionPath(t *testing.T) {
+	testCases := []struct {
+		input    string
+		expected string
+	}{
+		{"https://api.openai.com/v1", "https://api.openai.com/v1"},
+		{"https://api.openai.com/v1/", "https://api.openai.com/v1"},
+		{"https://my-proxy.com", "https://my-proxy.com/v1"},
+		{"https://my-proxy.com/v2/", "https://my-proxy.com/v2"},
+		{"https://ark.cn-beijing.volces.com/api/v3", "https://ark.cn-beijing.volces.com/api/v3"},
+		{"https://api-gateway.merge.dev/v1/openai", "https://api-gateway.merge.dev/v1/openai"},
+		{"https://opencode.ai/zen/v1", "https://opencode.ai/zen/v1"},
+	}
+	for _, tc := range testCases {
+		res := ensureVersionPath(tc.input)
+		if res != tc.expected {
+			t.Errorf("ensureVersionPath(%q) = %q; want %q", tc.input, res, tc.expected)
+		}
+	}
+}
+
 func TestNormalizeProtocol(t *testing.T) {
 	testCases := []struct {
 		input    string
@@ -291,6 +312,41 @@ func TestRecordAnalyticsSurvivesCancelledRequestContext(t *testing.T) {
 	}
 	if route != "chat.completions" || gatewayKeyID != "key-1" {
 		t.Fatalf("unexpected analytics identity: route=%q gateway_key_id=%q", route, gatewayKeyID)
+	}
+}
+
+// TestRecordAnalyticsWritesLogsAndStats 验证一次调用同时落入原生日志表与看板聚合表，
+// 且聚合值（请求数/错误数/词元/延迟）与明细一致。
+func TestRecordAnalyticsWritesLogsAndStats(t *testing.T) {
+	service := newOpenAIService(t)
+	ctx := context.WithValue(context.Background(), gatewayKeyContextKey{}, gatewayKeyIdentity{ID: "key-1", Name: "client"})
+
+	// 成功请求 + 失败请求：聚合表的错误计数应与明细一致。
+	service.RecordAnalytics(ctx, "chat.completions", "ep-success", "gpt-4o", 200, 120, 30, 100, 200, 300, 50, 1, 0, "203.0.113.10", "198.51.100.8")
+	service.RecordAnalytics(ctx, "chat.completions", "ep-fail", "gpt-4o", 502, 80, 0, 10, 0, 10, 0, 1, 0, "203.0.113.11", "198.51.100.9")
+	service.flushAnalyticsQueue(5 * time.Second)
+
+	db, err := service.open(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	var logCount, errCount int
+	if err := db.QueryRow("SELECT COUNT(*), COALESCE(SUM(CASE WHEN status_code >= 400 THEN 1 ELSE 0 END),0) FROM openai_gateway_analytics").Scan(&logCount, &errCount); err != nil {
+		t.Fatal(err)
+	}
+	if logCount != 2 || errCount != 1 {
+		t.Fatalf("raw logs inconsistent: count=%d errors=%d", logCount, errCount)
+	}
+
+	var statsRequests, statsErrors int
+	var latencySum int64
+	if err := db.QueryRow("SELECT COALESCE(SUM(requests),0), COALESCE(SUM(errors),0), COALESCE(SUM(latency_sum),0) FROM openai_gateway_stats_hourly").Scan(&statsRequests, &statsErrors, &latencySum); err != nil {
+		t.Fatal(err)
+	}
+	if statsRequests != 2 || statsErrors != 1 || latencySum != 200 {
+		t.Fatalf("stats table inconsistent: requests=%d errors=%d latency_sum=%d", statsRequests, statsErrors, latencySum)
 	}
 }
 
@@ -750,6 +806,7 @@ func TestHealthCheckAcceptsEmptyOutput(t *testing.T) {
 		"array-model",
 		5*time.Second,
 		nil,
+		"openai",
 	)
 	if success.Status == "failed" || success.Error != "" {
 		t.Fatalf("expected valid output to pass, got status=%s error=%s", success.Status, success.Error)
@@ -763,6 +820,7 @@ func TestHealthCheckAcceptsEmptyOutput(t *testing.T) {
 		"empty-model",
 		5*time.Second,
 		nil,
+		"openai",
 	)
 	if failed.Status == "failed" {
 		t.Fatalf("expected empty output to count as healthy, got status=%s error=%s", failed.Status, failed.Error)
@@ -791,6 +849,7 @@ func TestHealthCheckRejects200WithErrorBody(t *testing.T) {
 		"broken-model",
 		5*time.Second,
 		nil,
+		"openai",
 	)
 	if record.Status != "failed" {
 		t.Fatalf("expected 200-with-error-body to fail, got status=%s", record.Status)
@@ -803,6 +862,37 @@ func TestHealthCheckRejects200WithErrorBody(t *testing.T) {
 func mustDecode(t *testing.T, body string, v interface{}) {
 	if err := json.Unmarshal([]byte(body), v); err != nil {
 		t.Fatalf("json decode failed: %v body=%q", err, body)
+	}
+}
+
+// seedStatsFromAnalytics 把测试直插的原始日志按小时聚合进看板聚合表，
+// 模拟生产中 persistAnalyticsBatch 的同步 UPSERT 效果（charts/summary 走聚合表）。
+func seedStatsFromAnalytics(t *testing.T, db *sql.DB) {
+	t.Helper()
+	if _, err := db.Exec(`
+		INSERT INTO openai_gateway_stats_hourly (hour, endpoint_id, gateway_key_id, model, route, requests, errors, latency_sum, ttfb_sum, ttfb_count, prompt_tokens, completion_tokens, total_tokens, cached_tokens, cost, cost_currency)
+		SELECT
+			strftime('%Y-%m-%d %H:00:00', timestamp),
+			COALESCE(endpoint_id, ''),
+			COALESCE(gateway_key_id, ''),
+			COALESCE(model, ''),
+			COALESCE(route, ''),
+			COUNT(*),
+			SUM(CASE WHEN status_code >= 400 THEN 1 ELSE 0 END),
+			COALESCE(SUM(latency_ms), 0),
+			COALESCE(SUM(CASE WHEN ttfb_ms > 0 THEN ttfb_ms ELSE 0 END), 0),
+			COALESCE(SUM(CASE WHEN ttfb_ms > 0 THEN 1 ELSE 0 END), 0),
+			COALESCE(SUM(prompt_tokens), 0),
+			COALESCE(SUM(completion_tokens), 0),
+			COALESCE(SUM(total_tokens), 0),
+			COALESCE(SUM(cached_tokens), 0),
+			COALESCE(SUM(cost), 0),
+			COALESCE(cost_currency, '')
+		FROM openai_gateway_analytics
+		WHERE route != 'models'
+		GROUP BY strftime('%Y-%m-%d %H:00:00', timestamp), COALESCE(endpoint_id, ''), COALESCE(gateway_key_id, ''), COALESCE(model, ''), COALESCE(route, ''), COALESCE(cost_currency, '')
+	`); err != nil {
+		t.Fatalf("seedStatsFromAnalytics: %v", err)
 	}
 }
 
@@ -828,6 +918,7 @@ func TestDeletedEndpointKeepsNameInAnalytics(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	seedStatsFromAnalytics(t, db)
 	db.Close()
 
 	delRecorder := httptest.NewRecorder()
@@ -2730,6 +2821,74 @@ func TestMixedEndpointErrorsReturns503(t *testing.T) {
 	}
 }
 
+// TestAggregatedUnavailableCarriesUpstreamDetail 验证「全部候选端点失败」时，
+// 客户端错误文案与调用日志都会带上最后一次失败的上游真实原因，而不是只有
+// 网关合成的「所有端点均返回 HTTP N」。这是本次修复的核心：上游业务码/安全
+// 策略原文（如 WorkBuddy 的 code 11128）必须透传，否则根因被吞。
+func TestAggregatedUnavailableCarriesUpstreamDetail(t *testing.T) {
+	// 上游返回 502 + 业务信封：网关应把 msg 原文透传到聚合文案。
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadGateway)
+		w.Write([]byte(`{"error":{"message":"上游 HTTP 400: {\"code\":11128,\"msg\":\"first message is not system prompt\"}"}}`))
+	}))
+	defer upstream.Close()
+
+	service := newOpenAIService(t)
+
+	w := httptest.NewRecorder()
+	body := fmt.Sprintf(`{"name":"wb","baseUrl":%q,"apiKey":"k","skipVerify":true}`, upstream.URL)
+	r, _ := http.NewRequest("POST", "/api/openai/endpoints", strings.NewReader(body))
+	service.ServeHTTP(w, r)
+	if w.Code != http.StatusOK {
+		t.Fatalf("create endpoint status = %d body=%s", w.Code, w.Body.String())
+	}
+	var out struct {
+		Endpoint Endpoint `json:"endpoint"`
+	}
+	mustDecode(t, w.Body.String(), &out)
+
+	db, err := service.open(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`UPDATE openai_endpoints SET models = ? WHERE id = ?`, `["gpt-4"]`, out.Endpoint.ID); err != nil {
+		t.Fatal(err)
+	}
+	db.Close()
+	service.invalidateRouteCache()
+
+	wChat := httptest.NewRecorder()
+	rChat, _ := http.NewRequest("POST", "/v1/chat/completions", strings.NewReader(`{
+		"model": "gpt-4",
+		"messages": [{"role":"user","content":"hello"}]
+	}`))
+	service.ServeHTTP(wChat, rChat)
+	if wChat.Code != http.StatusBadGateway {
+		t.Fatalf("expected 502, got code=%d body=%s", wChat.Code, wChat.Body.String())
+	}
+	if !strings.Contains(wChat.Body.String(), "11128") {
+		t.Fatalf("client error body should carry upstream detail, got body=%s", wChat.Body.String())
+	}
+
+	// 调用日志（analytics）同样应记录上游原文。
+	service.flushAnalyticsQueue(5 * time.Second)
+	logsW := httptest.NewRecorder()
+	logsR, _ := http.NewRequest("GET", "/api/openai/analytics/logs?page=1&pageSize=5", nil)
+	service.ServeHTTP(logsW, logsR)
+	if !strings.Contains(logsW.Body.String(), "11128") {
+		t.Fatalf("analytics log should carry upstream detail, got body=%s", logsW.Body.String())
+	}
+
+	// relay-errors 明细的 upstream 字段也应带上原文。
+	relayW := httptest.NewRecorder()
+	relayR, _ := http.NewRequest("GET", "/api/openai/relay-errors", nil)
+	service.ServeHTTP(relayW, relayR)
+	if !strings.Contains(relayW.Body.String(), "11128") {
+		t.Fatalf("relay-errors should carry upstream detail, got body=%s", relayW.Body.String())
+	}
+}
+
 // TestRetryRoundRecoversOnSubsequentRound 验证对齐 New API RetryTimes 的多轮重试：
 // 全部候选在第一轮都返回 429，但重试轮内上游恢复，最终请求成功返回 200，
 // 客户端无需感知（期间保持等待）。
@@ -4218,6 +4377,7 @@ func TestAnalyticsChartsByDimensionCarryTokenSeries(t *testing.T) {
 	`); err != nil {
 		t.Fatal(err)
 	}
+	seedStatsFromAnalytics(t, db)
 	db.Close()
 
 	rec := httptest.NewRecorder()
@@ -4764,5 +4924,524 @@ func TestUpdateEndpointKeepsModelsOnVerifyFailure(t *testing.T) {
 	}
 	if !strings.Contains(modelsRaw, "gpt-4") || !strings.Contains(modelsRaw, "gpt-4o") {
 		t.Fatalf("verify failure must keep existing models, got %q", modelsRaw)
+	}
+}
+
+// TestVerifyEndpointKeepsModelsOnUpstreamFailure 端点验证接口（POST /endpoints/:id/verify）
+// 在上游临时不可达时，必须保留库中旧模型列表：瞬时故障不应把端点模型清空成
+// 「暂无模型数据，可刷新端点获取」。
+func TestVerifyEndpointKeepsModelsOnUpstreamFailure(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"data":[{"id":"gpt-4","object":"model"}]}`))
+	}))
+
+	service := newOpenAIService(t)
+	createPayload := fmt.Sprintf(`{"name":"Keep Models","baseUrl":"%s","apiKey":"k1","skipVerify":true}`, upstream.URL)
+	wCreate := httptest.NewRecorder()
+	rCreate, _ := http.NewRequest("POST", "/api/openai/endpoints", strings.NewReader(createPayload))
+	service.ServeHTTP(wCreate, rCreate)
+	if wCreate.Code != http.StatusOK {
+		upstream.Close()
+		t.Fatalf("create status = %d body=%s", wCreate.Code, wCreate.Body.String())
+	}
+	var createRes struct {
+		Endpoint Endpoint `json:"endpoint"`
+	}
+	mustDecode(t, wCreate.Body.String(), &createRes)
+
+	db, err := service.open(context.Background())
+	if err != nil {
+		upstream.Close()
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`UPDATE openai_endpoints SET models = ?, pricing = ? WHERE id = ?`, `["gpt-4","gpt-4o"]`, `{"gpt-4":{"input":0.03}}`, createRes.Endpoint.ID); err != nil {
+		db.Close()
+		upstream.Close()
+		t.Fatal(err)
+	}
+	db.Close()
+
+	// 上游下线后手动刷新端点模型：验证必然失败，旧模型与定价必须保留。
+	upstream.Close()
+	wVerify := httptest.NewRecorder()
+	rVerify, _ := http.NewRequest("POST", "/api/openai/endpoints/"+createRes.Endpoint.ID+"/verify", nil)
+	service.ServeHTTP(wVerify, rVerify)
+	if wVerify.Code != http.StatusOK {
+		t.Fatalf("verify status = %d body=%s", wVerify.Code, wVerify.Body.String())
+	}
+
+	db, err = service.open(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	var modelsRaw, pricingRaw string
+	if err := db.QueryRowContext(context.Background(), "SELECT models, pricing FROM openai_endpoints WHERE id = ?", createRes.Endpoint.ID).Scan(&modelsRaw, &pricingRaw); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(modelsRaw, "gpt-4") || !strings.Contains(modelsRaw, "gpt-4o") {
+		t.Fatalf("verify failure must keep existing models, got %q", modelsRaw)
+	}
+	if !strings.Contains(pricingRaw, "0.03") {
+		t.Fatalf("verify failure must keep existing pricing, got %q", pricingRaw)
+	}
+}
+
+// TestRefreshAllModelsKeepsModelsOnUpstreamFailure 后台自动刷新（refreshAllModels）
+// 在上游临时不可达时，必须保留库中旧模型列表：每小时刷新的一次失败不应清空模型。
+func TestRefreshAllModelsKeepsModelsOnUpstreamFailure(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"data":[{"id":"gpt-4","object":"model"}]}`))
+	}))
+
+	service := newOpenAIService(t)
+	createPayload := fmt.Sprintf(`{"name":"Keep Models","baseUrl":"%s","apiKey":"k1","skipVerify":true}`, upstream.URL)
+	wCreate := httptest.NewRecorder()
+	rCreate, _ := http.NewRequest("POST", "/api/openai/endpoints", strings.NewReader(createPayload))
+	service.ServeHTTP(wCreate, rCreate)
+	if wCreate.Code != http.StatusOK {
+		upstream.Close()
+		t.Fatalf("create status = %d body=%s", wCreate.Code, wCreate.Body.String())
+	}
+	var createRes struct {
+		Endpoint Endpoint `json:"endpoint"`
+	}
+	mustDecode(t, wCreate.Body.String(), &createRes)
+
+	db, err := service.open(context.Background())
+	if err != nil {
+		upstream.Close()
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`UPDATE openai_endpoints SET models = ? WHERE id = ?`, `["gpt-4","gpt-4o"]`, createRes.Endpoint.ID); err != nil {
+		db.Close()
+		upstream.Close()
+		t.Fatal(err)
+	}
+	db.Close()
+
+	// 上游下线后触发全量刷新：失败端点必须保留旧模型。
+	upstream.Close()
+	results, rerr := service.refreshAllModels(context.Background())
+	if rerr != nil {
+		t.Fatal(rerr)
+	}
+	if len(results) != 1 {
+		t.Fatalf("refresh results = %+v, want 1 entry", results)
+	}
+	if ok, _ := results[0]["success"].(bool); ok {
+		t.Fatalf("refresh should fail with upstream down, got %+v", results[0])
+	}
+
+	db, err = service.open(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	var modelsRaw string
+	if err := db.QueryRowContext(context.Background(), "SELECT models FROM openai_endpoints WHERE id = ?", createRes.Endpoint.ID).Scan(&modelsRaw); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(modelsRaw, "gpt-4") || !strings.Contains(modelsRaw, "gpt-4o") {
+		t.Fatalf("refresh failure must keep existing models, got %q", modelsRaw)
+	}
+}
+
+// seedRawAndStats 同时写入原始日志表与看板聚合表（模拟写路径双写）。
+func seedRawAndStats(t *testing.T, db *sql.DB) {
+	t.Helper()
+	if _, err := db.Exec(`
+		INSERT INTO openai_gateway_analytics (endpoint_id, route, model, status_code, latency_ms, prompt_tokens, completion_tokens, total_tokens, cached_tokens, timestamp)
+		VALUES
+			('ep-keep', 'chat.completions', 'model-a', 200, 120, 300, 700, 1000, 200, datetime('now', '-1 hour'))
+	`); err != nil {
+		t.Fatal(err)
+	}
+	seedStatsFromAnalytics(t, db)
+}
+
+func TestClearAnalyticsLogsKeepsDashboardHistory(t *testing.T) {
+	service := newOpenAIService(t)
+	db, err := service.open(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	seedRawAndStats(t, db)
+	db.Close()
+
+	rec := httptest.NewRecorder()
+	service.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/openai/analytics/clear", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("clear status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	var cleared struct {
+		Success bool  `json:"success"`
+		Deleted int64 `json:"deleted"`
+	}
+	mustDecode(t, rec.Body.String(), &cleared)
+	if !cleared.Success || cleared.Deleted != 1 {
+		t.Fatalf("unexpected clear result: %+v", cleared)
+	}
+
+	// 日志明细已清空：/logs 返回 0 条。
+	logsRec := httptest.NewRecorder()
+	service.ServeHTTP(logsRec, httptest.NewRequest(http.MethodGet, "/api/openai/analytics/logs?days=7&page=1&pageSize=20", nil))
+	var logs struct {
+		Total int `json:"total"`
+	}
+	mustDecode(t, logsRec.Body.String(), &logs)
+	if logs.Total != 0 {
+		t.Fatalf("logs not cleared, total=%d", logs.Total)
+	}
+
+	// 数据看板历史仍保留：summary 请求量不为 0。
+	sumRec := httptest.NewRecorder()
+	service.ServeHTTP(sumRec, httptest.NewRequest(http.MethodGet, "/api/openai/analytics/summary?days=7", nil))
+	if sumRec.Code != http.StatusOK {
+		t.Fatalf("summary status = %d, body = %s", sumRec.Code, sumRec.Body.String())
+	}
+	var summary struct {
+		TotalRequests int `json:"totalRequests"`
+		TotalTokens   int `json:"totalTokens"`
+	}
+	mustDecode(t, sumRec.Body.String(), &summary)
+	if summary.TotalRequests != 1 || summary.TotalTokens != 1000 {
+		t.Fatalf("dashboard history lost after log clear: %+v", summary)
+	}
+}
+
+func TestClearDashboardHistoryKeepsLogs(t *testing.T) {
+	service := newOpenAIService(t)
+	db, err := service.open(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	seedRawAndStats(t, db)
+	db.Close()
+
+	rec := httptest.NewRecorder()
+	service.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/openai/analytics/clear-history", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("clear-history status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	var cleared struct {
+		Success bool  `json:"success"`
+		Deleted int64 `json:"deleted"`
+	}
+	mustDecode(t, rec.Body.String(), &cleared)
+	if !cleared.Success || cleared.Deleted != 1 {
+		t.Fatalf("unexpected clear-history result: %+v", cleared)
+	}
+
+	// 数据看板历史已清空：summary 归零。
+	sumRec := httptest.NewRecorder()
+	service.ServeHTTP(sumRec, httptest.NewRequest(http.MethodGet, "/api/openai/analytics/summary?days=7", nil))
+	var summary struct {
+		TotalRequests int `json:"totalRequests"`
+	}
+	mustDecode(t, sumRec.Body.String(), &summary)
+	if summary.TotalRequests != 0 {
+		t.Fatalf("dashboard history not cleared, totalRequests=%d", summary.TotalRequests)
+	}
+
+	// 网关日志明细保留：/logs 仍有数据。
+	logsRec := httptest.NewRecorder()
+	service.ServeHTTP(logsRec, httptest.NewRequest(http.MethodGet, "/api/openai/analytics/logs?days=7&page=1&pageSize=20", nil))
+	var logs struct {
+		Total int `json:"total"`
+	}
+	mustDecode(t, logsRec.Body.String(), &logs)
+	if logs.Total != 1 {
+		t.Fatalf("logs lost after dashboard history clear, total=%d", logs.Total)
+	}
+}
+
+// TestEnsureSchemaBackfillsStatsOnce 首次建表应从存量日志回填看板聚合表，
+// 且清空看板历史后重启不会重新回填（留单独的清理按钮控制看板数据）。
+func TestEnsureSchemaBackfillsStatsOnce(t *testing.T) {
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	// 先建旧版 schema（只有原始日志表，没有看板聚合表），并写入存量日志。
+	if _, err := db.Exec(`CREATE TABLE openai_gateway_analytics (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		endpoint_id TEXT,
+		gateway_key_id TEXT,
+		route TEXT NOT NULL DEFAULT 'chat.completions',
+		model TEXT NOT NULL,
+		status_code INTEGER NOT NULL,
+		latency_ms INTEGER NOT NULL,
+		ttfb_ms INTEGER DEFAULT 0,
+		prompt_tokens INTEGER DEFAULT 0,
+		completion_tokens INTEGER DEFAULT 0,
+		total_tokens INTEGER DEFAULT 0,
+		cached_tokens INTEGER DEFAULT 0,
+		cost REAL DEFAULT 0,
+		cost_currency TEXT,
+		timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+	)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`
+		INSERT INTO openai_gateway_analytics (endpoint_id, route, model, status_code, latency_ms, total_tokens, timestamp)
+		VALUES
+			('old-ep', 'chat.completions', 'legacy-model', 200, 50, 500, datetime('now', '-3 days')),
+			('old-ep', 'chat.completions', 'legacy-model', 500, 80, 300, datetime('now', '-3 days'))
+	`); err != nil {
+		t.Fatal(err)
+	}
+
+	// 首次 ensureSchema：聚合表不存在，触发建表 + 存量回填。
+	if err := ensureSchema(context.Background(), db); err != nil {
+		t.Fatalf("ensureSchema v1: %v", err)
+	}
+	var statsCount int
+	var requestsSum int
+	if err := db.QueryRow("SELECT COUNT(*), COALESCE(SUM(requests),0) FROM openai_gateway_stats_hourly").Scan(&statsCount, &requestsSum); err != nil {
+		t.Fatalf("stats table query failed: %v", err)
+	}
+	if statsCount != 1 || requestsSum != 2 {
+		t.Fatalf("expected 1 backfilled bucket with 2 requests, got count=%d requests=%d", statsCount, requestsSum)
+	}
+
+	// 清空看板历史（模拟用户点看板清除按钮）：聚合表会连行一起删掉，只剩空表。
+	if _, err := db.Exec("DELETE FROM openai_gateway_stats_hourly"); err != nil {
+		t.Fatal(err)
+	}
+
+	// 再次 ensureSchema（模拟重启）：聚合表已存在，不得重新回填已被清空的历史。
+	if err := ensureSchema(context.Background(), db); err != nil {
+		t.Fatalf("ensureSchema v2: %v", err)
+	}
+	if err := db.QueryRow("SELECT COUNT(*) FROM openai_gateway_stats_hourly").Scan(&statsCount); err != nil {
+		t.Fatal(err)
+	}
+	if statsCount != 0 {
+		t.Fatalf("cleared dashboard history resurrected after restart: count=%d", statsCount)
+	}
+}
+
+// TestProxyResponsesConversionPath 验证 /v1/responses 在仅支持 /chat/completions
+// 的上游（真实生产场景：日日新 / x666 / merge 等第三方端点）上能正常服务：
+// 网关把 Responses 请求转换为 chat.completions 转发，再把上游 chat 响应转回
+// Responses 格式（含 usage 映射）。
+func TestProxyResponsesConversionPath(t *testing.T) {
+	var sawChatCompletions bool
+	var sawResponsesPath bool
+
+	mockUpstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v1/models":
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(`{"object":"list","data":[{"id":"test-model","object":"model"}]}`))
+			return
+		case "/v1/chat/completions":
+			sawChatCompletions = true
+			var body struct {
+				Model    string        `json:"model"`
+				Messages []interface{} `json:"messages"`
+				Tools    []interface{} `json:"tools"`
+				Stream   bool          `json:"stream"`
+			}
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			// 转换后的 chat 请求应带 instructions→system 消息与 input 消息。
+			// （流式测试请求无 instructions，只有 1 条 user 消息。）
+			if !body.Stream && len(body.Messages) != 2 {
+				raw, _ := json.Marshal(body.Messages)
+				t.Errorf("converted messages len = %d, want 2 (system+user), messages=%s", len(body.Messages), raw)
+			}
+			if body.Stream {
+				w.Header().Set("Content-Type", "text/event-stream")
+				w.WriteHeader(http.StatusOK)
+				w.Write([]byte("data: {\"id\":\"x\",\"object\":\"chat.completion.chunk\",\"model\":\"test-model\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"Hello\"},\"finish_reason\":null}]}\n\n"))
+				w.Write([]byte("data: {\"id\":\"x\",\"object\":\"chat.completion.chunk\",\"model\":\"test-model\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":3,\"completion_tokens\":2,\"total_tokens\":5}}\n\n"))
+				w.Write([]byte("data: [DONE]\n\n"))
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(`{
+				"id":"chatcmpl-1","object":"chat.completion","created":1700000000,"model":"test-model",
+				"choices":[{"index":0,"finish_reason":"stop","message":{"role":"assistant","content":"Hello from upstream"}}],
+				"usage":{"prompt_tokens":3,"completion_tokens":2,"total_tokens":5}
+			}`))
+			return
+		case "/v1/responses":
+			sawResponsesPath = true
+			// 生产上游不支持 /responses：返回 404，模拟真实第三方端点。
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusNotFound)
+			w.Write([]byte(`{"error":{"message":"NOT_FOUND","type":"invalid_request_error"}}`))
+			return
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer mockUpstream.Close()
+
+	service := newOpenAIService(t)
+
+	// 通过管理 API 创建端点（触发校验：会访问 /v1/models）。
+	createPayload := fmt.Sprintf(`{
+		"name": "chat-only-upstream",
+		"baseUrl": "%s",
+		"apiKey": "test-key"
+	}`, mockUpstream.URL)
+	wCreate := httptest.NewRecorder()
+	rCreate, _ := http.NewRequest("POST", "/api/openai/endpoints", strings.NewReader(createPayload))
+	service.ServeHTTP(wCreate, rCreate)
+	if wCreate.Code != http.StatusOK {
+		t.Fatalf("create status = %d body=%s", wCreate.Code, wCreate.Body.String())
+	}
+	var createRes struct {
+		Success  bool     `json:"success"`
+		Endpoint Endpoint `json:"endpoint"`
+	}
+	mustDecode(t, wCreate.Body.String(), &createRes)
+	if !createRes.Success || createRes.Endpoint.ID == "" {
+		t.Fatalf("create failed, res: %#v", createRes)
+	}
+
+	// 非流式：POST /v1/responses。
+	wResp := httptest.NewRecorder()
+	rResp, _ := http.NewRequest("POST", "/v1/responses", strings.NewReader(`{
+		"model": "test-model",
+		"instructions": "Be concise",
+		"input": "what is 2+2?"
+	}`))
+	service.ServeHTTP(wResp, rResp)
+	if wResp.Code != http.StatusOK {
+		t.Fatalf("responses proxy status = %d body=%s", wResp.Code, wResp.Body.String())
+	}
+	if !sawChatCompletions {
+		t.Fatal("conversion path did not hit /chat/completions")
+	}
+	if sawResponsesPath {
+		t.Fatal("conversion path should NOT hit upstream /responses")
+	}
+	var respObj struct {
+		Object     string `json:"object"`
+		Status     string `json:"status"`
+		OutputText string `json:"output_text"`
+		Output     []struct {
+			Type    string `json:"type"`
+			Content []struct {
+				Type string `json:"type"`
+				Text string `json:"text"`
+			} `json:"content"`
+		} `json:"output"`
+		Usage struct {
+			InputTokens  int `json:"input_tokens"`
+			OutputTokens int `json:"output_tokens"`
+			TotalTokens  int `json:"total_tokens"`
+		} `json:"usage"`
+	}
+	mustDecode(t, wResp.Body.String(), &respObj)
+	if respObj.Object != "response" || respObj.Status != "completed" {
+		t.Errorf("response object/status = %q/%q", respObj.Object, respObj.Status)
+	}
+	if respObj.OutputText != "Hello from upstream" {
+		t.Errorf("output_text = %q", respObj.OutputText)
+	}
+	if len(respObj.Output) != 1 || respObj.Output[0].Type != "message" || respObj.Output[0].Content[0].Text != "Hello from upstream" {
+		t.Errorf("output = %+v", respObj.Output)
+	}
+	if respObj.Usage.InputTokens != 3 || respObj.Usage.OutputTokens != 2 || respObj.Usage.TotalTokens != 5 {
+		t.Errorf("usage mapping wrong: %+v", respObj.Usage)
+	}
+
+	// 流式：POST /v1/responses stream=true。
+	sawChatCompletions = false
+	wStream := httptest.NewRecorder()
+	rStream, _ := http.NewRequest("POST", "/v1/responses", strings.NewReader(`{
+		"model": "test-model",
+		"input": "hi",
+		"stream": true
+	}`))
+	service.ServeHTTP(wStream, rStream)
+	if wStream.Code != http.StatusOK {
+		t.Fatalf("responses stream status = %d body=%s", wStream.Code, wStream.Body.String())
+	}
+	streamBody := wStream.Body.String()
+	for _, want := range []string{
+		"event: response.created",
+		"event: response.output_item.added",
+		"event: response.content_part.added",
+		"event: response.output_text.delta",
+		`"delta":"Hello"`,
+		"event: response.output_text.done",
+		"event: response.content_part.done",
+		"event: response.output_item.done",
+		"event: response.completed",
+		`"input_tokens":3`,
+		"data: [DONE]",
+	} {
+		if !strings.Contains(streamBody, want) {
+			t.Errorf("stream missing %q\nbody=%s", want, streamBody)
+		}
+	}
+}
+
+// TestProxyResponsesConversionUpstreamError 验证转换模式下上游返回 4xx 时，
+// 错误响应以 JSON 原样透传给客户端（而非把错误 JSON 当 SSE 流透传）。
+func TestProxyResponsesConversionUpstreamError(t *testing.T) {
+	mockUpstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v1/models":
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(`{"object":"list","data":[{"id":"test-model","object":"model"}]}`))
+			return
+		case "/v1/chat/completions":
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			w.Write([]byte(`{"error":{"message":"model does not exist","type":"invalid_request_error"}}`))
+			return
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer mockUpstream.Close()
+
+	service := newOpenAIService(t)
+	createPayload := fmt.Sprintf(`{"name":"err-upstream","baseUrl":"%s","apiKey":"k"}`, mockUpstream.URL)
+	wCreate := httptest.NewRecorder()
+	rCreate, _ := http.NewRequest("POST", "/api/openai/endpoints", strings.NewReader(createPayload))
+	service.ServeHTTP(wCreate, rCreate)
+	if wCreate.Code != http.StatusOK {
+		t.Fatalf("create status = %d body=%s", wCreate.Code, wCreate.Body.String())
+	}
+
+	// 非流式错误。
+	wResp := httptest.NewRecorder()
+	rResp, _ := http.NewRequest("POST", "/v1/responses", strings.NewReader(`{"model":"test-model","input":"hi"}`))
+	service.ServeHTTP(wResp, rResp)
+	if wResp.Code != http.StatusBadRequest {
+		t.Fatalf("non-stream error status = %d body=%s", wResp.Code, wResp.Body.String())
+	}
+	if !strings.Contains(wResp.Body.String(), "model does not exist") {
+		t.Errorf("error body not passed through: %s", wResp.Body.String())
+	}
+
+	// 流式错误：不应以 SSE 透传错误 JSON。
+	wStream := httptest.NewRecorder()
+	rStream, _ := http.NewRequest("POST", "/v1/responses", strings.NewReader(`{"model":"test-model","input":"hi","stream":true}`))
+	service.ServeHTTP(wStream, rStream)
+	if wStream.Code != http.StatusBadRequest {
+		t.Fatalf("stream error status = %d body=%s", wStream.Code, wStream.Body.String())
+	}
+	if ct := wStream.Header().Get("Content-Type"); !strings.HasPrefix(ct, "application/json") {
+		t.Errorf("stream error Content-Type = %q, want application/json", ct)
+	}
+	if !strings.Contains(wStream.Body.String(), "model does not exist") {
+		t.Errorf("stream error body not passed through: %s", wStream.Body.String())
 	}
 }

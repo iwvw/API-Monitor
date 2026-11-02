@@ -84,7 +84,7 @@
 - 组件摆放：新建 `src/js/components/adminai/AskAiPanel.jsx` + 内部小件（`MessageList`、`ApprovalCard`、`ToolCallCard` 等），不塞进 `MainLayout` 内部代码。
 - 状态存 `src/js/store.js`（全局 open/close + currentSessionId + running runId）。
 - 事件解析：写 `src/js/modules/adminAiEvents.js`，把 SSE 事件行解析成 `Message[]` 结构（含 `content`/`blocks`）。
-- 样式：遵循 Kumo token；不使用硬编码颜色（对照 `docs/重构验证与例外清单.md`）。
+- 样式：遵循 Kumo token；不使用硬编码颜色（对照 `docs/standards/重构验证与例外清单.md`）。
 - 动画用现有 `AnimatedCollapse` 或纯 CSS transition；不新增动画库。
 - 流式文本保留在内存中，结束时一次性 Persist（后端已在服务端持久化，前端不重复写库）。
 

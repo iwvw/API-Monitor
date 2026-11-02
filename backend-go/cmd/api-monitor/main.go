@@ -46,7 +46,18 @@ func main() {
 		applog.Error(nil, "startup", "backend initialization failed", "error", err.Error())
 		os.Exit(1)
 	}
-	handler := applog.Middleware(httpcompress.Middleware(appServer))
+	// SSEWriteDeadline 为 SSE 流式响应（如 DS2API 引擎的 DeepSeek 思考/生成流）
+	// 做写超时续期：Go http.Server 的 WriteTimeout 是总时长硬限，引擎只 Flush
+	// 不续期，60s 一到长流就会被掐断。此中间件让持续有输出的 SSE 不受该限制。
+	// DecompressRequest 放在最外层：客户端可用 gzip/br/zstd 压缩请求体上传
+	// （大 prompt 压缩比常达 5~10 倍），省掉「客户端 → 面板」这一腿的上行流量。
+	// 数据库导入自己按 2GB 管理体积（ContentLength 上限 + LimitReader），
+	// 若走统一解压限流会被 32MB 截断，故整条路径跳过。
+	handler := applog.Middleware(httpcompress.DecompressRequest(
+		cfg.RequestDecompressMaxBytes,
+		"/api/settings/database/import/preview",
+		"/api/settings/database/import/commit",
+	)(httpcompress.Middleware(httpcompress.SSEWriteDeadline(appServer))))
 
 	applog.Info(nil, "startup", "api-monitor go shell listening", "address", cfg.ListenAddress())
 	applog.Info(nil, "startup", "static files configured", "dist", cfg.DistDir, "public", cfg.PublicDir)
@@ -59,9 +70,11 @@ func main() {
 		Handler:           handler,
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       120 * time.Second,
-		WriteTimeout:      60 * time.Second,
-		IdleTimeout:       120 * time.Second,
-		MaxHeaderBytes:    1 << 20,
+		// SSE 流由 SSEWriteDeadline 中间件按写入续期，不受此总时长限制；
+		// 600s 是给未走续期路径的响应留的兜底（原 60s 会掐断思考超一分钟的长流）。
+		WriteTimeout:   600 * time.Second,
+		IdleTimeout:    120 * time.Second,
+		MaxHeaderBytes: 1 << 20,
 	}
 	if err := httpServer.ListenAndServe(); err != nil {
 		applog.Error(nil, "startup", "http server stopped", "error", err.Error())

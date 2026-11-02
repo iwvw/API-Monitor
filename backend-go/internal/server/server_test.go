@@ -200,7 +200,7 @@ func TestAIMCPWriteGatingAndKeyRotationBlock(t *testing.T) {
 	handler := testServer(t)
 	cookie := loginServerForTest(t, handler)
 
-	getAgentKey := func() (string, bool) {
+	getAgentKey := func() (string, string) {
 		keyReq := httptest.NewRequest(http.MethodGet, "/api/system/ai-access", nil)
 		keyReq.AddCookie(cookie)
 		keyRes := httptest.NewRecorder()
@@ -214,13 +214,13 @@ func TestAIMCPWriteGatingAndKeyRotationBlock(t *testing.T) {
 		}
 		overview := keyPayload["data"].(map[string]interface{})
 		policy := overview["policy"].(map[string]interface{})
-		writeEnabled := policy["writeEnabled"].(bool)
-		return overview["agentKey"].(map[string]interface{})["value"].(string), writeEnabled
+		accessPolicy, _ := policy["accessPolicy"].(string)
+		return overview["agentKey"].(map[string]interface{})["value"].(string), accessPolicy
 	}
 
-	agentKey, writeEnabled := getAgentKey()
-	if writeEnabled {
-		t.Fatal("expected write access to default to disabled")
+	agentKey, accessPolicy := getAgentKey()
+	if accessPolicy != "standard" {
+		t.Fatalf("expected default policy standard, got %q", accessPolicy)
 	}
 
 	callTools := func(name string, args map[string]interface{}) map[string]interface{} {
@@ -246,43 +246,21 @@ func TestAIMCPWriteGatingAndKeyRotationBlock(t *testing.T) {
 		return payload
 	}
 
-	// 写入方法在未开启时被拒绝
+	// standard 模式允许写操作（写开关已移除，由权限模式统一治理）
 	payload := callTools("call_api", map[string]interface{}{"method": "POST", "path": "/api/backup/run"})
-	if payload["error"] == nil {
-		t.Fatalf("expected write call to be rejected, got %#v", payload)
+	if payload["error"] != nil {
+		t.Fatalf("standard policy should allow writes, got %#v", payload["error"])
 	}
-	if !strings.Contains(payload["error"].(map[string]interface{})["message"].(string), "写入") {
-		t.Fatalf("unexpected rejection message: %#v", payload["error"])
+	result := payload["result"].(map[string]interface{})
+	callResult := result["structuredContent"].(map[string]interface{})
+	if callResult["statusCode"].(float64) != 200 {
+		t.Fatalf("expected proxied status 200, got %#v", callResult)
 	}
 
 	// 密钥轮换别名路径必须始终被屏蔽
 	payload = callTools("call_api", map[string]interface{}{"method": "POST", "path": "/api/ai-access/key/rotate"})
 	if payload["error"] == nil {
 		t.Fatalf("expected key rotate alias to be blocked, got %#v", payload)
-	}
-
-	// 开启写入后允许写操作
-	writeReq := httptest.NewRequest(http.MethodPut, "/api/system/ai-access/write", strings.NewReader(`{"writeEnabled":true}`))
-	writeReq.AddCookie(cookie)
-	writeReq.Header.Set("Content-Type", "application/json")
-	writeRes := httptest.NewRecorder()
-	handler.ServeHTTP(writeRes, writeReq)
-	if writeRes.Code != http.StatusOK {
-		t.Fatalf("enable write status = %d, body=%s", writeRes.Code, writeRes.Body.String())
-	}
-
-	if _, writeEnabled := getAgentKey(); !writeEnabled {
-		t.Fatal("expected write access to be enabled after toggle")
-	}
-
-	payload = callTools("call_api", map[string]interface{}{"method": "POST", "path": "/api/backup/run"})
-	if payload["error"] != nil {
-		t.Fatalf("expected write call to succeed after enabling, got %#v", payload)
-	}
-	result := payload["result"].(map[string]interface{})
-	callResult := result["structuredContent"].(map[string]interface{})
-	if callResult["statusCode"].(float64) != 200 {
-		t.Fatalf("expected proxied status 200, got %#v", callResult)
 	}
 }
 
@@ -300,16 +278,6 @@ func TestAIMCPCannotSelfApproveAdminRoutes(t *testing.T) {
 	}
 	overview := keyPayload["data"].(map[string]interface{})
 	agentKey := overview["agentKey"].(map[string]interface{})["value"].(string)
-
-	// 启用写入，确保 admin-ai 屏蔽不是写开关的副作用
-	writeReq := httptest.NewRequest(http.MethodPut, "/api/system/ai-access/write", strings.NewReader(`{"writeEnabled":true}`))
-	writeReq.AddCookie(cookie)
-	writeReq.Header.Set("Content-Type", "application/json")
-	writeRes := httptest.NewRecorder()
-	handler.ServeHTTP(writeRes, writeReq)
-	if writeRes.Code != http.StatusOK {
-		t.Fatalf("enable write status = %d, body=%s", writeRes.Code, writeRes.Body.String())
-	}
 
 	callTools := func(name string, args map[string]interface{}) map[string]interface{} {
 		body := map[string]interface{}{
@@ -812,6 +780,30 @@ func TestUptimeRoutesAreGoOwnedWithInternalAuthSplit(t *testing.T) {
 	}
 }
 
+func TestPluginCompatibleRelayRoutesAreInternalOnly(t *testing.T) {
+	handler := testServer(t)
+
+	// 外部来源（非 loopback）：插件 /v1 兼容中继应被 AuthInternal 拒绝。
+	for _, path := range []string{"/api/antigravity/v1/messages", "/api/ds2api/v1/chat/completions"} {
+		req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(`{}`))
+		req.RemoteAddr = "203.0.113.9:12345"
+		res := httptest.NewRecorder()
+		handler.ServeHTTP(res, req)
+		if res.Code != http.StatusForbidden {
+			t.Fatalf("%s from external source = %d body=%s, want 403", path, res.Code, res.Body.String())
+		}
+	}
+
+	// 本机回环来源：放行到插件（鉴权通过，落点行为与插件内部一致）。
+	req := httptest.NewRequest(http.MethodPost, "/api/ds2api/v1/chat/completions", strings.NewReader(`{}`))
+	req.RemoteAddr = "127.0.0.1:12345"
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+	if res.Code == http.StatusForbidden || res.Code == http.StatusUnauthorized {
+		t.Fatalf("loopback internal relay = %d body=%s, want non-auth reject", res.Code, res.Body.String())
+	}
+}
+
 func TestM365PublicRegistrationRoutesBypassSessionAuth(t *testing.T) {
 	handler := testServer(t)
 
@@ -1209,6 +1201,154 @@ func TestDevProxyCookieRequestStillRejectsPublicOrigin(t *testing.T) {
 	handler.ServeHTTP(res, req)
 	if res.Code != http.StatusForbidden {
 		t.Fatalf("dev proxy public-origin status = %d body=%s", res.Code, res.Body.String())
+	}
+}
+
+func TestGatewayRoutesEmitWildcardCORSHeaders(t *testing.T) {
+	handler := testServer(t)
+
+	req := httptest.NewRequest(http.MethodOptions, "/v1/models", nil)
+	req.Header.Set("Origin", "https://chat.example.com")
+	req.Header.Set("Access-Control-Request-Method", "GET")
+	req.Header.Set("Access-Control-Request-Headers", "authorization, content-type")
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+	if res.Code != http.StatusNoContent {
+		t.Fatalf("preflight status = %d body=%s", res.Code, res.Body.String())
+	}
+	if got := res.Header().Get("Access-Control-Allow-Origin"); got != "*" {
+		t.Fatalf("preflight ACAO = %q, want *", got)
+	}
+	if got := res.Header().Get("Access-Control-Allow-Credentials"); got != "" {
+		t.Fatalf("preflight ACAC must stay unset, got %q", got)
+	}
+	allowHeaders := strings.ToLower(res.Header().Get("Access-Control-Allow-Headers"))
+	for _, want := range []string{"authorization", "content-type", "x-api-key"} {
+		if !strings.Contains(allowHeaders, want) {
+			t.Fatalf("preflight allow-headers missing %q, got %q", want, res.Header().Get("Access-Control-Allow-Headers"))
+		}
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+	req.Header.Set("Origin", "https://chat.example.com")
+	res = httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+	if got := res.Header().Get("Access-Control-Allow-Origin"); got != "*" {
+		t.Fatalf("response ACAO = %q, want *", got)
+	}
+	if got := res.Header().Get("Access-Control-Allow-Credentials"); got != "" {
+		t.Fatalf("response ACAC must stay unset, got %q", got)
+	}
+}
+
+func TestGatewayRootPathEmitsWildcardCORS(t *testing.T) {
+	handler := testServer(t)
+	req := httptest.NewRequest(http.MethodOptions, "/v1", nil)
+	req.Header.Set("Origin", "app://obsidian.md")
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+	if res.Code != http.StatusNoContent {
+		t.Fatalf("preflight status = %d body=%s", res.Code, res.Body.String())
+	}
+	if got := res.Header().Get("Access-Control-Allow-Origin"); got != "*" {
+		t.Fatalf("preflight ACAO = %q, want *", got)
+	}
+}
+
+func TestNonGatewayRoutesDoNotEmitWildcardCORS(t *testing.T) {
+	handler := testServer(t)
+	req := httptest.NewRequest(http.MethodGet, "/api/settings", nil)
+	req.Header.Set("Origin", "https://attacker.example.com")
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+	if got := res.Header().Get("Access-Control-Allow-Origin"); got != "" {
+		t.Fatalf("non-gateway route leaked ACAO %q", got)
+	}
+}
+
+func TestAIAgentRoutesEchoRequestOrigin(t *testing.T) {
+	handler := testServer(t)
+
+	req := httptest.NewRequest(http.MethodOptions, "/api/aiagent/auth/login", nil)
+	req.Header.Set("Origin", "https://web.opencode.example")
+	req.Header.Set("Access-Control-Request-Method", "POST")
+	req.Header.Set("Access-Control-Request-Headers", "content-type")
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+	if res.Code != http.StatusNoContent {
+		t.Fatalf("preflight status = %d body=%s", res.Code, res.Body.String())
+	}
+	if got := res.Header().Get("Access-Control-Allow-Origin"); got != "https://web.opencode.example" {
+		t.Fatalf("preflight ACAO = %q, want echoed origin", got)
+	}
+	allowHeaders := strings.ToLower(res.Header().Get("Access-Control-Allow-Headers"))
+	for _, want := range []string{"authorization", "content-type", "x-agent-key"} {
+		if !strings.Contains(allowHeaders, want) {
+			t.Fatalf("preflight allow-headers missing %q, got %q", want, res.Header().Get("Access-Control-Allow-Headers"))
+		}
+	}
+	// 偏好同步走 ETag 条件请求：浏览器预检只放行白名单内的请求头，缺了
+	// If-None-Match 会让整个 GET 直接以 CORS 失败；响应侧还要暴露 ETag，
+	// 否则客户端读不到缓存值，304 优化等于失效。
+	for _, want := range []string{"if-none-match", "if-modified-since"} {
+		if !strings.Contains(allowHeaders, want) {
+			t.Fatalf("preflight allow-headers missing %q, got %q", want, res.Header().Get("Access-Control-Allow-Headers"))
+		}
+	}
+	exposedHeaders := strings.ToLower(res.Header().Get("Access-Control-Expose-Headers"))
+	if !strings.Contains(exposedHeaders, "etag") {
+		t.Fatalf("expose-headers missing etag, got %q", res.Header().Get("Access-Control-Expose-Headers"))
+	}
+	// 回显 Origin 必须声明 Vary，避免共享缓存把某个来源的响应发给另一个来源。
+	if !strings.Contains(res.Header().Get("Vary"), "Origin") {
+		t.Fatalf("preflight Vary = %q, want Origin", res.Header().Get("Vary"))
+	}
+	// 该模块鉴权依赖 Bearer 令牌，绝不能放开凭证，否则跨来源请求会带上会话 Cookie。
+	if got := res.Header().Get("Access-Control-Allow-Credentials"); got != "" {
+		t.Fatalf("ACAC must stay unset, got %q", got)
+	}
+	// 预检缓存：Chromium 未收到 Max-Age 时只缓存 5 秒，经隧道时每次 API 调用前
+	// 都多一个 OPTIONS 往返。缺少该头就说明预检优化被回退了。
+	if got := res.Header().Get("Access-Control-Max-Age"); got != "7200" {
+		t.Fatalf("preflight Max-Age = %q, want 7200", got)
+	}
+	// 允许头必须逐项列出（点名 Authorization），`*` 不被 Chromium 用于授权头，
+	// 会导致预检缓存无法复用。
+	if got := res.Header().Get("Access-Control-Allow-Headers"); strings.Contains(got, "*") {
+		t.Fatalf("allow-headers must list headers explicitly, got %q", got)
+	}
+
+	for _, path := range []string{"/api/aiagent/instances", "/api/aiagent/gw/inst_1/global/health"} {
+		req = httptest.NewRequest(http.MethodGet, path, nil)
+		req.Header.Set("Origin", "https://web.opencode.example")
+		res = httptest.NewRecorder()
+		handler.ServeHTTP(res, req)
+		if got := res.Header().Get("Access-Control-Allow-Origin"); got != "https://web.opencode.example" {
+			t.Fatalf("%s ACAO = %q, want echoed origin", path, got)
+		}
+	}
+}
+
+func TestAIAgentRoutesSkipOriginEchoWithoutHeader(t *testing.T) {
+	handler := testServer(t)
+	req := httptest.NewRequest(http.MethodGet, "/api/aiagent/instances", nil)
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+	if got := res.Header().Get("Access-Control-Allow-Origin"); got != "" {
+		t.Fatalf("ACAO must stay unset without Origin, got %q", got)
+	}
+}
+
+func TestAIAgentRouteScopeDoesNotLeakToLookalikes(t *testing.T) {
+	handler := testServer(t)
+	for _, path := range []string{"/api/aiagentx/instances", "/api/aiagent-evil/instances"} {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		req.Header.Set("Origin", "https://attacker.example.com")
+		res := httptest.NewRecorder()
+		handler.ServeHTTP(res, req)
+		if got := res.Header().Get("Access-Control-Allow-Origin"); got != "" {
+			t.Fatalf("%s leaked ACAO %q", path, got)
+		}
 	}
 }
 
@@ -1928,5 +2068,113 @@ func TestPublicPageFaviconResolver(t *testing.T) {
 	handler.ServeHTTP(res, req)
 	if res.Code != http.StatusOK || !strings.Contains(res.Body.String(), "root") {
 		t.Fatalf("unknown kind should fall through to SPA, got %d body=%s", res.Code, res.Body.String())
+	}
+}
+
+func TestPublicBookmarksFaviconAndPublicPage(t *testing.T) {
+	distDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(distDir, "index.html"), []byte("<!doctype html><div id=\"root\"></div>"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	handler := newTestServer(t, config.Config{
+		Version: "test",
+		Host:    "127.0.0.1",
+		Port:    0,
+		DistDir: distDir,
+		DataDir: t.TempDir(),
+		DBName:  "data.db",
+	})
+
+	// 通过公开路由触发 bookmarks schema 初始化。
+	prime := httptest.NewRequest(http.MethodGet, "/api/bookmarks/public/groups/init-schema", nil)
+	handler.ServeHTTP(httptest.NewRecorder(), prime)
+
+	dbCfg := config.Config{Version: "test", Host: "127.0.0.1", Port: 0, DataDir: handler.cfg.DataDir, DBName: handler.cfg.DBName}
+	ctx := context.Background()
+	store := database.New(dbCfg)
+	db, err := store.Open(ctx)
+	if err != nil {
+		t.Fatalf("open database: %v", err)
+	}
+	_, err = db.Exec(`INSERT INTO bookmark_groups (slug, domain, title, public, cache_seconds, config_json)
+		VALUES ('fav-slug', 'fav.example.com', 'Fav Group', 1, 300, '{"publicIconId":"site-custom"}'),
+		       ('plain-slug', '', 'Plain Group', 1, 300, '{}')`)
+	if err != nil {
+		db.Close()
+		t.Fatalf("insert bookmark groups: %v", err)
+	}
+	var groupID int64
+	if err := db.QueryRow(`SELECT id FROM bookmark_groups WHERE slug = 'fav-slug'`).Scan(&groupID); err != nil {
+		db.Close()
+		t.Fatalf("select group id: %v", err)
+	}
+	_, err = db.Exec(`INSERT INTO bookmarks (group_id, title, url, sort_order) VALUES (?, 'GitHub', 'https://github.com', 0)`, groupID)
+	db.Close()
+	if err != nil {
+		t.Fatalf("insert bookmark item: %v", err)
+	}
+
+	// favicon：自定义图标 302 到品牌图标资产
+	req := httptest.NewRequest(http.MethodGet, "/public-page-favicon/bookmarks/fav-slug", nil)
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+	if res.Code != http.StatusTemporaryRedirect || res.Header().Get("Location") != "/site-brand-icons/site-custom" {
+		t.Fatalf("bookmarks favicon custom: status=%d loc=%q", res.Code, res.Header().Get("Location"))
+	}
+
+	// favicon：未自定义返回默认 glyph
+	req = httptest.NewRequest(http.MethodGet, "/public-page-favicon/bookmarks/plain-slug", nil)
+	res = httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+	if res.Code != http.StatusOK || res.Header().Get("Content-Type") != "image/svg+xml" {
+		t.Fatalf("bookmarks favicon glyph: status=%d type=%q", res.Code, res.Header().Get("Content-Type"))
+	}
+	if body := res.Body.String(); !strings.HasPrefix(body, "<svg") || !strings.Contains(body, "#f48120") {
+		t.Fatalf("unexpected bookmarks glyph body: %q", body)
+	}
+
+	// 公开分组数据：无需登录即可读取
+	req = httptest.NewRequest(http.MethodGet, "/api/bookmarks/public/groups/fav-slug", nil)
+	res = httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+	if res.Code != http.StatusOK {
+		t.Fatalf("public group status=%d body=%s", res.Code, res.Body.String())
+	}
+	var publicPayload struct {
+		Success bool `json:"success"`
+		Data    struct {
+			Group struct {
+				Title string `json:"title"`
+				Items []struct {
+					Title string `json:"title"`
+					URL   string `json:"url"`
+				} `json:"items"`
+			} `json:"group"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(res.Body.Bytes(), &publicPayload); err != nil {
+		t.Fatalf("unmarshal public group: %v", err)
+	}
+	if !publicPayload.Success || publicPayload.Data.Group.Title != "Fav Group" {
+		t.Fatalf("public group payload mismatch: %s", res.Body.String())
+	}
+	if len(publicPayload.Data.Group.Items) != 1 || publicPayload.Data.Group.Items[0].URL != "https://github.com" {
+		t.Fatalf("public group items mismatch: %s", res.Body.String())
+	}
+
+	// 域名探测
+	req = httptest.NewRequest(http.MethodGet, "/api/bookmarks/public/page-by-domain?domain=fav.example.com", nil)
+	res = httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+	if res.Code != http.StatusOK || !strings.Contains(res.Body.String(), `"found":true`) {
+		t.Fatalf("bookmarks by-domain status=%d body=%s", res.Code, res.Body.String())
+	}
+
+	// 内部管理路由仍受登录保护（AuthSession 拦截未登录请求）
+	req = httptest.NewRequest(http.MethodGet, "/api/bookmarks/groups", nil)
+	res = httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+	if res.Code != http.StatusUnauthorized {
+		t.Fatalf("internal groups without session should 401, got %d", res.Code)
 	}
 }

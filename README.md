@@ -99,6 +99,7 @@ npm run backend-go:build
 | `NODE_LEGACY_URL` | 可选 | - | 旧 Node sidecar 后端地址（迁移期兼容用，当前版本无需设置） |
 | `ADMIN_AI_DEFAULT_MODEL` | 可选 | - | 管理 AI 默认模型名，留空则面板内手动选择 |
 | `GATEWAY_BODY_MAX_MB` | 可选 | `16` | 模型网关转发入口可接受的请求体上限（MB），小内存主机可调小 |
+| `REQUEST_DECOMPRESS_MAX_MB` | 可选 | `32` | 客户端压缩上传（`Content-Encoding: gzip/br/zstd`）时**解压后**请求体上限（MB），用于防解压炸弹 |
 
 ### 安全与网络（均可选）
 
@@ -136,6 +137,7 @@ npm run backend-go:build
 | `API_MONITOR_AGENT_OFFLINE_AFTER_MS` / `API_MONITOR_AGENT_SUSPECT_AFTER_MS` / `API_MONITOR_AGENT_STARTUP_GRACE_MS` / `API_MONITOR_AGENT_RECOVERY_SAMPLES` | 可选 | - | Agent 在线状态判定调参 |
 | `API_MONITOR_AGENT_METRICS_PERSIST_INTERVAL_MS` | 可选 | - | Agent 指标持久化间隔（毫秒） |
 | `API_MONITOR_AGENT_NETWORK_QUALITY_PERSIST_INTERVAL_MS` | 可选 | - | Agent 网络质量采集持久化间隔（毫秒） |
+| `API_MONITOR_AGENT_FILE_ROOTS` | 可选 | - | 下发给 Agent 的额外文件白名单根目录（逗号分隔）；生成安装脚本时注入为 `API_MONITOR_FILE_ROOTS`。面板的 Compose 配置编辑/文件管理读写主机真实路径，需把 compose 目录（如 `/opt/1panel/docker/compose`）加进来，否则会被拒绝 |
 | `API_MONITOR_PPROF` | 可选 | `0` | 设为 `1` 开启 pprof 性能剖析（仅排查性能问题时使用） |
 
 ### 开发工具脚本（可选）
@@ -155,6 +157,13 @@ npm run backend-go:build
 | `API_MONITOR_SING_BOX_BIN` | 可选 | sing-box 运行时二进制路径（托管代理用） |
 | `API_MONITOR_DOCKER_REGISTRY_MIRRORS` | 可选 | Docker Hub 镜像加速地址，逗号分隔 |
 | `API_MONITOR_TRAFFIC_REPORT_SECS` | 可选 | 流量上报间隔（秒，默认 `300`，最小 `60`） |
+| `API_MONITOR_FILE_ROOTS` | 可选 | 额外文件白名单根目录，平台分隔符分隔（Windows `;` / 类 Unix `:`）；留空则仅默认沙箱。由后端 `API_MONITOR_AGENT_FILE_ROOTS` 在安装脚本中自动注入 |
+| `API_MONITOR_RD_MAX_LONG_EDGE` | 可选 | 远程桌面编码长边上限，默认 `2560`，范围 `1280`-`3840`；前端画质档位可逐会话覆盖 |
+| `API_MONITOR_RD_BITRATE_1080P` | 可选 | 远程桌面 1080p 参考码率上限（bits/s，默认 `20000000`）；更高分辨率按像素比线性放大 |
+| `API_MONITOR_RD_KEYFRAME_SECONDS` | 可选 | 远程桌面关键帧间隔（秒，默认 `1`，范围 `1`-`10`） |
+| `API_MONITOR_RD_QUEUE_DEPTH` | 可选 | 远程桌面编码结果队列深度，默认 `3`，范围 `1`-`16` |
+| `API_MONITOR_RD_NAT_1TO1_IPS` | 可选 | 远程桌面 1:1 NAT / 公网 IP 列表（逗号分隔）。配好后直接广播公网候选，免 STUN 打洞即可直连；面板「主机编辑 → 远程桌面直连」中的配置会覆盖此环境变量 |
+| `API_MONITOR_RD_NAT_1TO1_TYPE` | 可选 | 上述地址使用的 ICE 候选类型：`host` / `srflx`（默认 `srflx`）；同样可被面板逐主机配置覆盖 |
 
 ## 技术栈
 
@@ -166,10 +175,10 @@ npm run backend-go:build
 ## 文档
 
 - [文档索引](./docs/README.md)
-- [开发指南](./docs/开发指南.md)
-- [API 接口文档](./docs/API接口文档.md)
-- [安全加固与扫描计划](./docs/安全加固与扫描计划.md)
-- [Kumo UI 规则](./docs/Kumo%20UI%20规则.md)
+- [开发指南](./docs/guides/开发指南.md)
+- [API 接口文档](./docs/architecture/API接口文档.md)
+- [安全加固与扫描计划](./docs/standards/安全加固与扫描计划.md)
+- [Kumo UI 规则](./docs/standards/Kumo%20UI%20规则.md)
 
 ## 许可证
 

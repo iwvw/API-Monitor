@@ -57,6 +57,8 @@ type Service struct {
 	stopCleaner chan struct{}
 	captureOnce sync.Once       // 自动记忆提炼 goroutine（memory_agent.go）
 	stopCapture chan struct{}
+	bgMu        sync.Mutex      // 保护 stopCleaner/stopCapture/bgStopped（StartBackground 与 StopBackground 并发）
+	bgStopped   bool            // StopBackground 之后不再拉起后台 goroutine
 	captureInFlight map[string]bool // 提炼防重：同会话同时只允许一次提炼（进程内）
 	toolLoops      map[string]int // 工具循环检测：runId|指纹 -> 累计调用次数（engine.go）
 	src         *notification.Service // 通知中心：AI 频道 bot token 来源 + 结果推送出口
@@ -108,10 +110,15 @@ func (s *Service) open(ctx context.Context) (*sql.DB, error) {
 }
 
 func (s *Service) ensureSchema(ctx context.Context, db *sql.DB) error {
-	// FTS 触发器升级：旧版为全列 AFTER UPDATE（访问计数更新也会重插 FTS 索引），
-	// 新版仅 content 变更触发；DROP 后由下方 CREATE IF NOT EXISTS 重建，幂等。
-	if _, err := db.ExecContext(ctx, `DROP TRIGGER IF EXISTS trg_admin_ai_memories_au`); err != nil {
-		return fmt.Errorf("adminai ensureSchema drop trg: %w", err)
+	// FTS 索引升级：旧版仅索引 content，新版将 triggers（触发词）也纳入检索。
+	// 先删全部旧触发器与旧 FTS 表，再由下方 CREATE 重建并回填，幂等。
+	for _, trg := range []string{"trg_admin_ai_memories_ai", "trg_admin_ai_memories_ad", "trg_admin_ai_memories_au"} {
+		if _, err := db.ExecContext(ctx, `DROP TRIGGER IF EXISTS `+trg); err != nil {
+			return fmt.Errorf("adminai ensureSchema drop trg %s: %w", trg, err)
+		}
+	}
+	if _, err := db.ExecContext(ctx, `DROP TABLE IF EXISTS admin_ai_memories_fts`); err != nil {
+		return fmt.Errorf("adminai ensureSchema drop fts: %w", err)
 	}
 	statements := []string{
 		`CREATE TABLE IF NOT EXISTS admin_ai_sessions (
@@ -205,17 +212,18 @@ func (s *Service) ensureSchema(ctx context.Context, db *sql.DB) error {
 			created_at TEXT NOT NULL,
 			updated_at TEXT NOT NULL
 		)`,
-		`CREATE VIRTUAL TABLE IF NOT EXISTS admin_ai_memories_fts USING fts5(content, id UNINDEXED, content='admin_ai_memories', content_rowid='rowid', tokenize='trigram case_sensitive 0')`,
+		`CREATE VIRTUAL TABLE IF NOT EXISTS admin_ai_memories_fts USING fts5(content, triggers, id UNINDEXED, content='admin_ai_memories', content_rowid='rowid', tokenize='trigram case_sensitive 0')`,
 		`CREATE TRIGGER IF NOT EXISTS trg_admin_ai_memories_ai AFTER INSERT ON admin_ai_memories BEGIN
-			INSERT INTO admin_ai_memories_fts(rowid, content, id) VALUES (new.rowid, new.content, new.id);
+			INSERT INTO admin_ai_memories_fts(rowid, content, triggers, id) VALUES (new.rowid, new.content, new.triggers, new.id);
 		END`,
 		`CREATE TRIGGER IF NOT EXISTS trg_admin_ai_memories_ad AFTER DELETE ON admin_ai_memories BEGIN
-			INSERT INTO admin_ai_memories_fts(admin_ai_memories_fts, rowid, content, id) VALUES ('delete', old.rowid, old.content, old.id);
+			INSERT INTO admin_ai_memories_fts(admin_ai_memories_fts, rowid, content, triggers, id) VALUES ('delete', old.rowid, old.content, old.triggers, old.id);
 		END`,
-		`CREATE TRIGGER IF NOT EXISTS trg_admin_ai_memories_au AFTER UPDATE OF content ON admin_ai_memories BEGIN
-			INSERT INTO admin_ai_memories_fts(admin_ai_memories_fts, rowid, content, id) VALUES ('delete', old.rowid, old.content, old.id);
-			INSERT INTO admin_ai_memories_fts(rowid, content, id) VALUES (new.rowid, new.content, new.id);
+		`CREATE TRIGGER IF NOT EXISTS trg_admin_ai_memories_au AFTER UPDATE OF content, triggers ON admin_ai_memories BEGIN
+			INSERT INTO admin_ai_memories_fts(admin_ai_memories_fts, rowid, content, triggers, id) VALUES ('delete', old.rowid, old.content, old.triggers, old.id);
+			INSERT INTO admin_ai_memories_fts(rowid, content, triggers, id) VALUES (new.rowid, new.content, new.triggers, new.id);
 		END`,
+		`INSERT INTO admin_ai_memories_fts(rowid, content, triggers, id) SELECT rowid, content, triggers, id FROM admin_ai_memories`,
 		`CREATE INDEX IF NOT EXISTS idx_admin_ai_sessions_activity ON admin_ai_sessions(last_activity_at DESC)`,
 		`CREATE INDEX IF NOT EXISTS idx_admin_ai_messages_session ON admin_ai_messages(session_id, created_at)`,
 		`CREATE INDEX IF NOT EXISTS idx_admin_ai_executions_session ON admin_ai_executions(session_id, started_at)`,
@@ -290,10 +298,47 @@ func (s *Service) ensureSchema(ctx context.Context, db *sql.DB) error {
 	if err := ensureSQLiteColumn(ctx, db, "admin_ai_approvals", "reason", "TEXT"); err != nil {
 		return fmt.Errorf("adminai ensureSchema admin_ai_approvals.reason: %w", err)
 	}
+	// admin_ai_messages 增加单调递增排序键 seq：created_at 只到秒，同一秒内多条
+	// 消息（一次 run 的 user/assistant/tool 行）靠随机 id 做 tie-break 会得到不稳定
+	// 次序，导致前端历史错位、刷新后错乱。seq 按插入先后严格递增，作为唯一排序/游标键。
+	if err := s.ensureMessageSeq(ctx, db); err != nil {
+		return fmt.Errorf("adminai ensureSchema admin_ai_messages.seq: %w", err)
+	}
 	// admin_ai_sessions 扩展 write_enabled_until 列（「允许此对话」时效授权：
 	// 到达时间后 isSessionWriteEnabled 自动视为未授权并落库清零，防永久高权）
 	if err := ensureSQLiteColumn(ctx, db, "admin_ai_sessions", "write_enabled_until", "TEXT DEFAULT ''"); err != nil {
 		return fmt.Errorf("adminai ensureSchema admin_ai_sessions.write_enabled_until: %w", err)
+	}
+	return nil
+}
+
+// ensureMessageSeq 保证 admin_ai_messages 具备单调递增的 seq，并让插入自动取值：
+//   - 加列 seq INTEGER（历史行按 rowid 顺序回填，回填只做一次，以是否存在空值为准）；
+//   - 建 seq 索引（排序/游标都走它）；
+//   - 建 BEFORE INSERT 触发器：seq 为空时取当前 MAX(seq)+1（并发写入由 SQLite 串行化）。
+func (s *Service) ensureMessageSeq(ctx context.Context, db *sql.DB) error {
+	if err := ensureSQLiteColumn(ctx, db, "admin_ai_messages", "seq", "INTEGER"); err != nil {
+		return err
+	}
+	// 回填历史行：按 rowid（即插入顺序）赋 1..N，只在存在 NULL 时执行一次。
+	if _, err := db.ExecContext(ctx,
+		`UPDATE admin_ai_messages SET seq = (
+			SELECT COUNT(*) FROM admin_ai_messages m2
+			WHERE m2.rowid <= admin_ai_messages.rowid
+		) WHERE seq IS NULL`); err != nil {
+		return fmt.Errorf("backfill seq: %w", err)
+	}
+	if _, err := db.ExecContext(ctx,
+		`CREATE INDEX IF NOT EXISTS idx_admin_ai_messages_seq ON admin_ai_messages(session_id, seq)`); err != nil {
+		return fmt.Errorf("create seq index: %w", err)
+	}
+	if _, err := db.ExecContext(ctx, `CREATE TRIGGER IF NOT EXISTS trg_admin_ai_messages_seq
+		AFTER INSERT ON admin_ai_messages
+		WHEN NEW.seq IS NULL
+		BEGIN
+			UPDATE admin_ai_messages SET seq = (SELECT COALESCE(MAX(seq), 0) + 1 FROM admin_ai_messages) WHERE rowid = NEW.rowid;
+		END`); err != nil {
+		return fmt.Errorf("create seq trigger: %w", err)
 	}
 	return nil
 }
@@ -385,6 +430,9 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			s.channelAction(w, r, channelID, action)
 			return
 		}
+		if s.handleWechatChannelPath(w, r, channelID, action) {
+			return
+		}
 		response.Error(w, http.StatusNotFound, "频道路由不存在")
 	case path == "/channel-bindings" && r.Method == http.MethodGet:
 		s.listBindings(w, r)
@@ -430,13 +478,15 @@ func (s *Service) listSessions(w http.ResponseWriter, r *http.Request) {
 		ID             string `json:"id"`
 		Source         string `json:"source"`
 		ChannelRef     string `json:"channelRef,omitempty"`
+		ChannelType    string `json:"channelType,omitempty"`
+		ChannelName    string `json:"channelName,omitempty"`
 		Title          string `json:"title,omitempty"`
 		Model          string `json:"model,omitempty"`
 		WriteEnabled   bool   `json:"writeEnabled"`
 		Mode           string `json:"mode"`
 		CreatedAt      string `json:"createdAt"`
 		UpdatedAt      string `json:"updatedAt"`
-LastActivityAt string `json:"lastActivityAt"`
+	LastActivityAt string `json:"lastActivityAt"`
 	MessageCount   int    `json:"messageCount"`
 	ActiveRun      *struct {
 		RunID string `json:"runId"`
@@ -445,6 +495,7 @@ LastActivityAt string `json:"lastActivityAt"`
 }
 
 	sessions := make([]sessionItem, 0)
+	chIDs := map[string]string{} // sessionID -> 频道配置 id（channel 来源会话）
 	for rows.Next() {
 		var item sessionItem
 		var we int
@@ -454,6 +505,16 @@ LastActivityAt string `json:"lastActivityAt"`
 			return
 		}
 		item.WriteEnabled = we == 1
+		if strings.HasPrefix(item.Source, "channel:") {
+			var idStruct struct {
+				ChannelID string `json:"channelId"`
+			}
+			if json.Unmarshal([]byte(identity), &idStruct) == nil && idStruct.ChannelID != "" {
+				chIDs[item.ID] = idStruct.ChannelID
+			} else {
+				chIDs[item.ID] = strings.TrimPrefix(item.Source, "channel:")
+			}
+		}
 		sessions = append(sessions, item)
 	}
 	rows.Close() // 先收行再查询：单连接池（SetMaxOpenConns(1)）下 rows 未关时同连接嵌套查询会自锁
@@ -470,6 +531,13 @@ LastActivityAt string `json:"lastActivityAt"`
 	s.mu.Unlock()
 	for i := range sessions {
 		_ = db.QueryRowContext(r.Context(), "SELECT COUNT(*) FROM admin_ai_messages WHERE session_id = ?", sessions[i].ID).Scan(&sessions[i].MessageCount)
+		if cid, ok := chIDs[sessions[i].ID]; ok {
+			var ctype, cname string
+			if err := db.QueryRowContext(r.Context(), "SELECT type, name FROM admin_ai_channels WHERE id = ?", cid).Scan(&ctype, &cname); err == nil {
+				sessions[i].ChannelType = ctype
+				sessions[i].ChannelName = cname
+			}
+		}
 		if ar, ok := activeSnapshot[sessions[i].ID]; ok {
 			sessions[i].ActiveRun = &struct {
 				RunID string `json:"runId"`
@@ -640,21 +708,39 @@ func (s *Service) listMessages(w http.ResponseWriter, r *http.Request, sessionID
 		ToolStatus       string `json:"toolStatus,omitempty"`
 		Mentions         string `json:"mentions,omitempty"`
 		CreatedAt        string `json:"createdAt"`
+		Seq              int64  `json:"seq"`
 	}
 
-	var rows *sql.Rows
+	// 游标为 seq 值（单调递增、同秒内也严格有序）。为兼容旧版
+	// 「created_at_id」复合游标，解析失败时回退到旧的二元条件。
+	var cursorSeq int64
+	legacyCursor := false
+	var legacyCreatedAt, legacyID string
 	if cursor != "" {
-		parts := strings.SplitN(cursor, "_", 2)
-		if len(parts) != 2 {
+		if v, perr := strconv.ParseInt(cursor, 10, 64); perr == nil {
+			cursorSeq = v
+		} else if parts := strings.SplitN(cursor, "_", 2); len(parts) == 2 {
+			legacyCursor = true
+			legacyCreatedAt, legacyID = parts[0], parts[1]
+		} else {
 			response.Error(w, http.StatusBadRequest, "游标格式无效")
 			return
 		}
+	}
+
+	var rows *sql.Rows
+	switch {
+	case legacyCursor:
 		rows, err = db.QueryContext(r.Context(),
-			`SELECT id, session_id, role, COALESCE(content,''), COALESCE(reasoning_content,''), COALESCE(reasoning_summary,''), COALESCE(tool_call_meta,''), COALESCE(tool_status,''), COALESCE(mentions,''), created_at FROM admin_ai_messages WHERE session_id = ? AND (created_at < ? OR (created_at = ? AND id < ?)) ORDER BY created_at DESC, id DESC LIMIT ?`,
-			sessionID, parts[0], parts[0], parts[1], limit+1)
-	} else {
+			`SELECT id, session_id, role, COALESCE(content,''), COALESCE(reasoning_content,''), COALESCE(reasoning_summary,''), COALESCE(tool_call_meta,''), COALESCE(tool_status,''), COALESCE(mentions,''), created_at, COALESCE(seq,0) FROM admin_ai_messages WHERE session_id = ? AND (created_at < ? OR (created_at = ? AND id < ?)) ORDER BY created_at DESC, id DESC LIMIT ?`,
+			sessionID, legacyCreatedAt, legacyCreatedAt, legacyID, limit+1)
+	case cursor != "":
 		rows, err = db.QueryContext(r.Context(),
-			`SELECT id, session_id, role, COALESCE(content,''), COALESCE(reasoning_content,''), COALESCE(reasoning_summary,''), COALESCE(tool_call_meta,''), COALESCE(tool_status,''), COALESCE(mentions,''), created_at FROM admin_ai_messages WHERE session_id = ? ORDER BY created_at DESC, id DESC LIMIT ?`,
+			`SELECT id, session_id, role, COALESCE(content,''), COALESCE(reasoning_content,''), COALESCE(reasoning_summary,''), COALESCE(tool_call_meta,''), COALESCE(tool_status,''), COALESCE(mentions,''), created_at, COALESCE(seq,0) FROM admin_ai_messages WHERE session_id = ? AND seq < ? ORDER BY seq DESC LIMIT ?`,
+			sessionID, cursorSeq, limit+1)
+	default:
+		rows, err = db.QueryContext(r.Context(),
+			`SELECT id, session_id, role, COALESCE(content,''), COALESCE(reasoning_content,''), COALESCE(reasoning_summary,''), COALESCE(tool_call_meta,''), COALESCE(tool_status,''), COALESCE(mentions,''), created_at, COALESCE(seq,0) FROM admin_ai_messages WHERE session_id = ? ORDER BY seq DESC LIMIT ?`,
 			sessionID, limit+1)
 	}
 	if err != nil {
@@ -666,7 +752,7 @@ func (s *Service) listMessages(w http.ResponseWriter, r *http.Request, sessionID
 	items := make([]messageItem, 0, limit)
 	for rows.Next() {
 		var item messageItem
-		if err := rows.Scan(&item.ID, &item.SessionID, &item.Role, &item.Content, &item.ReasoningContent, &item.ReasoningSummary, &item.ToolCallMeta, &item.ToolStatus, &item.Mentions, &item.CreatedAt); err != nil {
+		if err := rows.Scan(&item.ID, &item.SessionID, &item.Role, &item.Content, &item.ReasoningContent, &item.ReasoningSummary, &item.ToolCallMeta, &item.ToolStatus, &item.Mentions, &item.CreatedAt, &item.Seq); err != nil {
 			response.Error(w, http.StatusInternalServerError, err.Error())
 			return
 		}
@@ -711,7 +797,7 @@ func (s *Service) listMessages(w http.ResponseWriter, r *http.Request, sessionID
 	if len(items) > limit {
 		items = items[:limit]
 		last := items[limit-1]
-		nextCursor = last.CreatedAt + "_" + last.ID
+		nextCursor = strconv.FormatInt(last.Seq, 10)
 	}
 	for i, j := 0, len(items)-1; i < j; i, j = i+1, j-1 {
 		items[i], items[j] = items[j], items[i]
@@ -790,10 +876,10 @@ func (s *Service) submitMessage(w http.ResponseWriter, r *http.Request) {
 			response.Error(w, http.StatusInternalServerError, err.Error())
 			return
 		}
-		var createdAt string
+		var rewindSeq int64
 		err = db.QueryRowContext(r.Context(),
-			`SELECT created_at FROM admin_ai_messages WHERE id = ? AND session_id = ?`,
-			req.RewindID, req.SessionID).Scan(&createdAt)
+			`SELECT COALESCE(seq,0) FROM admin_ai_messages WHERE id = ? AND session_id = ?`,
+			req.RewindID, req.SessionID).Scan(&rewindSeq)
 		if err == sql.ErrNoRows {
 			db.Close()
 			response.Error(w, http.StatusBadRequest, "要编辑的消息不存在或已被清理")
@@ -804,9 +890,10 @@ func (s *Service) submitMessage(w http.ResponseWriter, r *http.Request) {
 			response.Error(w, http.StatusInternalServerError, err.Error())
 			return
 		}
+		// 按 seq 截断：删除该消息及其后所有行（seq 单调递增，同秒消息也能精确切分）
 		_, err = db.ExecContext(r.Context(),
-			`DELETE FROM admin_ai_messages WHERE session_id = ? AND (created_at > ? OR (created_at = ? AND id >= ?))`,
-			req.SessionID, createdAt, createdAt, req.RewindID)
+			`DELETE FROM admin_ai_messages WHERE session_id = ? AND seq >= ?`,
+			req.SessionID, rewindSeq)
 		db.Close()
 		if err != nil {
 			response.Error(w, http.StatusInternalServerError, err.Error())

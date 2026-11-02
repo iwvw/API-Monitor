@@ -15,6 +15,7 @@ import (
 
 	"github.com/gorilla/websocket"
 	"github.com/iwvw/api-monitor/backend-go/internal/config"
+	"github.com/iwvw/api-monitor/backend-go/internal/database"
 	"github.com/iwvw/api-monitor/backend-go/internal/secure"
 	subscriptionservice "github.com/iwvw/api-monitor/backend-go/internal/subscription"
 	"github.com/iwvw/api-monitor/backend-go/internal/subscriptionledger"
@@ -22,11 +23,12 @@ import (
 
 func testService(t *testing.T) (*Service, *sql.DB) {
 	t.Helper()
-	service := New(config.Config{
+	cfg := config.Config{
 		Version: "test",
 		DataDir: t.TempDir(),
 		DBName:  "data.db",
-	})
+	}
+	service := New(cfg)
 	db, err := service.open(context.Background())
 	if err != nil {
 		t.Fatalf("open db: %v", err)
@@ -34,8 +36,131 @@ func testService(t *testing.T) (*Service, *sql.DB) {
 	t.Cleanup(func() {
 		service.Stop()
 		_ = db.Close()
+		// 连接池按 dbPath 进程级复用，需显式失效，否则临时目录在 Windows 上无法删除。
+		database.ResetPool(cfg.DatabasePath())
 	})
 	return service, db
+}
+
+// TestResolveAgentNodeByLabel 覆盖标签选择：命中在线节点、跳过离线节点、无匹配返回空。
+func TestResolveAgentNodeByLabel(t *testing.T) {
+	service, db := testService(t)
+	ctx := context.Background()
+
+	seed := func(id, name, tags string, order int) {
+		if _, err := db.Exec(`INSERT INTO server_accounts(id,name,host,username,auth_type,tags,order_index) VALUES(?,?,?,?,?,?,?)`,
+			id, name, "192.0.2.1", "root", "password", tags, order); err != nil {
+			t.Fatal(err)
+		}
+	}
+	seed("n-win", "win-a", `["win","prod"]`, 0)
+	seed("n-linux", "linux-a", `["linux"]`, 1)
+
+	// 无标签：返回空，不报错。
+	if got, err := service.ResolveAgentNode(ctx, ""); err != nil || got != "" {
+		t.Fatalf("empty selector: got=%q err=%v", got, err)
+	}
+
+	// 标签命中但节点离线：应返回空（只选在线节点）。
+	if got, err := service.ResolveAgentNode(ctx, "win"); err != nil || got != "" {
+		t.Fatalf("offline node should not be selected: got=%q err=%v", got, err)
+	}
+
+	// 注册在线连接后应能选中。
+	service.registry.Register("n-win", &stubSocket{})
+	got, err := service.ResolveAgentNode(ctx, "win, prod")
+	if err != nil {
+		t.Fatalf("resolve err: %v", err)
+	}
+	if got != "n-win" {
+		t.Fatalf("expected n-win, got %q", got)
+	}
+
+	// 无匹配标签返回空。
+	if got, err := service.ResolveAgentNode(ctx, "macos"); err != nil || got != "" {
+		t.Fatalf("no-match: got=%q err=%v", got, err)
+	}
+}
+
+type stubSocket struct{}
+
+func (s *stubSocket) Close() error { return nil }
+
+// TestAgentInstallScriptInjectsFileRoots 验证额外文件白名单根目录按平台注入安装脚本：
+// Linux 走 systemd Environment=，Windows 走 VBS 进程环境；未配置时不出现该变量。
+func TestAgentInstallScriptInjectsFileRoots(t *testing.T) {
+	cfg := config.Config{
+		Version:        "test",
+		DataDir:        t.TempDir(),
+		DBName:         "data.db",
+		AgentFileRoots: []string{`C:\scripts`, `/opt/scripts`, `/srv/tools/`},
+	}
+	service := New(cfg)
+	db, err := service.open(context.Background())
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	t.Cleanup(func() {
+		service.Stop()
+		_ = db.Close()
+		database.ResetPool(cfg.DatabasePath())
+	})
+
+	serverID := "file-roots-host"
+	if _, err := db.ExecContext(context.Background(),
+		`INSERT INTO server_accounts(id,name,host,port,username,auth_type) VALUES(?,?,?,?,?,?)`,
+		serverID, "roots", "192.0.2.9", 22, "root", "password"); err != nil {
+		t.Fatal(err)
+	}
+	agentKey, err := service.getOrGenerateAgentKeyForServer(context.Background(), db, serverID)
+	if err != nil {
+		t.Fatalf("agent key: %v", err)
+	}
+
+	fetch := func(kind string) string {
+		req := httptest.NewRequest(http.MethodGet, "/api/server/agent/install/"+kind+"/"+serverID+"/"+agentKey+"?protocol=http", nil)
+		req.Host = "127.0.0.1:3010"
+		rec := httptest.NewRecorder()
+		service.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("%s install status=%d body=%s", kind, rec.Code, rec.Body.String())
+		}
+		return rec.Body.String()
+	}
+
+	// Linux：冒号分隔，走 systemd Environment=。
+	linux := fetch("linux")
+	if !strings.Contains(linux, "Environment=API_MONITOR_FILE_ROOTS=C:\\scripts:/opt/scripts:/srv/tools") {
+		t.Fatalf("linux script missing expected file roots env: %s", linux)
+	}
+
+	// Windows：分号分隔，走 VBS 进程环境。
+	win := fetch("win")
+	if !strings.Contains(win, `$FILE_ROOTS_VALUE = "C:\scripts;/opt/scripts;/srv/tools/`) {
+		t.Fatalf("windows script missing expected file roots value: %s", win)
+	}
+	if !strings.Contains(win, `WshEnv("API_MONITOR_FILE_ROOTS")`) {
+		t.Fatalf("windows script missing process env injection: %s", win)
+	}
+
+	// 未配置时不应出现该变量，保持历史行为。
+	bareCfg := config.Config{Version: "test", DataDir: t.TempDir(), DBName: "data.db"}
+	bare := New(bareCfg)
+	bareDB, err := bare.open(context.Background())
+	if err != nil {
+		t.Fatalf("open bare db: %v", err)
+	}
+	t.Cleanup(func() {
+		bare.Stop()
+		_ = bareDB.Close()
+		database.ResetPool(bareCfg.DatabasePath())
+	})
+	if line := bare.systemdFileRootsEnvLine(); line != "" {
+		t.Fatalf("expected no systemd env line when unconfigured, got %q", line)
+	}
+	if val := bare.agentFileRootsEnvValue(true); val != "" {
+		t.Fatalf("expected empty file roots when unconfigured, got %q", val)
+	}
 }
 
 func TestDeleteAccountRequiresForceWhenAgentOfflineWithManagedDependencies(t *testing.T) {
@@ -2758,8 +2883,8 @@ func TestAgentQuickInstallCreatesHostFromName(t *testing.T) {
 	if !strings.Contains(resWin.Body.String(), `$AGENT_PATH = "$INSTALL_DIR\api-monitor-agent.exe"`) {
 		t.Fatalf("windows install script should use a valid agent path: %s", resWin.Body.String())
 	}
-	if !strings.Contains(resWin.Body.String(), `$TEMP_AGENT_PATH = "$INSTALL_DIR\api-monitor-agent.download.exe"`) {
-		t.Fatalf("windows install script should use a temp download path: %s", resWin.Body.String())
+	if !strings.Contains(resWin.Body.String(), `$TEMP_AGENT_PATH = "$INSTALL_DIR\api-monitor-agent.$([Guid]::NewGuid().ToString('N')).download.exe"`) {
+		t.Fatalf("windows install script should use a unique temp download path: %s", resWin.Body.String())
 	}
 	if !strings.Contains(resWin.Body.String(), `$CONFIG_PATH = "$INSTALL_DIR\config.json"`) ||
 		!strings.Contains(resWin.Body.String(), `Remove-Item -Path $CONFIG_PATH -Force`) ||
@@ -3043,7 +3168,7 @@ func TestSFTPListUsesAgentTunnelWhenOnlineWithoutSSHCredentials(t *testing.T) {
 			}
 			return `{"cwd":"/home/agent","files":[{"name":"app.log","path":"/home/agent/app.log","isDirectory":false,"isFile":true,"size":12,"mode":420,"mtime":1000,"permissions":"-rw-r--r--"}]}`
 		},
-	})
+	}).SetMetadata("agent_version", minAgentFileRealPathVersion)
 
 	res := perform(service, http.MethodPost, "/api/server/sftp/list", `{"serverId":"server-agent-file","path":"."}`)
 	if res.Code != http.StatusOK {
@@ -3367,6 +3492,218 @@ func TestAgentExecCommandFailed(t *testing.T) {
 	}
 }
 
+type exitCodeReplySocket struct {
+	t        *testing.T
+	service  *Service
+	exitCode int
+}
+
+func (s *exitCodeReplySocket) WriteMessage(_ int, data []byte) error {
+	raw := string(data)
+	var frame []interface{}
+	if err := json.Unmarshal([]byte(raw[2:]), &frame); err != nil {
+		s.t.Fatalf("decode socket frame: %v frame=%s", err, raw)
+	}
+	payload, _ := frame[1].(map[string]interface{})
+	taskID, _ := payload["id"].(string)
+	go s.service.taskRegistry.CompleteWithExitCode(taskID, "matched output\n", s.exitCode)
+	return nil
+}
+
+// TestAgentExecCommandNonZeroExitIsSuccess 验证：命令已执行完成但退出码非零时，
+// 面板返回 success=true 并透出 exitCode，不再误报「命令执行失败」。
+func TestAgentExecCommandNonZeroExitIsSuccess(t *testing.T) {
+	service, _ := testService(t)
+	service.registry.Register("server-1", &exitCodeReplySocket{t: t, service: service, exitCode: 1})
+
+	rec := perform(service, http.MethodPost, "/api/server/agent/command/server-1", `{"command":"grep foo /tmp/x"}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	payload := decodePayload(t, rec)
+	if payload["success"] != true {
+		t.Fatalf("success=%v, want true for nonzero-exit completed command: %s", payload["success"], rec.Body.String())
+	}
+	if payload["output"] != "matched output\n" {
+		t.Fatalf("output=%v, want preserved output", payload["output"])
+	}
+	if payload["exitCode"] != float64(1) {
+		t.Fatalf("exitCode=%v, want 1", payload["exitCode"])
+	}
+	if payload["error"] != nil {
+		t.Fatalf("error should be absent for nonzero-exit success: %v", payload["error"])
+	}
+}
+
+// TestAgentExecCommandAsyncReturnsTaskID 验证 wait=false 立即返回 task_id，
+// 不占用一次同步等待（长任务的关键路径）。
+func TestAgentExecCommandAsyncReturnsTaskID(t *testing.T) {
+	service, _ := testService(t)
+	socket := &captureWriteSocket{t: t, service: service}
+	service.registry.Register("server-1", socket)
+
+	rec := perform(service, http.MethodPost, "/api/server/agent/command/server-1",
+		`{"command":"apt-get upgrade -y","wait":false,"timeout":600}`)
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("异步模式应返回 202，实际 %d body=%s", rec.Code, rec.Body.String())
+	}
+	payload := decodePayload(t, rec)
+	if payload["accepted"] != true {
+		t.Fatalf("accepted=%v", payload["accepted"])
+	}
+	taskID, _ := payload["task_id"].(string)
+	if taskID == "" {
+		t.Fatalf("应返回 task_id: %#v", payload)
+	}
+
+	// 任务应已在注册表中，可用 GET 查询终态。
+	task, ok := service.taskRegistry.Get(taskID)
+	if !ok {
+		t.Fatal("异步任务应登记在注册表中")
+	}
+	if task.ServerID != "server-1" {
+		t.Fatalf("任务归属主机错误: %s", task.ServerID)
+	}
+}
+
+// silentAgentSocket 只记录下发内容、从不回报结果，用于观察任务的下发时刻状态。
+type silentAgentSocket struct {
+	mu       sync.Mutex
+	payloads []map[string]interface{}
+}
+
+func (s *silentAgentSocket) WriteMessage(_ int, data []byte) error {
+	raw := string(data)
+	var frame []interface{}
+	if err := json.Unmarshal([]byte(raw[2:]), &frame); err != nil {
+		return nil
+	}
+	payload, _ := frame[1].(map[string]interface{})
+	s.mu.Lock()
+	s.payloads = append(s.payloads, payload)
+	s.mu.Unlock()
+	return nil
+}
+
+// TestAgentExecCommandAsyncDoesNotWaitForResult 验证 wait=false 不阻塞：
+// 用一个永不回报的 Agent socket，请求仍必须立即返回 202 而不是卡到超时。
+func TestAgentExecCommandAsyncDoesNotWaitForResult(t *testing.T) {
+	service, _ := testService(t)
+	socket := &silentAgentSocket{}
+	service.registry.Register("server-1", socket)
+
+	started := time.Now()
+	rec := perform(service, http.MethodPost, "/api/server/agent/command/server-1",
+		`{"command":"long-running","wait":false,"timeout":300}`)
+	elapsed := time.Since(started)
+
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("异步模式应返回 202，实际 %d body=%s", rec.Code, rec.Body.String())
+	}
+	if elapsed > 2*time.Second {
+		t.Fatalf("异步模式不应等待执行结果，实际耗时 %v", elapsed)
+	}
+	payload := decodePayload(t, rec)
+	taskID, _ := payload["task_id"].(string)
+	if taskID == "" {
+		t.Fatalf("应返回 task_id: %#v", payload)
+	}
+	task, ok := service.taskRegistry.Get(taskID)
+	if !ok {
+		t.Fatal("异步任务应登记在注册表中")
+	}
+	if task.GetStatus() == TaskCompleted {
+		t.Fatal("Agent 未回报时任务不应已完成")
+	}
+	socket.mu.Lock()
+	sent := len(socket.payloads)
+	socket.mu.Unlock()
+	if sent != 1 {
+		t.Fatalf("应恰好下发一次任务，实际 %d", sent)
+	}
+}
+
+// recordingReplySocket 记录下发的 task payload 并立即回报成功，用于检查钳制后的超时值。
+type recordingReplySocket struct {
+	t        *testing.T
+	service  *Service
+	mu       sync.Mutex
+	payloads []map[string]interface{}
+}
+
+func (s *recordingReplySocket) WriteMessage(_ int, data []byte) error {
+	raw := string(data)
+	var frame []interface{}
+	if err := json.Unmarshal([]byte(raw[2:]), &frame); err != nil {
+		s.t.Fatalf("decode socket frame: %v frame=%s", err, raw)
+	}
+	payload, _ := frame[1].(map[string]interface{})
+	s.mu.Lock()
+	s.payloads = append(s.payloads, payload)
+	s.mu.Unlock()
+	taskID, _ := payload["id"].(string)
+	go s.service.taskRegistry.CompleteWithExitCode(taskID, "done\n", 0)
+	return nil
+}
+
+func (s *recordingReplySocket) last() map[string]interface{} {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(s.payloads) == 0 {
+		return nil
+	}
+	return s.payloads[len(s.payloads)-1]
+}
+
+// TestAgentExecCommandTimeoutLimits 验证同步/异步两档超时上限：
+// 同步 300s（HTTP 不能无限挂着），异步放宽到 30 分钟（否则 apt upgrade 会被杀掉）。
+func TestAgentExecCommandTimeoutLimits(t *testing.T) {
+	service, _ := testService(t)
+	socket := &recordingReplySocket{t: t, service: service}
+	service.registry.Register("server-1", socket)
+
+	if rec := perform(service, http.MethodPost, "/api/server/agent/command/server-1",
+		`{"command":"echo hi","timeout":1200}`); rec.Code != http.StatusOK {
+		t.Fatalf("同步 status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if got, _ := socket.last()["timeout"].(float64); got != 300 {
+		t.Fatalf("同步模式超时应钳到 300s，实际 %v", got)
+	}
+
+	if rec := perform(service, http.MethodPost, "/api/server/agent/command/server-1",
+		`{"command":"apt-get upgrade -y","wait":false,"timeout":1200}`); rec.Code != http.StatusAccepted {
+		t.Fatalf("异步 status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if got, _ := socket.last()["timeout"].(float64); got != 1200 {
+		t.Fatalf("异步模式应保留 1200s，实际 %v", got)
+	}
+
+	// 异步模式不传 timeout 时用更宽松的默认值（10 分钟），而不是同步的 30 秒。
+	if rec := perform(service, http.MethodPost, "/api/server/agent/command/server-1",
+		`{"command":"apt-get upgrade -y","wait":false}`); rec.Code != http.StatusAccepted {
+		t.Fatalf("异步 status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if got, _ := socket.last()["timeout"].(float64); got != 600 {
+		t.Fatalf("异步默认超时应为 600s，实际 %v", got)
+	}
+}
+
+// TestAgentExecCommandSyncStillWaits 验证默认（不传 wait）仍是同步语义，
+// 避免异步改动破坏既有调用方。
+func TestAgentExecCommandSyncStillWaits(t *testing.T) {
+	service, _ := testService(t)
+	service.registry.Register("server-1", &exitCodeReplySocket{t: t, service: service, exitCode: 0})
+
+	rec := perform(service, http.MethodPost, "/api/server/agent/command/server-1", `{"command":"echo hi"}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("同步模式应返回 200，实际 %d body=%s", rec.Code, rec.Body.String())
+	}
+	payload := decodePayload(t, rec)
+	if payload["output"] != "matched output\n" {
+		t.Fatalf("同步模式应带回输出: %#v", payload)
+	}
+}
+
 func TestAgentExecCommandDangerous(t *testing.T) {
 	service, _ := testService(t)
 	// 不注册 socket：危险检测必须先于在线检查返回 400
@@ -3380,6 +3717,41 @@ func TestAgentExecCommandDangerous(t *testing.T) {
 	}
 	if len(payload["dangerReasons"].([]interface{})) == 0 {
 		t.Fatalf("dangerReasons empty: %s", rec.Body.String())
+	}
+}
+
+func TestAgentExecCommandPolicyModes(t *testing.T) {
+	service, _ := testService(t)
+
+	// 无策略标记（默认 standard）→ 危险命令硬拦截
+	rec := perform(service, http.MethodPost, "/api/server/agent/command/server-1", `{"command":"rm -rf /tmp/x"}`)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("standard: status=%d body=%s", rec.Code, rec.Body.String())
+	}
+
+	makeReq := func(mode string, body string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodPost, "/api/server/agent/command/server-1", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		req = req.WithContext(WithAIPolicyMode(req.Context(), mode))
+		res := httptest.NewRecorder()
+		service.ServeHTTP(res, req)
+		return res
+	}
+
+	// sensitive → 软拦截：未确认返回 requires_confirmation
+	rec = makeReq("sensitive", `{"command":"rm -rf /tmp/x"}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("sensitive: status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	payload := decodePayload(t, rec)
+	if payload["requires_confirmation"] != true || payload["dangerous"] != true {
+		t.Fatalf("sensitive should soft-block with confirmation: %s", rec.Body.String())
+	}
+
+	// full → 放行危险命令，随后落入在线检查（此处离线 → 502）
+	rec = makeReq("full", `{"command":"rm -rf /tmp/x"}`)
+	if rec.Code != http.StatusBadGateway {
+		t.Fatalf("full should bypass dangerous gate and hit offline check, status=%d body=%s", rec.Code, rec.Body.String())
 	}
 }
 
@@ -3465,4 +3837,177 @@ func TestDetectDangerousCommandVariants(t *testing.T) {
 			t.Errorf("should allow: %q (reasons=%v)", c, DetectDangerousCommand(c).Reasons)
 		}
 	}
+}
+
+// TestDockerPruneNotMisroutedAsResourceRemove 回归：/images|networks|volumes/prune
+// 是字面量动作，只能走 POST prune；DELETE 命中该路径时不得当作资源引用交给
+// remove（此前会误删 "prune" 镜像，报 No such image: prune:latest）。
+func TestDockerPruneNotMisroutedAsResourceRemove(t *testing.T) {
+	service, db := testService(t)
+	_, err := db.ExecContext(context.Background(), `INSERT INTO server_accounts (id, name, host, username, auth_type, cached_info) VALUES ('docker-prune', 'docker', '', 'root', 'password', '{"docker":{"installed":true}}')`)
+	if err != nil {
+		t.Fatalf("insert account: %v", err)
+	}
+
+	type dispatched struct {
+		taskType int
+		data     string
+	}
+	var calls []dispatched
+	service.registry.Register("docker-prune", &taskReplySocket{
+		t:       t,
+		service: service,
+		reply: func(taskType int, data string) string {
+			calls = append(calls, dispatched{taskType: taskType, data: data})
+			return "ok"
+		},
+	})
+
+	// POST prune 正确分发为 image prune 动作
+	res := perform(service, http.MethodPost, "/api/server/v2/docker/docker-prune/images/prune", "")
+	if res.Code != http.StatusOK {
+		t.Fatalf("images prune status=%d body=%s", res.Code, res.Body.String())
+	}
+	if len(calls) != 1 || calls[0].taskType != dockerTaskImageAction || !strings.Contains(calls[0].data, `"action":"prune"`) {
+		t.Fatalf("expected single image prune dispatch, got %#v", calls)
+	}
+	calls = nil
+
+	// DELETE prune 必须被拒绝，绝不当作镜像删除分发
+	res = perform(service, http.MethodDelete, "/api/server/v2/docker/docker-prune/images/prune", "")
+	if res.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("images prune DELETE status=%d body=%s", res.Code, res.Body.String())
+	}
+	if len(calls) != 0 {
+		t.Fatalf("DELETE prune must not dispatch any docker task, got %#v", calls)
+	}
+
+	// 真实镜像引用仍走删除
+	res = perform(service, http.MethodDelete, "/api/server/v2/docker/docker-prune/images/nginx", "")
+	if res.Code != http.StatusOK {
+		t.Fatalf("image remove status=%d body=%s", res.Code, res.Body.String())
+	}
+	if len(calls) != 1 || calls[0].taskType != dockerTaskImageAction || !strings.Contains(calls[0].data, `"image":"nginx"`) {
+		t.Fatalf("expected single image remove dispatch, got %#v", calls)
+	}
+	calls = nil
+
+	// networks/volumes 的 prune 字面量同样受保护
+	for _, sub := range []string{"networks", "volumes"} {
+		res = perform(service, http.MethodDelete, "/api/server/v2/docker/docker-prune/"+sub+"/prune", "")
+		if res.Code != http.StatusMethodNotAllowed {
+			t.Fatalf("%s prune DELETE status=%d body=%s", sub, res.Code, res.Body.String())
+		}
+		if len(calls) != 0 {
+			t.Fatalf("%s prune DELETE must not dispatch any docker task, got %#v", sub, calls)
+		}
+		res = perform(service, http.MethodPost, "/api/server/v2/docker/docker-prune/"+sub+"/prune", "")
+		if res.Code != http.StatusOK {
+			t.Fatalf("%s prune status=%d body=%s", sub, res.Code, res.Body.String())
+		}
+		if len(calls) != 1 || !strings.Contains(calls[0].data, `"action":"prune"`) {
+			t.Fatalf("expected single %s prune dispatch, got %#v", sub, calls)
+		}
+		calls = nil
+	}
+}
+
+// TestAgentSFTPReadWriteRequireRealPath 验证面板文件管理在 Agent 在线时
+// 一律带 realPath=true：否则 Agent 会把 /opt/x 静默锚定到沙箱根，
+// 出现「界面显示保存成功、主机真实文件没变」的静默数据丢失。
+func TestAgentSFTPReadWriteRequireRealPath(t *testing.T) {
+	service, db := testService(t)
+	ctx := context.Background()
+	_, err := db.ExecContext(ctx, `INSERT INTO server_accounts (id, name, host, username, auth_type) VALUES ('file-agent', 'file', '', 'root', 'password')`)
+	if err != nil {
+		t.Fatalf("insert account: %v", err)
+	}
+
+	var seen []string
+	service.registry.Register("file-agent", &taskReplySocket{
+		t:       t,
+		service: service,
+		reply: func(taskType int, data string) string {
+			seen = append(seen, data)
+			switch taskType {
+			case agentFileReadTask:
+				return "services: {}"
+			case agentFileWriteTask:
+				return `{"message":"文件保存成功","realPath":"/opt/app/docker-compose.yml"}`
+			case agentFileListTask:
+				return `{"files":[],"cwd":"/opt/app"}`
+			case agentFileMkdirTask:
+				return "目录创建成功"
+			default:
+				t.Fatalf("unexpected task type: %d", taskType)
+				return ""
+			}
+		},
+	}).SetMetadata("agent_version", minAgentFileRealPathVersion)
+
+	body := `{"serverId":"file-agent","path":"/opt/app/docker-compose.yml","content":"services: {}"}`
+	if res := perform(service, http.MethodPost, "/api/server/sftp/read", body); res.Code != http.StatusOK {
+		t.Fatalf("read status=%d body=%s", res.Code, res.Body.String())
+	}
+	if res := perform(service, http.MethodPost, "/api/server/sftp/write", body); res.Code != http.StatusOK {
+		t.Fatalf("write status=%d body=%s", res.Code, res.Body.String())
+	}
+	if res := perform(service, http.MethodPost, "/api/server/sftp/list", `{"serverId":"file-agent","path":"/opt/app"}`); res.Code != http.StatusOK {
+		t.Fatalf("list status=%d body=%s", res.Code, res.Body.String())
+	}
+	if res := perform(service, http.MethodPost, "/api/server/sftp/mkdir", `{"serverId":"file-agent","path":"/opt/app/sub"}`); res.Code != http.StatusOK {
+		t.Fatalf("mkdir status=%d body=%s", res.Code, res.Body.String())
+	}
+
+	if len(seen) != 4 {
+		t.Fatalf("expected 4 agent file tasks, got %d: %#v", len(seen), seen)
+	}
+	for _, data := range seen {
+		if !strings.Contains(data, `"realPath":true`) {
+			t.Fatalf("file task must request realPath: %s", data)
+		}
+	}
+}
+
+// TestDockerStacksPruneRemovedProjects 验证 compose 快照是权威快照：
+// 主机上已消失的项目必须从 docker_stacks 删除，否则 /stacks 长期返回僵尸记录。
+func TestDockerStacksPruneRemovedProjects(t *testing.T) {
+	_, db := testService(t)
+	ctx := context.Background()
+	// docker_stacks.server_id 外键指向 server_accounts，先建主机记录。
+	if _, err := db.ExecContext(ctx, `INSERT INTO server_accounts (id, name, host, username, auth_type) VALUES ('stack-agent', 'stack', '', 'root', 'password')`); err != nil {
+		t.Fatalf("insert account: %v", err)
+	}
+
+	first := []interface{}{
+		map[string]interface{}{"Name": "keep", "Status": "running(1)", "ConfigFiles": "/srv/keep/docker-compose.yml"},
+		map[string]interface{}{"Name": "gone", "Status": "running(1)", "ConfigFiles": "/srv/gone/docker-compose.yml"},
+	}
+	upsertDockerStackSnapshot(ctx, db, "stack-agent", first)
+	if got := countDockerStacks(t, db, "stack-agent"); got != 2 {
+		t.Fatalf("after first sync rows=%d, want 2", got)
+	}
+
+	second := []interface{}{
+		map[string]interface{}{"Name": "keep", "Status": "running(1)", "ConfigFiles": "/srv/keep/docker-compose.yml"},
+	}
+	upsertDockerStackSnapshot(ctx, db, "stack-agent", second)
+	if got := countDockerStacks(t, db, "stack-agent"); got != 1 {
+		t.Fatalf("after prune rows=%d, want 1", got)
+	}
+
+	// 空结果（Agent 采集失败/返回空）不得清空快照。
+	upsertDockerStackSnapshot(ctx, db, "stack-agent", []interface{}{})
+	if got := countDockerStacks(t, db, "stack-agent"); got != 1 {
+		t.Fatalf("empty sync must not wipe snapshot, rows=%d", got)
+	}
+}
+
+func countDockerStacks(t *testing.T, db *sql.DB, serverID string) int {
+	t.Helper()
+	var n int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM docker_stacks WHERE server_id = ?`, serverID).Scan(&n); err != nil {
+		t.Fatalf("count stacks: %v", err)
+	}
+	return n
 }

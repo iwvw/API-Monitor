@@ -23,6 +23,7 @@ func seedSubscriberBindingTest(t *testing.T, protocol string) (*sql.DB, string) 
 		`INSERT INTO subscription_plans(id,name,enabled,total_bytes,cycle_type,cycle_day,selection_mode,include_internal_nodes,include_external_nodes) VALUES('plan','套餐',1,100,'monthly',1,'explicit',1,0)`,
 		`INSERT INTO subscription_plan_nodes(plan_id,node_id,source) VALUES('plan','node','internal')`,
 		`INSERT INTO subscription_subscriptions(id,profile_id,plan_id,name,public_token,vless_uuid,hysteria2_password,enabled,created_at) VALUES('active','active','plan','有效','token-a','11111111-1111-4111-8111-111111111111','pass-a',1,'2026-01-01 00:00:00'),('spent','spent','plan','耗尽','token-b','22222222-2222-4222-8222-222222222222','pass-b',1,'2026-01-01 00:00:00')`,
+		`UPDATE user_settings SET time_zone='UTC' WHERE id=1`,
 	}
 	for index, statement := range statements {
 		var err error
@@ -35,7 +36,7 @@ func seedSubscriberBindingTest(t *testing.T, protocol string) (*sql.DB, string) 
 			t.Fatalf("seed statement %d: %v", index, err)
 		}
 	}
-	start, end := subscriptionledger.CycleWindow(time.Now().UTC(), "monthly", 1, "")
+	start, end := subscriptionledger.CycleWindow(time.Now().UTC(), "monthly", 1, "", time.UTC)
 	if _, err := db.Exec(`INSERT INTO subscription_usage_cycles(subscription_id,cycle_start,cycle_end,upload_bytes,download_bytes) VALUES('spent',?,?,60,40)`, start, end); err != nil {
 		t.Fatal(err)
 	}

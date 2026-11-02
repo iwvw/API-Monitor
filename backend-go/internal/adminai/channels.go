@@ -205,22 +205,36 @@ func (s *Service) reloadChannels(auth func(userID, username, chatType string) bo
 		if err := rows.Scan(&id, &ctype, &name, &enabled, &encrypted, &sourceID); err != nil {
 			continue
 		}
-		if ctype != "telegram" {
-			continue
+		switch ctype {
+		case "telegram":
+			var cfg channel.TelegramConfig
+			if err := secure.DecryptJSON(encrypted, &cfg); err != nil {
+				continue
+			}
+			token, err := s.resolveBotToken(context.Background(), sourceID, cfg)
+			if err != nil {
+				slog.Warn("channel-load-token", "channelId", id, "err", err.Error())
+				continue
+			}
+			cfg.BotToken = token
+			tg := channel.NewTelegramChannel(id, cfg, s.chanMgr.registry)
+			tg.SetAuthorize(auth)
+			s.chanMgr.registry.Register(tg)
+		case "wechat":
+			var wcfg channel.WeChatConfig
+			if err := secure.DecryptJSON(encrypted, &wcfg); err != nil {
+				continue
+			}
+			wc := channel.NewWeChatChannel(id, wcfg, s.chanMgr.registry)
+			s.chanMgr.registry.Register(wc)
+		case "wecom":
+			var wccfg channel.WeComConfig
+			if err := secure.DecryptJSON(encrypted, &wccfg); err != nil {
+				continue
+			}
+			wc := channel.NewWeComChannel(id, wccfg, s.chanMgr.registry)
+			s.chanMgr.registry.Register(wc)
 		}
-		var cfg channel.TelegramConfig
-		if err := secure.DecryptJSON(encrypted, &cfg); err != nil {
-			continue
-		}
-		token, err := s.resolveBotToken(context.Background(), sourceID, cfg)
-		if err != nil {
-			slog.Warn("channel-load-token", "channelId", id, "err", err.Error())
-			continue
-		}
-		cfg.BotToken = token
-		tg := channel.NewTelegramChannel(id, cfg, s.chanMgr.registry)
-		tg.SetAuthorize(auth)
-		s.chanMgr.registry.Register(tg)
 	}
 }
 
@@ -259,6 +273,7 @@ func (s *Service) startChannelInstance(ctx context.Context, id string) error {
 	}
 
 	var ch channel.Channel
+	notifyOnStart := false
 	switch ctype {
 	case "telegram":
 		var cfg channel.TelegramConfig
@@ -273,6 +288,21 @@ func (s *Service) startChannelInstance(ctx context.Context, id string) error {
 		tg := channel.NewTelegramChannel(id, cfg, s.chanMgr.registry)
 		tg.SetAuthorize(auth)
 		ch = tg
+		notifyOnStart = tg.NotifyOnStartEnabled()
+	case "wechat":
+		var wcfg channel.WeChatConfig
+		if err := secure.DecryptJSON(encrypted, &wcfg); err != nil {
+			return fmt.Errorf("频道配置解密失败: %w", err)
+		}
+		wc := channel.NewWeChatChannel(id, wcfg, s.chanMgr.registry)
+		ch = wc
+	case "wecom":
+		var wccfg channel.WeComConfig
+		if err := secure.DecryptJSON(encrypted, &wccfg); err != nil {
+			return fmt.Errorf("频道配置解密失败: %w", err)
+		}
+		wcc := channel.NewWeComChannel(id, wccfg, s.chanMgr.registry)
+		ch = wcc
 	default:
 		return fmt.Errorf("不支持的频道类型: %s", ctype)
 	}
@@ -283,6 +313,11 @@ func (s *Service) startChannelInstance(ctx context.Context, id string) error {
 	s.chanMgr.mu.Unlock()
 
 	s.chanMgr.registry.Register(ch)
+	// 启动就绪通知（开关开启时）：向白名单成员发送命令面板，与 telegram.go 内的
+	// AllowFrom 就绪消息共用同一开关；独立 goroutine 发送，不阻塞启动流程。
+	if notifyOnStart {
+		go s.sendChannelStartNotify(id)
+	}
 	go func() {
 		// Start 阻塞；退出后清理 cancel 注册（含异常退出）
 		err := ch.Start(runCtx)
@@ -297,6 +332,60 @@ func (s *Service) startChannelInstance(ctx context.Context, id string) error {
 		s.chanMgr.mu.Unlock()
 	}()
 	return nil
+}
+
+// sendChannelStartNotify 向频道白名单成员发送启动就绪消息（命令面板）。
+// 与 telegram.go 内 AllowFrom 就绪消息互补：白名单成员走 bindings 表，旧 allowFrom 走频道实例。
+func (s *Service) sendChannelStartNotify(channelID string) {
+	ch, ok := s.chanMgr.registry.Get(channelID)
+	if !ok {
+		return
+	}
+	db, err := s.open(context.Background())
+	if err != nil {
+		return
+	}
+	defer db.Close()
+	// 去重：telegram.go Start() 已给 AllowFrom 用户发送就绪消息，这里排除，避免同一用户收两条。
+	var chType, encrypted string
+	_ = db.QueryRowContext(context.Background(), `SELECT type, config FROM admin_ai_channels WHERE id = ?`, channelID).Scan(&chType, &encrypted)
+	allowFrom := map[string]bool{}
+	if chType == "telegram" && encrypted != "" {
+		var cfg channel.TelegramConfig
+		if err := secure.DecryptJSON(encrypted, &cfg); err == nil {
+			for _, uid := range cfg.AllowFrom {
+				if uid = strings.TrimSpace(uid); uid != "" {
+					allowFrom[uid] = true
+				}
+			}
+		}
+	}
+	rows, err := db.QueryContext(context.Background(),
+		`SELECT channel_user_id FROM admin_ai_channel_bindings WHERE channel_id = ? ORDER BY created_at DESC`, channelID)
+	if err != nil {
+		return
+	}
+	defer rows.Close()
+	var uids []string
+	for rows.Next() {
+		var uid string
+		if rows.Scan(&uid) == nil {
+			uid = strings.TrimSpace(uid)
+			if uid != "" && !allowFrom[uid] {
+				uids = append(uids, uid)
+			}
+		}
+	}
+	if len(uids) == 0 {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	for _, uid := range uids {
+		if _, err := ch.Send(ctx, uid, channel.OutboundMessage{Text: channel.CommandPanel()}); err != nil {
+			slog.Warn("channel-start-notify-failed", "channelId", channelID, "userId", uid, "err", err.Error())
+		}
+	}
 }
 
 // stopChannelInstance 停止频道轮询并从注册表移除实例：
@@ -371,16 +460,28 @@ func (s *Service) handleChannelConversation(env channel.InboundEnvelope) {
 		s.sendChannelReplyReport(env, "⚠️ 频道未就绪。")
 		return
 	}
-	msgID, err := ch.Send(context.Background(), env.ChatID, channel.OutboundMessage{Text: "⏳ 正在处理中…"})
-	if err != nil {
-		slog.Error("channel-reply-failed", "channelId", env.ChannelID, "chatId", env.ChatID, "err", err.Error())
-		return
+	supportsEdit := true
+	if se, ok := ch.(interface{ SupportsEdit() bool }); ok {
+		supportsEdit = se.SupportsEdit()
 	}
-	slog.Info("channel-placeholder-sent", "channelId", env.ChannelID, "msgId", msgID)
+	var msgID string
+	if supportsEdit {
+		var err error
+		msgID, err = ch.Send(context.Background(), env.ChatID, channel.OutboundMessage{Text: "⏳ 正在处理中…", Stream: true})
+		if err != nil {
+			slog.Error("channel-reply-failed", "channelId", env.ChannelID, "chatId", env.ChatID, "err", err.Error())
+			return
+		}
+		slog.Info("channel-placeholder-sent", "channelId", env.ChannelID, "msgId", msgID)
+	}
 
 	runID, err := s.RunLoop(context.Background(), source, sessionID, env.Text, string(identity), "", "", nil)
 	if err != nil {
-		s.sendChannelEdit(env, msgID, "⚠️ 执行失败："+channel.EscapeV2(err.Error()))
+		if supportsEdit {
+			s.sendChannelEdit(env, msgID, "⚠️ 执行失败："+channel.EscapeV2(err.Error()))
+		} else {
+			s.sendChannelReplyReport(env, "⚠️ 执行失败："+err.Error())
+		}
 		return
 	}
 	s.streamChannelReply(env, runID, msgID)
@@ -410,7 +511,11 @@ func (s *Service) queueChannelConversation(env channel.InboundEnvelope, sessionI
 		s.sendChannelReplyReport(env, "⚠️ 频道未就绪。")
 		return
 	}
-	msgID, err := ch.Send(context.Background(), env.ChatID, channel.OutboundMessage{Text: "⏳ 正在排队（上一条仍在执行），完成后自动继续…"})
+	supportsEdit := true
+	if se, ok := ch.(interface{ SupportsEdit() bool }); ok {
+		supportsEdit = se.SupportsEdit()
+	}
+	msgID, err := ch.Send(context.Background(), env.ChatID, channel.OutboundMessage{Text: "⏳ 正在排队（上一条仍在执行），完成后自动继续…", Stream: supportsEdit})
 	if err != nil {
 		slog.Error("channel-reply-failed", "channelId", env.ChannelID, "chatId", env.ChatID, "err", err.Error())
 		return
@@ -426,7 +531,11 @@ func (s *Service) queueChannelConversation(env channel.InboundEnvelope, sessionI
 			break
 		}
 		if time.Now().After(deadline) {
-			_ = s.sendChannelEdit(env, msgID, "⚠️ 排队超时，请稍后再试。")
+			if supportsEdit {
+				_ = s.sendChannelEdit(env, msgID, "⚠️ 排队超时，请稍后再试。")
+			} else {
+				s.sendChannelReplyReport(env, "⚠️ 排队超时，请稍后再试。")
+			}
 			slog.Warn("channel-queue-timeout", "channelId", env.ChannelID, "chatId", env.ChatID)
 			return
 		}
@@ -434,10 +543,16 @@ func (s *Service) queueChannelConversation(env channel.InboundEnvelope, sessionI
 		waited += 500 * time.Millisecond
 	}
 
-	_ = s.sendChannelEdit(env, msgID, "⏳ 正在处理中…")
+	if supportsEdit {
+		_ = s.sendChannelEdit(env, msgID, "⏳ 正在处理中…")
+	}
 	runID, err := s.RunLoop(context.Background(), source, sessionID, env.Text, identity, "", "", nil)
 	if err != nil {
-		_ = s.sendChannelEdit(env, msgID, "⚠️ 执行失败："+channel.EscapeV2(err.Error()))
+		if supportsEdit {
+			_ = s.sendChannelEdit(env, msgID, "⚠️ 执行失败："+channel.EscapeV2(err.Error()))
+		} else {
+			s.sendChannelReplyReport(env, "⚠️ 执行失败："+err.Error())
+		}
 		return
 	}
 	slog.Info("channel-queued-run", "channelId", env.ChannelID, "chatId", env.ChatID, "runId", runID, "waitedMs", waited.Milliseconds())
@@ -447,6 +562,36 @@ func (s *Service) queueChannelConversation(env channel.InboundEnvelope, sessionI
 // streamChannelReply 订阅 runId 事件，把 delta 文本持续 Edit 到占位消息上，实现真流式。
 // Edit 节流：最小间隔 + 最小增量，避免 Telegram 对高频编辑触发 429 限流。
 func (s *Service) streamChannelReply(env channel.InboundEnvelope, runID, msgID string) {
+	// 不支持编辑的频道（如微信）：跳过占位编辑流式，改为累积全部 delta 后一次性发送。
+	if ch, ok := s.chanMgr.registry.Get(env.ChannelID); ok {
+		if se, ok := ch.(interface{ SupportsEdit() bool }); ok && !se.SupportsEdit() {
+			var contents strings.Builder
+			var errMsg string
+			s.subscribeRunLive(runID, func(ev SSEEvent) {
+				switch ev.Type {
+				case "delta":
+					if text, ok := ev.Fields["text"].(string); ok && text != "" {
+						contents.WriteString(text)
+					}
+				case "error":
+					if m, ok := ev.Fields["message"].(string); ok {
+						errMsg = m
+					}
+				}
+			})
+			final := contents.String()
+			if errMsg != "" {
+				final = "⚠️ " + errMsg
+			}
+			if strings.TrimSpace(final) == "" {
+				final = "✅ 已处理（无文本输出）。"
+			}
+			s.sendChannelReplyReport(env, final)
+			slog.Info("channel-inbound-done", "channelId", env.ChannelID, "chatId", env.ChatID, "runId", runID, "replyLen", len(final), "stream", false)
+			return
+		}
+	}
+
 	var mu sync.Mutex
 	var contents strings.Builder
 	var errMsg string
@@ -818,7 +963,19 @@ func maskBotToken(cfg map[string]interface{}) map[string]interface{} {
 	if token, ok := cfg["botToken"].(string); ok && len(token) > 8 {
 		cfg["botToken"] = token[:4] + "****" + token[len(token)-4:]
 	}
+	if secret, ok := cfg["secret"].(string); ok && secret != "" {
+		cfg["secret"] = maskSecret(secret)
+	}
 	return cfg
+}
+
+// maskSecret 对任意非空密钥打码：过短（≤4 位）整段打码，其余保留首尾 2 位。
+func maskSecret(secret string) string {
+	r := []rune(secret)
+	if len(r) <= 4 {
+		return "****"
+	}
+	return string(r[:2]) + "****" + string(r[len(r)-2:])
 }
 
 // listChannels GET /api/admin-ai/channels
@@ -887,31 +1044,42 @@ func (s *Service) createChannel(w http.ResponseWriter, r *http.Request) {
 	if req.Type == "" {
 		req.Type = "telegram"
 	}
-	if req.Type != "telegram" {
-		response.Error(w, http.StatusBadRequest, "v1 仅支持 telegram 频道")
+	if req.Type != "telegram" && req.Type != "wechat" && req.Type != "wecom" {
+		response.Error(w, http.StatusBadRequest, "仅支持 telegram / wechat / wecom 频道")
 		return
 	}
 	if req.Name == "" {
-		req.Name = "Telegram"
+		switch req.Type {
+		case "wechat":
+			req.Name = "微信"
+		case "wecom":
+			req.Name = "企业微信"
+		default:
+			req.Name = "Telegram"
+		}
 	}
-	if err := s.validateNotificationSource(r.Context(), req.NotificationChannelID); err != nil {
-		response.Error(w, http.StatusBadRequest, err.Error())
-		return
+	if req.Type == "telegram" {
+		if err := s.validateNotificationSource(r.Context(), req.NotificationChannelID); err != nil {
+			response.Error(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		inUse, err := s.sourceChannelInUse(r.Context(), req.NotificationChannelID, "")
+		if err != nil {
+			response.Error(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		if inUse {
+			response.Error(w, http.StatusBadRequest, "该通知渠道已被其他 AI 频道引用（同一 bot token 只能有一个长轮询实例）")
+			return
+		}
 	}
-	inUse, err := s.sourceChannelInUse(r.Context(), req.NotificationChannelID, "")
-	if err != nil {
-		response.Error(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	if inUse {
-		response.Error(w, http.StatusBadRequest, "该通知渠道已被其他 AI 频道引用（同一 bot token 只能有一个长轮询实例）")
-		return
-	}
-	// 新频道只存运行期偏好，bot token 一律从来源通知渠道解析，不再落库
 	if req.Config == nil {
 		req.Config = map[string]interface{}{}
 	}
-	delete(req.Config, "botToken")
+	if req.Type == "telegram" {
+		// telegram：新频道只存运行期偏好，bot token 一律从来源通知渠道解析，不再落库
+		delete(req.Config, "botToken")
+	}
 	encrypted, err := secure.EncryptJSON(req.Config)
 	if err != nil {
 		response.Error(w, http.StatusInternalServerError, "配置加密失败")
@@ -1026,8 +1194,35 @@ func (s *Service) updateChannel(w http.ResponseWriter, r *http.Request, id strin
 		args = append(args, strings.TrimSpace(*req.NotificationChannelID))
 	}
 	if req.Config != nil {
-		// 新频道不再存 botToken：更新配置时剔除该键，token 始终从来源解析
-		delete(req.Config, "botToken")
+		var channelType string
+		_ = db.QueryRowContext(r.Context(), `SELECT type FROM admin_ai_channels WHERE id = ?`, id).Scan(&channelType)
+		if channelType == "wecom" || channelType == "telegram" {
+			// 企微/Telegram 凭据与偏好存自有配置：合并旧配置，空字符串不覆盖（secret 留空 = 保持不变）。
+			// telegram 合并保证新增字段（如 notifyOnStart）只更新本字段，不抹掉 allowFrom 等旧字段。
+			var oldEncrypted string
+			_ = db.QueryRowContext(r.Context(), `SELECT config_encrypted FROM admin_ai_channels WHERE id = ?`, id).Scan(&oldEncrypted)
+			merged := map[string]interface{}{}
+			if oldEncrypted != "" {
+				var oldCfg map[string]interface{}
+				if secure.DecryptJSON(oldEncrypted, &oldCfg) == nil && oldCfg != nil {
+					for k, v := range oldCfg {
+						merged[k] = v
+					}
+				}
+			}
+			for k, v := range req.Config {
+				if sv, isStr := v.(string); isStr && sv == "" {
+					continue
+				}
+				merged[k] = v
+			}
+			if channelType == "telegram" {
+				delete(merged, "botToken")
+			}
+			req.Config = merged
+		} else if channelType != "wechat" {
+			delete(req.Config, "botToken")
+		}
 		encrypted, err := secure.EncryptJSON(req.Config)
 		if err != nil {
 			response.Error(w, http.StatusInternalServerError, "配置加密失败")

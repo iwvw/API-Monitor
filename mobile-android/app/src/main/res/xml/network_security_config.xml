@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  面板既可能是 https 公网域名，也可能是 http://192.168.x.x:3000 这类局域网地址，
+  所以 base-config 允许明文。这里只做「默认允许 + 明确不信任用户 CA」的收敛：
+  不在 release 里静默信任系统安装的第三方 CA，避免被中间人替换凭据。
+  若将来要强制 https，把 cleartextTrafficPermitted 改成 false 并给需要的
+  内网域加 domain-config 例外即可。
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>

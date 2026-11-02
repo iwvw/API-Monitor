@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   TABLE_COLUMN_ROLES,
+  allocateColumnWidths,
   resolveTableColumns,
 } from './tableLayout.js';
 
@@ -120,5 +121,50 @@ describe('semantic table layout', () => {
       { id: 'name', role: 'primary' },
       { id: 'name', role: 'meta' },
     ])).toThrow(/duplicate table column id/i);
+  });
+});
+
+describe('allocateColumnWidths', () => {
+  const layout = resolveTableColumns([
+    { id: 'name', role: 'primary', minWidth: 200, maxWidth: 300, grow: 3 },
+    { id: 'status', role: 'status' },              // 固定 88
+    { id: 'tags', role: 'content', minWidth: 160, grow: 2 },
+    { id: 'remark', role: 'content', minWidth: 160, grow: 1 },
+    { id: 'actions', role: 'actions-md' },         // 固定 120
+  ]);
+
+  it('keeps utility columns fixed and splits the rest by grow weight', () => {
+    const widths = allocateColumnWidths(layout, 1000);
+    // 固定列：status 88 + actions 120 = 208；弹性池 = 792，按 3:2:1 分。
+    expect(widths[1]).toBe(88);
+    expect(widths[4]).toBe(120);
+    // name 触顶 300（792×3/6=396 > maxWidth 300），余量回流给 tags/remark。
+    expect(widths[0]).toBe(300);
+    expect(widths[2]).toBeGreaterThan(widths[3]);
+    // 总宽等于容器宽。
+    expect(widths.reduce((a, b) => a + b, 0)).toBe(1000);
+  });
+
+  it('respects minWidth and never shrinks fixed columns', () => {
+    const widths = allocateColumnWidths(layout, 420);
+    expect(widths[1]).toBe(88);
+    expect(widths[4]).toBe(120);
+    // 触发 minWidth 下限：总宽不小于 layout.minWidth。
+    expect(widths.reduce((a, b) => a + b, 0)).toBeGreaterThanOrEqual(layout.minWidth);
+  });
+
+  it('fills the container exactly and gives flexible columns at least their minWidth', () => {
+    const widths = allocateColumnWidths(layout, 1400);
+    expect(widths.reduce((a, b) => a + b, 0)).toBe(1400);
+    expect(widths[2]).toBeGreaterThanOrEqual(160);
+    expect(widths[3]).toBeGreaterThanOrEqual(160);
+  });
+
+  it('returns null when there is no flexible column to distribute', () => {
+    const fixedOnly = resolveTableColumns([
+      { id: 'status', role: 'status' },
+      { id: 'actions', role: 'actions-md' },
+    ]);
+    expect(allocateColumnWidths(fixedOnly, 800)).toBeNull();
   });
 });

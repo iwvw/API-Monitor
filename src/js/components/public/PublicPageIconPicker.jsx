@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Button } from '@cloudflare/kumo/components/button';
-import { Dialog } from '@cloudflare/kumo/components/dialog';
+import { LayerDialog } from '@cloudflare/kumo/components/layer-dialog';
 import { cx } from '../ui/AppPrimitives.jsx';
 import { Check, RefreshCw, Trash, Upload } from '../Icons.jsx';
 import { dialog } from '../../modules/dialog.js';
@@ -118,7 +118,7 @@ function PublicPageIconOption({
         onClick={onClick}
         disabled={disabled}
         className={cx(
-          'flex w-full items-center gap-3 rounded-xl border px-3 py-3 text-left transition-colors',
+          'flex w-full items-center gap-3 rounded-xl border px-3 py-3 text-left',
           disabled ? 'cursor-not-allowed opacity-70' : 'hover:bg-kumo-recessed/35',
           active ? 'border-brand bg-brand/8' : 'border-kumo-line bg-kumo-base',
         )}
@@ -135,7 +135,7 @@ function PublicPageIconOption({
         onClick={onClick}
         disabled={disabled}
         className={cx(
-          'flex min-w-0 flex-1 items-center gap-3 rounded-xl border px-3 py-3 text-left transition-colors',
+          'flex min-w-0 flex-1 items-center gap-3 rounded-xl border px-3 py-3 text-left',
           disabled ? 'cursor-not-allowed opacity-70' : 'hover:bg-kumo-recessed/35',
           active ? 'border-brand bg-brand/8' : 'border-kumo-line bg-kumo-base',
         )}
@@ -148,7 +148,7 @@ function PublicPageIconOption({
           size="sm"
           variant="ghost"
           className={cx(
-            'border border-kumo-line !bg-kumo-base shadow-sm transition-all',
+            'border border-kumo-line !bg-kumo-base transition-all',
             deleteBusy
               ? 'cursor-wait opacity-100'
               : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 hover:!border-kumo-danger/45 hover:!bg-kumo-danger/10 hover:!text-kumo-danger',
@@ -257,7 +257,10 @@ export default function PublicPageIconPicker({
     const iconId = String(item?.id || '').trim();
     if (!iconId || deletingId) return;
     const fullName = getIconDisplayName(item);
-    const confirmed = await dialog.confirm(`确定删除图标“${fullName || iconId}”吗？`);
+    const confirmed = await dialog.deleteResource({
+      resourceType: '公开页图标',
+      resourceName: fullName || iconId,
+    });
     if (!confirmed) return;
 
     if (selectedIconId === iconId) {
@@ -284,7 +287,7 @@ export default function PublicPageIconPicker({
         triggerClassName,
         hasCustomIcon
           ? 'border-transparent bg-transparent shadow-none'
-          : 'transition-colors hover:border-brand/45',
+          : 'hover:border-brand/45',
       )}
       onClick={() => setOpen(true)}
       aria-label="更换公开页图标"
@@ -312,18 +315,15 @@ export default function PublicPageIconPicker({
     <>
       {trigger}
       {isAuthenticated ? (
-        <Dialog.Root open={open} onOpenChange={(nextOpen) => { if (!saving && !uploading && !deletingId) setOpen(nextOpen); }}>
-          <Dialog className="@container flex max-h-[min(calc(100dvh-2rem),36rem)] !w-[min(42rem,calc(100vw-2rem))] !max-w-[min(42rem,calc(100vw-2rem))] flex-col overflow-hidden p-0">
-            <div className="flex items-start justify-between border-b border-kumo-line px-4 py-3">
-              <div>
-                <Dialog.Title className="text-base font-semibold text-kumo-strong">公开页图标</Dialog.Title>
-                <Dialog.Description className="mt-1 text-xs leading-relaxed text-kumo-subtle">
-                  只影响当前公开页，可随时恢复默认。
-                </Dialog.Description>
-              </div>
-              <Dialog.Close />
-            </div>
-            <div className="flex flex-wrap items-center gap-2 border-b border-kumo-line px-4 py-3">
+        <LayerDialog.Root open={open} onOpenChange={(nextOpen) => { if (!saving && !uploading && !deletingId) setOpen(nextOpen); }}>
+          <LayerDialog.Content size="base">
+            <LayerDialog.Title>公开页图标</LayerDialog.Title>
+            <LayerDialog.Description>
+              只影响当前公开页，可随时恢复默认。
+            </LayerDialog.Description>
+            <LayerDialog.Body>
+            <div className="@container">
+            <div className="flex flex-wrap items-center gap-2 border-b border-kumo-line pb-3">
               <input
                 ref={fileInputRef}
                 type="file"
@@ -359,7 +359,7 @@ export default function PublicPageIconPicker({
                 title="刷新图标列表"
               />
             </div>
-            <div className="overflow-y-auto p-4">
+            <div className="pt-3">
               <div className="grid gap-3 cq-sm:grid-cols-2">
                 <PublicPageIconOption
                   active={!selectedIconId}
@@ -399,8 +399,10 @@ export default function PublicPageIconPicker({
                 </div>
               ) : null}
             </div>
-          </Dialog>
-        </Dialog.Root>
+            </div>
+            </LayerDialog.Body>
+          </LayerDialog.Content>
+        </LayerDialog.Root>
       ) : null}
     </>
   );

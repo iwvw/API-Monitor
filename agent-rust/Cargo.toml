@@ -1,12 +1,12 @@
 [package]
 name = "api-monitor-agent"
-version = "0.6.0"
+version = "0.6.37"
 edition = "2021"
 
 [dependencies]
 tokio = { version = "1.38", features = ["full"] }
 tokio-tungstenite = { version = "0.26", features = ["rustls-tls-webpki-roots"] }
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = { version = "1.0" }
 sysinfo = { version = "0.31" }
@@ -24,9 +24,22 @@ chrono = { version = "0.4", features = ["serde"] }
 hostname = { version = "0.4" }
 prost = "0.13"
 tonic = { version = "0.12", default-features = false, features = ["codegen", "prost", "transport"] }
+axum = "0.7"
+tower = "0.4"
+tower-http = { version = "0.6", features = ["cors"] }
+hmac = "0.12"
+sha2 = "0.10"
+hex = "0.4"
+bytes = "1.10"
+tokio-util = { version = "0.7", features = ["io"] }
+if-addrs = "0.13"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
 
 [target.'cfg(target_os = "windows")'.dependencies]
 bytes = "1.10"
+encoding_rs = "0.8"
 enigo = { version = "0.6.1", default-features = false, features = ["platform_specific"] }
 rand = "0.8"
 rtp = "0.17.2"
@@ -48,6 +61,8 @@ windows-sys = { version = "0.61.2", features = [
   "Win32_System_Diagnostics_ToolHelp",
   "Win32_System_DataExchange",
   "Win32_System_Memory",
+  "Win32_NetworkManagement_IpHelper",
+  "Win32_Networking_WinSock",
 ] }
 
 [features]

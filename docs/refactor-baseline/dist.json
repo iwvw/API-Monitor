@@ -1,0 +1,27 @@
+{
+  "present": true,
+  "fileCount": 4862,
+  "manifestHash": "1b4c3470e429da29",
+  "entrypoints": {
+    "index.html": {
+      "size": 11054,
+      "hash": "a0cd0e2b8f0e6f43"
+    },
+    "manifest.webmanifest": {
+      "size": 1592,
+      "hash": "6e29c8a3d721fc45"
+    },
+    "robots.txt": {
+      "size": 147,
+      "hash": "626e134b23011420"
+    },
+    "logo.svg": {
+      "size": 735,
+      "hash": "506ecf2d02b29d33"
+    },
+    "llms.txt": {
+      "size": 1735,
+      "hash": "b7382c3b60c8fe20"
+    }
+  }
+}

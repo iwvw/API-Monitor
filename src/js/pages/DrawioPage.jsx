@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Badge, Button, Empty, LayerCard, Popover, Tabs, Toolbar } from '@cloudflare/kumo';
-import { Dialog } from '@cloudflare/kumo/components/dialog';
+import { LayerDialog } from '@cloudflare/kumo/components/layer-dialog';
 import { Input } from '@cloudflare/kumo/components/input';
 import DrawioFrame from '../components/drawio/DrawioFrame.jsx';
 import DrawioLibraryView from '../components/drawio/DrawioLibraryView.jsx';
@@ -479,7 +479,7 @@ export default function DrawioPage() {
           <Button
             type="button"
             variant="ghost"
-            className="flex h-[30.5px] shrink-0 items-center justify-between gap-2 rounded-none border-b border-kumo-line px-3 text-left transition hover:bg-kumo-recessed/20"
+            className="flex h-[30.5px] !w-full min-w-0 shrink-0 items-center justify-between gap-2 rounded-none border-b border-kumo-line px-3 text-left hover:bg-kumo-recessed/20"
             onClick={() => setXmlOpen(value => !value)}
             aria-label={xmlOpen ? '收起 XML 编辑区' : '展开 XML 编辑区'}
           >
@@ -744,7 +744,7 @@ export default function DrawioPage() {
           <div className="grid gap-2">
             <button
               type="button"
-              className="flex min-w-0 items-center gap-2 rounded-md border border-kumo-line bg-kumo-recessed/25 px-2.5 py-2 text-left transition hover:border-brand/35 hover:bg-kumo-recessed/40"
+              className="flex min-w-0 items-center gap-2 rounded-md border border-kumo-line bg-kumo-recessed/25 px-2.5 py-2 text-left hover:border-brand/35 hover:bg-kumo-recessed/40"
               onClick={() => copyCanvas('png')}
             >
               <div className="min-w-0 flex-1">
@@ -755,7 +755,7 @@ export default function DrawioPage() {
             </button>
             <button
               type="button"
-              className="flex min-w-0 items-center gap-2 rounded-md border border-kumo-line bg-kumo-recessed/25 px-2.5 py-2 text-left transition hover:border-brand/35 hover:bg-kumo-recessed/40"
+              className="flex min-w-0 items-center gap-2 rounded-md border border-kumo-line bg-kumo-recessed/25 px-2.5 py-2 text-left hover:border-brand/35 hover:bg-kumo-recessed/40"
               onClick={() => copyCanvas('svg')}
             >
               <div className="min-w-0 flex-1">
@@ -883,36 +883,41 @@ variant="primary"
           />
         </div>
       )}
-      <Dialog.Root open={conflictOpen} onOpenChange={setConflictOpen} role="alertdialog">
-        <Dialog className="p-6">
-          <div className="flex items-center gap-3">
-            <AlertTriangle className="h-5 w-5 text-kumo-warning" />
-            <Dialog.Title>草稿冲突</Dialog.Title>
-          </div>
-          <Dialog.Description className="mt-3 text-kumo-subtle">
+      <LayerDialog.Alert open={conflictOpen} onOpenChange={setConflictOpen}>
+        <LayerDialog.Content size="sm">
+          <LayerDialog.Title>
+            <span className="inline-flex items-center gap-3">
+              <AlertTriangle className="h-5 w-5 text-kumo-warning" />
+              草稿冲突
+            </span>
+          </LayerDialog.Title>
+          <LayerDialog.Description>
             另一会话已保存更新版本。
-          </Dialog.Description>
-          <div className="mt-6 flex justify-end gap-2">
-            <Button
-              size="sm"
-              variant="secondary"
-              onClick={() => navigator.clipboard.writeText(draft?.xml_content || '')}
-            >
-              复制本地 XML
-            </Button>
-            <Button
-              size="sm"
-              variant="primary"
+          </LayerDialog.Description>
+          <LayerDialog.Body>
+            <div className="flex flex-wrap justify-end gap-2">
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={() => navigator.clipboard.writeText(draft?.xml_content || '')}
+              >
+                复制本地 XML
+              </Button>
+            </div>
+          </LayerDialog.Body>
+          <LayerDialog.Actions dismissLabel="关闭">
+            <LayerDialog.Action
+              type="button"
               onClick={() => {
                 setConflictOpen(false);
                 loadDocument(selectedId);
               }}
             >
               加载最新草稿
-            </Button>
-          </div>
-        </Dialog>
-      </Dialog.Root>
+            </LayerDialog.Action>
+          </LayerDialog.Actions>
+        </LayerDialog.Content>
+      </LayerDialog.Alert>
     </PageStack>
   );
 }

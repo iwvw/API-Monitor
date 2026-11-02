@@ -12,6 +12,10 @@ import {
 
 const okResponse = (payload, ok = true) => ({ ok, json: async () => payload });
 
+const lastCall = (fetchMock) => fetchMock.mock.calls.at(-1);
+const calledUrl = (fetchMock) => lastCall(fetchMock)[0];
+const calledInit = (fetchMock) => lastCall(fetchMock)[1] || {};
+
 describe('fetchCommandSnippets', () => {
   let fetchMock;
 
@@ -28,13 +32,14 @@ describe('fetchCommandSnippets', () => {
   it('omits undefined, null and empty filters', async () => {
     fetchMock.mockResolvedValue(okResponse({ success: true, data: [] }));
     await fetchCommandSnippets({ os: undefined, arch: null, group: '', kind: 'qr' });
-    expect(fetchMock).toHaveBeenCalledWith('/api/server/snippets?kind=qr');
+    expect(calledUrl(fetchMock)).toBe('/api/server/snippets?kind=qr');
+    expect(calledInit(fetchMock).method).toBe('GET');
   });
 
   it('keeps falsy-but-valid filter values', async () => {
     fetchMock.mockResolvedValue(okResponse({ success: true, data: [] }));
     await fetchCommandSnippets({ kind: 'qr', os: 'linux' });
-    expect(fetchMock).toHaveBeenCalledWith('/api/server/snippets?kind=qr&os=linux');
+    expect(calledUrl(fetchMock)).toBe('/api/server/snippets?kind=qr&os=linux');
   });
 
   it('resolves with the response payload', async () => {
@@ -59,11 +64,9 @@ describe('createCommandSnippet', () => {
   it('posts the payload as JSON', async () => {
     fetchMock.mockResolvedValue(okResponse({ success: true, data: { id: 1 } }));
     await createCommandSnippet({ title: 't', command: 'ls' });
-    expect(fetchMock).toHaveBeenCalledWith('/api/server/snippets', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: '{"title":"t","command":"ls"}',
-    });
+    expect(calledUrl(fetchMock)).toBe('/api/server/snippets');
+    expect(calledInit(fetchMock).method).toBe('POST');
+    expect(calledInit(fetchMock).body).toBe('{"title":"t","command":"ls"}');
   });
 });
 
@@ -83,11 +86,9 @@ describe('updateCommandSnippet', () => {
   it('puts the payload to the snippet url', async () => {
     fetchMock.mockResolvedValue(okResponse({ success: true }));
     await updateCommandSnippet('snippet-1', { title: 't' });
-    expect(fetchMock).toHaveBeenCalledWith('/api/server/snippets/snippet-1', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: '{"title":"t"}',
-    });
+    expect(calledUrl(fetchMock)).toBe('/api/server/snippets/snippet-1');
+    expect(calledInit(fetchMock).method).toBe('PUT');
+    expect(calledInit(fetchMock).body).toBe('{"title":"t"}');
   });
 });
 
@@ -107,7 +108,9 @@ describe('deleteCommandSnippet', () => {
   it('deletes without a body', async () => {
     fetchMock.mockResolvedValue(okResponse({ success: true }));
     await deleteCommandSnippet('snippet-1');
-    expect(fetchMock).toHaveBeenCalledWith('/api/server/snippets/snippet-1', { method: 'DELETE' });
+    expect(calledUrl(fetchMock)).toBe('/api/server/snippets/snippet-1');
+    expect(calledInit(fetchMock).method).toBe('DELETE');
+    expect(calledInit(fetchMock).body).toBeUndefined();
   });
 });
 
@@ -127,11 +130,9 @@ describe('previewCommand', () => {
   it('posts to the preview endpoint', async () => {
     fetchMock.mockResolvedValue(okResponse({ success: true, data: { preview: 'ls -la' } }));
     await previewCommand({ command: 'ls' });
-    expect(fetchMock).toHaveBeenCalledWith('/api/server/snippets/preview', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: '{"command":"ls"}',
-    });
+    expect(calledUrl(fetchMock)).toBe('/api/server/snippets/preview');
+    expect(calledInit(fetchMock).method).toBe('POST');
+    expect(calledInit(fetchMock).body).toBe('{"command":"ls"}');
   });
 });
 
@@ -151,11 +152,9 @@ describe('recordCommandHistory', () => {
   it('posts to the history endpoint', async () => {
     fetchMock.mockResolvedValue(okResponse({ success: true }));
     await recordCommandHistory({ line: 'ls', serverId: 'srv' });
-    expect(fetchMock).toHaveBeenCalledWith('/api/server/snippets/history', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: '{"line":"ls","serverId":"srv"}',
-    });
+    expect(calledUrl(fetchMock)).toBe('/api/server/snippets/history');
+    expect(calledInit(fetchMock).method).toBe('POST');
+    expect(calledInit(fetchMock).body).toBe('{"line":"ls","serverId":"srv"}');
   });
 });
 
@@ -175,7 +174,8 @@ describe('fetchCommandHistory', () => {
   it('filters out empty history filters', async () => {
     fetchMock.mockResolvedValue(okResponse({ success: true, data: [] }));
     await fetchCommandHistory({ os: undefined, limit: null, group: '', serverId: 'srv' });
-    expect(fetchMock).toHaveBeenCalledWith('/api/server/snippets/history?serverId=srv');
+    expect(calledUrl(fetchMock)).toBe('/api/server/snippets/history?serverId=srv');
+    expect(calledInit(fetchMock).method).toBe('GET');
   });
 });
 

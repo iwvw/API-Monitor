@@ -9,6 +9,7 @@ import {
   ArrowsClockwise,
   ArrowsOutSimple,
   Bell as PhBell,
+  BookmarkSimple as PhBookmarkSimple,
   Brain as PhBrain,
   CaretDown,
   CaretLeft,
@@ -18,6 +19,7 @@ import {
   ChatCircle,
   Check as PhCheck,
   Checks,
+  ClipboardText as PhClipboardText,
   Clock as PhClock,
   ClockCounterClockwise,
   Cloud as PhCloud,
@@ -28,6 +30,8 @@ import {
   Cursor as PhCursor,
   Cube,
   Database as PhDatabase,
+  ArrowsOutCardinal as PhArrowsOutCardinal,
+  DotsSixVertical,
   DotsThreeVertical,
   Desktop as PhDesktop,
   DownloadSimple,
@@ -94,6 +98,7 @@ import {
   Sun as PhSun,
   TerminalWindow,
   Trash as PhTrash,
+  Tray,
   TrendUp,
   UploadSimple,
   User as PhUser,
@@ -143,6 +148,18 @@ export {
 } from './IconsCore.jsx';
 
 import tencentCloudIcon from '../../assets/brand-icons/tencentcloud.svg';
+// AI 品牌图标取自 @lobehub/icons 的静态资源（icons-static-svg v1.95.0，
+// https://lobehub.com/icons），与 tencentcloud.svg 同为 24×24 + fill="currentColor"，
+// 因此同样走 createAssetIcon 的 currentColor 遮罩路径，随主题黑白自适应。
+// 这里是按需落地单色变体（无 -color 后缀），不放依赖：本项目 npm install 会撞上既有的
+// peer 冲突，为此加依赖会连带重写 lockfile。
+import codeBuddyIcon from '../../assets/brand-icons/codebuddy.svg';
+import antigravityIcon from '../../assets/brand-icons/antigravity.svg';
+import deepSeekIcon from '../../assets/brand-icons/deepseek.svg';
+import postHogIcon from '../../assets/brand-icons/posthog.svg';
+// Qoder 官方图标（阿里 CDN 的黑色线条 PNG，透明底）。同样走 createAssetIcon 的
+// currentColor 遮罩路径：PNG 作为 mask 源，随主题黑白自适应。
+import qoderIcon from '../../assets/brand-icons/qoder.png';
 
 const createAssetIcon = (asset, label) => {
   const AssetIcon = ({ className = '', style, ...props }) => (
@@ -175,7 +192,9 @@ export const ShieldCheck = createIcon(PhShieldCheck);
 export const Activity = createIcon(Pulse);
 export const FolderOpen = createIcon(PhFolderOpen);
 export const Bell = createIcon(PhBell);
+export const Bookmark = createIcon(PhBookmarkSimple);
 export const Mail = createIcon(EnvelopeSimple);
+export const Inbox = createIcon(Tray);
 export const MessageSquare = createIcon(ChatCircle);
 export const Settings = createIcon(GearSix);
 export const Sun = createIcon(PhSun);
@@ -217,6 +236,7 @@ export const Users = createIcon(PhUsers);
 export const Eye = createIcon(PhEye);
 export const EyeOff = createIcon(EyeSlash);
 export const Copy = createIcon(PhCopy);
+export const ClipboardText = createIcon(PhClipboardText);
 export const Plug = createIcon(Plugs);
 export const Brain = createIcon(PhBrain);
 export const Image = createIcon(PhImage);
@@ -239,6 +259,12 @@ export const GitBranch = createIcon(PhGitBranch);
 export const Square = createIcon(PhSquare);
 export const Hexagon = createIcon(PhHexagon);
 export const MoreVertical = createIcon(DotsThreeVertical);
+
+/** 四向箭头：用于「排序」开关（与公开页分组标题行一致）。 */
+export const SortArrows = createIcon(PhArrowsOutCardinal);
+
+/** 六点抓手：用于拖拽排序的条目。 */
+export const DragHandle = createIcon(DotsSixVertical);
 export const SkipBack = createIcon(PhSkipBack);
 export const SkipForward = createIcon(PhSkipForward);
 export const Repeat = createIcon(PhRepeat);
@@ -258,21 +284,33 @@ export const Wrench = createIcon(PhWrench);
 export const CloudflareBrand = createFontIcon('si si-cloudflare', 'Cloudflare');
 export const AlibabaCloudBrand = createFontIcon('si si-alibabacloud', 'AlibabaCloud');
 export const TencentCloudBrand = createAssetIcon(tencentCloudIcon, 'TencentCloud');
+// 模型网关插件中心用到的 AI 品牌图标。
+export const CodeBuddyBrand = createAssetIcon(codeBuddyIcon, 'CodeBuddy');
+export const AntigravityBrand = createAssetIcon(antigravityIcon, 'Antigravity');
+export const DeepSeekBrand = createAssetIcon(deepSeekIcon, 'DeepSeek');
+export const PostHogBrand = createAssetIcon(postHogIcon, 'PostHog');
+export const QoderBrand = createAssetIcon(qoderIcon, 'Qoder');
+export const OpenCodeBrand = createFontIcon('si si-opencode', 'OpenCode');
 export const KoyebBrand = createFontIcon('si si-koyeb', 'Koyeb');
 export const FlyIoBrand = createFontIcon('si si-flydotio', 'Fly.io');
 
 export const MODULE_ICON_MAP = {
   dashboard: LayoutDashboard,
   settings: Settings,
+  assets: HardDrive,
   openai: Sparkle,
+  aiagent: Terminal,
   subscription: Plug,
   paas: Rocket,
   dns: CloudflareBrand,
   aliyun: AlibabaCloudBrand,
   tencent: TencentCloudBrand,
   oracle: Cloud,
+  gcp: Cloud,
+  huawei: Cloud,
   m365: Cloud,
   github: GitHubBrand,
+  dockerhub: Box,
   server: Server,
   scheduler: Clock,
   totp: ShieldCheck,
@@ -283,10 +321,13 @@ export const MODULE_ICON_MAP = {
   systemlogs: LogList,
   drawio: Compass,
   prompts: MessageSquare,
+  bookmarks: Bookmark,
+  forward: Shuffle,
 };
 
 export const MODULE_GROUP_ICON_MAP = {
   overview: LayoutDashboard,
+  assets: HardDrive,
   'api-gateway': TrendingUp,
   infrastructure: Layers,
   'cloud-vendors': Cloud,
@@ -301,4 +342,56 @@ export const MODULE_GROUP_ICON_MAP = {
 
 export const getModuleIconComponent = (moduleId, fallback = Server) => (
   MODULE_ICON_MAP[moduleId] || fallback
+);
+
+/* 微信 / Telegram 品牌图标（彩色圆角方块原始形状，来自 svgrepo）。
+   weight 属性直接吞掉，避免调用方按 phosphor 语义传入后透传到 <svg> 上。 */
+export const WechatBrand = ({ className = '', size = 24, weight, ...props }) => (
+  <svg
+    viewBox="0 0 512 512"
+    width={size}
+    height={size}
+    className={`app-icon ${className}`.trim()}
+    aria-hidden={props['aria-label'] ? undefined : true}
+    focusable="false"
+    {...props}
+  >
+    <rect width="512" height="512" rx="15%" fill="#00c70a" />
+    <path fill="#ffffff" d="M402 369c23-17 38-42 38-70 0-51-50-92-111-92s-110 41-110 92 49 92 110 92c13 0 25-2 36-5 4-1 8 0 9 1l25 14c3 2 6 0 5-4l-6-22c0-3 2-5 4-6m-110-85a15 15 0 1 1 0-29 15 15 0 0 1 0 29m74 0a15 15 0 1 1 0-29 15 15 0 0 1 0 29" />
+    <path fill="#ffffff" d="m205 105c-73 0-132 50-132 111 0 33 17 63 45 83 3 2 5 5 4 10l-7 24c-1 5 3 7 6 6l30-17c3-2 7-3 11-2 26 8 48 6 51 6-24-84 59-132 123-128-10-52-65-93-131-93m-44 93a18 18 0 1 1 0-35 18 18 0 0 1 0 35m89 0a18 18 0 1 1 0-35 18 18 0 0 1 0 35" />
+  </svg>
+);
+
+export const TelegramBrand = ({ className = '', size = 24, weight, ...props }) => (
+  <svg
+    viewBox="0 0 512 512"
+    width={size}
+    height={size}
+    className={`app-icon ${className}`.trim()}
+    aria-hidden={props['aria-label'] ? undefined : true}
+    focusable="false"
+    {...props}
+  >
+    <rect width="512" height="512" rx="15%" fill="#37aee2" />
+    <path fill="#c8daea" d="M199 404c-11 0-10-4-13-14l-32-105 245-144" />
+    <path fill="#a9c9dd" d="M199 404c7 0 11-4 16-8l45-43-56-34" />
+    <path fill="#f6fbfe" d="M204 319l135 99c14 9 26 4 30-14l55-258c5-22-9-32-24-25L79 245c-21 8-21 21-4 26l83 26 190-121c9-5 17-3 11 4" />
+  </svg>
+);
+
+export const WeComBrand = ({ className = '', size = 24, weight, ...props }) => (
+  <svg
+    viewBox="0 0 24 24"
+    width={size}
+    height={size}
+    className={`app-icon ${className}`.trim()}
+    aria-hidden={props['aria-label'] ? undefined : true}
+    focusable="false"
+    {...props}
+  >
+    <path
+      fill="#0082ef"
+      d="M10,3 C14.0711,3 17.7,5.67053 17.9824,9.3685 C20.2862,10.2297 22,12.1789 22,14.6285 C22,16.4955 20.9737,18.0999 19.4809,19.1207 C19.4565,19.26655 19.454325,19.41305 19.45825,19.55975 L19.4722,20 L19.4722,20 C19.4722,20.5523 19.0245,21 18.4722,21 C17.7145,21 17.0123,20.7532 16.418,20.2902 C16.0578,20.3415 15.6884,20.3681 15.3125,20.3681 C12.5459,20.3681 9.99138,18.877 9.02908,16.6169 C8.87636,16.6012 8.7249,16.5818 8.57481,16.5588 C7.85947,17.1257 7.03533,17.4444 6.11111,17.4444 C5.55883,17.4444 5.11111,16.9967 5.11111,16.4444 L5.11603833,16.2406824 L5.11603833,16.2406824 L5.13418,15.830575 C5.1389175,15.625575 5.13006,15.4216 5.07568,15.2229 C3.24799,14.004 2,12.0725 2,9.83333 C2,5.89642 5.76018,3 10,3 Z M15.3125,10.8889 C12.5452,10.8889 10.625,12.7262 10.625,14.6285 C10.625,16.5308 12.5452,18.3681 15.3125,18.3681 C15.6846,18.3681 16.0454,18.3333 16.3906,18.268 C16.8249,18.1859 17.2098,18.3676 17.5404,18.6282 C17.6399,18.195 17.865,17.7856 18.2466,17.5397 C19.3632,16.8203 20,15.7528 20,14.6285 C20,12.7262 18.0798,10.8889 15.3125,10.8889 Z M13.62,13 C14.1723,13 14.62,13.4477 14.62,14 C14.62,14.5523 14.1723,15 13.62,15 C13.0677,15 12.62,14.5523 12.62,14 C12.62,13.4477 13.0677,13 13.62,13 Z M17,13 C17.5523,13 18,13.4477 18,14 C18,14.5523 17.5523,15 17,15 C16.4477,15 16,14.5523 16,14 C16,13.4477 16.4477,13 17,13 Z M8,7 C8.55228,7 9,7.44772 9,8 C9,8.55228 8.55228,9 8,9 C7.44772,9 7,8.55228 7,8 C7,7.44772 7.44772,7 8,7 Z M12,7 C12.5523,7 13,7.44772 13,8 C13,8.55228 12.5523,9 12,9 C11.4477,9 11,8.55228 11,8 C11,7.44772 11.4477,7 12,7 Z"
+    />
+  </svg>
 );

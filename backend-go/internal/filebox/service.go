@@ -3,6 +3,7 @@ package filebox
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"database/sql"
 	"encoding/base64"
 	"encoding/json"
@@ -40,20 +41,30 @@ const (
 
 const textFormatMarkdown = "markdown"
 
+// downloadDedupWindow 是「真实逻辑下载」去重窗口：同一 IP 在同一 code 上
+// 于该窗口内的并发/重复 HTTP 请求（多线程分块、刷新重试等）只计一次下载。
+const downloadDedupWindow = 60 * time.Second
+
 type Authenticator interface {
 	IsAuthenticated(context.Context, *http.Request) (bool, error)
 }
 
 type Service struct {
-	cfg          config.Config
-	store        *database.Store
-	schema       database.SchemaEnsurer
-	auth         Authenticator
-	dataDir      string
-	uploadsDir   string
-	metadataFile string
-	voidRooms    map[string]*voidRoom
-	voidMu       sync.Mutex
+	cfg           config.Config
+	store         *database.Store
+	schema        database.SchemaEnsurer
+	auth          Authenticator
+	dataDir       string
+	uploadsDir    string
+	metadataFile  string
+	nodeProvider  NodeStorageProvider
+	agentFiles    AgentFileSource
+	agentUploader AgentFileDirectUploader
+	voidRooms     map[string]*voidRoom
+	voidMu        sync.Mutex
+	// downloadDedup 记录每个「ip|code」最近一次计数的时刻，用于同一逻辑下载的并发/重复请求去重。
+	downloadDedup map[string]int64
+	dedupMu       sync.Mutex
 }
 
 type voidRoom struct {
@@ -64,6 +75,7 @@ type voidRoom struct {
 	ExpiresAt     int64                       `json:"expiresAt"`
 	Participants  map[string]*voidParticipant `json:"-"`
 	Signals       []voidSignal                `json:"-"`
+	Files         []string                    `json:"files"`
 	NextSignalID  int64                       `json:"-"`
 	Closed        bool                        `json:"closed"`
 	LastHeartbeat int64                       `json:"lastHeartbeat"`
@@ -145,6 +157,9 @@ type Entry struct {
 	AccessPasswordHash *string                `json:"accessPasswordHash,omitempty"`
 	RequiresPassword   bool                   `json:"requiresPassword"`
 	Metadata           map[string]interface{} `json:"metadata,omitempty"`
+	StorageType        string                 `json:"storageType"`
+	ServerID           *string                `json:"serverId,omitempty"`
+	RemotePath         *string                `json:"remotePath,omitempty"`
 }
 
 type PublicEntry struct {
@@ -162,6 +177,8 @@ type PublicEntry struct {
 	RequiresPassword bool    `json:"requiresPassword"`
 	TextFormat       string  `json:"textFormat,omitempty"`
 	Preview          string  `json:"preview,omitempty"`
+	StorageType      string  `json:"storageType,omitempty"`
+	ServerID         *string `json:"serverId,omitempty"`
 }
 
 type AccessLog struct {
@@ -191,17 +208,57 @@ type sharePayload struct {
 func New(cfg config.Config, authenticator Authenticator) *Service {
 	dataDir := filepath.Join(cfg.DataDir, "filebox")
 	service := &Service{
-		cfg:          cfg,
-		store:        database.New(cfg),
-		auth:         authenticator,
-		dataDir:      dataDir,
-		uploadsDir:   filepath.Join(dataDir, "uploads"),
-		metadataFile: filepath.Join(dataDir, "metadata.json"),
-		voidRooms:    map[string]*voidRoom{},
+		cfg:           cfg,
+		store:         database.New(cfg),
+		auth:          authenticator,
+		dataDir:       dataDir,
+		uploadsDir:    filepath.Join(dataDir, "uploads"),
+		metadataFile:  filepath.Join(dataDir, "metadata.json"),
+		voidRooms:     map[string]*voidRoom{},
+		downloadDedup: map[string]int64{},
 	}
 	_ = service.ensureDirs()
 	_ = service.migrateJSONMetadata(context.Background())
 	return service
+}
+
+func (s *Service) SetNodeProvider(provider NodeStorageProvider) {
+	s.nodeProvider = provider
+}
+
+// AgentFileSource 抽象「从 Agent 主机读取文件」的能力（供 filebox 调用 serveragent）。
+// 实现方必须返回文件字节流与文件元信息，供 filebox 落库或转存到存储节点。
+type AgentFileSource interface {
+	// OpenAgentFile 打开主机上的文件并返回可读流与大小（size 未知时返回 -1）。
+	OpenAgentFile(ctx context.Context, serverID, remotePath string) (io.ReadCloser, int64, error)
+	// AgentFileExists 判断主机文件是否存在且可读（用于提前失败与大小校验）。
+	AgentFileExists(ctx context.Context, serverID, remotePath string) (int64, bool, error)
+}
+
+// AgentFileDirectUploader 抽象「让源主机 Agent 自己把文件 PUT 到签名 URL」的能力。
+// 走此路径时字节不经面板，面板只签发 URL 并等待结果，节省面板流量。
+type AgentFileDirectUploader interface {
+	UploadAgentFileToURL(ctx context.Context, serverID, remotePath, uploadURL string, timeout time.Duration) error
+	// SupportsAgentFileUpload 判断指定主机 Agent 是否具备直传能力（供回退决策）。
+	SupportsAgentFileUpload(serverID string) bool
+}
+
+func (s *Service) SetAgentFileSource(source AgentFileSource) {
+	s.agentFiles = source
+	if uploader, ok := source.(AgentFileDirectUploader); ok {
+		s.agentUploader = uploader
+	}
+}
+
+func (s *Service) SetAgentFileDirectUploader(uploader AgentFileDirectUploader) {
+	s.agentUploader = uploader
+}
+
+func (s *Service) getBackend(storageType string) StorageBackend {
+	if storageType == "remote" && s.nodeProvider != nil {
+		return NewRemoteBackend(s.nodeProvider)
+	}
+	return NewLocalBackend(s.uploadsDir)
 }
 
 func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -238,6 +295,18 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.postVoidSignal(w, r, parts[2])
 	case len(parts) == 4 && parts[0] == "void" && parts[1] == "rooms" && parts[3] == "signals" && r.Method == http.MethodGet:
 		s.getVoidSignals(w, r, parts[2])
+	case len(parts) == 4 && parts[0] == "void" && parts[1] == "rooms" && parts[3] == "files" && r.Method == http.MethodPost:
+		if !s.requireAuth(w, r) {
+			return
+		}
+		s.attachVoidRoomFile(w, r, parts[2])
+	case len(parts) == 4 && parts[0] == "void" && parts[1] == "rooms" && parts[3] == "files" && r.Method == http.MethodGet:
+		s.listVoidRoomFiles(w, r, parts[2])
+	case len(parts) == 5 && parts[0] == "void" && parts[1] == "rooms" && parts[3] == "files" && r.Method == http.MethodDelete:
+		if !s.requireAuth(w, r) {
+			return
+		}
+		s.detachVoidRoomFile(w, r, parts[2], parts[4])
 	case len(parts) == 2 && parts[0] == "retrieve" && r.Method == http.MethodGet:
 		s.sendEntryMetadata(w, r, parts[1])
 	case len(parts) == 2 && parts[0] == "public" && r.Method == http.MethodGet:
@@ -287,6 +356,31 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		s.sendEntryMetadata(w, r, parts[1])
+	case len(parts) == 1 && parts[0] == "storage-nodes" && r.Method == http.MethodGet:
+		if !s.requireAuth(w, r) {
+			return
+		}
+		s.listStorageNodes(w, r)
+	case len(parts) == 2 && parts[0] == "shares" && parts[1] == "init-upload" && r.Method == http.MethodPost:
+		if !s.requireAuth(w, r) {
+			return
+		}
+		s.initRemoteUpload(w, r)
+	case len(parts) == 2 && parts[0] == "shares" && parts[1] == "complete-upload" && r.Method == http.MethodPost:
+		if !s.requireAuth(w, r) {
+			return
+		}
+		s.completeRemoteUpload(w, r)
+	case len(parts) == 1 && parts[0] == "share-from-agent" && r.Method == http.MethodPost:
+		if !s.requireAuth(w, r) {
+			return
+		}
+		s.shareFromAgent(w, r)
+	case len(parts) == 3 && parts[0] == "shares" && parts[2] == "transfer" && r.Method == http.MethodPost:
+		if !s.requireAuth(w, r) {
+			return
+		}
+		s.transferStorage(w, r, parts[1])
 	case len(parts) == 2 && parts[0] == "shares" && r.Method == http.MethodDelete:
 		if !s.requireAuth(w, r) {
 			return
@@ -593,6 +687,125 @@ func (s *Service) getVoidSignals(w http.ResponseWriter, r *http.Request, id stri
 	response.OK(w, map[string]interface{}{"signals": signals, "room": snapshot})
 }
 
+// attachVoidRoomFile 把一个文件柜条目挂到房间上（房间级文件列表面板）。
+// 房间本身不存字节（浏览器 P2P 传输），挂载只登记分享 code，供参与者一键拉取。
+func (s *Service) attachVoidRoomFile(w http.ResponseWriter, r *http.Request, id string) {
+	s.cleanupVoidRooms()
+	if err := s.ensurePersistentVoidRoomLoaded(r.Context(), id); err != nil {
+		response.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	var payload struct {
+		Code string `json:"code"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		response.Error(w, http.StatusBadRequest, "invalid payload")
+		return
+	}
+	code := normalizeCode(payload.Code)
+	if code == "" {
+		response.Error(w, http.StatusBadRequest, "code is required")
+		return
+	}
+	entry, err := s.GetEntry(r.Context(), code, false)
+	if err != nil {
+		response.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if entry == nil {
+		response.Error(w, http.StatusNotFound, "share not found or expired")
+		return
+	}
+
+	now := time.Now().UnixMilli()
+	s.voidMu.Lock()
+	room := s.activeVoidRoomLocked(id)
+	if room == nil {
+		s.voidMu.Unlock()
+		response.Error(w, http.StatusNotFound, "void room not found")
+		return
+	}
+	alreadyAttached := false
+	for _, existing := range room.Files {
+		if existing == code {
+			alreadyAttached = true
+			break
+		}
+	}
+	if !alreadyAttached {
+		room.Files = append(room.Files, code)
+	}
+	payloadJSON, _ := json.Marshal(map[string]string{"code": code})
+	s.appendVoidSignalLocked(room, "owner", "", "file.attached", payloadJSON, now)
+	snapshot := publicVoidRoom(room, now)
+	s.voidMu.Unlock()
+	s.persistVoidRoomFiles(r.Context(), room)
+
+	response.OK(w, map[string]interface{}{
+		"room": snapshot,
+		"entry": publicEntry(entry),
+	})
+}
+
+// listVoidRoomFiles 列出房间挂载的文件条目（公开，供参与者拉取）。
+func (s *Service) listVoidRoomFiles(w http.ResponseWriter, r *http.Request, id string) {
+	s.cleanupVoidRooms()
+	if err := s.ensurePersistentVoidRoomLoaded(r.Context(), id); err != nil {
+		response.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	s.voidMu.Lock()
+	room := s.activeVoidRoomLocked(id)
+	if room == nil {
+		s.voidMu.Unlock()
+		response.Error(w, http.StatusNotFound, "void room not found")
+		return
+	}
+	codes := append([]string(nil), room.Files...)
+	s.voidMu.Unlock()
+
+	entries := make([]PublicEntry, 0, len(codes))
+	for _, code := range codes {
+		entry, err := s.GetEntry(r.Context(), code, false)
+		if err != nil || entry == nil {
+			continue
+		}
+		entries = append(entries, publicEntry(entry))
+	}
+	response.OK(w, entries)
+}
+
+// detachVoidRoomFile 从房间移除挂载的文件条目。
+func (s *Service) detachVoidRoomFile(w http.ResponseWriter, r *http.Request, id, code string) {
+	s.cleanupVoidRooms()
+	if err := s.ensurePersistentVoidRoomLoaded(r.Context(), id); err != nil {
+		response.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	code = normalizeCode(code)
+	now := time.Now().UnixMilli()
+	s.voidMu.Lock()
+	room := s.activeVoidRoomLocked(id)
+	if room == nil {
+		s.voidMu.Unlock()
+		response.Error(w, http.StatusNotFound, "void room not found")
+		return
+	}
+	next := make([]string, 0, len(room.Files))
+	for _, existing := range room.Files {
+		if existing != code {
+			next = append(next, existing)
+		}
+	}
+	room.Files = next
+	payloadJSON, _ := json.Marshal(map[string]string{"code": code})
+	s.appendVoidSignalLocked(room, "owner", "", "file.detached", payloadJSON, now)
+	snapshot := publicVoidRoom(room, now)
+	s.voidMu.Unlock()
+	s.persistVoidRoomFiles(r.Context(), room)
+	response.OK(w, map[string]interface{}{"room": snapshot})
+}
+
 func (s *Service) closeVoidRoom(w http.ResponseWriter, r *http.Request, id string) {
 	s.cleanupVoidRooms()
 	if err := s.ensurePersistentVoidRoomLoaded(r.Context(), id); err != nil {
@@ -733,13 +946,41 @@ func (s *Service) savePersistentVoidRoom(ctx context.Context, room *voidRoom) er
 	}
 	defer db.Close()
 	_, err = db.ExecContext(ctx, `
-		INSERT INTO filebox_void_rooms (id, owner_token, mode, created_at, expires_at, deleted_at)
-		VALUES (?, ?, ?, ?, ?, NULL)
-	`, room.ID, room.OwnerToken, room.Mode, room.CreatedAt, room.ExpiresAt)
+		INSERT INTO filebox_void_rooms (id, owner_token, mode, created_at, expires_at, files_json, deleted_at)
+		VALUES (?, ?, ?, ?, ?, ?, NULL)
+	`, room.ID, room.OwnerToken, room.Mode, room.CreatedAt, room.ExpiresAt, encodeVoidRoomFiles(room.Files))
 	if err != nil {
 		return fmt.Errorf("save persistent void room: %w", err)
 	}
 	return nil
+}
+
+// persistVoidRoomFiles 更新持久房间的挂载文件列表（内存态与 DB 双写，失败仅告警不阻断）。
+func (s *Service) persistVoidRoomFiles(ctx context.Context, room *voidRoom) {
+	if room == nil || room.Mode != voidRoomModePersistent {
+		return
+	}
+	db, err := s.open(ctx)
+	if err != nil {
+		return
+	}
+	defer db.Close()
+	_, _ = db.ExecContext(ctx, `
+		UPDATE filebox_void_rooms
+		SET files_json = ?
+		WHERE id = ? AND deleted_at IS NULL
+	`, encodeVoidRoomFiles(room.Files), room.ID)
+}
+
+func encodeVoidRoomFiles(files []string) string {
+	if len(files) == 0 {
+		return "[]"
+	}
+	encoded, err := json.Marshal(files)
+	if err != nil {
+		return "[]"
+	}
+	return string(encoded)
 }
 
 func (s *Service) markPersistentVoidRoomDeleted(ctx context.Context, id string) error {
@@ -789,7 +1030,7 @@ func (s *Service) loadPersistentVoidRooms(ctx context.Context) error {
 	}
 	defer db.Close()
 	rows, err := db.QueryContext(ctx, `
-		SELECT id, owner_token, mode, created_at, expires_at
+		SELECT id, owner_token, mode, created_at, expires_at, files_json
 		FROM filebox_void_rooms
 		WHERE deleted_at IS NULL
 		ORDER BY created_at DESC
@@ -826,7 +1067,7 @@ func (s *Service) loadPersistentVoidRoom(ctx context.Context, id string) (*voidR
 	}
 	defer db.Close()
 	row := db.QueryRowContext(ctx, `
-		SELECT id, owner_token, mode, created_at, expires_at
+		SELECT id, owner_token, mode, created_at, expires_at, files_json
 		FROM filebox_void_rooms
 		WHERE id = ? AND deleted_at IS NULL
 	`, normalizeCode(id))
@@ -843,11 +1084,18 @@ type persistentVoidRoomScanner interface {
 
 func scanPersistentVoidRoom(scanner persistentVoidRoomScanner) (*voidRoom, error) {
 	var room voidRoom
-	if err := scanner.Scan(&room.ID, &room.OwnerToken, &room.Mode, &room.CreatedAt, &room.ExpiresAt); err != nil {
+	var filesJSON sql.NullString
+	if err := scanner.Scan(&room.ID, &room.OwnerToken, &room.Mode, &room.CreatedAt, &room.ExpiresAt, &filesJSON); err != nil {
 		return nil, err
 	}
 	room.ID = normalizeCode(room.ID)
 	room.Mode = normalizeVoidRoomMode(voidRoomRequest{Mode: room.Mode})
+	if filesJSON.Valid && filesJSON.String != "" {
+		var files []string
+		if err := json.Unmarshal([]byte(filesJSON.String), &files); err == nil {
+			room.Files = files
+		}
+	}
 	now := time.Now().UnixMilli()
 	room.Participants = map[string]*voidParticipant{
 		"owner": {
@@ -895,6 +1143,8 @@ func publicVoidRoom(room *voidRoom, now int64) map[string]interface{} {
 		return participants[i].ID < participants[j].ID
 	})
 	mode := normalizeVoidRoomMode(voidRoomRequest{Mode: room.Mode})
+	files := make([]string, 0, len(room.Files))
+	files = append(files, room.Files...)
 	return map[string]interface{}{
 		"id":           room.ID,
 		"roomId":       room.ID,
@@ -904,6 +1154,7 @@ func publicVoidRoom(room *voidRoom, now int64) map[string]interface{} {
 		"expiresAt":    room.ExpiresAt,
 		"closed":       room.Closed,
 		"lastSignalId": room.NextSignalID,
+		"files":        files,
 		"participants": participants,
 	}
 }
@@ -965,7 +1216,8 @@ func normalizeVoidClientID(value string) string {
 
 func allowedVoidSignalType(signalType string) bool {
 	switch signalType {
-	case "participant.ready", "webrtc.offer", "webrtc.answer", "webrtc.ice":
+	case "participant.ready", "webrtc.offer", "webrtc.answer", "webrtc.ice",
+		"file.attached", "file.detached":
 		return true
 	default:
 		return false
@@ -1118,6 +1370,31 @@ func (s *Service) downloadEntry(w http.ResponseWriter, r *http.Request, code str
 		if entry.Content != nil {
 			_, _ = io.WriteString(w, *entry.Content)
 		}
+		return
+	}
+
+	if entry.StorageType == "remote" {
+		if s.nodeProvider == nil || entry.ServerID == nil || *entry.ServerID == "" {
+			http.Error(w, "Storage node unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		serverID := *entry.ServerID
+		node, err := s.nodeProvider.GetEligibleStorageNode(r.Context(), serverID)
+		if err != nil || node == nil {
+			http.Error(w, fmt.Sprintf("Storage node offline: %v", err), http.StatusServiceUnavailable)
+			return
+		}
+		key, err := s.nodeProvider.GetStorageNodeAgentKey(r.Context(), serverID)
+		if err != nil {
+			http.Error(w, "Failed to resolve node credential", http.StatusInternalServerError)
+			return
+		}
+		signedURL, err := BuildSignedURL("GET", node.Host, node.StoragePort, entry.Code, entry.Filename, 0, 5*time.Minute, key)
+		if err != nil {
+			http.Error(w, "Failed to build signed download URL", http.StatusInternalServerError)
+			return
+		}
+		http.Redirect(w, r, signedURL, http.StatusFound)
 		return
 	}
 
@@ -1342,8 +1619,8 @@ func (s *Service) AddText(ctx context.Context, content string, expiryHours float
 	_, err = db.ExecContext(ctx, `
 		INSERT INTO filebox_entries (
 			code, type, content, filename, mimetype, size, created_at, expiry,
-			burn_after_reading, max_downloads, access_password_hash, metadata_json
-		) VALUES (?, 'text', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			burn_after_reading, max_downloads, access_password_hash, metadata_json, storage_type
+		) VALUES (?, 'text', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'local')
 	`, code, content, filename, mimeType, len([]byte(content)), now, expiry, boolInt(burnAfterReading), maxDownloads, passwordHash, string(metadataJSON))
 	if err != nil {
 		return nil, fmt.Errorf("create filebox text share: %w", err)
@@ -1391,12 +1668,40 @@ func (s *Service) AddFile(ctx context.Context, fileHeader *multipart.FileHeader,
 	_, err = db.ExecContext(ctx, `
 		INSERT INTO filebox_entries (
 			code, type, original_name, filename, path, mimetype, size, created_at, expiry,
-			burn_after_reading, max_downloads, access_password_hash
-		) VALUES (?, 'file', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			burn_after_reading, max_downloads, access_password_hash, storage_type
+		) VALUES (?, 'file', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'local')
 	`, code, fileHeader.Filename, saveFilename, savePath, nullString(mimeType), fileHeader.Size, now, expiry, boolInt(burnAfterReading), maxDownloads, passwordHash)
 	if err != nil {
 		_ = os.Remove(savePath)
 		return nil, fmt.Errorf("create filebox file share: %w", err)
+	}
+	return s.GetEntry(ctx, code, true)
+}
+
+func (s *Service) AddRemoteFile(ctx context.Context, code string, filename string, size int64, mimeType string, serverID string, expiryHours float64, burnAfterReading bool, maxDownloads int64, accessPassword string) (*Entry, error) {
+	now := time.Now().UnixMilli()
+	code = normalizeCode(code)
+	expiry := expiryTime(now, expiryHours)
+	passwordHash, err := hashAccessPassword(accessPassword)
+	if err != nil {
+		return nil, err
+	}
+	remotePath := fmt.Sprintf("shares/%s/%s", code, filename)
+
+	db, err := s.open(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer db.Close()
+
+	_, err = db.ExecContext(ctx, `
+		INSERT INTO filebox_entries (
+			code, type, original_name, filename, remote_path, mimetype, size, created_at, expiry,
+			burn_after_reading, max_downloads, access_password_hash, storage_type, server_id
+		) VALUES (?, 'file', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'remote', ?)
+	`, code, filename, filename, remotePath, nullString(mimeType), size, now, expiry, boolInt(burnAfterReading), maxDownloads, passwordHash, serverID)
+	if err != nil {
+		return nil, fmt.Errorf("create remote filebox share: %w", err)
 	}
 	return s.GetEntry(ctx, code, true)
 }
@@ -1466,6 +1771,12 @@ func (s *Service) GetEntry(ctx context.Context, code string, includeExpired bool
 }
 
 func (s *Service) AccessEntry(ctx context.Context, code string, meta requestMeta) error {
+	// 同一 IP 在同一去重窗口内对同一 code 的并发/重复请求视为同一次逻辑下载，
+	// 在 GetEntry 之前放行，避免并发分块后续请求先触发 GetEntry 的 max_downloads 删除，
+	// 也保证不重复计数、不重复扣配额、不重复触发阅后即焚、不重复写访问日志。
+	if !s.claimDownloadSlot(meta.ip, code) {
+		return nil
+	}
 	entry, err := s.GetEntry(ctx, code, false)
 	if err != nil || entry == nil {
 		return err
@@ -1507,14 +1818,38 @@ func (s *Service) AccessEntry(ctx context.Context, code string, meta requestMeta
 	return s.LogAccess(ctx, entry.Code, "download", meta)
 }
 
+// claimDownloadSlot 为给定 IP 与 code 领取一个「逻辑下载」名额：
+// 窗口内已领取则返回 false（视为并发/重复请求，不应重复计数）。
+func (s *Service) claimDownloadSlot(ip, code string) bool {
+	if strings.TrimSpace(ip) == "" {
+		return true
+	}
+	key := ip + "|" + code
+	now := time.Now().UnixMilli()
+	s.dedupMu.Lock()
+	defer s.dedupMu.Unlock()
+	last, ok := s.downloadDedup[key]
+	if ok && now-last < downloadDedupWindow.Milliseconds() {
+		return false
+	}
+	s.downloadDedup[key] = now
+	// 顺带清理过期键，避免 map 无限增长
+	if len(s.downloadDedup) > 1024 {
+		for k, t := range s.downloadDedup {
+			if now-t >= downloadDedupWindow.Milliseconds() {
+				delete(s.downloadDedup, k)
+			}
+		}
+	}
+	return true
+}
+
 func (s *Service) DeleteEntry(ctx context.Context, code string) (bool, error) {
 	entry, err := s.GetEntry(ctx, code, true)
 	if err != nil || entry == nil {
 		return false, err
 	}
-	if entry.Type == "file" && entry.Path != nil && isPathInside(s.uploadsDir, *entry.Path) {
-		_ = os.Remove(*entry.Path)
-	}
+	_ = s.getBackend(entry.StorageType).Delete(ctx, entry)
 	db, err := s.open(ctx)
 	if err != nil {
 		return false, err
@@ -1539,7 +1874,8 @@ func (s *Service) GetAll(ctx context.Context) ([]PublicEntry, error) {
 	defer db.Close()
 	rows, err := db.QueryContext(ctx, `
 		SELECT code, type, content, original_name, filename, path, mimetype, size, created_at, expiry,
-			burn_after_reading, downloads, max_downloads, access_password_hash, metadata_json
+			burn_after_reading, downloads, max_downloads, access_password_hash, metadata_json,
+			storage_type, server_id, remote_path
 		FROM filebox_entries
 		WHERE deleted_at IS NULL
 		ORDER BY created_at DESC
@@ -1652,6 +1988,12 @@ func (s *Service) LogAccess(ctx context.Context, code string, action string, met
 }
 
 func (s *Service) requireAuth(w http.ResponseWriter, r *http.Request) bool {
+	// 管理 AI 内部调用由服务端注入 context 标记（见 server/ai_caller.go）。
+	// AI 调用会剥离 Cookie/Authorization，无法通过会话校验，因此内部标记
+	// 等价于面板管理员身份；context 值不可由外部 HTTP 请求伪造。
+	if isInternalAICall(r.Context()) {
+		return true
+	}
 	if s.auth == nil {
 		return true
 	}
@@ -1707,7 +2049,10 @@ func ensureSchema(ctx context.Context, db *sql.DB) error {
 			max_downloads INTEGER DEFAULT 0,
 			access_password_hash TEXT,
 			metadata_json TEXT,
-			deleted_at INTEGER
+			deleted_at INTEGER,
+			storage_type TEXT DEFAULT 'local',
+			server_id TEXT,
+			remote_path TEXT
 		)`,
 		`CREATE TABLE IF NOT EXISTS filebox_access_logs (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1731,6 +2076,7 @@ func ensureSchema(ctx context.Context, db *sql.DB) error {
 			mode TEXT NOT NULL DEFAULT 'persistent',
 			created_at INTEGER NOT NULL,
 			expires_at INTEGER NOT NULL DEFAULT 0,
+			files_json TEXT NOT NULL DEFAULT '[]',
 			deleted_at INTEGER
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_filebox_entries_expiry ON filebox_entries(expiry)`,
@@ -1746,6 +2092,53 @@ func ensureSchema(ctx context.Context, db *sql.DB) error {
 			return fmt.Errorf("ensure filebox schema: %w", err)
 		}
 	}
+
+	// 迁移已有表：补充 storage_type, server_id, remote_path 列
+	existingColumns := make(map[string]bool)
+	if rows, err := db.QueryContext(ctx, `PRAGMA table_info(filebox_entries)`); err == nil {
+		for rows.Next() {
+			var cid int
+			var name, ctype string
+			var notnull, pk int
+			var dflt sql.NullString
+			if err := rows.Scan(&cid, &name, &ctype, &notnull, &dflt, &pk); err == nil {
+				existingColumns[strings.ToLower(name)] = true
+			}
+		}
+		_ = rows.Close()
+	}
+
+	if !existingColumns["storage_type"] {
+		_, _ = db.ExecContext(ctx, `ALTER TABLE filebox_entries ADD COLUMN storage_type TEXT DEFAULT 'local'`)
+	}
+	if !existingColumns["server_id"] {
+		_, _ = db.ExecContext(ctx, `ALTER TABLE filebox_entries ADD COLUMN server_id TEXT`)
+	}
+	if !existingColumns["remote_path"] {
+		_, _ = db.ExecContext(ctx, `ALTER TABLE filebox_entries ADD COLUMN remote_path TEXT`)
+	}
+
+	// 迁移 filebox_void_rooms：补充 files_json 列（持久房间挂载文件列表）
+	roomColumns := make(map[string]bool)
+	if rows, err := db.QueryContext(ctx, `PRAGMA table_info(filebox_void_rooms)`); err == nil {
+		for rows.Next() {
+			var cid int
+			var name, ctype string
+			var notnull, pk int
+			var dflt sql.NullString
+			if err := rows.Scan(&cid, &name, &ctype, &notnull, &dflt, &pk); err == nil {
+				roomColumns[strings.ToLower(name)] = true
+			}
+		}
+		_ = rows.Close()
+	}
+	if !roomColumns["files_json"] {
+		_, _ = db.ExecContext(ctx, `ALTER TABLE filebox_void_rooms ADD COLUMN files_json TEXT NOT NULL DEFAULT '[]'`)
+	}
+
+	// 将历史遗留空值统一标记为 storage_type = 'local'
+	_, _ = db.ExecContext(ctx, `UPDATE filebox_entries SET storage_type = 'local' WHERE storage_type IS NULL OR storage_type = ''`)
+
 	return nil
 }
 
@@ -1777,7 +2170,8 @@ func loadSettings(ctx context.Context, db *sql.DB) (Settings, error) {
 func findEntry(ctx context.Context, db *sql.DB, code string) (*Entry, error) {
 	row := db.QueryRowContext(ctx, `
 		SELECT code, type, content, original_name, filename, path, mimetype, size, created_at, expiry,
-			burn_after_reading, downloads, max_downloads, access_password_hash, metadata_json
+			burn_after_reading, downloads, max_downloads, access_password_hash, metadata_json,
+			storage_type, server_id, remote_path
 		FROM filebox_entries
 		WHERE code = ? AND deleted_at IS NULL
 	`, normalizeCode(code))
@@ -1798,6 +2192,7 @@ type entryScanner interface {
 func scanEntry(scanner entryScanner) (*Entry, error) {
 	var entry Entry
 	var content, originalName, pathValue, mimeType, passwordHash, metadataJSON sql.NullString
+	var storageType, serverID, remotePath sql.NullString
 	var size, createdAt, expiry, burnAfterReading, downloads, maxDownloads sql.NullInt64
 	if err := scanner.Scan(
 		&entry.Code,
@@ -1815,6 +2210,9 @@ func scanEntry(scanner entryScanner) (*Entry, error) {
 		&maxDownloads,
 		&passwordHash,
 		&metadataJSON,
+		&storageType,
+		&serverID,
+		&remotePath,
 	); err != nil {
 		return nil, err
 	}
@@ -1831,6 +2229,12 @@ func scanEntry(scanner entryScanner) (*Entry, error) {
 	entry.AccessPasswordHash = nullableStringPtr(passwordHash)
 	entry.RequiresPassword = passwordHash.Valid && passwordHash.String != ""
 	entry.Metadata = parseObject(metadataJSON.String)
+	entry.StorageType = "local"
+	if storageType.Valid && storageType.String != "" {
+		entry.StorageType = storageType.String
+	}
+	entry.ServerID = nullableStringPtr(serverID)
+	entry.RemotePath = nullableStringPtr(remotePath)
 	return &entry, nil
 }
 
@@ -1849,6 +2253,8 @@ func publicEntry(entry *Entry) PublicEntry {
 		MaxDownloads:     entry.MaxDownloads,
 		RequiresPassword: entry.RequiresPassword,
 		TextFormat:       entryTextFormat(entry),
+		StorageType:      entry.StorageType,
+		ServerID:         entry.ServerID,
 	}
 	if entry.Type == "text" && entry.Content != nil && !entry.RequiresPassword {
 		runes := []rune(*entry.Content)
@@ -2331,4 +2737,409 @@ func emptyDefault(value, fallback string) string {
 		return fallback
 	}
 	return value
+}
+
+func (s *Service) listStorageNodes(w http.ResponseWriter, r *http.Request) {
+	if s.nodeProvider == nil {
+		response.OK(w, []StorageNodeInfo{})
+		return
+	}
+	nodes, err := s.nodeProvider.ListEligibleStorageNodes(r.Context())
+	if err != nil {
+		response.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	response.OK(w, nodes)
+}
+
+func (s *Service) initRemoteUpload(w http.ResponseWriter, r *http.Request) {
+	var payload struct {
+		ServerID string `json:"serverId"`
+		Filename string `json:"filename"`
+		Size     int64  `json:"size"`
+	}
+	if !decodeJSON(w, r, &payload) {
+		return
+	}
+	payload.ServerID = strings.TrimSpace(payload.ServerID)
+	payload.Filename = sanitizeFilename(strings.TrimSpace(payload.Filename))
+	if payload.ServerID == "" || payload.Filename == "" || payload.Size <= 0 {
+		response.Error(w, http.StatusBadRequest, "serverId, filename, and positive size required")
+		return
+	}
+	if s.nodeProvider == nil {
+		response.Error(w, http.StatusServiceUnavailable, "node storage provider not configured")
+		return
+	}
+	node, err := s.nodeProvider.GetEligibleStorageNode(r.Context(), payload.ServerID)
+	if err != nil {
+		response.Error(w, http.StatusBadRequest, fmt.Sprintf("invalid storage node: %v", err))
+		return
+	}
+	key, err := s.nodeProvider.GetStorageNodeAgentKey(r.Context(), payload.ServerID)
+	if err != nil {
+		response.Error(w, http.StatusInternalServerError, "failed to get agent credentials")
+		return
+	}
+
+	code, err := s.GenerateCode(r.Context(), defaultCodeLength)
+	if err != nil {
+		response.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	uploadURL, err := BuildSignedURL("PUT", node.Host, node.StoragePort, code, payload.Filename, payload.Size, 15*time.Minute, key)
+	if err != nil {
+		response.Error(w, http.StatusInternalServerError, fmt.Sprintf("failed to build upload URL: %v", err))
+		return
+	}
+
+	response.OK(w, map[string]interface{}{
+		"code":      code,
+		"filename":  payload.Filename,
+		"uploadUrl": uploadURL,
+		"expires":   time.Now().Add(15 * time.Minute).Unix(),
+	})
+}
+
+func (s *Service) completeRemoteUpload(w http.ResponseWriter, r *http.Request) {
+	var payload struct {
+		Code             string `json:"code"`
+		Filename         string `json:"filename"`
+		Size             int64  `json:"size"`
+		ServerID         string `json:"serverId"`
+		MIMEType         string `json:"mimeType"`
+		Expiry           string `json:"expiry"`
+		BurnAfterReading any    `json:"burn_after_reading"`
+		MaxDownloads     string `json:"max_downloads"`
+		AccessPassword   string `json:"access_password"`
+		Password         string `json:"password"`
+	}
+	if !decodeJSON(w, r, &payload) {
+		return
+	}
+	code := normalizeCode(payload.Code)
+	filename := sanitizeFilename(payload.Filename)
+	serverID := strings.TrimSpace(payload.ServerID)
+	if code == "" || filename == "" || serverID == "" {
+		response.Error(w, http.StatusBadRequest, "code, filename, and serverId required")
+		return
+	}
+	if s.nodeProvider == nil {
+		response.Error(w, http.StatusServiceUnavailable, "node storage provider not configured")
+		return
+	}
+	_, err := s.nodeProvider.GetEligibleStorageNode(r.Context(), serverID)
+	if err != nil {
+		response.Error(w, http.StatusBadRequest, fmt.Sprintf("storage node unavailable: %v", err))
+		return
+	}
+
+	settings, err := s.LoadSettings(r.Context())
+	if err != nil {
+		response.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	expiryHours := parseExpiryHours(payload.Expiry, settings.DefaultExpiryHours)
+	burn := parseBool(payload.BurnAfterReading)
+	maxDownloads := parseNonNegativeInt64(payload.MaxDownloads)
+	accessPassword := payload.AccessPassword
+	if accessPassword == "" {
+		accessPassword = payload.Password
+	}
+
+	entry, err := s.AddRemoteFile(r.Context(), code, filename, payload.Size, payload.MIMEType, serverID, expiryHours, burn, maxDownloads, accessPassword)
+	if err != nil {
+		response.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	response.OK(w, publicEntry(entry))
+}
+
+func (s *Service) transferStorage(w http.ResponseWriter, r *http.Request, code string) {
+	var payload struct {
+		TargetStorageType string `json:"targetStorageType"` // "local" or "remote"
+		TargetServerID    string `json:"targetServerId"`    // required if remote
+	}
+	if !decodeJSON(w, r, &payload) {
+		return
+	}
+	targetType := strings.ToLower(strings.TrimSpace(payload.TargetStorageType))
+	if targetType != "local" && targetType != "remote" {
+		response.Error(w, http.StatusBadRequest, "targetStorageType must be 'local' or 'remote'")
+		return
+	}
+
+	entry, err := s.GetEntry(r.Context(), code, true)
+	if err != nil {
+		response.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if entry == nil {
+		response.Error(w, http.StatusNotFound, "share not found")
+		return
+	}
+	if entry.Type != "file" {
+		response.Error(w, http.StatusBadRequest, "only file shares can be transferred")
+		return
+	}
+
+	// 相同存储目标直接返回
+	if entry.StorageType == targetType {
+		if targetType == "local" {
+			response.OK(w, publicEntry(entry))
+			return
+		}
+		if entry.ServerID != nil && *entry.ServerID == payload.TargetServerID {
+			response.OK(w, publicEntry(entry))
+			return
+		}
+	}
+
+	client := &http.Client{Timeout: 60 * time.Second}
+
+	// 1. 获取源文件的读取流或临时文件
+	var srcReader io.ReadCloser
+	var srcSize int64 = entry.Size
+
+	if entry.StorageType == "local" {
+		if entry.Path == nil || *entry.Path == "" {
+			response.Error(w, http.StatusInternalServerError, "source local file path missing")
+			return
+		}
+		file, err := os.Open(*entry.Path)
+		if err != nil {
+			response.Error(w, http.StatusInternalServerError, fmt.Sprintf("failed to open local source: %v", err))
+			return
+		}
+		defer file.Close()
+		srcReader = file
+	} else {
+		// remote source
+		if s.nodeProvider == nil || entry.ServerID == nil || *entry.ServerID == "" {
+			response.Error(w, http.StatusServiceUnavailable, "source storage node provider unavailable")
+			return
+		}
+		srcNode, err := s.nodeProvider.GetEligibleStorageNode(r.Context(), *entry.ServerID)
+		if err != nil {
+			response.Error(w, http.StatusBadRequest, fmt.Sprintf("source storage node unavailable: %v", err))
+			return
+		}
+		srcKey, err := s.nodeProvider.GetStorageNodeAgentKey(r.Context(), *entry.ServerID)
+		if err != nil {
+			response.Error(w, http.StatusInternalServerError, "failed to get source agent key")
+			return
+		}
+		getURL, err := BuildSignedURL("GET", srcNode.Host, srcNode.StoragePort, entry.Code, entry.Filename, 0, 10*time.Minute, srcKey)
+		if err != nil {
+			response.Error(w, http.StatusInternalServerError, "failed to build source download URL")
+			return
+		}
+		req, err := http.NewRequestWithContext(r.Context(), http.MethodGet, getURL, nil)
+		if err != nil {
+			response.Error(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		resp, err := client.Do(req)
+		if err != nil || resp.StatusCode != http.StatusOK {
+			if resp != nil {
+				_ = resp.Body.Close()
+			}
+			response.Error(w, http.StatusBadGateway, "failed to download from source remote node")
+			return
+		}
+		defer resp.Body.Close()
+		srcReader = resp.Body
+	}
+
+	// 为确保一致性（size 与 sha256 校验），先写入本地临时文件
+	tmpFile, err := os.CreateTemp(s.uploadsDir, "transfer-*.tmp")
+	if err != nil {
+		response.Error(w, http.StatusInternalServerError, fmt.Sprintf("failed to create temp file: %v", err))
+		return
+	}
+	tmpPath := tmpFile.Name()
+	defer func() {
+		_ = tmpFile.Close()
+		_ = os.Remove(tmpPath)
+	}()
+
+	hasher := sha256.New()
+	multiWriter := io.MultiWriter(tmpFile, hasher)
+	copiedBytes, err := io.Copy(multiWriter, srcReader)
+	if err != nil {
+		response.Error(w, http.StatusInternalServerError, fmt.Sprintf("failed to buffer source file: %v", err))
+		return
+	}
+	_ = tmpFile.Close()
+
+	if srcSize > 0 && copiedBytes != srcSize {
+		response.Error(w, http.StatusBadGateway, fmt.Sprintf("size mismatch during transfer: expected %d, got %d", srcSize, copiedBytes))
+		return
+	}
+
+	// 2. 写入新目标
+	var newPath *string
+	var newServerID *string
+	var newRemotePath *string
+
+	if targetType == "local" {
+		safeName := sanitizeFilename(entry.Filename)
+		saveFilename := fmt.Sprintf("%d-%s-%s", time.Now().UnixMilli(), entry.Code, safeName)
+		finalLocalPath := filepath.Join(s.uploadsDir, saveFilename)
+		if err := os.Rename(tmpPath, finalLocalPath); err != nil {
+			// fallback copy
+			if copyErr := copyFileContents(tmpPath, finalLocalPath); copyErr != nil {
+				response.Error(w, http.StatusInternalServerError, fmt.Sprintf("failed to write target local file: %v", copyErr))
+				return
+			}
+		}
+		newPath = &finalLocalPath
+	} else {
+		// remote target
+		targetServerID := strings.TrimSpace(payload.TargetServerID)
+		if s.nodeProvider == nil {
+			response.Error(w, http.StatusServiceUnavailable, "storage node provider unavailable")
+			return
+		}
+		targetNode, err := s.nodeProvider.GetEligibleStorageNode(r.Context(), targetServerID)
+		if err != nil {
+			response.Error(w, http.StatusBadRequest, fmt.Sprintf("target storage node invalid or ineligible: %v", err))
+			return
+		}
+		targetKey, err := s.nodeProvider.GetStorageNodeAgentKey(r.Context(), targetServerID)
+		if err != nil {
+			response.Error(w, http.StatusInternalServerError, "failed to get target agent key")
+			return
+		}
+
+		putURL, err := BuildSignedURL("PUT", targetNode.Host, targetNode.StoragePort, entry.Code, entry.Filename, copiedBytes, 10*time.Minute, targetKey)
+		if err != nil {
+			response.Error(w, http.StatusInternalServerError, "failed to build target upload URL")
+			return
+		}
+
+		uploadStream, err := os.Open(tmpPath)
+		if err != nil {
+			response.Error(w, http.StatusInternalServerError, "failed to open buffered file for upload")
+			return
+		}
+		defer uploadStream.Close()
+
+		putReq, err := http.NewRequestWithContext(r.Context(), http.MethodPut, putURL, uploadStream)
+		if err != nil {
+			response.Error(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		putReq.ContentLength = copiedBytes
+		putReq.Header.Set("Content-Type", "application/octet-stream")
+
+		putResp, err := client.Do(putReq)
+		if err != nil || putResp.StatusCode != http.StatusOK {
+			statusMsg := ""
+			if putResp != nil {
+				_ = putResp.Body.Close()
+				statusMsg = fmt.Sprintf(" (HTTP %d)", putResp.StatusCode)
+			}
+			response.Error(w, http.StatusBadGateway, fmt.Sprintf("failed to upload to target node%s", statusMsg))
+			return
+		}
+		_ = putResp.Body.Close()
+
+		newServerID = &targetServerID
+		rp := fmt.Sprintf("shares/%s/%s", entry.Code, entry.Filename)
+		newRemotePath = &rp
+	}
+
+	// 3. 更新数据库记录
+	db, err := s.open(r.Context())
+	if err != nil {
+		response.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	defer db.Close()
+
+	_, err = db.ExecContext(r.Context(), `
+		UPDATE filebox_entries
+		SET storage_type = ?,
+			server_id = ?,
+			path = ?,
+			remote_path = ?,
+			size = ?
+		WHERE code = ?
+	`, targetType, newServerID, newPath, newRemotePath, copiedBytes, entry.Code)
+	if err != nil {
+		response.Error(w, http.StatusInternalServerError, fmt.Sprintf("failed to update entry metadata: %v", err))
+		return
+	}
+
+	// 4. 清理旧目标存储中的文件
+	_ = s.getBackend(entry.StorageType).Delete(r.Context(), entry)
+
+	updatedEntry, err := s.GetEntry(r.Context(), entry.Code, true)
+	if err != nil || updatedEntry == nil {
+		response.OK(w, map[string]interface{}{"success": true})
+		return
+	}
+	response.OK(w, publicEntry(updatedEntry))
+}
+
+func copyFileContents(src, dst string) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	out, err := os.Create(dst)
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+	if _, err = io.Copy(out, in); err != nil {
+		return err
+	}
+	return out.Sync()
+}
+
+// HandleShareRedirect 拦截外部直接访问 /share/{code} 的直链下载：
+// 若为远程存储且无需密码，原子扣减次数后 302 重定向至节点直链；
+// 其他情况（如需要密码、本地文件、文本）返回 false 交由前端 SPA 渲染。
+func (s *Service) HandleShareRedirect(w http.ResponseWriter, r *http.Request, code string) bool {
+	if r.Method != http.MethodGet {
+		return false
+	}
+	entry, err := s.GetEntry(r.Context(), code, false)
+	if err != nil || entry == nil {
+		return false
+	}
+	// 仅限远端存储且无需密码的文件分享触发直链分发
+	if entry.StorageType != "remote" || entry.Type != "file" || entry.RequiresPassword {
+		return false
+	}
+	if s.nodeProvider == nil || entry.ServerID == nil || *entry.ServerID == "" {
+		return false
+	}
+	node, err := s.nodeProvider.GetEligibleStorageNode(r.Context(), *entry.ServerID)
+	if err != nil {
+		return false
+	}
+	key, err := s.nodeProvider.GetStorageNodeAgentKey(r.Context(), *entry.ServerID)
+	if err != nil {
+		return false
+	}
+
+	// 扣除下载配额或触发阅后即焚
+	if err := s.AccessEntry(r.Context(), entry.Code, metaFromRequest(r)); err != nil {
+		http.Error(w, "Download quota exceeded or entry expired", http.StatusForbidden)
+		return true
+	}
+
+	signedURL, err := BuildSignedURL("GET", node.Host, node.StoragePort, entry.Code, entry.Filename, 0, 5*time.Minute, key)
+	if err != nil {
+		http.Error(w, "Failed to build signed URL", http.StatusInternalServerError)
+		return true
+	}
+
+	http.Redirect(w, r, signedURL, http.StatusFound)
+	return true
 }

@@ -1,0 +1,32 @@
+[
+  {
+    "path": "/",
+    "status": 200,
+    "contentType": "text/html"
+  },
+  {
+    "path": "/robots.txt",
+    "status": 200,
+    "contentType": "text/plain"
+  },
+  {
+    "path": "/manifest.webmanifest",
+    "status": 200,
+    "contentType": "application/manifest+json"
+  },
+  {
+    "path": "/logo.svg",
+    "status": 200,
+    "contentType": "image/svg+xml"
+  },
+  {
+    "path": "/llms.txt",
+    "status": 200,
+    "contentType": "text/plain"
+  },
+  {
+    "path": "/assets-probe-missing.js",
+    "status": 404,
+    "contentType": "application/json"
+  }
+]

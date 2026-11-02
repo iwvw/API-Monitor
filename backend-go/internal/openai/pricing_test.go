@@ -64,13 +64,13 @@ func TestParsePricingFromItem_Google(t *testing.T) {
 
 func TestParsePricingFromItem_DiscountPreferred(t *testing.T) {
 	item := map[string]interface{}{
-		"currency":                                "CNY",
-		"input_price_per_million":                 "12.00000000",
-		"output_price_per_million":                "24.00000000",
-		"cache_read_price_per_million":            "1.00000000",
-		"effective_input_price_per_million":       "3.00000000",
-		"effective_output_price_per_million":      "6.00000000",
-		"effective_cache_read_price_per_million":  "0.02500000",
+		"currency":                               "CNY",
+		"input_price_per_million":                "12.00000000",
+		"output_price_per_million":               "24.00000000",
+		"cache_read_price_per_million":           "1.00000000",
+		"effective_input_price_per_million":      "3.00000000",
+		"effective_output_price_per_million":     "6.00000000",
+		"effective_cache_read_price_per_million": "0.02500000",
 	}
 	p, ok := parsePricingFromItem(item)
 	if !ok {

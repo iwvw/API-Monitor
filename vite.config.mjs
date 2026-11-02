@@ -52,6 +52,23 @@ export default defineConfig(({ mode }) => {
     env: { ...process.env, ...env },
   });
 
+  // 代理到后端的统一配置。
+  //
+  // xfwd 必须开启：后端把「带会话 Cookie 但 Origin 与 Host 不一致」的请求判定为
+  // 跨来源并拒绝（CSRF 防线，见 backend-go/internal/server/server.go 的
+  // sameOriginRequest）。changeOrigin 会把 Host 改写成 127.0.0.1:PORT，若不同时
+  // 转发原始 Host，浏览器发来的 Origin（如 http://<公网IP>:5174）就永远对不上，
+  // 每个写操作都会 403「跨来源会话请求已拒绝」。xfwd 会补上 X-Forwarded-Host，
+  // 后端在开发模式下据此还原真实来源（server.go 的 originCheckHost）。
+  //
+  // 用工厂函数而不是共享同一个对象：http-proxy 会**就地改写**传入的 options
+  // （如 options.prependPath = ...），共享对象会让一处改动影响全部代理规则。
+  const proxyTarget = () => ({
+    target: `http://127.0.0.1:${env.PORT || 3000}`,
+    changeOrigin: true,
+    xfwd: true,
+  });
+
   return {
     root: 'src',
     base: '/',
@@ -143,6 +160,10 @@ export default defineConfig(({ mode }) => {
     server: {
       host: true, // 监听所有网络接口，允许手机访问
       port: 5173,
+      // 转发中心把自定义域名代理到本地开发端时，Host 头不在默认允许列表内会被
+      // Vite 以 Blocked request 拦截。本地开发放行任意 Host（DNS rebinding 风险
+      // 仅限本机 dev server，生产构建走静态托管/后端，不受此配置影响）。
+      allowedHosts: true,
       hmr: {
         protocol: 'ws',
         host: 'localhost',
@@ -169,39 +190,20 @@ export default defineConfig(({ mode }) => {
         ],
       },
       proxy: {
-        '^/health(?:/|$)': {
-          target: `http://127.0.0.1:${env.PORT || 3000}`,
-          changeOrigin: true,
-        },
-        '^/api(?:/|$)': {
-          target: `http://127.0.0.1:${env.PORT || 3000}`,
-          changeOrigin: true,
-        },
-        '^/sub(?:/|$)': {
-          target: `http://127.0.0.1:${env.PORT || 3000}`,
-          changeOrigin: true,
-        },
-        '/v1': {
-          target: `http://127.0.0.1:${env.PORT || 3000}`,
-          changeOrigin: true,
-        },
+        '^/health(?:/|$)': proxyTarget(),
+        '^/api(?:/|$)': proxyTarget(),
+        '^/sub(?:/|$)': proxyTarget(),
+        '/v1': proxyTarget(),
         '/socket.io': {
-          target: `http://127.0.0.1:${env.PORT || 3000}`,
+          ...proxyTarget(),
           ws: true,
         },
         '/ws': {
-          target: `http://127.0.0.1:${env.PORT || 3000}`,
+          ...proxyTarget(),
           ws: true,
-          changeOrigin: true,
         },
-        '/uploads': {
-          target: `http://127.0.0.1:${env.PORT || 3000}`,
-          changeOrigin: true,
-        },
-        '^/site-brand-icons(?:/|$)': {
-          target: `http://127.0.0.1:${env.PORT || 3000}`,
-          changeOrigin: true,
-        },
+        '/uploads': proxyTarget(),
+        '^/site-brand-icons(?:/|$)': proxyTarget(),
       },
     },
   };

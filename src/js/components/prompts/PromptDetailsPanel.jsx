@@ -36,7 +36,7 @@ export default function PromptDetailsPanel({ entry, versions, onUpdate, onRestor
           </Badge>
         </div>
         <Field label="可见性">
-          <Select
+          <Select alignItemWithTrigger
             size="sm"
             value={entry.visibility}
             onValueChange={value => onUpdate({ visibility: value })}

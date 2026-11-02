@@ -28,27 +28,39 @@ type Config struct {
 	// 小内存主机上全量读入 body 会放大 3 倍内存，超限请求直接 413。
 	// 环境变量 GATEWAY_BODY_MAX_MB（默认 16）配置。
 	GatewayBodyMaxBytes int64
+	// RequestDecompressMaxBytes 是「解压后」请求体的上限：客户端可用
+	// Content-Encoding: gzip/br/zstd 压缩上传（大 prompt 常压 5~10 倍），
+	// 解压后超过该值按 413 处理，用于防解压炸弹。
+	// 环境变量 REQUEST_DECOMPRESS_MAX_MB（默认 32）配置。
+	RequestDecompressMaxBytes int64
+	// AgentFileRoots 是下发给 Agent 的额外文件白名单根目录（逗号分隔）。
+	// 注入到安装脚本后，Agent 以 API_MONITOR_FILE_ROOTS 读取，仅这些目录
+	// 可与默认沙箱一并被面板文件管理访问；为空时不注入，保持历史行为。
+	// 环境变量 API_MONITOR_AGENT_FILE_ROOTS 配置。
+	AgentFileRoots []string
 }
 
 func Load(version string) Config {
 	root := repoRoot()
 	environment := strings.ToLower(envString("APP_ENV", envString("NODE_ENV", "development")))
 	return Config{
-		Version:              version,
-		Environment:          environment,
-		Host:                 envString("GO_HOST", "0.0.0.0"),
-		Port:                 envInt("GO_PORT", envInt("PORT", 3000)),
-		LegacyBaseURL:        strings.TrimRight(os.Getenv("NODE_LEGACY_URL"), "/"),
-		DistDir:              envPath(root, "DIST_DIR", filepath.Join(root, "dist")),
-		PublicDir:            envPath(root, "PUBLIC_DIR", filepath.Join(root, "public")),
-		DataDir:              envPath(root, "DATA_DIR", filepath.Join(root, "data")),
-		DBName:               envString("DB_NAME", "data.db"),
-		SecureCookies:        envBool("SECURE_COOKIES", environment == "production"),
-		AllowLocalShellTasks: envBool("ALLOW_LOCAL_SHELL_TASKS", environment != "production"),
-		CORSAllowedOrigins:   envList("CORS_ALLOWED_ORIGINS"),
-		TrustedProxyCIDRs:    envList("TRUSTED_PROXY_CIDRS"),
-		AdminAIDefaultModel:  envString("ADMIN_AI_DEFAULT_MODEL", ""),
-		GatewayBodyMaxBytes:  int64(envInt("GATEWAY_BODY_MAX_MB", 16)) * 1024 * 1024,
+		Version:                   version,
+		Environment:               environment,
+		Host:                      envString("GO_HOST", "0.0.0.0"),
+		Port:                      envInt("GO_PORT", envInt("PORT", 3000)),
+		LegacyBaseURL:             strings.TrimRight(os.Getenv("NODE_LEGACY_URL"), "/"),
+		DistDir:                   envPath(root, "DIST_DIR", filepath.Join(root, "dist")),
+		PublicDir:                 envPath(root, "PUBLIC_DIR", filepath.Join(root, "public")),
+		DataDir:                   envPath(root, "DATA_DIR", filepath.Join(root, "data")),
+		DBName:                    envString("DB_NAME", "data.db"),
+		SecureCookies:             envBool("SECURE_COOKIES", environment == "production"),
+		AllowLocalShellTasks:      envBool("ALLOW_LOCAL_SHELL_TASKS", environment != "production"),
+		CORSAllowedOrigins:        envList("CORS_ALLOWED_ORIGINS"),
+		TrustedProxyCIDRs:         trustedProxyCIDRs(),
+		AdminAIDefaultModel:       envString("ADMIN_AI_DEFAULT_MODEL", ""),
+		GatewayBodyMaxBytes:       int64(envInt("GATEWAY_BODY_MAX_MB", 16)) * 1024 * 1024,
+		RequestDecompressMaxBytes: int64(envInt("REQUEST_DECOMPRESS_MAX_MB", 32)) * 1024 * 1024,
+		AgentFileRoots:            envList("API_MONITOR_AGENT_FILE_ROOTS"),
 	}
 }
 
@@ -163,6 +175,32 @@ func envList(name string) []string {
 		}
 	}
 	return result
+}
+
+// defaultTrustedProxyCIDRs 是 TRUSTED_PROXY_CIDRS 未显式配置时的回退集合。
+// 目标部署形态是「反向代理/容器网关 → Go 后端」，代理与后端总是经回环或
+// 私有网段直连；若这里为空，requestClientIP 会退回到代理自身的地址，导致
+// 所有真实客户端被视为同一来源（登录限流退化为全局单桶，任何人都能锁死
+// 登录）。显式配置该变量会完全覆盖这些默认值；配置为 none 表示不信任任何
+// 代理（仅适用于后端直接暴露、无前置代理的场景）。
+var defaultTrustedProxyCIDRs = []string{
+	"127.0.0.0/8",
+	"::1/128",
+	"10.0.0.0/8",
+	"172.16.0.0/12",
+	"192.168.0.0/16",
+	"fc00::/7",
+}
+
+func trustedProxyCIDRs() []string {
+	raw := strings.TrimSpace(os.Getenv("TRUSTED_PROXY_CIDRS"))
+	if raw == "" {
+		return append([]string(nil), defaultTrustedProxyCIDRs...)
+	}
+	if strings.EqualFold(raw, "none") {
+		return nil
+	}
+	return envList("TRUSTED_PROXY_CIDRS")
 }
 
 func exists(path string) bool {

@@ -4,10 +4,13 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
+	"io"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -736,5 +739,735 @@ func mustDecodeFilebox(t *testing.T, res *httptest.ResponseRecorder, target inte
 	t.Helper()
 	if err := json.Unmarshal(res.Body.Bytes(), target); err != nil {
 		t.Fatalf("decode %q: %v", res.Body.String(), err)
+	}
+}
+
+type fakeNodeProvider struct {
+	nodes []StorageNodeInfo
+	keys  map[string]string
+	err   error
+}
+
+func (f *fakeNodeProvider) ListEligibleStorageNodes(ctx context.Context) ([]StorageNodeInfo, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	return f.nodes, nil
+}
+
+func (f *fakeNodeProvider) GetEligibleStorageNode(ctx context.Context, serverID string) (*StorageNodeInfo, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	for _, n := range f.nodes {
+		if n.ID == serverID {
+			return &n, nil
+		}
+	}
+	return nil, os.ErrNotExist
+}
+
+func (f *fakeNodeProvider) GetStorageNodeAgentKey(ctx context.Context, serverID string) (string, error) {
+	if f.err != nil {
+		return "", f.err
+	}
+	if k, ok := f.keys[serverID]; ok {
+		return k, nil
+	}
+	return "test-agent-key-secret", nil
+}
+
+func TestStorageNodesEndpoint(t *testing.T) {
+	service := newTestService(t, fakeAuth{ok: true})
+	provider := &fakeNodeProvider{
+		nodes: []StorageNodeInfo{
+			{ID: "node-1", Name: "Node One", Host: "1.2.3.4", StoragePort: 61208, Platform: "linux", Online: true},
+		},
+		keys: map[string]string{"node-1": "key123"},
+	}
+	service.SetNodeProvider(provider)
+
+	res := performFileboxRequest(service, http.MethodGet, "/api/filebox/storage-nodes", nil, "")
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", res.Code, res.Body.String())
+	}
+	var resp struct {
+		Success bool              `json:"success"`
+		Data    []StorageNodeInfo `json:"data"`
+	}
+	mustDecodeFilebox(t, res, &resp)
+	if !resp.Success || len(resp.Data) != 1 || resp.Data[0].ID != "node-1" {
+		t.Fatalf("unexpected nodes: %#v", resp)
+	}
+}
+
+func TestRemoteUploadFlowAndRedirect(t *testing.T) {
+	service := newTestService(t, fakeAuth{ok: true})
+	provider := &fakeNodeProvider{
+		nodes: []StorageNodeInfo{
+			{ID: "node-1", Name: "Node One", Host: "1.2.3.4", StoragePort: 61208, Platform: "linux", Online: true},
+		},
+		keys: map[string]string{"node-1": "secret-key-123"},
+	}
+	service.SetNodeProvider(provider)
+
+	// 1. Init remote upload
+	initBody := `{"serverId":"node-1","filename":"backup.tar.gz","size":1048576}`
+	res := performFileboxRequest(service, http.MethodPost, "/api/filebox/shares/init-upload", strings.NewReader(initBody), "application/json")
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", res.Code, res.Body.String())
+	}
+	var initResp struct {
+		Success bool `json:"success"`
+		Data    struct {
+			Code      string `json:"code"`
+			Filename  string `json:"filename"`
+			UploadURL string `json:"uploadUrl"`
+			Expires   int64  `json:"expires"`
+		} `json:"data"`
+	}
+	mustDecodeFilebox(t, res, &initResp)
+	if !initResp.Success || initResp.Data.Code == "" || !strings.Contains(initResp.Data.UploadURL, "1.2.3.4:61208") {
+		t.Fatalf("unexpected init response: %#v", initResp)
+	}
+
+	// 2. Complete remote upload
+	completeBody := fmt.Sprintf(`{
+		"code": %q,
+		"filename": "backup.tar.gz",
+		"size": 1048576,
+		"serverId": "node-1",
+		"mimeType": "application/gzip",
+		"expiry": "24",
+		"max_downloads": "2"
+	}`, initResp.Data.Code)
+	res = performFileboxRequest(service, http.MethodPost, "/api/filebox/shares/complete-upload", strings.NewReader(completeBody), "application/json")
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", res.Code, res.Body.String())
+	}
+	var completeResp struct {
+		Success bool        `json:"success"`
+		Data    PublicEntry `json:"data"`
+	}
+	mustDecodeFilebox(t, res, &completeResp)
+	if completeResp.Data.StorageType != "remote" || completeResp.Data.ServerID == nil || *completeResp.Data.ServerID != "node-1" {
+		t.Fatalf("unexpected complete entry: %#v", completeResp.Data)
+	}
+
+	// 3. Download remote entry -> should 302 redirect to signed URL
+	res = performFileboxRequest(service, http.MethodGet, "/api/filebox/download/"+initResp.Data.Code, nil, "")
+	if res.Code != http.StatusFound {
+		t.Fatalf("expected 302, got %d: %s", res.Code, res.Body.String())
+	}
+	location := res.Header().Get("Location")
+	if !strings.Contains(location, "1.2.3.4:61208/storage/"+initResp.Data.Code+"/backup.tar.gz") {
+		t.Fatalf("unexpected redirect location: %s", location)
+	}
+
+	// Check download count incremented
+	entry, err := service.GetEntry(context.Background(), initResp.Data.Code, true)
+	if err != nil || entry == nil {
+		t.Fatalf("entry not found: %v", err)
+	}
+	if entry.Downloads != 1 {
+		t.Fatalf("expected downloads=1, got %d", entry.Downloads)
+	}
+
+	// 4. Test HandleShareRedirect
+	shareReq := httptest.NewRequest(http.MethodGet, "/share/"+initResp.Data.Code, nil)
+	// 用不同 IP 模拟第二个独立逻辑下载，避免被同一 IP 的去重窗口合并
+	shareReq.RemoteAddr = "10.0.0.99:5000"
+	shareRec := httptest.NewRecorder()
+	handled := service.HandleShareRedirect(shareRec, shareReq, initResp.Data.Code)
+	if !handled {
+		t.Fatalf("expected HandleShareRedirect to handle request")
+	}
+	if shareRec.Code != http.StatusFound {
+		t.Fatalf("expected 302 redirect, got %d", shareRec.Code)
+	}
+
+	// Now downloads reached max (2), entry should be expired/deleted
+	entryAfter, _ := service.GetEntry(context.Background(), initResp.Data.Code, false)
+	if entryAfter != nil {
+		t.Fatalf("expected entry to be cleaned up after reaching max downloads")
+	}
+}
+
+func TestRemoteDownloadNodeOfflineReturns503(t *testing.T) {
+	service := newTestService(t, fakeAuth{ok: true})
+	provider := &fakeNodeProvider{
+		nodes: []StorageNodeInfo{}, // empty, node offline
+		keys:  map[string]string{},
+	}
+	service.SetNodeProvider(provider)
+
+	entry, err := service.AddRemoteFile(context.Background(), "testoffline", "test.bin", 100, "application/octet-stream", "offline-node", 1, false, 10, "")
+	if err != nil {
+		t.Fatalf("create remote file: %v", err)
+	}
+	if entry == nil {
+		t.Fatalf("entry is nil")
+	}
+
+	res := performFileboxRequest(service, http.MethodGet, "/api/filebox/download/"+entry.Code, nil, "")
+	if res.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503 Service Unavailable, got %d: %s", res.Code, res.Body.String())
+	}
+}
+
+func TestTransferStorageLocalToRemoteAndBack(t *testing.T) {
+	service := newTestService(t, fakeAuth{ok: true})
+
+	// Setup fake HTTP server simulating remote agent storage node
+	remoteStore := make(map[string][]byte)
+	remoteServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodPut:
+			data, _ := io.ReadAll(r.Body)
+			remoteStore[r.URL.Path] = data
+			w.WriteHeader(http.StatusOK)
+		case http.MethodGet:
+			data, ok := remoteStore[r.URL.Path]
+			if !ok {
+				http.NotFound(w, r)
+				return
+			}
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write(data)
+		case http.MethodDelete:
+			delete(remoteStore, r.URL.Path)
+			w.WriteHeader(http.StatusOK)
+		default:
+			w.WriteHeader(http.StatusMethodNotAllowed)
+		}
+	}))
+	defer remoteServer.Close()
+
+	parts := strings.Split(strings.TrimPrefix(remoteServer.URL, "http://"), ":")
+	nodeHost := parts[0]
+	nodePort, _ := strconv.Atoi(parts[1])
+
+	provider := &fakeNodeProvider{
+		nodes: []StorageNodeInfo{
+			{ID: "node-agent-1", Name: "Remote Node", Host: nodeHost, StoragePort: nodePort, Platform: "linux", Online: true},
+		},
+		keys: map[string]string{"node-agent-1": "test-key"},
+	}
+	service.SetNodeProvider(provider)
+
+	// 1. Create local file share
+	fileData := "hello file content for transfer test"
+	body, contentType := multipartBody(t, map[string]string{
+		"type":   "file",
+		"expiry": "24",
+	}, &multipartFile{name: "transfer_test.txt", content: fileData})
+	res := performFileboxRequest(service, http.MethodPost, "/api/filebox/share", body, contentType)
+	if res.Code != http.StatusOK {
+		t.Fatalf("create file status = %d: %s", res.Code, res.Body.String())
+	}
+	var createResp struct {
+		Success bool        `json:"success"`
+		Code    string      `json:"code"`
+		Data    PublicEntry `json:"data"`
+	}
+	mustDecodeFilebox(t, res, &createResp)
+	if createResp.Data.StorageType != "local" {
+		t.Fatalf("expected initial local storage, got %s", createResp.Data.StorageType)
+	}
+
+	// 2. Transfer from local to remote
+	transferBody := `{"targetStorageType":"remote","targetServerId":"node-agent-1"}`
+	res = performFileboxRequest(service, http.MethodPost, "/api/filebox/shares/"+createResp.Code+"/transfer", strings.NewReader(transferBody), "application/json")
+	if res.Code != http.StatusOK {
+		t.Fatalf("transfer to remote failed status=%d: %s", res.Code, res.Body.String())
+	}
+	var transferredResp struct {
+		Success bool        `json:"success"`
+		Data    PublicEntry `json:"data"`
+	}
+	mustDecodeFilebox(t, res, &transferredResp)
+	if transferredResp.Data.StorageType != "remote" || transferredResp.Data.ServerID == nil || *transferredResp.Data.ServerID != "node-agent-1" {
+		t.Fatalf("expected remote storage after transfer, got %#v", transferredResp.Data)
+	}
+
+	// Verify remote server got the file data
+	foundOnRemote := false
+	for path, data := range remoteStore {
+		if strings.Contains(path, createResp.Code) && string(data) == fileData {
+			foundOnRemote = true
+			break
+		}
+	}
+	if !foundOnRemote {
+		t.Fatalf("file not found on remote storage after transfer")
+	}
+
+	// 3. Transfer back from remote to local
+	transferLocalBody := `{"targetStorageType":"local"}`
+	res = performFileboxRequest(service, http.MethodPost, "/api/filebox/shares/"+createResp.Code+"/transfer", strings.NewReader(transferLocalBody), "application/json")
+	if res.Code != http.StatusOK {
+		t.Fatalf("transfer back to local failed status=%d: %s", res.Code, res.Body.String())
+	}
+	mustDecodeFilebox(t, res, &transferredResp)
+	if transferredResp.Data.StorageType != "local" {
+		t.Fatalf("expected local storage after transferring back, got %s", transferredResp.Data.StorageType)
+	}
+
+	// Verify local content is readable and intact
+	entry, err := service.GetEntry(context.Background(), createResp.Code, true)
+	if err != nil || entry == nil || entry.Path == nil {
+		t.Fatalf("entry not found or path nil: %v", err)
+	}
+	content, err := os.ReadFile(*entry.Path)
+	if err != nil || string(content) != fileData {
+		t.Fatalf("local file content mismatch after transfer back: %s vs %s", string(content), fileData)
+	}
+}
+
+func downloadWithIP(service *Service, code, ip string) *httptest.ResponseRecorder {
+	req := httptest.NewRequest(http.MethodGet, "/api/filebox/download/"+code, nil)
+	req.RemoteAddr = ip
+	res := httptest.NewRecorder()
+	service.ServeHTTP(res, req)
+	return res
+}
+
+func TestDownloadDedupSameIPWithinWindow(t *testing.T) {
+	service := newTestService(t, fakeAuth{ok: true})
+	entry, err := service.AddText(context.Background(), "dedup test", 24, false, 0, "")
+	if err != nil {
+		t.Fatalf("create text share: %v", err)
+	}
+
+	// 同一 IP 的并发/重复请求只计一次（模拟多线程 Range 分块）
+	for i := 0; i < 4; i++ {
+		res := downloadWithIP(service, entry.Code, "192.0.2.10:5555")
+		if res.Code != http.StatusOK {
+			t.Fatalf("download attempt %d expected 200, got %d", i, res.Code)
+		}
+	}
+	after, err := service.GetEntry(context.Background(), entry.Code, true)
+	if err != nil || after == nil {
+		t.Fatalf("entry not found: %v", err)
+	}
+	if after.Downloads != 1 {
+		t.Fatalf("expected downloads=1 after 4 same-IP requests, got %d", after.Downloads)
+	}
+}
+
+func TestDownloadDedupDifferentIPCountsEach(t *testing.T) {
+	service := newTestService(t, fakeAuth{ok: true})
+	entry, err := service.AddText(context.Background(), "dedup ip", 24, false, 0, "")
+	if err != nil {
+		t.Fatalf("create text share: %v", err)
+	}
+
+	for _, ip := range []string{"192.0.2.10:1", "192.0.2.20:2", "192.0.2.30:3"} {
+		res := downloadWithIP(service, entry.Code, ip)
+		if res.Code != http.StatusOK {
+			t.Fatalf("expected 200 for ip %s, got %d", ip, res.Code)
+		}
+	}
+	after, err := service.GetEntry(context.Background(), entry.Code, true)
+	if err != nil || after == nil {
+		t.Fatalf("entry not found: %v", err)
+	}
+	if after.Downloads != 3 {
+		t.Fatalf("expected downloads=3 for 3 distinct IPs, got %d", after.Downloads)
+	}
+}
+
+func TestDownloadDedupExpiredByWindow(t *testing.T) {
+	service := newTestService(t, fakeAuth{ok: true})
+	entry, err := service.AddText(context.Background(), "dedup window", 24, false, 0, "")
+	if err != nil {
+		t.Fatalf("create text share: %v", err)
+	}
+
+	// 首个请求计数
+	if res := downloadWithIP(service, entry.Code, "192.0.2.10:1"); res.Code != http.StatusOK {
+		t.Fatalf("first download expected 200, got %d", res.Code)
+	}
+	// 手动把去重时间戳拨回窗口之前，模拟窗口过期后的另一次独立下载
+	// 注：claimDownloadSlot 的 key 用的是剥离端口后的纯 IP
+	service.dedupMu.Lock()
+	key := "192.0.2.10|" + entry.Code
+	service.downloadDedup[key] = time.Now().Add(-(downloadDedupWindow + time.Second)).UnixMilli()
+	service.dedupMu.Unlock()
+
+	if res := downloadWithIP(service, entry.Code, "192.0.2.10:1"); res.Code != http.StatusOK {
+		t.Fatalf("download after window expected 200, got %d", res.Code)
+	}
+	after, err := service.GetEntry(context.Background(), entry.Code, true)
+	if err != nil || after == nil {
+		t.Fatalf("entry not found: %v", err)
+	}
+	if after.Downloads != 2 {
+		t.Fatalf("expected downloads=2 across window boundary, got %d", after.Downloads)
+	}
+}
+
+type fakeAgentFileSource struct {
+	content  []byte
+	exists   bool
+	statErr  error
+	openErr  error
+	serverID string
+	path     string
+}
+
+func (f *fakeAgentFileSource) OpenAgentFile(ctx context.Context, serverID, remotePath string) (io.ReadCloser, int64, error) {
+	f.serverID = serverID
+	f.path = remotePath
+	if f.openErr != nil {
+		return nil, 0, f.openErr
+	}
+	return io.NopCloser(bytes.NewReader(f.content)), int64(len(f.content)), nil
+}
+
+func (f *fakeAgentFileSource) AgentFileExists(ctx context.Context, serverID, remotePath string) (int64, bool, error) {
+	if f.statErr != nil {
+		return 0, false, f.statErr
+	}
+	return int64(len(f.content)), f.exists, nil
+}
+
+func TestShareFromAgentLocalStorage(t *testing.T) {
+	service := newTestService(t, fakeAuth{ok: true})
+	service.SetAgentFileSource(&fakeAgentFileSource{content: []byte("agent-host-file"), exists: true})
+
+	body := `{"serverId":"srv-1","remotePath":"/tmp/report.txt","storageTarget":"local","expiry":"1"}`
+	res := performFileboxRequest(service, http.MethodPost, "/api/filebox/share-from-agent", strings.NewReader(body), "application/json")
+	if res.Code != http.StatusOK {
+		t.Fatalf("share-from-agent status=%d body=%s", res.Code, res.Body.String())
+	}
+	var payload struct {
+		Success     bool   `json:"success"`
+		Code        string `json:"code"`
+		ShareURL    string `json:"shareUrl"`
+		DirectURL   string `json:"directUrl"`
+		StorageType string `json:"storageType"`
+	}
+	mustDecodeFilebox(t, res, &payload)
+	if !payload.Success || payload.Code == "" || payload.ShareURL == "" || payload.DirectURL == "" {
+		t.Fatalf("unexpected payload: %#v", payload)
+	}
+	if payload.StorageType != "local" {
+		t.Fatalf("expected local storage, got %q", payload.StorageType)
+	}
+
+	entry, err := service.GetEntry(context.Background(), payload.Code, true)
+	if err != nil || entry == nil {
+		t.Fatalf("entry not found: %v", err)
+	}
+	if entry.Size != int64(len("agent-host-file")) {
+		t.Fatalf("size mismatch: got %d", entry.Size)
+	}
+
+	dl := performFileboxRequest(service, http.MethodGet, "/api/filebox/d/"+payload.Code, nil, "")
+	if dl.Code != http.StatusOK || dl.Body.String() != "agent-host-file" {
+		t.Fatalf("download status=%d body=%q", dl.Code, dl.Body.String())
+	}
+}
+
+func TestShareFromAgentMissingFile(t *testing.T) {
+	service := newTestService(t, fakeAuth{ok: true})
+	service.SetAgentFileSource(&fakeAgentFileSource{exists: false})
+
+	body := `{"serverId":"srv-1","remotePath":"/tmp/missing.bin"}`
+	res := performFileboxRequest(service, http.MethodPost, "/api/filebox/share-from-agent", strings.NewReader(body), "application/json")
+	if res.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d body=%s", res.Code, res.Body.String())
+	}
+}
+
+func TestShareFromAgentRequiresFields(t *testing.T) {
+	service := newTestService(t, fakeAuth{ok: true})
+	service.SetAgentFileSource(&fakeAgentFileSource{exists: true})
+
+	res := performFileboxRequest(service, http.MethodPost, "/api/filebox/share-from-agent", strings.NewReader(`{"serverId":"srv-1"}`), "application/json")
+	if res.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d body=%s", res.Code, res.Body.String())
+	}
+}
+
+func TestShareFromAgentAutoTargetUsesNode(t *testing.T) {
+	service := newTestService(t, fakeAuth{ok: true})
+	service.SetAgentFileSource(&fakeAgentFileSource{content: []byte("remote-bytes"), exists: true})
+
+	var gotPath string
+	nodeServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPut {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		gotPath = r.URL.Path
+		body, _ := io.ReadAll(r.Body)
+		if string(body) != "remote-bytes" {
+			t.Errorf("node received %q", string(body))
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer nodeServer.Close()
+
+	host := strings.TrimPrefix(nodeServer.URL, "http://")
+	hostPart, portPart, _ := strings.Cut(host, ":")
+	port, _ := strconv.Atoi(portPart)
+	service.SetNodeProvider(&fakeNodeProvider{
+		nodes: []StorageNodeInfo{{ID: "node-1", Name: "Node One", Host: hostPart, StoragePort: port, Platform: "linux", Online: true}},
+		keys:  map[string]string{"node-1": "key123"},
+	})
+
+	body := `{"serverId":"srv-1","remotePath":"/tmp/data.bin","storageTarget":"auto"}`
+	res := performFileboxRequest(service, http.MethodPost, "/api/filebox/share-from-agent", strings.NewReader(body), "application/json")
+	if res.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", res.Code, res.Body.String())
+	}
+	var payload struct {
+		Success     bool   `json:"success"`
+		StorageType string `json:"storageType"`
+		ServerID    string `json:"serverId"`
+	}
+	mustDecodeFilebox(t, res, &payload)
+	if payload.StorageType != "remote" || payload.ServerID != "node-1" {
+		t.Fatalf("expected remote node-1, got %#v", payload)
+	}
+	if gotPath == "" {
+		t.Fatalf("node did not receive PUT")
+	}
+}
+
+type fakeAgentDirectUploader struct {
+	content   []byte
+	exists    bool
+	uploaded  bool
+	gotURL    string
+	gotPath   string
+	uploadErr error
+}
+
+func (f *fakeAgentDirectUploader) AgentFileExists(ctx context.Context, serverID, remotePath string) (int64, bool, error) {
+	return int64(len(f.content)), f.exists, nil
+}
+
+func (f *fakeAgentDirectUploader) OpenAgentFile(ctx context.Context, serverID, remotePath string) (io.ReadCloser, int64, error) {
+	return io.NopCloser(bytes.NewReader(f.content)), int64(len(f.content)), nil
+}
+
+func (f *fakeAgentDirectUploader) SupportsAgentFileUpload(serverID string) bool {
+	return true
+}
+
+func (f *fakeAgentDirectUploader) UploadAgentFileToURL(ctx context.Context, serverID, remotePath, uploadURL string, timeout time.Duration) error {
+	if f.uploadErr != nil {
+		return f.uploadErr
+	}
+	f.uploaded = true
+	f.gotURL = uploadURL
+	f.gotPath = remotePath
+	return nil
+}
+
+func TestShareFromAgentUsesDirectUploadWhenAvailable(t *testing.T) {
+	service := newTestService(t, fakeAuth{ok: true})
+	uploader := &fakeAgentDirectUploader{content: []byte("direct-bytes"), exists: true}
+	service.SetAgentFileSource(uploader)
+
+	service.SetNodeProvider(&fakeNodeProvider{
+		nodes: []StorageNodeInfo{{ID: "node-1", Name: "Node One", Host: "203.0.113.9", StoragePort: 61208, Platform: "linux", Online: true}},
+		keys:  map[string]string{"node-1": "key123"},
+	})
+
+	body := `{"serverId":"srv-1","remotePath":"/tmp/big.iso","storageTarget":"auto"}`
+	res := performFileboxRequest(service, http.MethodPost, "/api/filebox/share-from-agent", strings.NewReader(body), "application/json")
+	if res.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", res.Code, res.Body.String())
+	}
+	if !uploader.uploaded {
+		t.Fatalf("expected direct upload to be used")
+	}
+	if uploader.gotPath != "/tmp/big.iso" {
+		t.Fatalf("unexpected upload path %q", uploader.gotPath)
+	}
+	if !strings.Contains(uploader.gotURL, "203.0.113.9:61208/storage/") || !strings.Contains(uploader.gotURL, "signature=") {
+		t.Fatalf("unexpected upload URL %q", uploader.gotURL)
+	}
+	var payload struct {
+		StorageType string `json:"storageType"`
+		ServerID    string `json:"serverId"`
+	}
+	mustDecodeFilebox(t, res, &payload)
+	if payload.StorageType != "remote" || payload.ServerID != "node-1" {
+		t.Fatalf("expected remote node-1, got %#v", payload)
+	}
+}
+
+func TestVoidRoomAttachAndListFiles(t *testing.T) {
+	service := newTestService(t, fakeAuth{ok: true})
+
+	// 先建一个本地文本分享作为可挂载条目。
+	body, contentType := multipartBody(t, map[string]string{
+		"type":   "text",
+		"text":   "room-shared-content",
+		"expiry": "1",
+	}, nil)
+	res := performFileboxRequest(service, http.MethodPost, "/api/filebox/share", body, contentType)
+	if res.Code != http.StatusOK {
+		t.Fatalf("create share status=%d body=%s", res.Code, res.Body.String())
+	}
+	var share struct {
+		Code string `json:"code"`
+	}
+	mustDecodeFilebox(t, res, &share)
+
+	// 创建房间。
+	res = performFileboxRequest(service, http.MethodPost, "/api/filebox/void/rooms", strings.NewReader(`{"mode":"temporary"}`), "application/json")
+	if res.Code != http.StatusOK {
+		t.Fatalf("create room status=%d body=%s", res.Code, res.Body.String())
+	}
+	var room struct {
+		Data struct {
+			RoomID string `json:"roomId"`
+		} `json:"data"`
+	}
+	mustDecodeFilebox(t, res, &room)
+	if room.Data.RoomID == "" {
+		t.Fatalf("missing room id: %s", res.Body.String())
+	}
+	roomID := room.Data.RoomID
+
+	// 挂载分享。
+	res = performFileboxRequest(service, http.MethodPost, "/api/filebox/void/rooms/"+roomID+"/files", strings.NewReader(`{"code":"`+share.Code+`"}`), "application/json")
+	if res.Code != http.StatusOK {
+		t.Fatalf("attach file status=%d body=%s", res.Code, res.Body.String())
+	}
+
+	// 列出房间文件。
+	res = performFileboxRequest(service, http.MethodGet, "/api/filebox/void/rooms/"+roomID+"/files", nil, "")
+	if res.Code != http.StatusOK {
+		t.Fatalf("list files status=%d body=%s", res.Code, res.Body.String())
+	}
+	var list struct {
+		Success bool          `json:"success"`
+		Data    []PublicEntry `json:"data"`
+	}
+	mustDecodeFilebox(t, res, &list)
+	if !list.Success || len(list.Data) != 1 || list.Data[0].Code != share.Code {
+		t.Fatalf("unexpected files: %#v", list)
+	}
+
+	// 移除挂载。
+	res = performFileboxRequest(service, http.MethodDelete, "/api/filebox/void/rooms/"+roomID+"/files/"+share.Code, nil, "")
+	if res.Code != http.StatusOK {
+		t.Fatalf("detach status=%d body=%s", res.Code, res.Body.String())
+	}
+	res = performFileboxRequest(service, http.MethodGet, "/api/filebox/void/rooms/"+roomID+"/files", nil, "")
+	mustDecodeFilebox(t, res, &list)
+	if len(list.Data) != 0 {
+		t.Fatalf("expected empty files after detach, got %#v", list.Data)
+	}
+}
+
+func TestPersistentVoidRoomFilesSurviveReload(t *testing.T) {
+	service := newTestService(t, fakeAuth{ok: true})
+
+	body, contentType := multipartBody(t, map[string]string{
+		"type":   "text",
+		"text":   "persist-me",
+		"expiry": "1",
+	}, nil)
+	res := performFileboxRequest(service, http.MethodPost, "/api/filebox/share", body, contentType)
+	var share struct {
+		Code string `json:"code"`
+	}
+	mustDecodeFilebox(t, res, &share)
+
+	res = performFileboxRequest(service, http.MethodPost, "/api/filebox/void/rooms", strings.NewReader(`{"mode":"persistent"}`), "application/json")
+	var room struct {
+		Data struct {
+			RoomID string `json:"roomId"`
+		} `json:"data"`
+	}
+	mustDecodeFilebox(t, res, &room)
+	roomID := room.Data.RoomID
+	if roomID == "" {
+		t.Fatalf("missing room id: %s", res.Body.String())
+	}
+
+	res = performFileboxRequest(service, http.MethodPost, "/api/filebox/void/rooms/"+roomID+"/files", strings.NewReader(`{"code":"`+share.Code+`"}`), "application/json")
+	if res.Code != http.StatusOK {
+		t.Fatalf("attach status=%d body=%s", res.Code, res.Body.String())
+	}
+
+	// 模拟重启：清空内存态，再从 DB 重新加载。
+	service.voidMu.Lock()
+	delete(service.voidRooms, roomID)
+	service.voidMu.Unlock()
+
+	res = performFileboxRequest(service, http.MethodGet, "/api/filebox/void/rooms/"+roomID+"/files", nil, "")
+	var list struct {
+		Success bool          `json:"success"`
+		Data    []PublicEntry `json:"data"`
+	}
+	mustDecodeFilebox(t, res, &list)
+	if !list.Success || len(list.Data) != 1 || list.Data[0].Code != share.Code {
+		t.Fatalf("mounted file did not survive reload: %#v", list)
+	}
+}
+
+type fakeIncapableUploader struct {
+	content  []byte
+	exists   bool
+	uploaded bool
+}
+
+func (f *fakeIncapableUploader) AgentFileExists(ctx context.Context, serverID, remotePath string) (int64, bool, error) {
+	return int64(len(f.content)), f.exists, nil
+}
+
+func (f *fakeIncapableUploader) OpenAgentFile(ctx context.Context, serverID, remotePath string) (io.ReadCloser, int64, error) {
+	return io.NopCloser(bytes.NewReader(f.content)), int64(len(f.content)), nil
+}
+
+func (f *fakeIncapableUploader) UploadAgentFileToURL(ctx context.Context, serverID, remotePath, uploadURL string, timeout time.Duration) error {
+	f.uploaded = true
+	return nil
+}
+
+func (f *fakeIncapableUploader) SupportsAgentFileUpload(serverID string) bool {
+	return false
+}
+
+func TestShareFromAgentFallsBackWhenAgentLacksDirectUpload(t *testing.T) {
+	service := newTestService(t, fakeAuth{ok: true})
+	uploader := &fakeIncapableUploader{content: []byte("legacy-agent-bytes"), exists: true}
+	service.SetAgentFileSource(uploader)
+
+	var gotBody string
+	nodeServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		gotBody = string(body)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer nodeServer.Close()
+
+	host := strings.TrimPrefix(nodeServer.URL, "http://")
+	hostPart, portPart, _ := strings.Cut(host, ":")
+	port, _ := strconv.Atoi(portPart)
+	service.SetNodeProvider(&fakeNodeProvider{
+		nodes: []StorageNodeInfo{{ID: "node-1", Name: "Node One", Host: hostPart, StoragePort: port, Platform: "linux", Online: true}},
+		keys:  map[string]string{"node-1": "key123"},
+	})
+
+	body := `{"serverId":"srv-legacy","remotePath":"/tmp/data.bin","storageTarget":"auto"}`
+	res := performFileboxRequest(service, http.MethodPost, "/api/filebox/share-from-agent", strings.NewReader(body), "application/json")
+	if res.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", res.Code, res.Body.String())
+	}
+	if uploader.uploaded {
+		t.Fatalf("direct upload should not be attempted for incapable agent")
+	}
+	if gotBody != "legacy-agent-bytes" {
+		t.Fatalf("panel relay fallback did not deliver bytes, got %q", gotBody)
 	}
 }

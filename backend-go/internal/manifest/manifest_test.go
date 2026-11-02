@@ -248,6 +248,40 @@ func TestFileboxRoutesAreGoOwnedWithMixedAuthInsideModule(t *testing.T) {
 	}
 }
 
+func TestBookmarksRoutesAreGoOwnedWithMixedAuthInsideModule(t *testing.T) {
+	// 内部路由走 session
+	route, ok := Match("/api/bookmarks/groups")
+	if !ok {
+		t.Fatal("expected bookmarks groups route match")
+	}
+	if route.Owner != OwnerGo || route.Auth != AuthSession || route.ResponseMode != ResponseJSON {
+		t.Fatalf("expected session JSON go owner for bookmarks groups, got owner=%s auth=%s response=%s", route.Owner, route.Auth, route.ResponseMode)
+	}
+	// 公开页路由走 public
+	route, ok = Match("/api/bookmarks/public/groups/my-slug")
+	if !ok {
+		t.Fatal("expected bookmarks public group route match")
+	}
+	if route.Owner != OwnerGo || route.Auth != AuthPublic || route.ResponseMode != ResponseJSON {
+		t.Fatalf("expected public JSON go owner for bookmarks public group, got owner=%s auth=%s response=%s", route.Owner, route.Auth, route.ResponseMode)
+	}
+	route, ok = Match("/api/bookmarks/public/page-by-domain")
+	if !ok {
+		t.Fatal("expected bookmarks page-by-domain route match")
+	}
+	if route.Owner != OwnerGo || route.Auth != AuthPublic || route.ResponseMode != ResponseJSON {
+		t.Fatalf("expected public JSON go owner for bookmarks page-by-domain, got owner=%s auth=%s response=%s", route.Owner, route.Auth, route.ResponseMode)
+	}
+	// 本地下载的站点图标文件公开可访问（匿名公开页 img 需要），文件名 md5 不可枚举
+	route, ok = Match("/api/bookmarks/favicons/abcd1234.png")
+	if !ok {
+		t.Fatal("expected bookmarks favicon file route match")
+	}
+	if route.Owner != OwnerGo || route.Auth != AuthPublic || route.ResponseMode != ResponseJSON {
+		t.Fatalf("expected public JSON go owner for bookmarks favicon file, got owner=%s auth=%s response=%s", route.Owner, route.Auth, route.ResponseMode)
+	}
+}
+
 func TestNotificationRoutesAreGoOwned(t *testing.T) {
 	route, ok := Match("/api/notification/channels")
 	if !ok {
@@ -415,5 +449,40 @@ func TestSummaryCoversAllRoutes(t *testing.T) {
 	}
 	if total != len(Routes()) {
 		t.Fatalf("summary counted %d routes, want %d", total, len(Routes()))
+	}
+}
+
+func TestCompareRouteSpecificityPrefersLiteralOverParam(t *testing.T) {
+	cases := []struct {
+		name      string
+		literal   string
+		param     string
+	}{
+		{
+			name:    "prune beats imageRef placeholder",
+			literal: "/api/server/v2/docker/{serverId}/images/prune",
+			param:   "/api/server/v2/docker/{serverId}/images/{imageRef}",
+		},
+		{
+			name:    "sync beats project placeholder",
+			literal: "/api/server/v2/docker/{serverId}/stacks/sync",
+			param:   "/api/server/v2/docker/{serverId}/stacks/{project}",
+		},
+		{
+			name:    "exact beats pattern for same path",
+			literal: "/api/x/foo",
+			param:   "/api/x/{id}",
+		},
+	}
+	for _, tc := range cases {
+		if got := CompareRouteSpecificity(tc.literal, tc.param); got != 1 {
+			t.Errorf("%s: CompareRouteSpecificity(literal, param) = %d, want 1", tc.name, got)
+		}
+		if got := CompareRouteSpecificity(tc.param, tc.literal); got != -1 {
+			t.Errorf("%s: CompareRouteSpecificity(param, literal) = %d, want -1", tc.name, got)
+		}
+	}
+	if got := CompareRouteSpecificity("/api/a/b", "/api/a/b"); got != 0 {
+		t.Errorf("equal prefixes should compare 0, got %d", got)
 	}
 }

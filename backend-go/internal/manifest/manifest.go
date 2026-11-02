@@ -11,10 +11,11 @@ type ResponseMode string
 type MatchMode string
 
 const (
-	AuthPublic  AuthMode = "public"
-	AuthSession AuthMode = "session"
-	AuthAPIKey  AuthMode = "api_key"
-	AuthAgent   AuthMode = "agent_key"
+	AuthPublic   AuthMode = "public"
+	AuthSession  AuthMode = "session"
+	AuthAPIKey   AuthMode = "api_key"
+	AuthAgent    AuthMode = "agent_key"
+	AuthInternal AuthMode = "internal"
 
 	OwnerGo      Owner = "go"
 	OwnerNode    Owner = "node"
@@ -41,7 +42,7 @@ type Route struct {
 	MatchMode    MatchMode    `json:"matchMode,omitempty"`
 }
 
-// routeTable 在包初始化时构建一次；Match 每请求调用，不应重建 236 条路由。
+// routeTable 在包初始化时构建一次；Match 每请求调用，不应重建 369 条路由。
 var routeTable = buildRoutes()
 
 // compiledRoute 预计算 Match 需要的 score 与 pattern 分段，避免热路径重复计算。
@@ -118,8 +119,7 @@ func buildRoutes() []Route {
 		{Prefix: "/api/system/ai-access/audit", Module: "system-ai-access", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Paginated AI access audit entries", MatchMode: MatchExact},
 		{Prefix: "/api/system/ai-access/audit", Module: "system-ai-access", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Paginated AI access audit", MatchMode: MatchExact},
 		{Prefix: "/api/system/ai-access/audit/clear", Module: "system-ai-access", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Clear AI access audit entries", MatchMode: MatchExact},
-		{Prefix: "/api/system/ai-access/write", Module: "system-ai-access", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Toggle AI agent write access", MatchMode: MatchExact},
-		{Prefix: "/api/system/ai-access/policy", Module: "system-ai-access", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "AI agent access policy (minimal/standard/full)", MatchMode: MatchExact},
+		{Prefix: "/api/system/ai-access/policy", Module: "system-ai-access", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "AI agent access policy (minimal/sensitive/standard/full)", MatchMode: MatchExact},
 		{Prefix: "/api/system/ai-access", Module: "system-ai-access", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "AI access management", MatchMode: MatchExact},
 		{Prefix: "/api/ai-access/key/rotate", Module: "system-ai-access", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Rotate AI access agent key", MatchMode: MatchExact},
 		{Prefix: "/api/ai-access/mcp-servers/{id}", Module: "system-ai-access", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "AI MCP server update/delete", MatchMode: MatchPattern},
@@ -129,8 +129,7 @@ func buildRoutes() []Route {
 		{Prefix: "/api/ai-access/audit", Module: "system-ai-access", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Paginated AI access audit entries", MatchMode: MatchExact},
 		{Prefix: "/api/ai-access/audit", Module: "system-ai-access", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Paginated AI access audit", MatchMode: MatchExact},
 		{Prefix: "/api/ai-access/audit/clear", Module: "system-ai-access", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Clear AI access audit entries", MatchMode: MatchExact},
-		{Prefix: "/api/ai-access/write", Module: "system-ai-access", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Toggle AI agent write access", MatchMode: MatchExact},
-		{Prefix: "/api/ai-access/policy", Module: "system-ai-access", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "AI agent access policy (minimal/standard/full)", MatchMode: MatchExact},
+		{Prefix: "/api/ai-access/policy", Module: "system-ai-access", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "AI agent access policy (minimal/sensitive/standard/full)", MatchMode: MatchExact},
 		{Prefix: "/api/ai-access", Module: "system-ai-access", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "AI access management", MatchMode: MatchExact},
 		{Prefix: "/api/ai/manifest", Module: "ai-access", Owner: OwnerGo, Auth: AuthAgent, ResponseMode: ResponseJSON, Description: "AI access manifest", MatchMode: MatchExact},
 		{Prefix: "/api/ai/mcp", Module: "ai-access", Owner: OwnerGo, Auth: AuthAgent, ResponseMode: ResponseJSON, Description: "AI MCP JSON-RPC endpoint", MatchMode: MatchExact},
@@ -144,6 +143,20 @@ func buildRoutes() []Route {
 		{Prefix: "/api/scheduler", Module: "scheduler", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Workflow scheduler, DAG, runs, and distributed nodes"},
 		{Prefix: "/api/cron", Module: "cron", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Cron tasks, scheduler, and logs"},
 		{Prefix: "/api/backup", Module: "backup", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Local backup center configs, records, and runner"},
+		{Prefix: "/api/assets", Module: "assets", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Asset registry: manual records and linked sources"},
+		{Prefix: "/api/assets/overview", Module: "assets", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Asset counts, expiry buckets, and cost summary", MatchMode: MatchExact},
+		{Prefix: "/api/assets/expiring", Module: "assets", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Assets expiring within a window", MatchMode: MatchExact},
+		{Prefix: "/api/assets/settings/reset", Module: "assets", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Reset asset cost and warning settings", MatchMode: MatchExact},
+		{Prefix: "/api/assets/settings", Module: "assets", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Read/update asset cost and warning settings", MatchMode: MatchExact},
+		{Prefix: "/api/assets/categories", Module: "assets", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Asset categories, types, and cost cycles", MatchMode: MatchExact},
+		{Prefix: "/api/assets/candidates", Module: "assets", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Linkable source candidates by module", MatchMode: MatchExact},
+		{Prefix: "/api/assets/links", Module: "assets", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Batch link existing objects as assets", MatchMode: MatchExact},
+		{Prefix: "/api/assets/refresh-all", Module: "assets", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Refresh all linked asset snapshots", MatchMode: MatchExact},
+		{Prefix: "/api/assets/scan-expiry", Module: "assets", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Run asset expiry scan and alerting now", MatchMode: MatchExact},
+		{Prefix: "/api/assets/{id}/refresh", Module: "assets", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Refresh a linked asset snapshot", MatchMode: MatchPattern},
+		{Prefix: "/api/assets/{id}/alerts", Module: "assets", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Asset expiry alert markers", MatchMode: MatchPattern},
+		{Prefix: "/api/assets/{id}/events", Module: "assets", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Asset lifecycle events", MatchMode: MatchPattern},
+		{Prefix: "/api/assets/{id}", Module: "assets", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Get/update/delete asset", MatchMode: MatchPattern},
 		{Prefix: "/api/cloudflare/accounts/export", Module: "cloudflare-accounts", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Cloudflare account export", MatchMode: MatchExact},
 		{Prefix: "/api/cloudflare/export/accounts", Module: "cloudflare-accounts", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Cloudflare legacy account export", MatchMode: MatchExact},
 		{Prefix: "/api/cloudflare/import/accounts", Module: "cloudflare-accounts", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Cloudflare account import", MatchMode: MatchExact},
@@ -161,11 +174,20 @@ func buildRoutes() []Route {
 		{Prefix: "/api/cloudflare/accounts/{id}/pages/{projectName}/domains", Module: "cloudflare-pages", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Cloudflare Pages custom domain list/create", MatchMode: MatchPattern},
 		{Prefix: "/api/cloudflare/accounts/{id}/pages/{projectName}/domains/{domain}", Module: "cloudflare-pages", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Cloudflare Pages custom domain delete", MatchMode: MatchPattern},
 		{Prefix: "/api/cloudflare/accounts/{id}/workers", Module: "cloudflare-workers", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Cloudflare Worker script list", MatchMode: MatchPattern},
+		{Prefix: "/api/cloudflare/accounts/{id}/workers-usage", Module: "cloudflare-workers", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Cloudflare Workers request usage (today and this month)", MatchMode: MatchPattern},
 		{Prefix: "/api/cloudflare/accounts/{id}/workers/{scriptName}", Module: "cloudflare-workers", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Cloudflare Worker script get/update/delete", MatchMode: MatchPattern},
 		{Prefix: "/api/cloudflare/accounts/{id}/workers/{scriptName}/toggle", Module: "cloudflare-workers", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Cloudflare Worker subdomain toggle", MatchMode: MatchPattern},
 		{Prefix: "/api/cloudflare/accounts/{id}/workers/{scriptName}/analytics", Module: "cloudflare-workers", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Cloudflare Worker analytics", MatchMode: MatchPattern},
 		{Prefix: "/api/cloudflare/accounts/{id}/workers/{scriptName}/domains", Module: "cloudflare-workers", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Cloudflare Worker custom domains list/create", MatchMode: MatchPattern},
 		{Prefix: "/api/cloudflare/accounts/{id}/workers/{scriptName}/domains/{domainId}", Module: "cloudflare-workers", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Cloudflare Worker custom domain delete", MatchMode: MatchPattern},
+
+		{Prefix: "/api/cloudflare/accounts/{accountId}/email/routing", Module: "cloudflare-email", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Cloudflare Email Routing global settings", MatchMode: MatchPattern},
+		{Prefix: "/api/cloudflare/accounts/{accountId}/email/routing/zones", Module: "cloudflare-email", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Cloudflare Email Routing selectable domains", MatchMode: MatchPattern},
+		{Prefix: "/api/cloudflare/accounts/{accountId}/email/routing/addresses", Module: "cloudflare-email", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Cloudflare Email Routing destination addresses list/create", MatchMode: MatchPattern},
+		{Prefix: "/api/cloudflare/accounts/{accountId}/email/routing/addresses/{addressId}", Module: "cloudflare-email", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Cloudflare Email Routing destination address delete", MatchMode: MatchPattern},
+		{Prefix: "/api/cloudflare/accounts/{accountId}/email/routing/rules", Module: "cloudflare-email", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Cloudflare Email Routing rules list/create", MatchMode: MatchPattern},
+		{Prefix: "/api/cloudflare/accounts/{accountId}/email/routing/rules/{ruleId}", Module: "cloudflare-email", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Cloudflare Email Routing rule delete", MatchMode: MatchPattern},
+		{Prefix: "/api/cloudflare/accounts/{accountId}/email/routing/inbox", Module: "cloudflare-email", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Cloudflare Email Routing email-code inbox Worker deploy/remove/status", MatchMode: MatchPattern},
 
 		{Prefix: "/api/cloudflare/accounts/{accountId}/r2/buckets", Module: "cloudflare-r2", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Cloudflare R2 bucket list/create", MatchMode: MatchPattern},
 		{Prefix: "/api/cloudflare/accounts/{accountId}/r2/metrics", Module: "cloudflare-r2", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Cloudflare R2 account metrics (storage usage and object count)", MatchMode: MatchPattern},
@@ -201,6 +223,99 @@ func buildRoutes() []Route {
 		{Prefix: "/api/aliyun", Module: "aliyun", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Aliyun DNS and compute"},
 		{Prefix: "/api/tencent", Module: "tencent", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Tencent DNS and compute"},
 		{Prefix: "/api/oracle", Module: "oracle", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Oracle OCI compute management"},
+		{Prefix: "/api/gcp", Module: "gcp", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Google Cloud Platform accounts and resources"},
+		{Prefix: "/api/gcp/accounts", Module: "gcp", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "GCP accounts list/create", MatchMode: MatchExact},
+		{Prefix: "/api/gcp/accounts/{id}", Module: "gcp", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "GCP account update/delete", MatchMode: MatchPattern},
+		{Prefix: "/api/gcp/accounts/{id}/verify", Module: "gcp", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "GCP account verify", MatchMode: MatchPattern},
+		{Prefix: "/api/gcp/accounts/{id}/projects", Module: "gcp", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "GCP projects list", MatchMode: MatchPattern},
+		{Prefix: "/api/gcp/accounts/{id}/default-project", Module: "gcp", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "GCP default project set", MatchMode: MatchPattern},
+		{Prefix: "/api/gcp/accounts/{id}/projects/{projectId}/instances", Module: "gcp", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "GCP instances list/create", MatchMode: MatchPattern},
+		{Prefix: "/api/gcp/accounts/{id}/projects/{projectId}/instances/{iid}", Module: "gcp", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "GCP instance detail/delete", MatchMode: MatchPattern},
+		{Prefix: "/api/gcp/accounts/{id}/projects/{projectId}/instances/{iid}/actions", Module: "gcp", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "GCP instance lifecycle action", MatchMode: MatchPattern},
+		{Prefix: "/api/gcp/accounts/{id}/projects/{projectId}/instances/{iid}/labels", Module: "gcp", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "GCP instance labels edit", MatchMode: MatchPattern},
+		{Prefix: "/api/gcp/accounts/{id}/projects/{projectId}/disks", Module: "gcp", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "GCP disks list", MatchMode: MatchPattern},
+		{Prefix: "/api/gcp/accounts/{id}/projects/{projectId}/disks/{diskName}", Module: "gcp", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "GCP disk detail/delete", MatchMode: MatchPattern},
+		{Prefix: "/api/gcp/accounts/{id}/projects/{projectId}/disks/{diskName}/resize", Module: "gcp", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "GCP disk resize", MatchMode: MatchPattern},
+		{Prefix: "/api/gcp/accounts/{id}/projects/{projectId}/disks/{diskName}/snapshot", Module: "gcp", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "GCP disk snapshot", MatchMode: MatchPattern},
+		{Prefix: "/api/gcp/accounts/{id}/projects/{projectId}/zones", Module: "gcp", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "GCP zones list", MatchMode: MatchPattern},
+		{Prefix: "/api/gcp/accounts/{id}/projects/{projectId}/machine-types", Module: "gcp", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "GCP machine types list", MatchMode: MatchPattern},
+		{Prefix: "/api/gcp/accounts/{id}/projects/{projectId}/images", Module: "gcp", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "GCP images list", MatchMode: MatchPattern},
+		{Prefix: "/api/gcp/accounts/{id}/projects/{projectId}/subnetworks", Module: "gcp", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "GCP subnetworks list", MatchMode: MatchPattern},
+		{Prefix: "/api/gcp/accounts/{id}/projects/{projectId}/firewalls", Module: "gcp", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "GCP firewalls list/create", MatchMode: MatchPattern},
+		{Prefix: "/api/gcp/accounts/{id}/projects/{projectId}/firewalls/{ruleName}", Module: "gcp", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "GCP firewall update/delete", MatchMode: MatchPattern},
+		{Prefix: "/api/gcp/accounts/{id}/projects/{projectId}/addresses", Module: "gcp", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "GCP static addresses list", MatchMode: MatchPattern},
+		{Prefix: "/api/gcp/accounts/{id}/projects/{projectId}/buckets", Module: "gcp", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "GCP buckets list", MatchMode: MatchPattern},
+		{Prefix: "/api/gcp/accounts/{id}/buckets", Module: "gcp", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "GCP bucket create", MatchMode: MatchPattern},
+		{Prefix: "/api/gcp/accounts/{id}/buckets/{bucket}", Module: "gcp", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "GCP bucket delete", MatchMode: MatchPattern},
+		{Prefix: "/api/gcp/accounts/{id}/buckets/{bucket}/objects", Module: "gcp", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "GCP objects list", MatchMode: MatchPattern},
+		{Prefix: "/api/gcp/accounts/{id}/buckets/{bucket}/objects/{object}/download-url", Module: "gcp", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "GCP object download url", MatchMode: MatchPattern},
+		{Prefix: "/api/gcp/accounts/{id}/buckets/{bucket}/objects/{object}", Module: "gcp", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "GCP object delete", MatchMode: MatchPattern},
+		{Prefix: "/api/gcp/accounts/{id}/billing-accounts", Module: "gcp", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "GCP billing accounts list", MatchMode: MatchPattern},
+		{Prefix: "/api/gcp/accounts/{id}/projects/{projectId}/billing-info", Module: "gcp", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "GCP project billing info", MatchMode: MatchPattern},
+		{Prefix: "/api/gcp/accounts/{id}/projects/{projectId}/model-usage", Module: "gcp", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "GCP Vertex AI model usage", MatchMode: MatchPattern},
+		{Prefix: "/api/gcp/accounts/{id}/billing-accounts/{billingAccountId}/budgets", Module: "gcp", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "GCP budgets list", MatchMode: MatchPattern},
+		{Prefix: "/api/huawei", Module: "huawei", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Huawei Cloud accounts and resources"},
+		{Prefix: "/api/huawei/export/accounts", Module: "huawei", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Huawei Cloud account export", MatchMode: MatchExact},
+		{Prefix: "/api/huawei/import/accounts", Module: "huawei", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Huawei Cloud account import", MatchMode: MatchExact},
+		{Prefix: "/api/huawei/accounts/{id}", Module: "huawei", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Huawei Cloud account update/delete", MatchMode: MatchPattern},
+		{Prefix: "/api/huawei/accounts/{id}/verify", Module: "huawei", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Huawei Cloud account verify", MatchMode: MatchPattern},
+		{Prefix: "/api/huawei/accounts/{id}/projects", Module: "huawei", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Huawei Cloud project list", MatchMode: MatchPattern},
+		{Prefix: "/api/huawei/accounts/{id}/ssh", Module: "huawei", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseStream, Description: "Huawei Cloud SSH terminal websocket", MatchMode: MatchPattern},
+		{Prefix: "/api/huawei/accounts/{id}/defaults", Module: "huawei", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Huawei Cloud default region/project update", MatchMode: MatchPattern},
+		{Prefix: "/api/huawei/accounts/{id}/flexus-instances", Module: "huawei", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Huawei Cloud Flexus L instance list", MatchMode: MatchPattern},
+		{Prefix: "/api/huawei/accounts/{id}/flexus-instances/{instanceId}", Module: "huawei", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Huawei Cloud Flexus L instance rename", MatchMode: MatchPattern},
+		{Prefix: "/api/huawei/accounts/{id}/flexus-instances/{instanceId}/actions", Module: "huawei", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Huawei Cloud Flexus L instance action", MatchMode: MatchPattern},
+		{Prefix: "/api/huawei/accounts/{id}/flexus-instances/{instanceId}/reset-password", Module: "huawei", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Huawei Cloud Flexus L instance reset password", MatchMode: MatchPattern},
+		{Prefix: "/api/huawei/accounts/{id}/projects/{projectId}/instances", Module: "huawei", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Huawei Cloud ECS instance list", MatchMode: MatchPattern},
+		{Prefix: "/api/huawei/accounts/{id}/projects/{projectId}/instances/{instanceId}", Module: "huawei", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Huawei Cloud ECS instance detail", MatchMode: MatchPattern},
+		{Prefix: "/api/huawei/accounts/{id}/projects/{projectId}/instances/actions", Module: "huawei", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Huawei Cloud ECS batch action", MatchMode: MatchPattern},
+		{Prefix: "/api/huawei/accounts/{id}/projects/{projectId}/instances/{instanceId}/reset-password", Module: "huawei", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Huawei Cloud ECS reset password", MatchMode: MatchPattern},
+		{Prefix: "/api/huawei/accounts/{id}/projects/{projectId}/dns/zones", Module: "huawei", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Huawei Cloud DNS zone list/create", MatchMode: MatchPattern},
+		{Prefix: "/api/huawei/accounts/{id}/projects/{projectId}/dns/zones/{zoneId}", Module: "huawei", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Huawei Cloud DNS zone detail/delete", MatchMode: MatchPattern},
+		{Prefix: "/api/huawei/accounts/{id}/projects/{projectId}/dns/zones/{zoneId}/recordsets", Module: "huawei", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Huawei Cloud DNS recordsets", MatchMode: MatchPattern},
+		{Prefix: "/api/huawei/accounts/{id}/projects/{projectId}/dns/zones/{zoneId}/recordsets/{recordsetId}", Module: "huawei", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Huawei Cloud DNS recordset update/delete", MatchMode: MatchPattern},
+		{Prefix: "/api/huawei/accounts/{id}/projects/{projectId}/eips", Module: "huawei", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Huawei Cloud EIP list", MatchMode: MatchPattern},
+		{Prefix: "/api/huawei/accounts/{id}/projects/{projectId}/eips/{eipId}/associate", Module: "huawei", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Huawei Cloud EIP associate", MatchMode: MatchPattern},
+		{Prefix: "/api/huawei/accounts/{id}/projects/{projectId}/eips/{eipId}/disassociate", Module: "huawei", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Huawei Cloud EIP disassociate", MatchMode: MatchPattern},
+		{Prefix: "/api/huawei/accounts/{id}/projects/{projectId}/vpcs", Module: "huawei", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Huawei Cloud VPC list", MatchMode: MatchPattern},
+		{Prefix: "/api/huawei/accounts/{id}/projects/{projectId}/security-groups", Module: "huawei", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Huawei Cloud security group list", MatchMode: MatchPattern},
+		{Prefix: "/api/huawei/accounts/{id}/projects/{projectId}/buckets", Module: "huawei", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Huawei Cloud OBS bucket list/create", MatchMode: MatchPattern},
+		{Prefix: "/api/huawei/accounts/{id}/projects/{projectId}/buckets/{bucket}", Module: "huawei", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Huawei Cloud OBS bucket delete", MatchMode: MatchPattern},
+		{Prefix: "/api/huawei/accounts/{id}/projects/{projectId}/buckets/{bucket}/objects", Module: "huawei", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Huawei Cloud OBS object list/upload", MatchMode: MatchPattern},
+		{Prefix: "/api/huawei/accounts/{id}/projects/{projectId}/buckets/{bucket}/objects/{object}", Module: "huawei", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Huawei Cloud OBS object delete", MatchMode: MatchPattern},
+		{Prefix: "/api/huawei/accounts/{id}/billing/overview", Module: "huawei", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Huawei Cloud billing overview", MatchMode: MatchPattern},
+		{Prefix: "/api/huawei/accounts/{id}/billing/free-resources", Module: "huawei", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Huawei Cloud free resource usage", MatchMode: MatchPattern},
+		// AI Agent management: self-contained users, long-lived tokens, instances,
+		// and the agent-native HTTP/SSE gateway. Auth is enforced inside the
+		// module (panel session for the admin plane, module token for clients).
+		{Prefix: "/api/aiagent/auth/login", Module: "aiagent", Owner: OwnerGo, Auth: AuthPublic, ResponseMode: ResponseJSON, Description: "AI Agent user login (issue long-lived token)", MatchMode: MatchExact},
+		{Prefix: "/api/aiagent/auth/logout", Module: "aiagent", Owner: OwnerGo, Auth: AuthPublic, ResponseMode: ResponseJSON, Description: "AI Agent user logout (revoke current token)", MatchMode: MatchExact},
+		{Prefix: "/api/aiagent/users/{id}/reset-password", Module: "aiagent", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "AI Agent user password reset (admin)", MatchMode: MatchPattern},
+		{Prefix: "/api/aiagent/users/{id}/instances", Module: "aiagent", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "AI Agent user instance grants (admin)", MatchMode: MatchPattern},
+		{Prefix: "/api/aiagent/users/{id}", Module: "aiagent", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "AI Agent user update/delete (admin)", MatchMode: MatchPattern},
+		{Prefix: "/api/aiagent/users", Module: "aiagent", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "AI Agent user list/create (admin)", MatchMode: MatchExact},
+		{Prefix: "/api/aiagent/tokens/{id}/revoke", Module: "aiagent", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "AI Agent token revoke", MatchMode: MatchPattern},
+		{Prefix: "/api/aiagent/tokens", Module: "aiagent", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "AI Agent token list", MatchMode: MatchExact},
+		{Prefix: "/api/aiagent/instances/{id}/status", Module: "aiagent", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "AI Agent instance runtime status", MatchMode: MatchPattern},
+		{Prefix: "/api/aiagent/instances/{id}/metrics", Module: "aiagent", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "AI Agent instance host metrics (CPU/memory/disk)", MatchMode: MatchPattern},
+		{Prefix: "/api/aiagent/instances/{id}/lifecycle", Module: "aiagent", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "AI Agent instance process lifecycle (start/stop/restart)", MatchMode: MatchPattern},
+		{Prefix: "/api/aiagent/instances/batch", Module: "aiagent", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "AI Agent batch instance lifecycle (admin)", MatchMode: MatchExact},
+		{Prefix: "/api/aiagent/instances/{id}/grants", Module: "aiagent", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "AI Agent instance granted users (admin)", MatchMode: MatchPattern},
+		{Prefix: "/api/aiagent/instances/{id}/access-info", Module: "aiagent", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "AI Agent instance access info", MatchMode: MatchPattern},
+		{Prefix: "/api/aiagent/instances/{id}/meta", Module: "aiagent", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "AI Agent instance UI metadata", MatchMode: MatchPattern},
+		{Prefix: "/api/aiagent/instances/{id}", Module: "aiagent", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "AI Agent instance update/delete", MatchMode: MatchPattern},
+		{Prefix: "/api/aiagent/instances", Module: "aiagent", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "AI Agent instance list/create", MatchMode: MatchExact},
+		{Prefix: "/api/aiagent/gw/{instanceId}/stream-token", Module: "aiagent", Owner: OwnerGo, Auth: AuthPublic, ResponseMode: ResponseJSON, Description: "AI Agent gateway one-time stream token", MatchMode: MatchPattern},
+		{Prefix: "/api/aiagent/gw", Module: "aiagent", Owner: OwnerGo, Auth: AuthPublic, ResponseMode: ResponseStream, Description: "AI Agent native stream gateway (HTTP + SSE passthrough)", MatchMode: MatchPrefix},
+		{Prefix: "/api/aiagent/providers", Module: "aiagent", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "AI Agent provider registry", MatchMode: MatchExact},
+		{Prefix: "/api/aiagent/servers", Module: "aiagent", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "AI Agent eligible host list", MatchMode: MatchExact},
+		{Prefix: "/api/aiagent/servers/{id}/diagnose", Module: "aiagent", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "AI Agent provider availability diagnose (exe + port range)", MatchMode: MatchPattern},
+		{Prefix: "/api/aiagent/logs", Module: "aiagent", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "AI Agent access logs (admin)", MatchMode: MatchExact},
+		{Prefix: "/api/aiagent/metrics", Module: "aiagent", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "AI Agent runtime metrics (convergence/lifecycle counters)", MatchMode: MatchExact},
+		{Prefix: "/api/aiagent/preferences", Module: "aiagent", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "AI Agent per-user preferences (multi-device sync)", MatchMode: MatchExact},
+		{Prefix: "/api/aiagent/preferences/events", Module: "aiagent", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseStream, Description: "AI Agent preference change stream (SSE)", MatchMode: MatchExact},
+		{Prefix: "/api/aiagent", Module: "aiagent", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "AI agent accounts, instances, and native stream gateway"},
+
 		{Prefix: "/api/m365/public/register", Module: "m365-public-register", Owner: OwnerGo, Auth: AuthPublic, ResponseMode: ResponseJSON, Description: "Microsoft 365 public registration descriptor/create", MatchMode: MatchExact},
 		{Prefix: "/api/m365/public/invites/{code}", Module: "m365-public-register", Owner: OwnerGo, Auth: AuthPublic, ResponseMode: ResponseJSON, Description: "Microsoft 365 public invite details", MatchMode: MatchPattern},
 		{Prefix: "/api/m365", Module: "m365", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Microsoft 365 tenant, users, groups, licenses, and usage reports"},
@@ -219,6 +334,7 @@ func buildRoutes() []Route {
 		{Prefix: "/api/github/public/pages/{slug}", Module: "github-public-pages", Owner: OwnerGo, Auth: AuthPublic, ResponseMode: ResponseJSON, Description: "GitHub public page by slug", MatchMode: MatchPattern},
 		{Prefix: "/api/github/public/pages/{slug}/repositories/{id}", Module: "github-public-pages", Owner: OwnerGo, Auth: AuthPublic, ResponseMode: ResponseJSON, Description: "GitHub public page repository details", MatchMode: MatchPattern},
 		{Prefix: "/api/github", Module: "github", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "GitHub repository observability and Actions operations"},
+		{Prefix: "/api/dockerhub", Module: "dockerhub", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Docker Hub accounts and image repository browsing"},
 
 		// Draw.io diagram editor
 		{Prefix: "/api/drawio/documents/{id}/versions/{versionId}/restore", Module: "drawio-versions", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Restore drawio version to draft", MatchMode: MatchPattern},
@@ -253,8 +369,34 @@ func buildRoutes() []Route {
 		{Prefix: "/api/prompts/collections", Module: "prompts-collections", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "List/create prompt collections", MatchMode: MatchExact},
 		{Prefix: "/api/prompts/settings", Module: "prompts-settings", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Get/update prompt settings", MatchMode: MatchExact},
 		{Prefix: "/api/prompts", Module: "prompts", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Prompt library API"},
+		{Prefix: "/api/bookmarks", Module: "bookmarks", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Bookmarks navigation groups and items"},
+		{Prefix: "/api/bookmarks/favicons/{filename}", Module: "bookmarks-favicon", Owner: OwnerGo, Auth: AuthPublic, ResponseMode: ResponseJSON, Description: "Downloaded bookmark site icons (public, md5-named, non-enumerable)", MatchMode: MatchPattern},
+		{Prefix: "/api/bookmarks/public/groups/{slug}", Module: "bookmarks-public", Owner: OwnerGo, Auth: AuthPublic, ResponseMode: ResponseJSON, Description: "Public bookmarks group page data", MatchMode: MatchPattern},
+		{Prefix: "/api/bookmarks/public/all/{sort}", Module: "bookmarks-public", Owner: OwnerGo, Auth: AuthPublic, ResponseMode: ResponseJSON, Description: "Public bookmarks aggregate page: every public group (sort: order|name|items|updated with -asc/-desc)", MatchMode: MatchPattern},
+		{Prefix: "/api/bookmarks/public/all", Module: "bookmarks-public", Owner: OwnerGo, Auth: AuthPublic, ResponseMode: ResponseJSON, Description: "Public bookmarks aggregate page: every public group", MatchMode: MatchExact},
+		{Prefix: "/api/bookmarks/public/page-by-domain", Module: "bookmarks-public", Owner: OwnerGo, Auth: AuthPublic, ResponseMode: ResponseJSON, Description: "Public bookmarks group by custom domain", MatchMode: MatchExact},
 
 		{Prefix: "/api/openai", Module: "openai", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "OpenAI endpoint manager and proxy"},
+		{Prefix: "/api/proxypool", Module: "proxypool", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "独立出口代理池管理（端点与插件可复用）"},
+		{Prefix: "/api/antigravity", Module: "antigravity", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Antigravity 插件（Claude 订阅转 API）管理"},
+		{Prefix: "/api/antigravity/v1", Module: "antigravity-compatible", Owner: OwnerGo, Auth: AuthInternal, ResponseMode: ResponseStream, Description: "Antigravity 插件 Anthropic 兼容中继（仅本机内部网关调用）"},
+		{Prefix: "/api/ds2api", Module: "ds2api", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "DS2API 插件（DeepSeek 网页版免费池）管理"},
+		{Prefix: "/api/ds2api/v1", Module: "ds2api-compatible", Owner: OwnerGo, Auth: AuthInternal, ResponseMode: ResponseStream, Description: "DS2API 插件 OpenAI 兼容中继（仅本机内部网关调用）"},
+		{Prefix: "/api/workbuddy", Module: "workbuddy", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "WorkBuddy 插件（腾讯 CodeBuddy 转 OpenAI 兼容 API）管理"},
+		{Prefix: "/api/workbuddy/v1", Module: "workbuddy-compatible", Owner: OwnerGo, Auth: AuthInternal, ResponseMode: ResponseStream, Description: "WorkBuddy 插件 OpenAI 兼容中继（仅本机内部网关调用）"},
+		{Prefix: "/api/geminicli", Module: "geminicli", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Gemini CLI 插件（Google Gemini CLI 反代）管理"},
+		{Prefix: "/api/geminicli/v1", Module: "geminicli-compatible", Owner: OwnerGo, Auth: AuthInternal, ResponseMode: ResponseStream, Description: "Gemini CLI 插件 OpenAI 兼容中继（仅本机内部网关调用）"},
+		{Prefix: "/api/lobsterai", Module: "lobsterai", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "LobsterAI 插件（网易有道龙虾转 OpenAI 兼容 API）管理"},
+		{Prefix: "/api/lobsterai/v1", Module: "lobsterai-compatible", Owner: OwnerGo, Auth: AuthInternal, ResponseMode: ResponseStream, Description: "LobsterAI 插件 OpenAI 兼容中继（仅本机内部网关调用）"},
+		{Prefix: "/api/posthogcode", Module: "posthogcode", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "PostHog Code 插件（PostHog LLM Gateway 转 OpenAI 兼容 API）管理"},
+		{Prefix: "/api/posthogcode/v1", Module: "posthogcode-compatible", Owner: OwnerGo, Auth: AuthInternal, ResponseMode: ResponseStream, Description: "PostHog Code 插件 OpenAI 兼容中继（仅本机内部网关调用）"},
+		{Prefix: "/api/qoder", Module: "qoder", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Qoder 插件（qoder.cn / qoder.com 转 OpenAI 兼容 API）管理"},
+		{Prefix: "/api/qoder/v1", Module: "qoder-compatible", Owner: OwnerGo, Auth: AuthInternal, ResponseMode: ResponseStream, Description: "Qoder 插件 OpenAI 兼容中继（仅本机内部网关调用）"},
+		{Prefix: "/api/opencode", Module: "opencode", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "OpenCode 插件（OpenCode Zen 免费模型转 OpenAI 兼容 API）管理"},
+		{Prefix: "/api/opencode/v1", Module: "opencode-compatible", Owner: OwnerGo, Auth: AuthInternal, ResponseMode: ResponseStream, Description: "OpenCode 插件 OpenAI 兼容中继（仅本机内部网关调用）"},
+
+		{Prefix: "/api/emailcode", Module: "emailcode", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "通用邮箱验证码收件箱（列表、详情、等待、取用、统计、清理）"},
+		{Prefix: "/api/emailcode/ingest", Module: "emailcode-worker-callback", Owner: OwnerGo, Auth: AuthPublic, ResponseMode: ResponseJSON, Description: "邮件 Worker 投递回调（共享密钥校验，非会话鉴权）", MatchMode: MatchExact},
 		{Prefix: "/api/subscription", Module: "subscription", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Subscription distribution, nodes, templates, logs, and settings"},
 		{Prefix: "/api/subscription/public/{token}", Module: "subscription-public", Owner: OwnerGo, Auth: AuthPublic, ResponseMode: ResponseJSON, Description: "Public subscription info page payload (no credentials)", MatchMode: MatchPattern},
 		{Prefix: "/sub/{token}", Module: "subscription-public", Owner: OwnerGo, Auth: AuthPublic, ResponseMode: ResponseStream, Description: "Public subscription endpoint (UA-adaptive formats, info page, Clash/raw/base64)", MatchMode: MatchPattern},
@@ -265,11 +407,13 @@ func buildRoutes() []Route {
 		{Prefix: "/api/server/info", Module: "server-operations", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Server info", MatchMode: MatchExact},
 		{Prefix: "/api/server/test-connection", Module: "server-operations", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Test server connection", MatchMode: MatchExact},
 		{Prefix: "/api/server/action", Module: "server-operations", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Server actions (reboot, shutdown)", MatchMode: MatchExact},
-		{Prefix: "/api/server/check-all", Module: "server-operations", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Check all servers", MatchMode: MatchExact},
+		{Prefix: "/api/server/check-all", Module: "server-operations", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Check all servers (with name)", MatchMode: MatchExact},
 
 		{Prefix: "/api/server/agent/quick-install", Module: "server-agent", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Agent quick install", MatchMode: MatchExact},
 		{Prefix: "/api/server/agent/regenerate-key", Module: "server-agent", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Regenerate agent key", MatchMode: MatchExact},
-		{Prefix: "/api/server/agent/command/{id}", Module: "server-agent", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Agent command (GET install / POST execute)", MatchMode: MatchPattern},
+		{Prefix: "/api/server/agent/command/{id}", Module: "server-agent", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Run a shell command on a host and return output (POST); GET returns the Agent install command", MatchMode: MatchPattern},
+		{Prefix: "/api/server/agent/fetch-url", Module: "server-agent", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Fetch a URL into a host local path (agent downloads directly)", MatchMode: MatchExact},
+		{Prefix: "/api/server/agent/upload", Module: "server-agent", Owner: OwnerGo, Auth: AuthAgent, ResponseMode: ResponseJSON, Description: "Binary file upload to a host via Agent Key (multipart)", MatchMode: MatchExact},
 		{Prefix: "/api/server/agent/install/win/{id}/{key}", Module: "server-agent", Owner: OwnerGo, Auth: AuthPublic, ResponseMode: ResponseJSON, Description: "Windows Agent install script", MatchMode: MatchPattern},
 		{Prefix: "/api/server/agent/install/linux/{id}/{key}", Module: "server-agent", Owner: OwnerGo, Auth: AuthPublic, ResponseMode: ResponseJSON, Description: "Linux Agent install script (key-gated)", MatchMode: MatchPattern},
 		{Prefix: "/api/server/agent/install-script/{id}", Module: "server-agent", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Agent install script", MatchMode: MatchPattern},
@@ -288,13 +432,14 @@ func buildRoutes() []Route {
 		{Prefix: "/api/server/agent/proxy/nodes/{id}/reconcile", Module: "server-agent-proxy", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Reconcile one internal proxy node", MatchMode: MatchPattern},
 		{Prefix: "/api/server/agent/proxy/nodes/{id}", Module: "server-agent-proxy", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Internal proxy node", MatchMode: MatchPattern},
 		{Prefix: "/api/server/agent/proxy/nodes", Module: "server-agent-proxy", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Internal proxy nodes", MatchMode: MatchExact},
+		{Prefix: "/api/server/agent/proxy/presets", Module: "server-agent-proxy", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "sing-box 节点调优预设（均衡/低延迟/隐蔽/吞吐）", MatchMode: MatchExact},
 		{Prefix: "/api/server/agent/proxy/tunnels/preflight", Module: "server-agent-tunnels", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Managed Tunnel permission preflight", MatchMode: MatchExact},
 		{Prefix: "/api/server/agent/proxy/tunnels/{serverId}/deploy", Module: "server-agent-tunnels", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Deploy managed Named Tunnel", MatchMode: MatchPattern},
 		{Prefix: "/api/server/agent/proxy/tunnels/{serverId}", Module: "server-agent-tunnels", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Managed Tunnel uninstall", MatchMode: MatchPattern},
 		{Prefix: "/api/server/agent/proxy/tunnels", Module: "server-agent-tunnels", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Managed Tunnel states", MatchMode: MatchExact},
-		{Prefix: "/api/server/agent/proxy/preferred-addresses/{id}/check", Module: "server-agent-tunnels", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Preferred address health check", MatchMode: MatchPattern},
 		{Prefix: "/api/server/agent/proxy/preferred-addresses/{id}", Module: "server-agent-tunnels", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Preferred address update/delete", MatchMode: MatchPattern},
 		{Prefix: "/api/server/agent/proxy/preferred-addresses", Module: "server-agent-tunnels", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Preferred address list/create", MatchMode: MatchExact},
+		{Prefix: "/api/server/forward", Module: "server-agent-forward", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "转发中心", MatchMode: MatchPrefix},
 		{Prefix: "/api/server/agent/proxy/runtimes/{id}/{action}", Module: "server-agent-proxy-runtime", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Managed proxy runtime lifecycle", MatchMode: MatchPattern},
 		{Prefix: "/api/server/agent/proxy/runtimes", Module: "server-agent-proxy-runtime", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Managed proxy runtime inventory", MatchMode: MatchExact},
 		{Prefix: "/api/server/agent/uninstall/{id}", Module: "server-agent", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Agent uninstall", MatchMode: MatchPattern},
@@ -315,6 +460,7 @@ func buildRoutes() []Route {
 		{Prefix: "/api/server/sftp/delete", Module: "server-sftp", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "SFTP delete file", MatchMode: MatchExact},
 		{Prefix: "/api/server/sftp/rmdir", Module: "server-sftp", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "SFTP remove directory", MatchMode: MatchExact},
 		{Prefix: "/api/server/sftp/chmod", Module: "server-sftp", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "SFTP change permissions", MatchMode: MatchExact},
+		{Prefix: "/api/server/sftp/roots", Module: "server-sftp", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "SFTP accessible roots", MatchMode: MatchExact},
 		{Prefix: "/api/server/sftp/upload", Module: "server-sftp", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "SFTP upload file", MatchMode: MatchExact},
 		{Prefix: "/api/server/sftp/download/{serverId}", Module: "server-sftp", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "SFTP download file", MatchMode: MatchPattern},
 
@@ -333,6 +479,7 @@ func buildRoutes() []Route {
 		{Prefix: "/api/server/status-pages", Module: "server-status-pages", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Server status page list/create", MatchMode: MatchExact},
 		{Prefix: "/api/server/public/status-page-by-domain", Module: "server-status-pages", Owner: OwnerGo, Auth: AuthPublic, ResponseMode: ResponseJSON, Description: "Public server status page lookup by domain", MatchMode: MatchExact},
 		{Prefix: "/api/server/public/status-pages/{slug}", Module: "server-status-pages", Owner: OwnerGo, Auth: AuthPublic, ResponseMode: ResponseJSON, Description: "Public server status page by slug", MatchMode: MatchPattern},
+		{Prefix: "/api/server/public/globe-nodes", Module: "server-status-pages", Owner: OwnerGo, Auth: AuthPublic, ResponseMode: ResponseJSON, Description: "Public server globe node markers", MatchMode: MatchExact},
 
 		// REST API for server list and details
 		{Prefix: "/api/server/s/{id}/history", Module: "server-api", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Server metrics history", MatchMode: MatchPattern},
@@ -357,6 +504,7 @@ func buildRoutes() []Route {
 		// Terminal and Socket.IO / Engine.IO routes
 		{Prefix: "/ws/ssh", Module: "server-terminal", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseWebSocket, Description: "SSH terminal WebSocket", MatchMode: MatchExact},
 		{Prefix: "/ws/agent-terminal", Module: "server-terminal-agent", Owner: OwnerGo, Auth: AuthPublic, ResponseMode: ResponseWebSocket, Description: "Agent terminal stream WebSocket", MatchMode: MatchExact},
+		{Prefix: "/ws/agent-port", Module: "aiagent-gateway", Owner: OwnerGo, Auth: AuthPublic, ResponseMode: ResponseWebSocket, Description: "AI Agent native stream reverse WebSocket (one-time token)", MatchMode: MatchExact},
 		{Prefix: "/socket.io/", Module: "server-websocket", Owner: OwnerGo, Auth: AuthPublic, ResponseMode: ResponseWebSocket, Description: "Agent WebSocket", MatchMode: MatchPrefix},
 		{Prefix: "/api/server/credentials/{id}", Module: "server-credentials", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Server credential delete", MatchMode: MatchPattern},
 		{Prefix: "/api/server/credentials", Module: "server-credentials", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Server credential list/create", MatchMode: MatchExact},
@@ -371,7 +519,8 @@ func buildRoutes() []Route {
 		{Prefix: "/api/admin-ai", Module: "admin-ai", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "管理 AI 助手总入口", MatchMode: MatchPrefix},
 		{Prefix: "/api/admin-ai/sessions", Module: "admin-ai", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "管理 AI 会话列表/创建", MatchMode: MatchExact},
 		{Prefix: "/api/admin-ai/sessions/{id}", Module: "admin-ai", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "管理 AI 会话更新/删除", MatchMode: MatchPattern},
-		{Prefix: "/api/admin-ai/messages", Module: "admin-ai", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "管理 AI 消息发送/历史", MatchMode: MatchExact},
+		{Prefix: "/api/admin-ai/sessions/{id}/messages", Module: "admin-ai", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "管理 AI 会话消息历史（GET，分页 cursor/limit）", MatchMode: MatchPattern},
+		{Prefix: "/api/admin-ai/messages", Module: "admin-ai", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "管理 AI 消息发送（POST；历史读取用 /sessions/{id}/messages）", MatchMode: MatchExact},
 		{Prefix: "/api/admin-ai/messages/stream", Module: "admin-ai", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseStream, Description: "管理 AI 推理事件流（SSE）", MatchMode: MatchExact},
 		{Prefix: "/api/admin-ai/cancel", Module: "admin-ai", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "管理 AI 取消进行中的执行", MatchMode: MatchExact},
 		{Prefix: "/api/admin-ai/cron/daily-briefing", Module: "admin-ai", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "定时任务 AI 站点简报（内部接口，仅供本机 cron 经 X-Internal-Cron 调用）", MatchMode: MatchExact},
@@ -380,10 +529,13 @@ func buildRoutes() []Route {
 		{Prefix: "/api/admin-ai/channels/{id}", Module: "admin-ai", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "管理 AI 频道更新/删除", MatchMode: MatchPattern},
 		{Prefix: "/api/admin-ai/approvals", Module: "admin-ai", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "管理 AI 审批列表", MatchMode: MatchExact},
 		{Prefix: "/api/admin-ai/approvals/{id}", Module: "admin-ai", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "管理 AI 审批详情/操作", MatchMode: MatchPattern},
+		{Prefix: "/api/admin-ai/approvals/{id}/resolve", Module: "admin-ai", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "管理 AI 审批处理（POST，approve/reject）", MatchMode: MatchPattern},
 		{Prefix: "/api/admin-ai/audit", Module: "admin-ai", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "管理 AI 审计查询（执行与工具调用合并视图）", MatchMode: MatchExact},
 		{Prefix: "/api/admin-ai/channels/{id}/start", Module: "admin-ai", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "管理 AI 频道启动", MatchMode: MatchPattern},
 		{Prefix: "/api/admin-ai/channels/{id}/stop", Module: "admin-ai", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "管理 AI 频道停止", MatchMode: MatchPattern},
 		{Prefix: "/api/admin-ai/channels/{id}/status", Module: "admin-ai", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "管理 AI 频道状态", MatchMode: MatchPattern},
+		{Prefix: "/api/admin-ai/channels/{id}/wechat/qrcode", Module: "admin-ai", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "管理 AI 微信频道扫码登录二维码", MatchMode: MatchPattern},
+		{Prefix: "/api/admin-ai/channels/{id}/wechat/qrcode/status", Module: "admin-ai", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "管理 AI 微信频道扫码登录状态轮询", MatchMode: MatchPattern},
 		{Prefix: "/api/admin-ai/channel-bindings", Module: "admin-ai", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "管理 AI 频道用户绑定列表/新增", MatchMode: MatchExact},
 		{Prefix: "/api/admin-ai/channel-bindings/{id}", Module: "admin-ai", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "管理 AI 频道用户绑定删除", MatchMode: MatchPattern},
 		{Prefix: "/api/admin-ai/settings", Module: "admin-ai", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "管理 AI 系统设置", MatchMode: MatchExact},
@@ -468,6 +620,51 @@ func splitPath(path string) []string {
 		return nil
 	}
 	return strings.Split(trimmed, "/")
+}
+
+// CompareRouteSpecificity 比较两个路由前缀谁更具体，用于契约/清单匹配时从
+// 多个同段数命中的 pattern 路由里挑选字面量更明确者（如 .../images/prune 应
+// 胜过 .../images/{imageRef}，.../stacks/sync 应胜过 .../stacks/{project}）。
+// 仅按字面量段数与字面量字符数比较，绝不因 {placeholder} 名字长短而误判。
+// 返回 1 表示 a 更具体，-1 表示 b 更具体，0 表示等价。
+func CompareRouteSpecificity(a, b string) int {
+	segA, charA := literalSpecificity(a)
+	segB, charB := literalSpecificity(b)
+	switch {
+	case segA != segB:
+		if segA > segB {
+			return 1
+		}
+		return -1
+	case charA != charB:
+		if charA > charB {
+			return 1
+		}
+		return -1
+	case len(a) != len(b):
+		if len(a) > len(b) {
+			return 1
+		}
+		return -1
+	}
+	if a > b {
+		return 1
+	}
+	if a < b {
+		return -1
+	}
+	return 0
+}
+
+func literalSpecificity(prefix string) (segments, chars int) {
+	for _, part := range splitPath(prefix) {
+		if strings.HasPrefix(part, "{") && strings.HasSuffix(part, "}") {
+			continue
+		}
+		segments++
+		chars += len(part)
+	}
+	return segments, chars
 }
 
 func routeScore(route Route) int {

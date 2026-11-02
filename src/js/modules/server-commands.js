@@ -1,68 +1,39 @@
-async function parseResponse(response) {
-  const data = await response.json().catch(() => ({}));
-  if (!response.ok || data.success === false) {
-    throw new Error(data.error || '快速命令请求失败');
-  }
-  return data;
+import { del, get, post, put } from './apiClient.js';
+
+const FALLBACK = '快速命令请求失败';
+
+function buildQuery(filters = {}) {
+  const params = new URLSearchParams();
+  Object.entries(filters).forEach(([key, value]) => {
+    if (value !== undefined && value !== null && value !== '') params.set(key, value);
+  });
+  return params.toString();
 }
 
 export async function fetchCommandSnippets(filters = {}) {
-  const params = new URLSearchParams();
-  Object.entries(filters).forEach(([key, value]) => {
-    if (value !== undefined && value !== null && value !== '') params.set(key, value);
-  });
-  const response = await fetch(`/api/server/snippets?${params.toString()}`);
-  return parseResponse(response);
+  return get(`/api/server/snippets?${buildQuery(filters)}`, { fallbackMessage: FALLBACK });
 }
 
 export async function createCommandSnippet(payload) {
-  const response = await fetch('/api/server/snippets', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  });
-  return parseResponse(response);
+  return post('/api/server/snippets', payload, { fallbackMessage: FALLBACK });
 }
 
 export async function updateCommandSnippet(id, payload) {
-  const response = await fetch(`/api/server/snippets/${id}`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  });
-  return parseResponse(response);
+  return put(`/api/server/snippets/${id}`, payload, { fallbackMessage: FALLBACK });
 }
 
 export async function deleteCommandSnippet(id) {
-  const response = await fetch(`/api/server/snippets/${id}`, {
-    method: 'DELETE',
-  });
-  return parseResponse(response);
+  return del(`/api/server/snippets/${id}`, { fallbackMessage: FALLBACK });
 }
 
 export async function previewCommand(payload) {
-  const response = await fetch('/api/server/snippets/preview', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  });
-  return parseResponse(response);
+  return post('/api/server/snippets/preview', payload, { fallbackMessage: FALLBACK });
 }
 
 export async function recordCommandHistory(payload) {
-  const response = await fetch('/api/server/snippets/history', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  });
-  return parseResponse(response);
+  return post('/api/server/snippets/history', payload, { fallbackMessage: FALLBACK });
 }
 
 export async function fetchCommandHistory(filters = {}) {
-  const params = new URLSearchParams();
-  Object.entries(filters).forEach(([key, value]) => {
-    if (value !== undefined && value !== null && value !== '') params.set(key, value);
-  });
-  const response = await fetch(`/api/server/snippets/history?${params.toString()}`);
-  return parseResponse(response);
+  return get(`/api/server/snippets/history?${buildQuery(filters)}`, { fallbackMessage: FALLBACK });
 }

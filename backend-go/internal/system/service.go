@@ -33,6 +33,31 @@ type Notifier interface {
 	Trigger(ctx context.Context, sourceModule, eventType string, eventData map[string]interface{}) error
 }
 
+// AgentFileUploader 把整块字节写入某台 Agent 主机的文件，供 AI 侧直传工具复用。
+// 由 server 装配层注入 serveragent 的实现，避免 system 反向依赖 serveragent。
+type AgentFileUploader interface {
+	WriteAgentFileBytes(ctx context.Context, serverID, remotePath string, data []byte, timeout time.Duration) (int64, error)
+}
+
+// AgentFileWriteResult 是写入/分块上传的结果（含真实路径）。
+// agent_run_command 执行在真实文件系统上，必须用 RealPath 而不是面板的虚拟路径。
+type AgentFileWriteResult struct {
+	Size     int64  `json:"size"`
+	RealPath string `json:"realPath"`
+	Message  string `json:"message,omitempty"`
+}
+
+// AgentFileOperator 提供分块写入、沙箱根查询、stat 与 chmod，
+// 支撑「客户端自己读文件分块上传」的大文件路径。
+// 由 server 装配层用适配器把 serveragent 的实现桥接进来。
+type AgentFileOperator interface {
+	WriteAgentFileChunk(ctx context.Context, serverID, remotePath string, data []byte, offset int64, truncate bool, timeout time.Duration) (AgentFileWriteResult, error)
+	WriteAgentFileBytesDetailed(ctx context.Context, serverID, remotePath string, data []byte, timeout time.Duration) (AgentFileWriteResult, error)
+	AgentFileRoots(ctx context.Context, serverID string) (map[string]interface{}, error)
+	AgentFileStat(ctx context.Context, serverID, remotePath string) (map[string]interface{}, error)
+	AgentFileChmod(ctx context.Context, serverID, remotePath string, mode uint32) (string, error)
+}
+
 type alertState struct {
 	cpuHigh    bool
 	memoryHigh bool
@@ -46,10 +71,14 @@ type Service struct {
 
 	mu         sync.Mutex
 	statsCache map[string]*APICounters
+	// 小时粒度缓存（key = "YYYY-MM-DD HH:00"），近 24 小时保留，供 api-stats 小时视图
+	statsCacheHour map[string]*APICounters
 	stopChan   chan struct{}
 	wg         sync.WaitGroup
 	notifier   Notifier
 	aiCaller   AICaller
+	agentFiles AgentFileUploader
+	agentFileOps AgentFileOperator
 	apiKeys    *apikeys.Manager
 	alertState alertState
 	statusHub  *statusHub
@@ -58,6 +87,37 @@ type Service struct {
 	apiStatsCacheDays int
 	apiStatsCacheAt   time.Time
 	apiStatsCacheVal  map[string]interface{}
+
+	siteTzMu       sync.Mutex
+	siteTzName     string
+	siteTzRefreshAt time.Time
+
+	// 主机指标 1 分钟滚动采样（约 5s 一点，保留 12 点），供前端图表显示"1 分钟前到现在"并实时滚动
+	hostMetricsMu      sync.Mutex
+	hostMetricsSamples []hostMetricSample
+
+	// apiDocsCache 缓存接口目录：构建一次约 550KB/7ms，而每次 MCP 工具调用
+	// （call_api 的契约校验、find_api、get_route、list_apis）都要读它。
+	// 目录只由编译期常量（manifest 路由表 + 手写契约）决定，运行期不变，
+	// 因此按版本号缓存一次即可，无需失效逻辑。
+	apiDocsOnce sync.Once
+	apiDocsVal  map[string]interface{}
+
+	// aiAccessSchemaReady 保证 AI 接入审计表结构只在进程内创建一次；
+	// 原本每次 MCP 请求都要跑 4 条 CREATE TABLE/INDEX。
+	// aiAccessSchemaGeneration 记录建表成功时的 schema 代数（见
+	// database.SchemaGeneration）。数据库文件被导入/恢复整体替换后代数变化，
+	// 缓存自动失效并重新建表，避免「以为表还在、实际新库里没有」。
+	aiAccessSchemaMu         sync.Mutex
+	aiAccessSchemaReady      bool
+	aiAccessSchemaGeneration uint64
+}
+
+type hostMetricSample struct {
+	Ts     time.Time
+	CPU    float64
+	Memory float64
+	Disk   float64
 }
 
 type APICounters struct {
@@ -80,6 +140,16 @@ func (s *Service) SetAICaller(caller AICaller) {
 	s.aiCaller = caller
 }
 
+// SetAgentFileUploader 注入 Agent 主机字节写入能力，供 agent_upload_file 工具复用。
+func (s *Service) SetAgentFileUploader(uploader AgentFileUploader) {
+	s.agentFiles = uploader
+}
+
+// SetAgentFileOperator 注入分块上传 / 沙箱查询 / stat / chmod 能力。
+func (s *Service) SetAgentFileOperator(operator AgentFileOperator) {
+	s.agentFileOps = operator
+}
+
 func New(cfg config.Config) *Service {
 	s := &Service{
 		cfg:        cfg,
@@ -87,6 +157,7 @@ func New(cfg config.Config) *Service {
 		store:      database.New(cfg),
 		apiKeys:    apikeys.New(cfg),
 		statsCache: make(map[string]*APICounters),
+		statsCacheHour: make(map[string]*APICounters),
 		stopChan:   make(chan struct{}),
 		statusHub:  newStatusHub(),
 	}
@@ -291,7 +362,8 @@ func (s *Service) RecordAPICall(method string, path string) {
 		return
 	}
 
-	date := time.Now().Format("2006-01-02")
+	date := time.Now().In(s.siteLocation()).Format("2006-01-02")
+	hourKey := time.Now().In(s.siteLocation()).Format("2006-01-02 15:00")
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -306,6 +378,25 @@ func (s *Service) RecordAPICall(method string, path string) {
 		counters.Audit++
 	} else {
 		counters.Ops++
+	}
+
+	// 小时粒度累计（近 24 小时保留，供 api-stats 小时视图）
+	hourCounters, hourExists := s.statsCacheHour[hourKey]
+	if !hourExists {
+		hourCounters = &APICounters{}
+		s.statsCacheHour[hourKey] = hourCounters
+	}
+	if method == http.MethodGet || method == http.MethodHead || method == http.MethodOptions {
+		hourCounters.Audit++
+	} else {
+		hourCounters.Ops++
+	}
+	// 清理超过 24 小时的小时桶
+	cutoff := time.Now().Add(-24 * time.Hour).In(s.siteLocation()).Format("2006-01-02 15:00")
+	for k := range s.statsCacheHour {
+		if k < cutoff {
+			delete(s.statsCacheHour, k)
+		}
 	}
 }
 
@@ -356,7 +447,11 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if d, err := strconv.Atoi(r.URL.Query().Get("days")); err == nil && d >= minApiStatsDays && d <= maxApiStatsDays {
 			days = d
 		}
-		payload, err := s.apiStats(days)
+		minutes := 0
+		if m, err := strconv.Atoi(r.URL.Query().Get("minutes")); err == nil && m > 0 && m < 1440 {
+			minutes = m
+		}
+		payload, err := s.apiStatsWindow(days, minutes)
 		if err != nil {
 			response.Error(w, http.StatusInternalServerError, err.Error())
 			return
@@ -390,17 +485,6 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		payload, err := s.aiAccessOverview(r)
 		if err != nil {
 			response.Error(w, http.StatusInternalServerError, err.Error())
-			return
-		}
-		response.OK(w, payload)
-	case "/api/system/ai-access/write":
-		if r.Method != http.MethodPut {
-			response.Error(w, http.StatusMethodNotAllowed, "method not allowed")
-			return
-		}
-		payload, err := s.setAIAgentWriteEnabled(r)
-		if err != nil {
-			response.Error(w, http.StatusBadRequest, err.Error())
 			return
 		}
 		response.OK(w, payload)
@@ -497,7 +581,20 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		response.OK(w, payload)
 	case "/api/ai/mcp":
-		if r.Method != http.MethodGet && r.Method != http.MethodPost {
+		// 按 MCP Streamable HTTP 规范（2025-06-18）：GET 用于「打开服务端→客户端的
+		// SSE 流」，本服务不提供主动推送，因此必须返回 405（规范原文：server MUST
+		// either return Content-Type: text/event-stream ... or else return HTTP 405
+		// Method Not Allowed）。
+		//
+		// 此前 GET 返回 application/json + 完整工具清单，既不是 SSE 也不是 405，
+		// 导致 opencode 等客户端判定流异常并无限重连（实测每秒 4~5 次、约 1.7GB/天）。
+		if r.Method == http.MethodGet {
+			w.Header().Set("Allow", http.MethodPost)
+			response.Error(w, http.StatusMethodNotAllowed, "MCP endpoint only supports POST (no server-initiated SSE stream)")
+			return
+		}
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", http.MethodPost)
 			response.Error(w, http.StatusMethodNotAllowed, "method not allowed")
 			return
 		}
@@ -593,6 +690,14 @@ type apiDocRoute struct {
 }
 
 func (s *Service) apiDocs() map[string]interface{} {
+	s.apiDocsOnce.Do(func() {
+		s.apiDocsVal = s.buildAPIDocs()
+	})
+	return s.apiDocsVal
+}
+
+// buildAPIDocs 构建接口目录。只在首次调用时执行一次（见 apiDocs 的缓存说明）。
+func (s *Service) buildAPIDocs() map[string]interface{} {
 	routes := append([]manifest.Route{}, manifest.Routes()...)
 	routes = append(routes, supplementalRoutes()...)
 	seen := map[string]bool{}
@@ -965,8 +1070,11 @@ func routeGroup(route manifest.Route) string {
 	prefix := route.Prefix
 	switch {
 	// 模型网关
-	case strings.HasPrefix(prefix, "/api/openai"), strings.HasPrefix(prefix, "/api/chat"), strings.HasPrefix(prefix, "/v1"):
+	case strings.HasPrefix(prefix, "/api/openai"), strings.HasPrefix(prefix, "/api/chat"), strings.HasPrefix(prefix, "/v1"), strings.HasPrefix(prefix, "/api/emailcode"), strings.HasPrefix(prefix, "/api/posthogcode"):
 		return "模型网关"
+	// AI Agent 管理
+	case strings.HasPrefix(prefix, "/api/aiagent"):
+		return "AI Agent"
 	// 订阅分发
 	case strings.HasPrefix(prefix, "/api/subscription"), strings.HasPrefix(prefix, "/sub"):
 		return "订阅分发"
@@ -982,6 +1090,12 @@ func routeGroup(route manifest.Route) string {
 	// 甲骨文云
 	case strings.HasPrefix(prefix, "/api/oracle"):
 		return "甲骨文云"
+	// Google Cloud
+	case strings.HasPrefix(prefix, "/api/gcp"):
+		return "Google Cloud"
+	// 华为云
+	case strings.HasPrefix(prefix, "/api/huawei"):
+		return "华为云"
 	// Microsoft 365
 	case strings.HasPrefix(prefix, "/api/m365"):
 		return "Microsoft 365"
@@ -1009,9 +1123,15 @@ func routeGroup(route manifest.Route) string {
 	// 提示词库
 	case strings.HasPrefix(prefix, "/api/prompts"):
 		return "提示词库"
+	// 网址导航
+	case strings.HasPrefix(prefix, "/api/bookmarks"):
+		return "网址导航"
 	// 双因子认证
 	case strings.HasPrefix(prefix, "/api/totp"):
 		return "双因子认证"
+	// 资产管理
+	case strings.HasPrefix(prefix, "/api/assets"):
+		return "资产管理"
 	// 通知中心
 	case strings.HasPrefix(prefix, "/api/notification"):
 		return "通知中心"
@@ -1165,6 +1285,14 @@ func inferRouteMethods(route manifest.Route) []string {
 		return []string{"GET"}
 	case "/api/admin-ai/cron/task-run":
 		return []string{"POST"}
+	// 只读接口：描述里若恰好含 "run" 等会被 POST 规则抢先匹配的词
+	// （如 "runtime"），必须显式登记，否则会被推断成可写接口。
+	case "/api/aiagent/logs", "/api/aiagent/metrics", "/api/aiagent/providers", "/api/aiagent/servers", "/api/aiagent/servers/{id}/diagnose":
+		return []string{"GET"}
+	// 操作型子路由：MatchPattern 默认只声明 GET，会让 AI 按错误方法调用（405）。
+	// 这两个接口都带请求体，必须显式登记真实方法。
+	case "/api/aiagent/instances/{id}/lifecycle", "/api/aiagent/instances/batch":
+		return []string{"POST"}
 	// 操作型子路由：显式登记真实方法，避免 MatchPattern 默认推断 4 方法导致巡检/文档误报。
 	case "/api/openai/endpoints/{id}/proxy-state":
 		return []string{"GET"}
@@ -1178,7 +1306,7 @@ func inferRouteMethods(route manifest.Route) []string {
 		return []string{"GET", "POST"}
 	case "/api/server/agent/proxy/runtimes/{id}/{action}":
 		return []string{"POST"}
-	case "/api/server/public/status-page-by-domain", "/api/server/public/status-pages/{slug}":
+	case "/api/server/public/status-page-by-domain", "/api/server/public/status-pages/{slug}", "/api/server/public/globe-nodes":
 		return []string{"GET"}
 	case "/api/aliyun/accounts/{id}/metrics":
 		return []string{"POST"}
@@ -1205,6 +1333,13 @@ func inferRouteMethods(route manifest.Route) []string {
 		"/api/koyeb/services/{serviceId}/redeploy",
 		"/api/koyeb/services/{serviceId}/pause",
 		"/api/koyeb/services/{serviceId}/restart",
+		"/api/koyeb/services/{serviceId}/update",
+		"/api/koyeb/services",
+		"/api/koyeb/deployments/{deploymentId}/cancel",
+		"/api/koyeb/apps/{appId}/pause",
+		"/api/koyeb/apps/{appId}/resume",
+		"/api/koyeb/domains/{domainId}/refresh",
+		"/api/koyeb/secrets/{secretId}/update",
 		"/api/onepanel/{serverId}/websites/{id}/operate",
 		"/api/onepanel/{serverId}/apps/install",
 		"/api/onepanel/{serverId}/containers/operate",
@@ -1245,7 +1380,7 @@ func inferRouteMethods(route manifest.Route) []string {
 	// 更新」各自归位。把握不大的词不放这里，交给显式标注或保守 GET 兜底。
 	zh := description
 	switch {
-	case strings.Contains(zh, "列出") || strings.Contains(zh, "查询列表"):
+	case strings.Contains(zh, "列表") || strings.Contains(zh, "列出") || strings.Contains(zh, "查询列表"):
 		if strings.Contains(zh, "新增") || strings.Contains(zh, "创建") {
 			return []string{"GET", "POST"}
 		}
@@ -1301,6 +1436,113 @@ func methodsFromAnnotations(desc string) []string {
 }
 
 func (s *Service) apiStats(days int) (map[string]interface{}, error) {
+	return s.apiStatsWindow(days, 0)
+}
+
+// apiStatsWindow 统计 API 调用与词元/流量用量趋势。
+// days ≤ 1：小时桶趋势；minutes > 0 时窗口为「近 minutes 分钟」（整点桶对齐），否则近 24 小时。
+// days > 1：按天粒度，词元/流量从持久化小时表实时读取（仅内存统计会恒为 0）。
+func (s *Service) apiStatsWindow(days, minutes int) (map[string]interface{}, error) {
+	if days <= 1 {
+		loc := s.siteLocation()
+		now := time.Now().In(loc)
+		var localHours []time.Time
+		if minutes > 0 {
+			for h := now.Add(-time.Duration(minutes) * time.Minute).Truncate(time.Hour); !h.After(now); h = h.Add(time.Hour) {
+				localHours = append(localHours, h)
+			}
+		} else {
+			localHours = make([]time.Time, 0, 24)
+			for i := 23; i >= 0; i-- {
+				localHours = append(localHours, now.Add(-time.Duration(i)*time.Hour))
+			}
+		}
+		trend := make([]map[string]interface{}, 0, len(localHours))
+		var totalAudit, totalOps int64
+		s.mu.Lock()
+		for _, h := range localHours {
+			key := h.Format("2006-01-02 15:00")
+			var audit, ops int64
+			if c, ok := s.statsCacheHour[key]; ok {
+				audit = int64(c.Audit)
+				ops = int64(c.Ops)
+			}
+			totalAudit += audit
+			totalOps += ops
+			trend = append(trend, map[string]interface{}{
+				"bucket":  h.Format("01-02 15:00"),
+				"audit":   audit,
+				"ops":     ops,
+				"total":   audit + ops,
+				"tokens":  0,
+				"traffic": 0,
+			})
+		}
+		s.mu.Unlock()
+
+		// 近 24 小时 / 近 N 分钟词元（openai_gateway_stats_hourly，UTC "2006-01-02 15:04:05"）
+		// 与流量（subscription_usage_hourly，RFC3339 UTC），按站点时区小时对齐。
+		var totalTokens, totalTraffic int64
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if db, err := s.store.Open(ctx); err == nil {
+			utcStart := localHours[0].UTC().Truncate(time.Hour)
+			tokensByHour := map[string]int64{}
+			if rows, qErr := db.QueryContext(ctx, `
+				SELECT hour, COALESCE(SUM(total_tokens), 0)
+				FROM openai_gateway_stats_hourly
+				WHERE hour >= ? AND route != 'models'
+				GROUP BY hour`, utcStart.Format("2006-01-02 15:04:05")); qErr == nil {
+				for rows.Next() {
+					var hourKey string
+					var tok int64
+					if rows.Scan(&hourKey, &tok) == nil {
+						tokensByHour[hourKey] = tok
+					}
+				}
+				if err := rows.Err(); err != nil {
+					tokensByHour = nil
+				}
+				rows.Close()
+			}
+			trafficByHour := map[string]int64{}
+			if rows, qErr := db.QueryContext(ctx, `
+				SELECT hour, COALESCE(SUM(upload_bytes + download_bytes), 0)
+				FROM subscription_usage_hourly
+				WHERE hour >= ?
+				GROUP BY hour`, utcStart.Format(time.RFC3339)); qErr == nil {
+				for rows.Next() {
+					var hourKey string
+					var tr int64
+					if rows.Scan(&hourKey, &tr) == nil {
+						trafficByHour[hourKey] = tr
+					}
+				}
+				if err := rows.Err(); err != nil {
+					trafficByHour = nil
+				}
+				rows.Close()
+			}
+			db.Close()
+			for i, item := range trend {
+				utcHour := localHours[i].In(loc).UTC().Truncate(time.Hour)
+				tokens := tokensByHour[utcHour.Format("2006-01-02 15:04:05")]
+				traffic := trafficByHour[utcHour.Format(time.RFC3339)]
+				item["tokens"] = tokens
+				item["traffic"] = traffic
+				totalTokens += tokens
+				totalTraffic += traffic
+			}
+		}
+		return map[string]interface{}{
+			"total":       map[string]interface{}{"audit": totalAudit, "ops": totalOps, "all": totalAudit + totalOps},
+			"trend":       trend,
+			"tokens":      totalTokens,
+			"traffic":     totalTraffic,
+			"granularity": "hour",
+		}, nil
+	}
+
 	s.apiStatsMu.Lock()
 	if s.apiStatsCacheDays == days && time.Since(s.apiStatsCacheAt) < apiStatsCacheTTL {
 		cached := s.apiStatsCacheVal
@@ -1421,9 +1663,9 @@ func systemUsageDaily(ctx context.Context, db *sql.DB, now time.Time, days int) 
 	startRFC3339 := now.AddDate(0, 0, -(days - 1)).Format(time.RFC3339)
 	tokensByDay := make(map[string]int64)
 	if rows, err := db.QueryContext(ctx, `
-		SELECT strftime('%Y-%m-%d', timestamp) AS day, COALESCE(SUM(total_tokens), 0)
-		FROM openai_gateway_analytics
-		WHERE timestamp >= ? AND route != 'models'
+		SELECT strftime('%Y-%m-%d', hour) AS day, COALESCE(SUM(total_tokens), 0)
+		FROM openai_gateway_stats_hourly
+		WHERE hour >= ? AND route != 'models'
 		GROUP BY day`, start); err != nil {
 		// 表可能尚未建好，返回空表即可。
 		tokensByDay = nil
@@ -1472,6 +1714,39 @@ func (s *Service) hostMetrics() (map[string]interface{}, error) {
 	currentProcess := readProcessInfo(s.startedAt)
 
 	authTime := s.authoritativeTime()
+
+	// 追加 1 分钟滚动采样（≥3s 间隔，保留 12 点 ≈ 60s），供图表实时滚动
+	memUsage := 0.0
+	if v, ok := virtualMemory["usage"].(float64); ok {
+		memUsage = v
+	}
+	diskUsageVal := 0.0
+	if v, ok := diskUsage["usage"].(float64); ok {
+		diskUsageVal = v
+	}
+	s.hostMetricsMu.Lock()
+	now := time.Now()
+	if len(s.hostMetricsSamples) == 0 || now.Sub(s.hostMetricsSamples[len(s.hostMetricsSamples)-1].Ts) >= 3*time.Second {
+		s.hostMetricsSamples = append(s.hostMetricsSamples, hostMetricSample{
+			Ts:     now,
+			CPU:    cpuPercent,
+			Memory: memUsage,
+			Disk:   diskUsageVal,
+		})
+		if len(s.hostMetricsSamples) > 12 {
+			s.hostMetricsSamples = s.hostMetricsSamples[len(s.hostMetricsSamples)-12:]
+		}
+	}
+	cpuSeq := make([]float64, 0, len(s.hostMetricsSamples))
+	memSeq := make([]float64, 0, len(s.hostMetricsSamples))
+	diskSeq := make([]float64, 0, len(s.hostMetricsSamples))
+	for _, sp := range s.hostMetricsSamples {
+		cpuSeq = append(cpuSeq, sp.CPU)
+		memSeq = append(memSeq, sp.Memory)
+		diskSeq = append(diskSeq, sp.Disk)
+	}
+	s.hostMetricsMu.Unlock()
+
 	return map[string]interface{}{
 		"hostname":      hostname(),
 		"platform":      nodePlatformName(runtime.GOOS),
@@ -1489,10 +1764,37 @@ func (s *Service) hostMetrics() (map[string]interface{}, error) {
 		"memory":      virtualMemory,
 		"disk":        diskUsage,
 		"process":     currentProcess,
+		"history": map[string]interface{}{
+			"cpu":    cpuSeq,
+			"memory": memSeq,
+			"disk":   diskSeq,
+		},
 		"timestamp":   time.Now().UTC().Format(time.RFC3339Nano),
 		"serverTime":  authTime,
 		"displayTime": fmt.Sprintf("%s (%s)", authTime["local"], authTime["timezone"]),
 	}, nil
+}
+
+// siteLocation 返回站点时区的 *time.Location（带 1 分钟 TTL 缓存），
+// 供高频路径（如 API 统计日报的日期键）使用，避免每次请求查询 user_settings。
+// 读取失败回退服务器本地时区。
+func (s *Service) siteLocation() *time.Location {
+	s.siteTzMu.Lock()
+	defer s.siteTzMu.Unlock()
+	if s.siteTzName != "" && time.Since(s.siteTzRefreshAt) < time.Minute {
+		return timeutil.LocationFromName(s.siteTzName)
+	}
+	zone := "system"
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	db, err := s.store.Open(ctx)
+	if err == nil {
+		zone = timeutil.ReadTimeZone(ctx, db)
+		_ = db.Close()
+	}
+	s.siteTzName = zone
+	s.siteTzRefreshAt = time.Now()
+	return timeutil.LocationFromName(zone)
 }
 
 // authoritativeTime 返回站点设置的权威时间信息（供 AI 工具读取，避免模型凭记忆编造时间）。

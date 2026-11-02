@@ -38,6 +38,7 @@ type Task struct {
 	Progress    int
 	Result      string
 	Error       string
+	ExitCode    *int
 	CreatedAt   time.Time
 	StartedAt   *time.Time
 	CompletedAt *time.Time
@@ -54,6 +55,9 @@ type TaskEvent struct {
 	Progress int         `json:"progress"`
 	Data     interface{} `json:"data,omitempty"`
 	Error    string      `json:"error,omitempty"`
+	// ExitCode 为命令类任务的进程退出码（非进程类任务省略）。
+	// 异步模式（wait=false）下调用方要靠它判断命令是否真的成功。
+	ExitCode *int `json:"exit_code,omitempty"`
 }
 
 // Snapshot returns a consistent, serializable view of a task. Terminal
@@ -66,6 +70,7 @@ func (t *Task) Snapshot() TaskEvent {
 	if t.Status == TaskCompleted {
 		event.Type = "completed"
 		event.Data = t.Result
+		event.ExitCode = t.ExitCode
 	} else if t.Status == TaskFailed {
 		event.Type = "failed"
 		event.Error = t.Error
@@ -217,6 +222,37 @@ func (r *TaskRegistry) ActiveTask(resource string) (*Task, bool) {
 	return task, task != nil
 }
 
+// maxProxyTaskAge 排他代理任务的合理上限：超过即视为孤儿任务（agent 升级/断连等导致
+// 任务结果丢失），自动失败并释放租约，避免永久阻塞该服务器的后续编排。
+const maxProxyTaskAge = 12 * time.Minute
+
+// ReleaseStaleLeases 将「长时间未结束」且持有租约的排他任务标记失败并释放资源。
+// 在创建新排他任务前调用，保证卡死状态可自愈。
+func (r *TaskRegistry) ReleaseStaleLeases(now time.Time, maxAge time.Duration) {
+	var stale []string
+	r.mu.RLock()
+	for _, taskID := range r.leases {
+		task := r.tasks[taskID]
+		if task == nil {
+			continue
+		}
+		task.mu.RLock()
+		active := task.Status == TaskPending || task.Status == TaskRunning
+		start := task.CreatedAt
+		if task.StartedAt != nil && task.StartedAt.After(start) {
+			start = *task.StartedAt
+		}
+		task.mu.RUnlock()
+		if active && now.Sub(start) > maxAge {
+			stale = append(stale, taskID)
+		}
+	}
+	r.mu.RUnlock()
+	for _, id := range stale {
+		r.Fail(id, "编排任务执行超时，已自动清理并释放排他锁")
+	}
+}
+
 func proxyTaskResource(serverID string) string { return "proxy:" + serverID }
 
 func (s *Service) requireAgentCapability(w http.ResponseWriter, serverID, capability string) bool {
@@ -233,6 +269,8 @@ func (s *Service) requireAgentCapability(w http.ResponseWriter, serverID, capabi
 }
 
 func (s *Service) createExclusiveProxyTask(w http.ResponseWriter, serverID, taskType, command string) (*Task, bool) {
+	// 先清理该服务器上可能存在的超时孤儿任务，避免误报「已有任务在执行」
+	s.taskRegistry.ReleaseStaleLeases(time.Now(), maxProxyTaskAge)
 	task, err := s.taskRegistry.CreateExclusive(serverID, taskType, command, proxyTaskResource(serverID))
 	if err == nil {
 		return task, true
@@ -293,6 +331,12 @@ func (r *TaskRegistry) UpdateProgress(taskID string, progress int, data interfac
 
 // Complete 完成任务
 func (r *TaskRegistry) Complete(taskID string, result string) {
+	r.CompleteWithExitCode(taskID, result, 0)
+}
+
+// CompleteWithExitCode 完成任务并记录进程退出码。非零退出码不代表执行错误：
+// 命令已跑完且可能产出有效输出，由调用方依据退出码自行判断。
+func (r *TaskRegistry) CompleteWithExitCode(taskID string, result string, exitCode int) {
 	task, exists := r.Get(taskID)
 	if !exists {
 		return
@@ -302,6 +346,7 @@ func (r *TaskRegistry) Complete(taskID string, result string) {
 	task.Status = TaskCompleted
 	task.Progress = 100
 	task.Result = result
+	task.ExitCode = &exitCode
 	now := time.Now()
 	task.CompletedAt = &now
 	task.mu.Unlock()
@@ -314,6 +359,7 @@ func (r *TaskRegistry) Complete(taskID string, result string) {
 		Status:   TaskCompleted,
 		Progress: 100,
 		Data:     result,
+		ExitCode: task.ExitCode,
 	}
 	task.notifySubscribers(event)
 	r.broadcast(event)
@@ -445,6 +491,13 @@ func (t *Task) GetStatus() TaskStatus {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
 	return t.Status
+}
+
+// ResultText 返回任务结果（线程安全），供后台记账与异步查询使用。
+func (t *Task) ResultText() string {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	return t.Result
 }
 
 // Subscribe 订阅任务事件
@@ -667,16 +720,27 @@ func (s *Service) writeNamedSSE(w http.ResponseWriter, eventName string, payload
 const (
 	// defaultExecTimeout 命令执行默认等待超时
 	defaultExecTimeout = 30 * time.Second
-	// maxExecTimeout 命令执行等待超时上限
+	// maxExecTimeout 同步模式的等待上限（HTTP 请求不能无限挂着）
 	maxExecTimeout = 300 * time.Second
+	// defaultAsyncExecTimeout / maxAsyncExecTimeout 用于 wait=false：
+	// 异步模式不占 HTTP 连接，需要覆盖 apt upgrade、编译、镜像拉取这类长任务。
+	defaultAsyncExecTimeout = 10 * time.Minute
+	maxAsyncExecTimeout     = 30 * time.Minute
 )
 
 // waitAgentTaskResult 等待任务到达终态并返回执行结果。
 // 返回 status 为 "success"/"failed"；timedOut 为 true 表示等待超时（任务已被标记失败）。
+// exitCode 为进程退出码（非命令类任务或未取到时为 nil）。
 // 事件通道提前关闭时回退到任务快照，保证已完成任务也能拿到终态结果。
-func waitAgentTaskResult(registry *TaskRegistry, task *Task, eventCh <-chan TaskEvent, timeout time.Duration) (output, status string, timedOut bool) {
+func waitAgentTaskResult(registry *TaskRegistry, task *Task, eventCh <-chan TaskEvent, timeout time.Duration) (output, status string, exitCode *int, timedOut bool) {
 	timer := time.NewTimer(timeout)
 	defer timer.Stop()
+
+	readExit := func() *int {
+		task.mu.RLock()
+		defer task.mu.RUnlock()
+		return task.ExitCode
+	}
 
 	for {
 		select {
@@ -684,19 +748,19 @@ func waitAgentTaskResult(registry *TaskRegistry, task *Task, eventCh <-chan Task
 			if !ok {
 				snap := task.Snapshot()
 				if snap.Status == TaskCompleted {
-					return fmt.Sprintf("%v", snap.Data), "success", false
+					return fmt.Sprintf("%v", snap.Data), "success", readExit(), false
 				}
-				return snap.Error, "failed", false
+				return snap.Error, "failed", nil, false
 			}
 			if event.Status == TaskCompleted {
-				return fmt.Sprintf("%v", event.Data), "success", false
+				return fmt.Sprintf("%v", event.Data), "success", readExit(), false
 			}
 			if event.Status == TaskFailed {
-				return event.Error, "failed", false
+				return event.Error, "failed", nil, false
 			}
 		case <-timer.C:
 			registry.Fail(task.ID, "task timeout")
-			return "", "failed", true
+			return "", "failed", nil, true
 		}
 	}
 }

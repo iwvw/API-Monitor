@@ -2,15 +2,22 @@ mod config;
 use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
+mod aiagent;
+mod aiagent_lifecycle;
+mod aiagent_projection;
 mod cloudflared;
 mod collector;
 mod docker;
 mod file_manager;
+mod nat;
+mod p2p;
 mod protocol;
 mod proxy_runtime;
 mod proxy_traffic;
 mod pty;
+mod tcp_forwarder;
 mod remote_desktop;
+mod storage_server;
 
 use futures_util::{SinkExt, StreamExt};
 use serde::Deserialize;
@@ -45,6 +52,14 @@ fn agent_capabilities() -> Vec<String> {
     let mut capabilities = vec![
         "terminal_stream_v2".to_string(),
         "self_update_v1".to_string(),
+        "cloudflared_runtime_v1".to_string(),
+        "tcp_forwarder_v1".to_string(),
+        "p2p_v1".to_string(),
+        "storage_node_v1".to_string(),
+        "file_upload_url_v1".to_string(),
+        "aiagent_probe_v1".to_string(),
+        "aiagent_stream_v1".to_string(),
+        "aiagent_lifecycle_v1".to_string(),
     ];
     #[cfg(target_os = "linux")]
     capabilities.push("proxy_runtime_v1".to_string());
@@ -52,8 +67,6 @@ fn agent_capabilities() -> Vec<String> {
     capabilities.push("proxy_runtime_lifecycle_v2".to_string());
     #[cfg(target_os = "linux")]
     capabilities.push("proxy_user_traffic_v1".to_string());
-    #[cfg(target_os = "linux")]
-    capabilities.push("cloudflared_runtime_v1".to_string());
     #[cfg(target_os = "linux")]
     capabilities.push("self_uninstall_v1".to_string());
     #[cfg(target_os = "windows")]
@@ -184,11 +197,27 @@ async fn main() {
         }
     };
     persist_runtime_config(&config);
+    cleanup_legacy_backups();
 
     println!("  Server:   {}", config.server_url);
     println!("  ServerID: {}", config.server_id);
     println!("  Interval: {}ms", config.report_interval);
     println!("=================================================");
+
+    // 恢复托管的 AI Agent 进程表：仍存活的保留，已死的等 supervisor 拉起。
+    aiagent_lifecycle::reconcile_on_boot();
+
+    // 进程守护：按退避策略自动重启崩溃的托管进程（ADR-0006 第 4.1 条）。
+    tokio::spawn(aiagent_lifecycle::run_supervisor());
+
+    // Agent 主动退出时终止托管进程，避免留下孤儿进程占用端口（ADR-0006 第 4.3 条）。
+    tokio::spawn(async {
+        if tokio::signal::ctrl_c().await.is_ok() {
+            println!("[Agent] 收到退出信号，正在停止托管的 AI Agent 进程...");
+            aiagent_lifecycle::shutdown_all().await;
+            std::process::exit(0);
+        }
+    });
 
     let collector = Arc::new(tokio::sync::Mutex::new(Collector::new()));
     let docker_bridge = Arc::new(tokio::sync::Mutex::new(DockerBridge::new()));
@@ -198,6 +227,11 @@ async fn main() {
 
     #[cfg(unix)]
     tokio::spawn(proxy_traffic::run(config.clone()));
+
+    tokio::spawn(storage_server::run(
+        config.storage_port,
+        config.agent_key.clone(),
+    ));
 
     // Keep dialing loop. A healthy long-lived connection resets the delay; only
     // repeated short failures back off to avoid hammering the control plane.
@@ -673,15 +707,22 @@ async fn run_client(
                             tokio::spawn(async move {
                                 let start_time = Instant::now();
                                 let mut successful = false;
+                                let mut exit_code: Option<i32> = None;
                                 let res_data;
 
                                 match task.task_type {
                                     1 => {
                                         // COMMAND
-                                        match execute_command(&task.data, task.timeout as u64).await
+                                        match execute_command_in(
+                                            &task.data,
+                                            task.timeout as u64,
+                                            task.cwd.as_deref(),
+                                        )
+                                        .await
                                         {
-                                            Ok(out) => {
+                                            Ok((out, code)) => {
                                                 successful = true;
+                                                exit_code = code;
                                                 res_data = out;
                                             }
                                             Err(err) => {
@@ -1084,6 +1125,54 @@ async fn run_client(
                                             }
                                         }
                                     }
+                                    39 => {
+                                        // FILE_UPLOAD_TO_URL（存储节点直传）
+                                        match FileManager::handle_file_upload_to_url(&task.data).await {
+                                            Ok(out) => {
+                                                successful = true;
+                                                res_data = out;
+                                            }
+                                            Err(err) => {
+                                                res_data = err;
+                                            }
+                                        }
+                                    }
+                                    41 => {
+                                        // FILE_FETCH_URL（从 URL 拉取写入本地）
+                                        match FileManager::handle_file_fetch_url(&task.data).await {
+                                            Ok(out) => {
+                                                successful = true;
+                                                res_data = out;
+                                            }
+                                            Err(err) => {
+                                                res_data = err;
+                                            }
+                                        }
+                                    }
+                                    42 => {
+                                        // FILE_WRITE_BASE64（分块二进制写入）
+                                        match FileManager::handle_file_write_base64(&task.data) {
+                                            Ok(out) => {
+                                                successful = true;
+                                                res_data = out;
+                                            }
+                                            Err(err) => {
+                                                res_data = err;
+                                            }
+                                        }
+                                    }
+                                    43 => {
+                                        // FILE_ROOTS：返回沙箱真实根目录与白名单根
+                                        match FileManager::handle_file_roots() {
+                                            Ok(out) => {
+                                                successful = true;
+                                                res_data = out;
+                                            }
+                                            Err(err) => {
+                                                res_data = err;
+                                            }
+                                        }
+                                    }
                                     40 => {
                                         // NETWORK_QUALITY_PROBE
                                         match handle_network_quality_probe(&task.data).await {
@@ -1123,6 +1212,24 @@ async fn run_client(
                                             res_data = err;
                                         }
                                     },
+                                    53 => match tcp_forwarder::reconcile(&task.data).await {
+                                        Ok(out) => {
+                                            successful = true;
+                                            res_data = out;
+                                        }
+                                        Err(err) => {
+                                            res_data = err;
+                                        }
+                                    },
+                                    54 => match p2p::reconcile(&task.data).await {
+                                        Ok(out) => {
+                                            successful = true;
+                                            res_data = out;
+                                        }
+                                        Err(err) => {
+                                            res_data = err;
+                                        }
+                                    },
                                     5 => {
                                         // UPGRADE
                                         match handle_upgrade(&task.id, &task.data, &config_task)
@@ -1134,6 +1241,125 @@ async fn run_client(
                                             }
                                             Err(err) => {
                                                 res_data = err;
+                                            }
+                                        }
+                                    }
+                                    55 => {
+                                        // AIAGENT_STREAM：反连数据通道，桥接本机 AI Agent 端口。
+                                        // 无论成功或失败都回传 TaskResult，避免云端任务记录悬挂。
+                                        let stream_token =
+                                            aiagent::extract_token(&task.data);
+                                        let (successful, data) =
+                                            match aiagent::bridge(&config_task, &task.data).await {
+                                                Ok(()) => (true, String::new()),
+                                                Err(err) => {
+                                                    // 错误信息可能内含带一次性令牌的 URL，日志前先脱敏。
+                                                    let safe_err = aiagent::redact_secrets(
+                                                        &err,
+                                                        &[stream_token.as_str()],
+                                                    );
+                                                    eprintln!(
+                                                        "[aiagent] stream bridge {} failed: {}",
+                                                        task.id, safe_err
+                                                    );
+                                                    (false, safe_err)
+                                                }
+                                            };
+                                        let payload = TaskResultPayload {
+                                            id: task.id.clone(),
+                                            task_type: 55,
+                                            successful,
+                                            data,
+                                            delay: start_time.elapsed().as_millis() as i64,
+                                            exit_code: None,
+                                        };
+                                        let _ = tx_task
+                                            .send_normal(format_event(
+                                                EVENT_AGENT_TASK_RESULT,
+                                                &payload,
+                                            ))
+                                            .await;
+                                        return;
+                                    }
+                                    56 => {
+                                        // AIAGENT_PROBE：探测 AI Agent 进程与端口状态。
+                                        match aiagent::probe(&task.data).await {
+                                            Ok(out) => {
+                                                successful = true;
+                                                res_data = out;
+                                            }
+                                            Err(err) => {
+                                                res_data = err;
+                                            }
+                                        }
+                                    }
+                                    57 => {
+                                        // AIAGENT_START：按 Provider 模板启动本地 Agent 服务。
+                                        match aiagent_lifecycle::start(&task.data).await {
+                                            Ok(out) => {
+                                                successful = true;
+                                                res_data = out;
+                                            }
+                                            Err(err) => {
+                                                res_data = err;
+                                            }
+                                        }
+                                    }
+                                    58 => {
+                                        // AIAGENT_STOP：停止该实例的托管进程。
+                                        match aiagent_lifecycle::stop(&task.data).await {
+                                            Ok(out) => {
+                                                successful = true;
+                                                res_data = out;
+                                            }
+                                            Err(err) => {
+                                                res_data = err;
+                                            }
+                                        }
+                                    }
+                                    59 => {
+                                        // AIAGENT_STATUS：查询该实例的托管进程状态。
+                                        // status 内部做阻塞式系统调用（Linux 遍历 /proc 查监听 PID、
+                                        // sysinfo 全表刷新做关联验证），与 probe（56）一样放到
+                                        // blocking 线程池，避免占用 Tokio worker。
+                                        let data = task.data.clone();
+                                        match tokio::task::spawn_blocking(move || {
+                                            aiagent_lifecycle::status(&data)
+                                        })
+                                        .await
+                                        {
+                                            Ok(Ok(out)) => {
+                                                successful = true;
+                                                res_data = out;
+                                            }
+                                            Ok(Err(err)) => {
+                                                res_data = err;
+                                            }
+                                            Err(err) => {
+                                                res_data = format!("状态查询任务失败: {}", err);
+                                            }
+                                        }
+                                    }
+                                    60 => {
+                                        // AIAGENT_DIAGNOSE：诊断 Provider 在主机侧的可用性
+                                        // （exe 是否就绪 + 端口区间占用 + 建议空闲端口）。
+                                        // 内部做阻塞式系统调用（listening_pid），放到
+                                        // blocking 线程池，避免占用 Tokio worker。
+                                        let data = task.data.clone();
+                                        match tokio::task::spawn_blocking(move || {
+                                            aiagent_lifecycle::diagnose(&data)
+                                        })
+                                        .await
+                                        {
+                                            Ok(Ok(out)) => {
+                                                successful = true;
+                                                res_data = out;
+                                            }
+                                            Ok(Err(err)) => {
+                                                res_data = err;
+                                            }
+                                            Err(err) => {
+                                                res_data = format!("诊断任务失败: {}", err);
                                             }
                                         }
                                     }
@@ -1161,6 +1387,7 @@ async fn run_client(
                                     successful,
                                     data: res_data,
                                     delay,
+                                    exit_code,
                                 };
                                 let _ = tx_task
                                     .send_normal(format_event(
@@ -1292,16 +1519,231 @@ async fn handle_server_action(action: &str) -> Result<String, String> {
         other => return Err(format!("不支持的动作: {}", other)),
     };
     // Linux 下 Agent 可能非 root：先直接执行，失败再尝试 sudo
-    let result = execute_command(command, 15).await;
+    let result = match execute_command(command, 15).await {
+        Ok((out, _)) => Ok(out),
+        Err(e) => Err(e),
+    };
     if result.is_err() && !cfg!(target_os = "windows") {
-        execute_command(&format!("sudo {}", command), 15).await
+        match execute_command(&format!("sudo {}", command), 15).await {
+            Ok((out, _)) => Ok(out),
+            Err(e) => Err(e),
+        }
     } else {
         result
     }
 }
 
-async fn execute_command(command: &str, timeout_secs: u64) -> Result<String, String> {
-    if command.is_empty() {
+/// 解码子进程输出字节：优先 UTF-8；Windows 上 cmd/PowerShell 默认使用 OEM 代码页
+/// （简体中文为 GBK），非 UTF-8 字节直接 read_to_string 会失败并导致输出整体丢失，
+/// 因此回退到 GBK 解码；其他平台用 lossy 兜底，保证不丢内容。
+#[cfg(target_os = "windows")]
+fn decode_output(bytes: &[u8]) -> String {
+    if let Ok(s) = std::str::from_utf8(bytes) {
+        return s.to_string();
+    }
+    let (decoded, _, _) = encoding_rs::GBK.decode(bytes);
+    decoded.into_owned()
+}
+
+#[cfg(not(target_os = "windows"))]
+fn decode_output(bytes: &[u8]) -> String {
+    String::from_utf8_lossy(bytes).into_owned()
+}
+
+/// 反转义 CLIXML 文本节点里的 XML 实体。
+fn unescape_xml(s: &str) -> String {
+    s.replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", "\"")
+        .replace("&apos;", "'")
+        .replace("&amp;", "&")
+}
+
+/// PowerShell 在 stdout 被重定向且未指定 `-OutputFormat Text` 时，会把 Error/Progress
+/// 流序列化为 CLIXML（以 `#< CLIXML` 开头的 XML 文档），污染命令输出。这里做防御性清洗：
+/// 若整体是 CLIXML 文档，抽取其中 `<S S="...">` 文本节点并反转义；无法解析时原样返回。
+fn scrub_clixml(text: String) -> String {
+    if !text.trim_start().starts_with("#< CLIXML") {
+        return text;
+    }
+    let mut out = String::new();
+    let mut pos = 0usize;
+    while let Some(rel) = text[pos..].find("<S S=\"") {
+        let tag_start = pos + rel;
+        let Some(gt_rel) = text[tag_start..].find('>') else {
+            break;
+        };
+        let content_start = tag_start + gt_rel + 1;
+        let Some(end_rel) = text[content_start..].find("</S>") else {
+            break;
+        };
+        out.push_str(&unescape_xml(&text[content_start..content_start + end_rel]));
+        pos = content_start + end_rel + 4;
+    }
+    if out.trim().is_empty() {
+        return text;
+    }
+    out
+}
+
+/// 单条命令保留的输出上限（stdout+stderr 合计）。超出部分丢弃但会显式标注，
+/// 避免 `docker logs` / `journalctl` 这类命令把几百 MB 塞进一帧 WebSocket
+/// 并连带写满 SQLite 任务表与 MCP 响应。
+const COMMAND_OUTPUT_LIMIT: usize = 256 * 1024;
+
+/// 超限时保留的头部配额。诊断命令时最有价值的信息通常在**尾部**（报错、
+/// 退出摘要），因此头尾都留：头部 1/4，尾部 3/4，中间用标注省略。
+const COMMAND_OUTPUT_HEAD: usize = COMMAND_OUTPUT_LIMIT / 4;
+
+/// 子进程单次 read 的缓冲大小。
+const COMMAND_READ_CHUNK: usize = 16 * 1024;
+
+/// 采集到的命令输出：按字节到达顺序拼接，超出上限后保留头尾、丢弃中段。
+#[derive(Default)]
+struct CommandOutput {
+    head: Vec<u8>,
+    tail: std::collections::VecDeque<u8>,
+    dropped: usize,
+}
+
+impl CommandOutput {
+    fn push(&mut self, bytes: &[u8]) {
+        if bytes.is_empty() {
+            return;
+        }
+        let mut rest = bytes;
+        if self.head.len() < COMMAND_OUTPUT_HEAD {
+            let take = (COMMAND_OUTPUT_HEAD - self.head.len()).min(rest.len());
+            self.head.extend_from_slice(&rest[..take]);
+            rest = &rest[take..];
+        }
+        if rest.is_empty() {
+            return;
+        }
+        let tail_limit = COMMAND_OUTPUT_LIMIT - COMMAND_OUTPUT_HEAD;
+        self.tail.extend(rest);
+        while self.tail.len() > tail_limit {
+            // 一次丢一小段，避免逐字节 pop_front 的重复开销。
+            let excess = self.tail.len() - tail_limit;
+            let chunk = excess.min(COMMAND_READ_CHUNK);
+            for _ in 0..chunk {
+                self.tail.pop_front();
+            }
+            self.dropped += chunk;
+        }
+    }
+
+    fn finish(self) -> String {
+        // 只有头部真的被截断时才需要处理尾部的半个字符；否则完整保留。
+        let head_truncated = self.dropped > 0 || !self.tail.is_empty();
+        let head = if head_truncated {
+            trim_utf8_tail(&self.head)
+        } else {
+            &self.head[..]
+        };
+        let mut tail_bytes: Vec<u8> = self.tail.into_iter().collect();
+        if self.dropped > 0 {
+            tail_bytes = trim_utf8_head(&tail_bytes).to_vec();
+        }
+        let head_text = decode_output(head);
+        let tail_text = decode_output(&tail_bytes);
+        let text = if self.dropped > 0 {
+            format!(
+                "{}\n...[输出已截断：中间省略 {} 字节（上限 {} 字节，保留首尾）。如需完整内容请用 grep/head/tail 或重定向到文件]...\n{}",
+                head_text, self.dropped, COMMAND_OUTPUT_LIMIT, tail_text
+            )
+        } else {
+            format!("{}{}", head_text, tail_text)
+        };
+        scrub_clixml(text)
+    }
+}
+
+/// 去掉末尾**不完整**的 UTF-8 序列（截断点可能落在多字节字符中间）。
+///
+/// 只在不完整时裁剪：若末尾本身就是完整字符（例如命令输出恰好以「中」结尾），
+/// 必须原样保留。早期实现无条件后退到前导字节之前，会把完整的多字节字符整段丢掉。
+fn trim_utf8_tail(bytes: &[u8]) -> &[u8] {
+    // 向前找到最后一个可能的字符起始字节（非续字节 10xxxxxx）。
+    let mut lead = bytes.len();
+    while lead > 0 && (bytes[lead - 1] & 0xC0) == 0x80 {
+        lead -= 1;
+    }
+    if lead == 0 {
+        // 全是续字节：没有可用的字符起始，整体丢弃（畸形输入）。
+        return &bytes[bytes.len()..];
+    }
+    let start = lead - 1;
+    let expected = match bytes[start] {
+        0x00..=0x7F => 1,
+        0xC0..=0xDF => 2,
+        0xE0..=0xEF => 3,
+        0xF0..=0xF7 => 4,
+        _ => {
+            // 非法前导字节：保守保留到它之前。
+            return &bytes[..start];
+        }
+    };
+    if bytes.len() - start >= expected {
+        // 该字符完整（或尾部还有别的完整内容），不裁剪。
+        bytes
+    } else {
+        &bytes[..start]
+    }
+}
+
+/// 去掉开头不完整的 UTF-8 续字节（丢弃中段后可能从字符中间开始）。
+fn trim_utf8_head(bytes: &[u8]) -> &[u8] {
+    let mut start = 0;
+    while start < bytes.len() && (bytes[start] & 0xC0) == 0x80 {
+        start += 1;
+    }
+    &bytes[start..]
+}
+
+/// 结束子进程（含其派生的整棵进程树）。
+///
+/// Agent 以 `process_group(0)` 启动子进程，因此子进程自身即为进程组组长（pgid == pid）。
+/// 只 `kill` 直接子进程会让 `sh -c` 里的后台孙进程被 reparent 到 init 后继续运行，
+/// 留下持端口/写文件的孤儿进程。
+async fn terminate_command_tree(child: &mut tokio::process::Child) {
+    let pid = child.id();
+    #[cfg(unix)]
+    if let Some(pid) = pid {
+        if pid <= i32::MAX as u32 && pid != 0 {
+            // 负值即「发给整个进程组」；ESRCH 表示已退出，忽略返回值。
+            unsafe {
+                libc::kill(-(pid as i32), libc::SIGKILL);
+            }
+        }
+    }
+    #[cfg(target_os = "windows")]
+    if let Some(pid) = pid {
+        // TerminateProcess 只结束直接子进程；cmd /C 派生出的子进程需要 /T 才一并结束。
+        let _ = tokio::process::Command::new("taskkill")
+            .args(["/F", "/T", "/PID", &pid.to_string()])
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .await;
+    }
+    let _ = child.start_kill();
+    let _ = child.wait().await;
+}
+
+/// 执行一条 shell 命令并返回（合并后的输出, 退出码）。
+///
+/// 关键设计（此前版本在这三点上有致命缺陷）：
+/// 1. stdout/stderr **并发读取**。先 `wait()` 再读管道会在子进程输出超过管道缓冲
+///    （Linux 默认 64KB）时互等死锁，命令只能等满超时才返回；
+/// 2. 超时后杀掉**整个进程组**，避免 `sh -c` 的后台孙进程泄漏；
+/// 3. 输出按上限截断并显式标注，超时也会带回已产生的部分输出。
+async fn execute_command_in(
+    command: &str,
+    timeout_secs: u64,
+    cwd: Option<&str>,
+) -> Result<(String, Option<i32>), String> {
+    if command.trim().is_empty() {
         return Err("命令不能为空".to_string());
     }
 
@@ -1315,46 +1757,120 @@ async fn execute_command(command: &str, timeout_secs: u64) -> Result<String, Str
         c
     };
 
-    let child = cmd
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .spawn();
+    if let Some(dir) = cwd.map(str::trim).filter(|d| !d.is_empty()) {
+        cmd.current_dir(dir);
+    }
 
-    let mut child = match child {
-        Ok(c) => c,
-        Err(e) => return Err(format!("Spawn failed: {}", e)),
-    };
+    // 独立进程组：超时/取消时能一次性回收整棵树。
+    #[cfg(unix)]
+    {
+        cmd.process_group(0);
+    }
+
+    cmd.stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .stdin(std::process::Stdio::null());
+
+    let mut child = cmd.spawn().map_err(|e| format!("Spawn failed: {}", e))?;
+
+    // 两条管道各起一个读取任务，统一投递到 collector，保持字节到达顺序
+    // （stdout 与 stderr 交错时顺序不乱，报错位置与终端里一致）。
+    let (chunk_tx, mut chunk_rx) = mpsc::channel::<Vec<u8>>(64);
+    let mut readers = Vec::new();
+    if let Some(mut stdout) = child.stdout.take() {
+        let tx = chunk_tx.clone();
+        readers.push(tokio::spawn(async move {
+            let mut buf = vec![0u8; COMMAND_READ_CHUNK];
+            loop {
+                match tokio::io::AsyncReadExt::read(&mut stdout, &mut buf).await {
+                    Ok(0) => break,
+                    Ok(n) => {
+                        if tx.send(buf[..n].to_vec()).await.is_err() {
+                            break;
+                        }
+                    }
+                    Err(_) => break,
+                }
+            }
+        }));
+    }
+    if let Some(mut stderr) = child.stderr.take() {
+        let tx = chunk_tx.clone();
+        readers.push(tokio::spawn(async move {
+            let mut buf = vec![0u8; COMMAND_READ_CHUNK];
+            loop {
+                match tokio::io::AsyncReadExt::read(&mut stderr, &mut buf).await {
+                    Ok(0) => break,
+                    Ok(n) => {
+                        if tx.send(buf[..n].to_vec()).await.is_err() {
+                            break;
+                        }
+                    }
+                    Err(_) => break,
+                }
+            }
+        }));
+    }
+    drop(chunk_tx);
+
+    let collector = tokio::spawn(async move {
+        let mut output = CommandOutput::default();
+        while let Some(chunk) = chunk_rx.recv().await {
+            output.push(&chunk);
+        }
+        output.finish()
+    });
 
     let timeout_duration = if timeout_secs == 0 { 60 } else { timeout_secs };
-    let sleep_timer = tokio::time::sleep(Duration::from_secs(timeout_duration));
+    let wait_result = tokio::time::timeout(
+        Duration::from_secs(timeout_duration),
+        child.wait(),
+    )
+    .await;
 
-    tokio::select! {
-        res = child.wait() => {
-            match res {
-                Ok(status) => {
-                    let mut stdout_str = String::new();
-                    if let Some(mut out) = child.stdout.take() {
-                        let _ = tokio::io::AsyncReadExt::read_to_string(&mut out, &mut stdout_str).await;
-                    }
-                    let mut stderr_str = String::new();
-                    if let Some(mut err) = child.stderr.take() {
-                        let _ = tokio::io::AsyncReadExt::read_to_string(&mut err, &mut stderr_str).await;
-                    }
-                    let combined = stdout_str + &stderr_str;
-                    if status.success() {
-                        Ok(combined)
-                    } else {
-                        Err(combined)
-                    }
-                }
-                Err(e) => Err(format!("Wait failed: {}", e)),
+    let status = match wait_result {
+        Ok(Ok(status)) => status,
+        Ok(Err(e)) => {
+            terminate_command_tree(&mut child).await;
+            return Err(format!("Wait failed: {}", e));
+        }
+        Err(_) => {
+            terminate_command_tree(&mut child).await;
+            // 进程已死，管道随即 EOF，读取任务会立刻结束，这里带上已产生的输出。
+            let partial = tokio::time::timeout(Duration::from_secs(5), collector)
+                .await
+                .ok()
+                .and_then(|r| r.ok())
+                .unwrap_or_default();
+            for handle in readers {
+                let _ = handle.await;
             }
+            let suffix = if partial.trim().is_empty() {
+                String::new()
+            } else {
+                format!("\n--- 超时前已产生的输出 ---\n{}", partial)
+            };
+            return Err(format!(
+                "Command timed out after {}s（已终止进程组）{}",
+                timeout_duration, suffix
+            ));
         }
-        _ = sleep_timer => {
-            let _ = child.kill().await;
-            Err("Command timed out".to_string())
-        }
+    };
+
+    // 正常退出后仍需等读取任务把管道读干净，否则会丢掉末尾输出。
+    for handle in readers {
+        let _ = handle.await;
     }
+    let output = collector.await.unwrap_or_default();
+
+    // 非零退出码不再视为执行错误：命令确实跑完并可能产出了有效输出，
+    // 由上层（面板/AI）依据 exit_code 自行判断。仅 spawn/wait 失败或
+    // 超时才算硬错误。
+    Ok((output, status.code()))
+}
+
+async fn execute_command(command: &str, timeout_secs: u64) -> Result<(String, Option<i32>), String> {
+    execute_command_in(command, timeout_secs, None).await
 }
 
 #[derive(Deserialize, Debug)]
@@ -1646,8 +2162,13 @@ if command -v systemctl >/dev/null 2>&1 && systemctl list-unit-files api-monitor
     done
     $SUDO systemctl disable --now api-monitor-cloudflared.service 2>/dev/null || true
     $SUDO rm -f /etc/systemd/system/api-monitor-cloudflared.service
+    $SUDO rm -rf -- "$INSTALL_DIR/runtimes"
     $SUDO rm -rf -- /opt/api-monitor/proxy /etc/api-monitor/proxy /var/lib/api-monitor/proxy
     $SUDO rm -rf -- /opt/api-monitor/cloudflared /etc/api-monitor/cloudflared
+    $SUDO rm -rf -- /opt/api-monitor-relay /etc/api-monitor-relay
+    $SUDO rm -rf -- /opt/api-monitor-auth-proxy /opt/api-monitor-stun
+    $SUDO systemctl disable --now api-monitor-relay.service 2>/dev/null || true
+    $SUDO rm -f /etc/systemd/system/api-monitor-relay.service
     # Remove only the now-empty managed parent. rmdir deliberately preserves it
     # if another API Monitor component still owns files below it.
     $SUDO rmdir /opt/api-monitor 2>/dev/null || true
@@ -1947,9 +2468,40 @@ fn persist_runtime_config(config: &Config) {
 }
 
 fn agent_config_path() -> Option<PathBuf> {
-    let exe_path = std::env::current_exe().ok()?;
-    let exe_dir = exe_path.parent()?;
-    Some(exe_dir.join("config.json"))
+    Some(config::agent_base_dir().join("config.json"))
+}
+
+/// 自动清理历史安装/升级产生的陈旧备份文件与临时下载文件（如 .previous, *.prev.exe, *.bak*, *.download* 等）
+fn cleanup_legacy_backups() {
+    let base = config::agent_base_dir();
+    let Ok(entries) = fs::read_dir(&base) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if !path.is_file() {
+            continue;
+        }
+        let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
+            continue;
+        };
+        if is_legacy_artifact(name) {
+            let _ = fs::remove_file(&path);
+        }
+    }
+}
+
+/// 判断安装目录下的文件名是否为历史安装/升级残留（备份二进制或临时下载文件）。
+fn is_legacy_artifact(name: &str) -> bool {
+    // 备份二进制：api-monitor-agent.previous / api-monitor-agent.prev.exe / *.bak-*
+    let is_backup = name.ends_with(".previous")
+        || name.ends_with(".prev.exe")
+        || name.contains(".bak-");
+    // 临时下载：*.download / *.download.exe
+    let is_download = name.ends_with(".download")
+        || name.ends_with(".download.exe")
+        || (name.starts_with("api-monitor-agent.") && name.contains(".download.exe"));
+    is_backup || is_download
 }
 
 #[cfg(target_os = "windows")]
@@ -2448,6 +3000,7 @@ async fn handle_docker_container_update(
                     "容器更新成功".to_string()
                 },
                 delay: 0,
+                exit_code: None,
             };
             let msg = format_event(EVENT_AGENT_TASK_RESULT, &res_payload);
             let _ = tx.send_normal(msg).await;
@@ -2503,6 +3056,7 @@ async fn send_task_error(task_id: &str, err_msg: &str, tx: OutboundQueues) {
         successful: false,
         data: err_msg.to_string(),
         delay: 0,
+        exit_code: None,
     };
     let msg = format_event(EVENT_AGENT_TASK_RESULT, &res_payload);
     let _ = tx.send_normal(msg).await;
@@ -2712,5 +3266,161 @@ mod tests {
         for unsafe_dir in ["/", "/opt", "/usr/bin", "/tmp/api-monitor-agent"] {
             assert!(validate_self_uninstall_dir(std::path::Path::new(unsafe_dir)).is_err());
         }
+    }
+
+    #[test]
+    fn legacy_artifact_matches_upgrade_leftovers_only() {
+        // 历史备份与临时下载：必须被清理
+        for legacy in [
+            "api-monitor-agent.previous",
+            "api-monitor-agent.prev.exe",
+            "api-monitor-agent.bak-20260101",
+            "api-monitor-agent.download",
+            "api-monitor-agent.0123456789abcdef.download.exe",
+            "runtime.download",
+        ] {
+            assert!(is_legacy_artifact(legacy), "{legacy} should be cleaned");
+        }
+        // 正常文件：绝不能被误删
+        for keep in [
+            "api-monitor-agent",
+            "api-monitor-agent.exe",
+            "config.json",
+            "aiagent_processes.json",
+            "launch.vbs",
+            "apimon-snapshot.db.gz",
+        ] {
+            assert!(!is_legacy_artifact(keep), "{keep} must be kept");
+        }
+    }
+
+    // ---- execute_command_in：大输出 / 并发流 / 超时 / cwd ----
+
+    #[cfg(target_os = "linux")]
+    #[tokio::test]
+    async fn execute_command_returns_large_stdout_without_deadlock() {
+        // 回归：旧实现先 wait() 再读管道，输出超过 64KB 管道缓冲时子进程阻塞在
+        // write、父进程阻塞在 wait，只能等满超时。这里 1.2MB 输出必须在超时前返回。
+        let started = Instant::now();
+        let (output, code) = execute_command_in("seq 1 200000", 20, None)
+            .await
+            .expect("大输出命令不应死锁");
+        assert_eq!(code, Some(0));
+        assert!(started.elapsed() < Duration::from_secs(20), "不应等满超时");
+        assert!(output.contains("200000"), "尾部输出不应丢失");
+    }
+
+    #[cfg(target_os = "linux")]
+    #[tokio::test]
+    async fn execute_command_keeps_stdout_and_stderr_together() {
+        // 回归：旧实现先读完 stdout 再读 stderr，stderr 写满 64KB 时同样死锁。
+        let (output, code) = execute_command_in(
+            "for i in $(seq 1 20000); do echo 'err line' >&2; done; echo done",
+            20,
+            None,
+        )
+        .await
+        .expect("大量 stderr 不应死锁");
+        assert_eq!(code, Some(0));
+        assert!(output.contains("err line"), "stderr 内容应合并进输出");
+        assert!(output.contains("done"), "stdout 内容应保留");
+    }
+
+    #[cfg(target_os = "linux")]
+    #[tokio::test]
+    async fn execute_command_truncates_oversized_output_with_marker() {
+        // 输出上限：超过 COMMAND_OUTPUT_LIMIT 时截断并显式标注，避免撑爆 WS 帧与 SQLite。
+        let (output, _) = execute_command_in("head -c 1000000 /dev/zero | tr '\\0' 'a'", 20, None)
+            .await
+            .expect("超大输出应正常返回截断结果");
+        assert!(output.contains("输出已截断"), "必须显式标注截断");
+        assert!(
+            output.len() < COMMAND_OUTPUT_LIMIT + 4096,
+            "输出不应超过上限太多，实际 {}",
+            output.len()
+        );
+    }
+
+    #[cfg(target_os = "linux")]
+    #[tokio::test]
+    async fn execute_command_timeout_kills_process_group() {
+        // 回归：超时只 kill 直接子进程会留下后台孙进程。整组终止后标记文件不应出现。
+        let marker = format!("/tmp/api-monitor-agent-timeout-{}", std::process::id());
+        let _ = std::fs::remove_file(&marker);
+        let command = format!("(sleep 3; touch {}) & sleep 30", marker);
+        let err = execute_command_in(&command, 1, None)
+            .await
+            .expect_err("应超时");
+        assert!(err.contains("Command timed out"), "错误信息应说明超时：{}", err);
+        tokio::time::sleep(Duration::from_secs(4)).await;
+        assert!(
+            !std::path::Path::new(&marker).exists(),
+            "后台孙进程未被回收，仍写入了标记文件"
+        );
+        let _ = std::fs::remove_file(&marker);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[tokio::test]
+    async fn execute_command_respects_cwd() {
+        let (output, code) = execute_command_in("pwd", 10, Some("/tmp")).await.expect("pwd");
+        assert_eq!(code, Some(0));
+        assert!(output.trim().ends_with("/tmp"), "cwd 未生效：{}", output.trim());
+    }
+
+    #[test]
+    fn command_output_truncates_on_char_boundary() {
+        // 截断点落在多字节字符中间时应回退到边界，而不是产出替换字符。
+        let mut output = CommandOutput::default();
+        let chunk = "中".repeat(COMMAND_OUTPUT_LIMIT);
+        output.push(chunk.as_bytes());
+        let text = output.finish();
+        assert!(!text.contains('\u{FFFD}'), "不应出现替换字符");
+        assert!(text.contains("输出已截断"));
+    }
+
+    #[test]
+    fn command_output_keeps_multibyte_tail_intact() {
+        // 回归：早期 trim_utf8_tail 无条件后退到前导字节之前，
+        // 输出恰好以完整多字节字符结尾时（如 `printf 中`）会整段丢掉。
+        let text = "中文".to_string();
+        let mut output = CommandOutput::default();
+        output.push(text.as_bytes());
+        let finished = output.finish();
+        assert_eq!(finished, "中文", "完整的多字节尾部必须原样保留");
+
+        // 单字符同理
+        let mut single = CommandOutput::default();
+        single.push("中".as_bytes());
+        assert_eq!(single.finish(), "中");
+    }
+
+    #[test]
+    fn trim_utf8_tail_keeps_complete_chars_trims_partial() {
+        assert_eq!(trim_utf8_tail("中".as_bytes()), "中".as_bytes());
+        assert_eq!(trim_utf8_tail(b"abc"), b"abc");
+        assert_eq!(trim_utf8_tail(b""), b"");
+        // "中" 的前两个字节 = 不完整的 3 字节序列，应被裁掉
+        let partial = &"中".as_bytes()[..2];
+        assert_eq!(trim_utf8_tail(partial), b"");
+        // "a" + "中" 的前两个字节 → 只保留 "a"
+        let mut mixed = Vec::from("a".as_bytes());
+        mixed.extend_from_slice(partial);
+        assert_eq!(trim_utf8_tail(&mixed), b"a");
+    }
+
+    #[test]
+    fn command_output_keeps_tail_when_over_limit() {
+        // 超限时必须保留尾部：报错与退出摘要都在末尾，只留头部等于丢掉诊断信息。
+        let mut output = CommandOutput::default();
+        output.push(b"HEAD-MARKER\n");
+        for _ in 0..200 {
+            output.push(&vec![b'a'; COMMAND_READ_CHUNK]);
+        }
+        output.push(b"\nTAIL-MARKER\n");
+        let text = output.finish();
+        assert!(text.starts_with("HEAD-MARKER"), "应保留头部");
+        assert!(text.trim_end().ends_with("TAIL-MARKER"), "应保留尾部");
+        assert!(text.len() <= COMMAND_OUTPUT_LIMIT + 1024, "总长受上限约束");
     }
 }

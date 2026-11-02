@@ -8,9 +8,21 @@ export function useAnalytics(activeTab) {
     const stored = Number(localStorage.getItem('openai_analytics_days'));
     return [1, 7, 30].includes(stored) ? stored : 7;
   });
+  // 分钟级窗口（30/60/360/720）：与「过去 24 小时」共用 days=1，但带 minutes 精确过滤。
+  const [analyticsMinutes, setAnalyticsMinutes] = useState(() => {
+    const stored = Number(localStorage.getItem('openai_analytics_minutes'));
+    return [30, 60, 360, 720].includes(stored) ? stored : null;
+  });
   const [analyticsGranularity, setAnalyticsGranularity] = useState(() => {
     const stored = localStorage.getItem('openai_analytics_granularity');
     return ['hour', 'day', 'week'].includes(stored) ? stored : 'day';
+  });
+  // 数据看板范围按钮文案：默认按持久化的分析范围推断，应用后同步记录。
+  const [analyticsRangeLabel, setAnalyticsRangeLabel] = useState(() => {
+    const stored = localStorage.getItem('openai_analytics_range_label');
+    if (stored) return stored;
+    const days = Number(localStorage.getItem('openai_analytics_days'));
+    return days === 1 ? '过去 24 小时' : days === 30 ? '过去 30 天' : '过去 7 天';
   });
   const [analyticsSummary, setAnalyticsSummary] = useState({
     totalRequests: 0,
@@ -26,7 +38,10 @@ export function useAnalytics(activeTab) {
     endpointErrorRates: [],
     totalCost: 0,
     costs: [],
+    costByEndpoint: [],
   });
+  // 请求量趋势视角：all（全部请求）| success（成功请求）| failed（失败请求）。
+  const [requestTrendMode, setRequestTrendMode] = useState('all');
   // 词元趋势视角：all（全部词元）| uncached（未缓存词元）。
   const [tokenTrendMode, setTokenTrendMode] = useState('all');
   // 延迟趋势视角：total（端到端总耗时均值）| ttfb（首字延迟均值）。
@@ -48,7 +63,7 @@ export function useAnalytics(activeTab) {
   const [analyticsPage, setAnalyticsPage] = useState(1);
   const [analyticsPageSize, setAnalyticsPageSize] = useState(() => {
     const stored = Number(localStorage.getItem('openai_analytics_page_size'));
-    return [10, 20, 50, 100].includes(stored) ? stored : 20;
+    return [10, 20, 50, 100].includes(stored) ? stored : 50;
   });
   const [analyticsTotal, setAnalyticsTotal] = useState(0);
   const [analyticsLoading, setAnalyticsLoading] = useState(false);
@@ -74,17 +89,28 @@ export function useAnalytics(activeTab) {
         page: String(analyticsPage),
         pageSize: String(analyticsPageSize),
       });
+      if (analyticsMinutes) logQuery.set('minutes', String(analyticsMinutes));
       if (logStatusFilter) logQuery.set('status', logStatusFilter);
       if (logModelFilter) logQuery.set('model', logModelFilter);
       if (logEndpointFilter) logQuery.set('endpoint', logEndpointFilter);
       const logsURL = `/api/openai/analytics/logs?${logQuery.toString()}`;
+      // 分钟窗口下图表固定按小时粒度；其余沿用工具栏手动粒度。
+      const chartsGran = analyticsMinutes ? 'hour' : analyticsGranularity;
+      const chartsQ = new URLSearchParams({ days: String(analyticsDays), granularity: chartsGran });
+      if (analyticsMinutes) chartsQ.set('minutes', String(analyticsMinutes));
+      const summaryQ = new URLSearchParams({
+        days: String(analyticsDays),
+        model: logModelFilter,
+        endpoint: logEndpointFilter,
+      });
+      if (analyticsMinutes) summaryQ.set('minutes', String(analyticsMinutes));
       // skipSummary（切换时间粒度触发）：跳过 summary，只刷图表+日志。
       const [sumRes, chartsRes, logsRes] = skipSummary
-        ? [undefined, await fetch(`/api/openai/analytics/charts?days=${analyticsDays}&granularity=${analyticsGranularity}`, { headers }),
+        ? [undefined, await fetch(`/api/openai/analytics/charts?${chartsQ.toString()}`, { headers }),
            await fetch(logsURL, { headers })]
         : await Promise.all([
-            fetch(`/api/openai/analytics/summary?days=${analyticsDays}&model=${encodeURIComponent(logModelFilter)}&endpoint=${encodeURIComponent(logEndpointFilter)}`, { headers }),
-            fetch(`/api/openai/analytics/charts?days=${analyticsDays}&granularity=${analyticsGranularity}`, { headers }),
+            fetch(`/api/openai/analytics/summary?${summaryQ.toString()}`, { headers }),
+            fetch(`/api/openai/analytics/charts?${chartsQ.toString()}`, { headers }),
             fetch(logsURL, { headers }),
           ]);
 
@@ -110,24 +136,27 @@ export function useAnalytics(activeTab) {
     } finally {
       if (seq === analyticsSeqRef.current && !silent) setAnalyticsLoading(false);
     }
-  }, [analyticsDays, analyticsGranularity, analyticsPage, analyticsPageSize, logStatusFilter, logModelFilter, logEndpointFilter]);
+  }, [analyticsDays, analyticsMinutes, analyticsGranularity, analyticsPage, analyticsPageSize, logStatusFilter, logModelFilter, logEndpointFilter]);
 
   // 参数变化触发的刷新：切换时间粒度只刷图表+日志（summary 不依赖粒度），
   // 切换分析范围/翻页则全量刷新（summary 也依赖天数）。首次进入 Tab 全量刷。
   const prevDaysRef = useRef(analyticsDays);
   const prevGranularityRef = useRef(analyticsGranularity);
+  const prevMinutesRef = useRef(analyticsMinutes);
   useEffect(() => {
     if (activeTab !== 'analytics' && activeTab !== 'logs') return;
     const daysChanged = prevDaysRef.current !== analyticsDays;
     const granularityChanged = prevGranularityRef.current !== analyticsGranularity;
+    const minutesChanged = prevMinutesRef.current !== analyticsMinutes;
     prevDaysRef.current = analyticsDays;
     prevGranularityRef.current = analyticsGranularity;
-    if (granularityChanged && !daysChanged) {
+    prevMinutesRef.current = analyticsMinutes;
+    if (granularityChanged && !daysChanged && !minutesChanged) {
       fetchAnalytics({ silent: true, skipSummary: true });
     } else {
       fetchAnalytics();
     }
-  }, [activeTab, analyticsDays, analyticsGranularity, fetchAnalytics]);
+  }, [activeTab, analyticsDays, analyticsMinutes, analyticsGranularity, fetchAnalytics]);
 
   // 网关实时推送（SSE）：仅在网关日志 Tab 连接，后端出现请求立即插入日志列表顶部。
   useEffect(() => {
@@ -172,9 +201,35 @@ export function useAnalytics(activeTab) {
     localStorage.setItem('openai_analytics_days', String(analyticsDays));
   }, [analyticsDays]);
 
-  // 清空全部网关日志数据。
+  // 记住分钟级窗口（无则清掉，恢复「过去 N 天」默认）。
+  useEffect(() => {
+    if (analyticsMinutes) {
+      localStorage.setItem('openai_analytics_minutes', String(analyticsMinutes));
+    } else {
+      localStorage.removeItem('openai_analytics_minutes');
+    }
+  }, [analyticsMinutes]);
+
+  // 记住数据看板范围按钮文案，刷新后保持一致。
+  useEffect(() => {
+    localStorage.setItem('openai_analytics_range_label', analyticsRangeLabel);
+  }, [analyticsRangeLabel]);
+
+  // 仪表盘同款时段选择器回调：更新分析范围（天数 + 可选分钟窗口），时间粒度由工具栏下拉手动控制，
+  // 分钟窗口强制按小时粒度，设值后由上方参数变化效果驱动刷新。
+  const applyAnalyticsRange = useCallback((days, cfRange, label, minutes) => {
+    const d = Math.max(1, Number(days) || 1);
+    const m = minutes && minutes > 0 && minutes < 1440 ? minutes : null;
+    setAnalyticsDays(d);
+    setAnalyticsMinutes(m);
+    if (m) setAnalyticsGranularity('hour');
+    if (label) setAnalyticsRangeLabel(label);
+    setAnalyticsPage(1);
+  }, []);
+
+  // 清空全部网关日志记录（只清明细日志，数据看板聚合历史不受影响）。
   const clearGatewayLogs = useCallback(async () => {
-    if (!(await dialog.confirm('确认清除全部网关日志记录？此操作不可恢复。'))) return;
+    if (!(await dialog.confirm('确认清除全部网关日志记录？数据看板历史保留。此操作不可恢复。'))) return;
     try {
       const response = await fetch('/api/openai/analytics/clear', {
         method: 'POST',
@@ -189,10 +244,30 @@ export function useAnalytics(activeTab) {
     }
   }, [fetchAnalytics]);
 
+  // 清空数据看板历史（独立的聚合表，不影响网关明细日志）。
+  const clearDashboardHistory = useCallback(async () => {
+    if (!(await dialog.confirm('确认清除全部数据看板历史？网关日志保留。此操作不可恢复。'))) return;
+    try {
+      const response = await fetch('/api/openai/analytics/clear-history', {
+        method: 'POST',
+        headers: getAuthHeaders(),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.success) throw new Error(data.error || '清除失败');
+      toast.success(`已清除 ${data.deleted ?? 0} 条看板历史`);
+      await fetchAnalytics({ silent: true });
+    } catch (error) {
+      toast.error('清除看板历史失败: ' + error.message);
+    }
+  }, [fetchAnalytics]);
+
   return {
     analyticsDays, setAnalyticsDays,
+    analyticsMinutes,
     analyticsGranularity, setAnalyticsGranularity,
+    analyticsRangeLabel, setAnalyticsRangeLabel, applyAnalyticsRange,
     analyticsSummary,
+    requestTrendMode, setRequestTrendMode,
     tokenTrendMode, setTokenTrendMode,
     latencyTrendMode, setLatencyTrendMode,
     errorTrendMode, setErrorTrendMode,
@@ -214,5 +289,6 @@ export function useAnalytics(activeTab) {
     logDetailExpanded, setLogDetailExpanded,
     fetchAnalytics,
     clearGatewayLogs,
+    clearDashboardHistory,
   };
 }

@@ -20,6 +20,14 @@ antigravity-accounts-*.json
 agent-rust/config.json
 agent-rust/*.exe
 agent-rust/target/
+# 本地镜像构建（tools/local-image.sh）产出的三平台 Agent 二进制，
+# 只是本机编译缓存，不入库；正式发布由 CI 编译。
+agent-rust/agent-linux-amd64
+agent-rust/agent-linux-arm64
+agent-rust/agent-windows-amd64.exe
+# AI Agent 托管进程表是 Agent 运行期状态，由 Agent 自行读写，不入库。
+# 测试运行也会生成它，必须忽略，否则会带着测试数据（inst_e2e 等）被提交。
+agent-rust/aiagent_processes.json
 docs/MODULE_NAMING.md
 inspect_db.js
 inspect_logs.js
@@ -27,6 +35,7 @@ inspect_logs.js
 # 用户数据 & 数据库
 # ====================
 data/
+!mobile-android/app/src/main/java/com/iwvw/apimonitor/data/
 *.db
 *.db-journal
 *.db-shm
@@ -67,9 +76,15 @@ Desktop.ini
 config/
 !backend-go/internal/config/
 !backend-go/internal/config/*.go
+!backend-go/internal/openaibeta/engine/config/
+!backend-go/internal/openaibeta/engine/config/*.go
+!backend-go/internal/ds2api/engine/core/config/
+!backend-go/internal/ds2api/engine/core/config/*.go
 tmp/
 test/tmp/
 test/
+!mobile-android/app/src/test/
+.opencode/
 
 # ====================
 # 构建输出
@@ -103,9 +118,11 @@ test-*-*.js
 .codex-*.png
 .claude/
 .gemini/
+.workbuddy/
 gha-creds-*.json
 stress-test-gcli.js
 api-monitor.code-workspace
+.codeartsdoer/
 
 # ====================
 # 文档归档（仅保留核心文档）
@@ -123,3 +140,12 @@ docs/archive/
 # ====================
 .dsh-session-inspect/
 rulesjs.json
+# workbuddy /_diag 的本地响应转储（排障用，一次性产物）
+diag.json
+diag2.json
+
+# ====================
+# api-monitor-relay 中继二进制构建产物（源码在 backend-go/cmd/api-monitor-relay）
+# ====================
+backend-go/api-monitor-relay
+backend-go/api-monitor-relay.exe

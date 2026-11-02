@@ -22,7 +22,7 @@ export default function DocumentOutline({
 
   return (
     <nav className={`overflow-auto p-2 ${className}`.trim()} aria-label="文档大纲">
-      <div className="mb-2 px-2 text-[11px] font-semibold text-kumo-subtle uppercase tracking-wider">
+      <div className="mb-2 px-2 text-[11px] font-semibold text-kumo-subtle uppercaser">
         大纲
       </div>
       <ul className="space-y-0.5">

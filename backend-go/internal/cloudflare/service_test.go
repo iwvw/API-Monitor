@@ -9,6 +9,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 
@@ -556,7 +557,6 @@ func TestWorkersRoutesDomainsAndAnalytics(t *testing.T) {
 	if res.Code != http.StatusOK {
 		t.Fatalf("worker domain delete status=%d body=%s", res.Code, res.Body.String())
 	}
-
 	res = perform(service, http.MethodDelete, "/api/cloudflare/accounts/"+accountID+"/zones/zone_1/workers/routes/"+routeID, "")
 	if res.Code != http.StatusOK {
 		t.Fatalf("worker route delete status=%d body=%s", res.Code, res.Body.String())
@@ -565,6 +565,90 @@ func TestWorkersRoutesDomainsAndAnalytics(t *testing.T) {
 	res = perform(service, http.MethodDelete, "/api/cloudflare/accounts/"+accountID+"/workers/worker-new", "")
 	if res.Code != http.StatusOK {
 		t.Fatalf("worker delete status=%d body=%s", res.Code, res.Body.String())
+	}
+}
+
+func TestWorkerUsageTodayAndMonth(t *testing.T) {
+	fake := fakeCloudflareAPI(t)
+	defer fake.Close()
+	t.Setenv("CLOUDFLARE_API_BASE_URL", fake.URL)
+
+	service := testService(t)
+	res := perform(service, http.MethodPost, "/api/cloudflare/accounts", `{"name":"prod","apiToken":"smoke-cf-token"}`)
+	if res.Code != http.StatusOK {
+		t.Fatalf("create account status=%d body=%s", res.Code, res.Body.String())
+	}
+	var createPayload map[string]interface{}
+	mustDecode(t, res, &createPayload)
+	accountID := stringValue(objectValue(createPayload["account"])["id"], "")
+	if accountID == "" {
+		t.Fatalf("missing account id: %#v", createPayload)
+	}
+
+	res = perform(service, http.MethodGet, "/api/cloudflare/accounts/"+accountID+"/workers-usage", "")
+	if res.Code != http.StatusOK {
+		t.Fatalf("workers usage status=%d body=%s", res.Code, res.Body.String())
+	}
+	var usagePayload map[string]interface{}
+	mustDecode(t, res, &usagePayload)
+	if usagePayload["success"] != true {
+		t.Fatalf("unexpected usage payload: %#v", usagePayload)
+	}
+	usage := objectValue(usagePayload["usage"])
+	if usage["source"] != "workersInvocationsByOwnerAndScriptGroups" {
+		t.Fatalf("expected grouped dataset as source, got %#v", usage["source"])
+	}
+	today := objectValue(usage["today"])
+	if today["requests"] != float64(1200) || today["truncated"] != false {
+		t.Fatalf("unexpected today totals: %#v", today)
+	}
+	month := objectValue(usage["month"])
+	if month["requests"] != float64(4200) {
+		t.Fatalf("expected month totals summed across days, got %#v", month)
+	}
+	if usage["todayStart"] == "" || usage["monthStart"] == "" || usage["timeZone"] == "" {
+		t.Fatalf("usage window metadata missing: %#v", usage)
+	}
+}
+
+func TestWorkerUsageFallsBackToInvocationDataset(t *testing.T) {
+	for _, tc := range []struct {
+		name           string
+		mode           string
+		expectedSource string
+	}{
+		{name: "grouped dataset unavailable", mode: "overview", expectedSource: "workersOverviewRequestsAdaptiveGroups"},
+		{name: "only raw dataset available", mode: "raw", expectedSource: "workersInvocationsAdaptive"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			fake := fakeCloudflareAPI(t)
+			defer fake.Close()
+			t.Setenv("CLOUDFLARE_API_BASE_URL", fake.URL)
+			t.Setenv("CLOUDFLARE_FAKE_USAGE_MODE", tc.mode)
+
+			service := testService(t)
+			res := perform(service, http.MethodPost, "/api/cloudflare/accounts", `{"name":"prod","apiToken":"smoke-cf-token"}`)
+			if res.Code != http.StatusOK {
+				t.Fatalf("create account status=%d body=%s", res.Code, res.Body.String())
+			}
+			var createPayload map[string]interface{}
+			mustDecode(t, res, &createPayload)
+			accountID := stringValue(objectValue(createPayload["account"])["id"], "")
+
+			res = perform(service, http.MethodGet, "/api/cloudflare/accounts/"+accountID+"/workers-usage", "")
+			if res.Code != http.StatusOK {
+				t.Fatalf("workers usage status=%d body=%s", res.Code, res.Body.String())
+			}
+			var usagePayload map[string]interface{}
+			mustDecode(t, res, &usagePayload)
+			usage := objectValue(usagePayload["usage"])
+			if usage["source"] != tc.expectedSource {
+				t.Fatalf("expected source %q, got %#v", tc.expectedSource, usage["source"])
+			}
+			if objectValue(usage["month"])["requests"] != float64(4200) {
+				t.Fatalf("unexpected fallback month totals: %#v", usage["month"])
+			}
+		})
 	}
 }
 
@@ -1023,6 +1107,36 @@ func fakeCloudflareAPI(t *testing.T) *httptest.Server {
 				"result":  []map[string]interface{}{{"id": "cf-account-1", "name": "Smoke Account"}},
 			})
 		case "/client/v4/graphql":
+			var gqlBody map[string]interface{}
+			_ = json.NewDecoder(r.Body).Decode(&gqlBody)
+			query := stringValue(gqlBody["query"], "")
+			if strings.Contains(query, "workersInvocationsByOwnerAndScriptGroups") || strings.Contains(query, "workersOverviewRequestsAdaptiveGroups") || strings.Contains(query, "workersInvocationsAdaptive") {
+				// 模拟数据集在当前套餐不可见：返回 GraphQL 错误，触发回退链路。
+				mode := os.Getenv("CLOUDFLARE_FAKE_USAGE_MODE")
+				hidden := ""
+				switch mode {
+				case "overview":
+					hidden = "workersInvocationsByOwnerAndScriptGroups"
+				case "raw":
+					hidden = "workersInvocationsByOwnerAndScriptGroups"
+				}
+				if hidden != "" && strings.Contains(query, hidden) {
+					writeJSON(w, http.StatusOK, map[string]interface{}{
+						"data":   nil,
+						"errors": []map[string]interface{}{{"message": "unknown field " + hidden}},
+					})
+					return
+				}
+				if mode == "raw" && strings.Contains(query, "workersOverviewRequestsAdaptiveGroups") {
+					writeJSON(w, http.StatusOK, map[string]interface{}{
+						"data":   nil,
+						"errors": []map[string]interface{}{{"message": "unknown field workersOverviewRequestsAdaptiveGroups"}},
+					})
+					return
+				}
+				writeJSON(w, http.StatusOK, fakeWorkerUsageGraphQL(query))
+				return
+			}
 			writeJSON(w, http.StatusOK, fakeGraphQLAnalytics())
 		case "/client/v4/zones":
 			switch r.Method {
@@ -1454,6 +1568,43 @@ func handleFakeZonePath(t *testing.T, w http.ResponseWriter, r *http.Request, zo
 		writeJSON(w, http.StatusOK, map[string]interface{}{"success": true, "result": map[string]interface{}{"id": recordID}})
 	default:
 		t.Fatalf("unexpected fake Cloudflare method %s %s", r.Method, r.URL.Path)
+	}
+}
+
+// fakeWorkerUsageGraphQL 模拟 Workers 用量查询的各条数据源链路。
+func fakeWorkerUsageGraphQL(query string) map[string]interface{} {
+	account := map[string]interface{}{}
+	switch {
+	case strings.Contains(query, "workersInvocationsByOwnerAndScriptGroups"):
+		account["today"] = []map[string]interface{}{{
+			"sum": map[string]interface{}{"requests": 1200, "cpuTimeUs": 5000},
+		}}
+		account["month"] = []map[string]interface{}{{
+			"sum": map[string]interface{}{"requests": 4200, "cpuTimeUs": 15000},
+		}}
+	case strings.Contains(query, "workersOverviewRequestsAdaptiveGroups"):
+		account["today"] = []map[string]interface{}{{
+			"count": 1200,
+			"sum":   map[string]interface{}{"cpuTimeUs": 5000},
+		}}
+		account["month"] = []map[string]interface{}{{
+			"count": 4200,
+			"sum":   map[string]interface{}{"cpuTimeUs": 15000},
+		}}
+	default:
+		account["today"] = []map[string]interface{}{{
+			"sum": map[string]interface{}{"requests": 1200, "errors": 2, "subrequests": 40, "cpuTimeUs": 5000},
+		}}
+		account["month"] = []map[string]interface{}{{
+			"sum": map[string]interface{}{"requests": 4200, "errors": 5, "subrequests": 120, "cpuTimeUs": 15000},
+		}}
+	}
+	return map[string]interface{}{
+		"data": map[string]interface{}{
+			"viewer": map[string]interface{}{
+				"accounts": []map[string]interface{}{account},
+			},
+		},
 	}
 }
 

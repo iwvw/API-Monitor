@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 
 	"github.com/oracle/oci-go-sdk/v65/common"
 	"github.com/oracle/oci-go-sdk/v65/core"
@@ -27,11 +28,17 @@ func (s *Service) listInstances(ctx context.Context, account Account, compartmen
 	if err != nil {
 		return nil, err
 	}
-	items := []NormalizedInstance{}
-	for _, instance := range res.Items {
-		vnics, _ := s.listVNICs(ctx, account, compartmentID, stringValuePtr(instance.Id))
-		items = append(items, normalizeInstance(account, instance, vnics))
+	items := make([]NormalizedInstance, len(res.Items))
+	var wg sync.WaitGroup
+	for i, instance := range res.Items {
+		wg.Add(1)
+		go func(idx int, inst core.Instance) {
+			defer wg.Done()
+			vnics, _ := s.listVNICs(ctx, account, compartmentID, stringValuePtr(inst.Id))
+			items[idx] = normalizeInstance(account, inst, vnics)
+		}(i, instance)
 	}
+	wg.Wait()
 	return items, nil
 }
 
@@ -76,9 +83,25 @@ func (s *Service) getInstance(ctx context.Context, account Account, compartmentI
 		return NormalizedInstance{}, err
 	}
 	vnics, _ := s.listVNICs(ctx, account, compartmentID, instanceID)
-	bootVolumes, _ := s.listBootVolumes(ctx, account, compartmentID, stringValuePtr(res.Instance.AvailabilityDomain), instanceID)
-	blockVolumes, _ := s.listBlockVolumes(ctx, account, compartmentID, instanceID)
-	connections, _ := s.listConsoleConnections(ctx, account, compartmentID, instanceID)
+
+	var bootVolumes []NormalizedVolume
+	var blockVolumes []NormalizedVolume
+	var connections []NormalizedConsole
+	var wg sync.WaitGroup
+	wg.Add(3)
+	go func() {
+		defer wg.Done()
+		bootVolumes, _ = s.listBootVolumes(ctx, account, compartmentID, stringValuePtr(res.Instance.AvailabilityDomain), instanceID)
+	}()
+	go func() {
+		defer wg.Done()
+		blockVolumes, _ = s.listBlockVolumes(ctx, account, compartmentID, instanceID)
+	}()
+	go func() {
+		defer wg.Done()
+		connections, _ = s.listConsoleConnections(ctx, account, compartmentID, instanceID)
+	}()
+	wg.Wait()
 	item := normalizeInstance(account, res.Instance, vnics)
 	item.BootVolumeSummary = bootVolumes
 	item.BlockVolumeSummary = blockVolumes

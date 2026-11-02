@@ -21,6 +21,9 @@ pub struct CliArgs {
     #[arg(short = 'k', long = "key", help = "Agent key")]
     pub agent_key: Option<String>,
 
+    #[arg(long = "storage-port", help = "HTTP direct storage port")]
+    pub storage_port: Option<u16>,
+
     #[arg(
         short = 'i',
         long = "interval",
@@ -45,6 +48,7 @@ pub struct JsonConfig {
     pub server_url: Option<String>,
     pub server_id: Option<String>,
     pub agent_key: Option<String>,
+    pub storage_port: Option<u16>,
     pub report_interval: Option<u64>,
     pub debug: Option<bool>,
 }
@@ -54,6 +58,7 @@ pub struct Config {
     pub server_url: String,
     pub server_id: String,
     pub agent_key: String,
+    pub storage_port: u16,
     pub report_interval: u64,    // ms
     pub host_info_interval: u64, // ms
     pub reconnect_delay: u64,    // ms
@@ -102,10 +107,21 @@ impl Config {
                 .to_string()
         })?;
 
+        let storage_port = cli
+            .storage_port
+            .or_else(|| {
+                std::env::var("API_MONITOR_STORAGE_PORT")
+                    .ok()
+                    .and_then(|p| p.parse::<u16>().ok())
+            })
+            .or(json_config.storage_port)
+            .unwrap_or(61208);
+
         Ok(Config {
             server_url,
             server_id,
             agent_key,
+            storage_port,
             report_interval,
             host_info_interval: 600_000, // 10 minutes
             reconnect_delay: 1000,       // 1 second; repeated short failures back off in main loop
@@ -113,16 +129,12 @@ impl Config {
         })
     }
 
-    fn load_config_json() -> Option<JsonConfig> {
+    pub fn load_config_json() -> Option<JsonConfig> {
         let mut paths = vec![
             PathBuf::from("config.json"),
             PathBuf::from("../config.json"),
         ];
-        if let Ok(exe_path) = std::env::current_exe() {
-            if let Some(exe_dir) = exe_path.parent() {
-                paths.insert(0, exe_dir.join("config.json"));
-            }
-        }
+        paths.insert(0, agent_base_dir().join("config.json"));
         for path in paths {
             if path.exists() {
                 if let Ok(mut file) = File::open(&path) {
@@ -137,4 +149,37 @@ impl Config {
         }
         None
     }
+}
+
+/// Agent 运行基础目录（以当前执行文件所在目录为准，避免在业务代码中硬编码绝对路径）
+pub fn agent_base_dir() -> PathBuf {
+    if let Ok(exe_path) = std::env::current_exe() {
+        if let Some(exe_dir) = exe_path.parent() {
+            return exe_dir.to_path_buf();
+        }
+    }
+    #[cfg(windows)]
+    {
+        PathBuf::from(r"C:\Program Files\APIMonitorAgent")
+    }
+    #[cfg(not(windows))]
+    {
+        PathBuf::from("/opt/api-monitor-agent")
+    }
+}
+
+/// Agent 托管的子二进制程序存放目录：<agent_base_dir>/bin
+pub fn agent_sub_bin_dir() -> PathBuf {
+    agent_base_dir().join("bin")
+}
+
+/// Agent 运行时持久状态目录：默认即为 agent_base_dir
+pub fn agent_state_dir() -> PathBuf {
+    agent_base_dir()
+}
+
+/// Agent 外部运行时目录：<agent_base_dir>/runtimes/<component>
+#[allow(dead_code)]
+pub fn agent_runtime_dir(component: &str) -> PathBuf {
+    agent_base_dir().join("runtimes").join(component)
 }

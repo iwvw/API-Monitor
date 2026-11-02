@@ -1,6 +1,7 @@
 package koyeb
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"database/sql"
@@ -26,11 +27,12 @@ const (
 )
 
 type Service struct {
-	cfg     config.Config
-	store   *database.Store
-	schema  database.SchemaEnsurer
-	apiBase string
-	client  *http.Client
+	cfg          config.Config
+	store        *database.Store
+	schema       database.SchemaEnsurer
+	apiBase      string
+	client       *http.Client
+	streamClient *http.Client
 }
 
 func New(cfg config.Config) *Service {
@@ -39,10 +41,11 @@ func New(cfg config.Config) *Service {
 		apiBase = defaultAPIBase
 	}
 	service := &Service{
-		cfg:     cfg,
-		store:   database.New(cfg),
-		apiBase: apiBase,
-		client:  &http.Client{Timeout: requestTimeout},
+		cfg:          cfg,
+		store:        database.New(cfg),
+		apiBase:      apiBase,
+		client:       &http.Client{Timeout: requestTimeout},
+		streamClient: &http.Client{},
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -83,16 +86,58 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.renameService(w, r, parts[1])
 	case len(parts) == 3 && parts[0] == "services" && parts[2] == "logs" && r.Method == http.MethodGet:
 		s.serviceLogs(w, r, parts[1])
+	case len(parts) == 4 && parts[0] == "services" && parts[2] == "logs" && parts[3] == "tail" && r.Method == http.MethodGet:
+		s.serviceLogsTail(w, r, parts[1])
 	case len(parts) == 3 && parts[0] == "services" && parts[2] == "instances" && r.Method == http.MethodGet:
 		s.serviceInstances(w, r, parts[1])
 	case len(parts) == 3 && parts[0] == "services" && parts[2] == "metrics" && r.Method == http.MethodGet:
 		s.serviceMetrics(w, r, parts[1])
+	case len(parts) == 3 && parts[0] == "services" && parts[2] == "update" && r.Method == http.MethodPost:
+		s.updateService(w, r, parts[1])
+	case len(parts) == 3 && parts[0] == "services" && parts[2] == "deployments" && r.Method == http.MethodGet:
+		s.serviceDeployments(w, r, parts[1])
+	case len(parts) == 3 && parts[0] == "deployments" && parts[2] == "cancel" && r.Method == http.MethodPost:
+		s.cancelDeployment(w, r, parts[1])
+	case len(parts) == 3 && parts[0] == "services" && parts[2] == "scale" && r.Method == http.MethodGet:
+		s.serviceScale(w, r, parts[1])
+	case len(parts) == 3 && parts[0] == "services" && parts[2] == "scale" && r.Method == http.MethodPut:
+		s.updateServiceScale(w, r, parts[1])
+	case len(parts) == 3 && parts[0] == "services" && parts[2] == "scale" && r.Method == http.MethodDelete:
+		s.deleteServiceScale(w, r, parts[1])
+	case len(parts) == 1 && parts[0] == "services" && r.Method == http.MethodPost:
+		s.createService(w, r)
 	case len(parts) == 2 && parts[0] == "apps" && r.Method == http.MethodDelete:
 		s.deleteApp(w, r, parts[1])
 	case len(parts) == 3 && parts[0] == "apps" && parts[2] == "rename" && r.Method == http.MethodPost:
 		s.renameApp(w, r, parts[1])
+	case len(parts) == 3 && parts[0] == "apps" && parts[2] == "pause" && r.Method == http.MethodPost:
+		s.appAction(w, r, parts[1], "pause")
+	case len(parts) == 3 && parts[0] == "apps" && parts[2] == "resume" && r.Method == http.MethodPost:
+		s.appAction(w, r, parts[1], "resume")
+	case len(parts) == 1 && parts[0] == "domains" && r.Method == http.MethodGet:
+		s.domains(w, r)
+	case len(parts) == 1 && parts[0] == "domains" && r.Method == http.MethodPost:
+		s.createDomain(w, r)
+	case len(parts) == 2 && parts[0] == "domains" && r.Method == http.MethodDelete:
+		s.deleteDomain(w, r, parts[1])
+	case len(parts) == 3 && parts[0] == "domains" && parts[2] == "refresh" && r.Method == http.MethodPost:
+		s.refreshDomain(w, r, parts[1])
+	case len(parts) == 1 && parts[0] == "secrets" && r.Method == http.MethodGet:
+		s.secrets(w, r)
+	case len(parts) == 1 && parts[0] == "secrets" && r.Method == http.MethodPost:
+		s.createSecret(w, r)
+	case len(parts) == 2 && parts[0] == "secrets" && r.Method == http.MethodDelete:
+		s.deleteSecret(w, r, parts[1])
+	case len(parts) == 3 && parts[0] == "secrets" && parts[2] == "update" && r.Method == http.MethodPost:
+		s.updateSecret(w, r, parts[1])
+	case len(parts) == 2 && parts[0] == "catalog" && parts[1] == "instances" && r.Method == http.MethodGet:
+		s.catalog(w, r, "instances")
+	case len(parts) == 2 && parts[0] == "catalog" && parts[1] == "regions" && r.Method == http.MethodGet:
+		s.catalog(w, r, "regions")
 	case len(parts) == 1 && parts[0] == "usage" && r.Method == http.MethodGet:
 		s.usage(w, r)
+	case len(parts) == 2 && parts[0] == "usage" && parts[1] == "details" && r.Method == http.MethodGet:
+		s.usageDetails(w, r)
 	default:
 		response.Error(w, http.StatusNotFound, "koyeb route not implemented")
 	}
@@ -457,6 +502,470 @@ func (s *Service) usage(w http.ResponseWriter, r *http.Request) {
 	response.JSON(w, http.StatusOK, map[string]interface{}{"success": true, "usage": payload})
 }
 
+func (s *Service) updateService(w http.ResponseWriter, r *http.Request, serviceID string) {
+	payload, _ := readObject(r)
+	account, db, ok := s.accountForRequest(w, r, stringValue(payload["accountId"], ""), false)
+	if !ok {
+		return
+	}
+	defer db.Close()
+	token := stringValue(account["token"], "")
+	definition, err := s.currentServiceDefinition(r.Context(), token, serviceID)
+	if err != nil {
+		response.Error(w, http.StatusInternalServerError, "读取服务当前配置失败: "+err.Error())
+		return
+	}
+	applyDefinitionOverrides(definition, payload)
+	body := map[string]interface{}{"definition": definition}
+	if skip, ok := payload["skipBuild"]; ok {
+		body["skip_build"] = skip
+	}
+	_, err = s.koyebRequest(r.Context(), token, "/services/"+url.PathEscape(serviceID)+"?update_mask=definition", http.MethodPatch, body)
+	if err != nil {
+		response.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	response.JSON(w, http.StatusOK, map[string]interface{}{"success": true})
+}
+
+func (s *Service) serviceDeployments(w http.ResponseWriter, r *http.Request, serviceID string) {
+	account, db, ok := s.accountForRequest(w, r, r.URL.Query().Get("accountId"), false)
+	if !ok {
+		return
+	}
+	defer db.Close()
+	limit := intValue(r.URL.Query().Get("limit"), 20)
+	path := "/deployments?service_id=" + url.QueryEscape(serviceID) + "&limit=" + strconv.Itoa(limit)
+	if statuses := r.URL.Query().Get("statuses"); statuses != "" {
+		path += "&statuses=" + url.QueryEscape(statuses)
+	}
+	payload, err := s.koyebRequest(r.Context(), stringValue(account["token"], ""), path, http.MethodGet, nil)
+	if err != nil {
+		response.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	response.JSON(w, http.StatusOK, map[string]interface{}{"success": true, "deployments": arrayValue(payload["deployments"])})
+}
+
+func (s *Service) cancelDeployment(w http.ResponseWriter, r *http.Request, deploymentID string) {
+	payload, _ := readObject(r)
+	account, db, ok := s.accountForRequest(w, r, stringValue(payload["accountId"], ""), false)
+	if !ok {
+		return
+	}
+	defer db.Close()
+	_, err := s.koyebRequest(r.Context(), stringValue(account["token"], ""), "/deployments/"+url.PathEscape(deploymentID)+"/cancel", http.MethodPost, nil)
+	if err != nil {
+		response.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	response.JSON(w, http.StatusOK, map[string]interface{}{"success": true})
+}
+
+func (s *Service) serviceScale(w http.ResponseWriter, r *http.Request, serviceID string) {
+	account, db, ok := s.accountForRequest(w, r, r.URL.Query().Get("accountId"), false)
+	if !ok {
+		return
+	}
+	defer db.Close()
+	payload, err := s.koyebRequest(r.Context(), stringValue(account["token"], ""), "/services/"+url.PathEscape(serviceID)+"/scale", http.MethodGet, nil)
+	if err != nil {
+		response.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	response.JSON(w, http.StatusOK, map[string]interface{}{"success": true, "scale": payload})
+}
+
+func (s *Service) updateServiceScale(w http.ResponseWriter, r *http.Request, serviceID string) {
+	payload, _ := readObject(r)
+	account, db, ok := s.accountForRequest(w, r, stringValue(payload["accountId"], ""), false)
+	if !ok {
+		return
+	}
+	defer db.Close()
+	body := map[string]interface{}{}
+	if scalings, ok := payload["scalings"]; ok {
+		body["scalings"] = scalings
+	}
+	_, err := s.koyebRequest(r.Context(), stringValue(account["token"], ""), "/services/"+url.PathEscape(serviceID)+"/scale", http.MethodPut, body)
+	if err != nil {
+		response.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	response.JSON(w, http.StatusOK, map[string]interface{}{"success": true})
+}
+
+func (s *Service) deleteServiceScale(w http.ResponseWriter, r *http.Request, serviceID string) {
+	payload, _ := readObject(r)
+	account, db, ok := s.accountForRequest(w, r, stringValue(payload["accountId"], ""), false)
+	if !ok {
+		return
+	}
+	defer db.Close()
+	_, err := s.koyebRequest(r.Context(), stringValue(account["token"], ""), "/services/"+url.PathEscape(serviceID)+"/scale", http.MethodDelete, nil)
+	if err != nil {
+		response.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	response.JSON(w, http.StatusOK, map[string]interface{}{"success": true})
+}
+
+func (s *Service) createService(w http.ResponseWriter, r *http.Request) {
+	payload, _ := readObject(r)
+	account, db, ok := s.accountForRequest(w, r, stringValue(payload["accountId"], ""), false)
+	if !ok {
+		return
+	}
+	defer db.Close()
+	appID := strings.TrimSpace(stringValue(payload["appId"], ""))
+	name := strings.TrimSpace(stringValue(payload["name"], ""))
+	if appID == "" || name == "" {
+		response.Error(w, http.StatusBadRequest, "appId and name are required")
+		return
+	}
+	definition := map[string]interface{}{
+		"name": name,
+		"type": strings.ToUpper(stringFallback(strings.TrimSpace(stringValue(payload["type"], "")), "web")),
+	}
+	if image := strings.TrimSpace(stringValue(payload["image"], "")); image != "" {
+		definition["docker"] = map[string]interface{}{"image": image}
+	}
+	if command := stringValue(payload["command"], ""); command != "" {
+		docker := objectValue(definition["docker"])
+		docker["command"] = command
+		definition["docker"] = docker
+	}
+	if v, ok := payload["env"]; ok && v != nil {
+		definition["env"] = normalizeEnvArray(v)
+	}
+	if v, ok := payload["ports"]; ok && v != nil {
+		definition["ports"] = v
+	}
+	if v, ok := payload["regions"]; ok && v != nil {
+		definition["regions"] = v
+	}
+	if instanceType := stringValue(payload["instanceType"], ""); instanceType != "" {
+		definition["instance_types"] = []map[string]interface{}{{"type": instanceType}}
+	}
+	created, err := s.koyebRequest(r.Context(), stringValue(account["token"], ""), "/services", http.MethodPost, map[string]interface{}{
+		"app_id":     appID,
+		"name":       name,
+		"definition": definition,
+	})
+	if err != nil {
+		response.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	response.JSON(w, http.StatusOK, map[string]interface{}{"success": true, "service": objectValue(created["service"])})
+}
+
+func (s *Service) appAction(w http.ResponseWriter, r *http.Request, appID, action string) {
+	payload, _ := readObject(r)
+	account, db, ok := s.accountForRequest(w, r, stringValue(payload["accountId"], ""), false)
+	if !ok {
+		return
+	}
+	defer db.Close()
+	var path string
+	switch action {
+	case "pause":
+		path = "/apps/" + url.PathEscape(appID) + "/pause"
+	case "resume":
+		path = "/apps/" + url.PathEscape(appID) + "/resume"
+	default:
+		response.Error(w, http.StatusBadRequest, "unknown action")
+		return
+	}
+	_, err := s.koyebRequest(r.Context(), stringValue(account["token"], ""), path, http.MethodPost, nil)
+	if err != nil {
+		response.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	response.JSON(w, http.StatusOK, map[string]interface{}{"success": true})
+}
+
+func (s *Service) domains(w http.ResponseWriter, r *http.Request) {
+	account, db, ok := s.accountForRequest(w, r, r.URL.Query().Get("accountId"), false)
+	if !ok {
+		return
+	}
+	defer db.Close()
+	path := "/domains"
+	params := []string{}
+	if appID := r.URL.Query().Get("appId"); appID != "" {
+		params = append(params, "app_ids="+url.QueryEscape(appID))
+	}
+	if name := r.URL.Query().Get("name"); name != "" {
+		params = append(params, "name="+url.QueryEscape(name))
+	}
+	if len(params) > 0 {
+		path += "?" + strings.Join(params, "&")
+	}
+	payload, err := s.koyebRequest(r.Context(), stringValue(account["token"], ""), path, http.MethodGet, nil)
+	if err != nil {
+		response.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	response.JSON(w, http.StatusOK, map[string]interface{}{"success": true, "domains": arrayValue(payload["domains"])})
+}
+
+func (s *Service) createDomain(w http.ResponseWriter, r *http.Request) {
+	payload, _ := readObject(r)
+	account, db, ok := s.accountForRequest(w, r, stringValue(payload["accountId"], ""), false)
+	if !ok {
+		return
+	}
+	defer db.Close()
+	name := strings.TrimSpace(stringValue(payload["name"], ""))
+	if name == "" {
+		response.Error(w, http.StatusBadRequest, "name is required")
+		return
+	}
+	body := map[string]interface{}{
+		"name": name,
+		"type": strings.ToUpper(stringFallback(stringValue(payload["type"], ""), "CUSTOM")),
+	}
+	if appID := stringValue(payload["appId"], ""); appID != "" {
+		body["app_id"] = appID
+	}
+	created, err := s.koyebRequest(r.Context(), stringValue(account["token"], ""), "/domains", http.MethodPost, body)
+	if err != nil {
+		response.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	response.JSON(w, http.StatusOK, map[string]interface{}{"success": true, "domain": objectValue(created["domain"])})
+}
+
+func (s *Service) deleteDomain(w http.ResponseWriter, r *http.Request, domainID string) {
+	payload, _ := readObject(r)
+	account, db, ok := s.accountForRequest(w, r, stringValue(payload["accountId"], ""), false)
+	if !ok {
+		return
+	}
+	defer db.Close()
+	_, err := s.koyebRequest(r.Context(), stringValue(account["token"], ""), "/domains/"+url.PathEscape(domainID), http.MethodDelete, nil)
+	if err != nil {
+		response.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	response.JSON(w, http.StatusOK, map[string]interface{}{"success": true})
+}
+
+func (s *Service) refreshDomain(w http.ResponseWriter, r *http.Request, domainID string) {
+	payload, _ := readObject(r)
+	account, db, ok := s.accountForRequest(w, r, stringValue(payload["accountId"], ""), false)
+	if !ok {
+		return
+	}
+	defer db.Close()
+	_, err := s.koyebRequest(r.Context(), stringValue(account["token"], ""), "/domains/"+url.PathEscape(domainID)+"/refresh", http.MethodPost, nil)
+	if err != nil {
+		response.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	response.JSON(w, http.StatusOK, map[string]interface{}{"success": true})
+}
+
+func (s *Service) secrets(w http.ResponseWriter, r *http.Request) {
+	account, db, ok := s.accountForRequest(w, r, r.URL.Query().Get("accountId"), false)
+	if !ok {
+		return
+	}
+	defer db.Close()
+	payload, err := s.koyebRequest(r.Context(), stringValue(account["token"], ""), "/secrets", http.MethodGet, nil)
+	if err != nil {
+		response.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	response.JSON(w, http.StatusOK, map[string]interface{}{"success": true, "secrets": arrayValue(payload["secrets"])})
+}
+
+func (s *Service) createSecret(w http.ResponseWriter, r *http.Request) {
+	payload, _ := readObject(r)
+	account, db, ok := s.accountForRequest(w, r, stringValue(payload["accountId"], ""), false)
+	if !ok {
+		return
+	}
+	defer db.Close()
+	name := strings.TrimSpace(stringValue(payload["name"], ""))
+	if name == "" {
+		response.Error(w, http.StatusBadRequest, "name is required")
+		return
+	}
+	body := map[string]interface{}{
+		"name":  name,
+		"value": stringValue(payload["value"], ""),
+	}
+	if secretType := stringValue(payload["type"], ""); secretType != "" {
+		body["type"] = secretType
+	}
+	created, err := s.koyebRequest(r.Context(), stringValue(account["token"], ""), "/secrets", http.MethodPost, body)
+	if err != nil {
+		response.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	response.JSON(w, http.StatusOK, map[string]interface{}{"success": true, "secret": objectValue(created["secret"])})
+}
+
+func (s *Service) deleteSecret(w http.ResponseWriter, r *http.Request, secretID string) {
+	payload, _ := readObject(r)
+	account, db, ok := s.accountForRequest(w, r, stringValue(payload["accountId"], ""), false)
+	if !ok {
+		return
+	}
+	defer db.Close()
+	_, err := s.koyebRequest(r.Context(), stringValue(account["token"], ""), "/secrets/"+url.PathEscape(secretID), http.MethodDelete, nil)
+	if err != nil {
+		response.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	response.JSON(w, http.StatusOK, map[string]interface{}{"success": true})
+}
+
+func (s *Service) updateSecret(w http.ResponseWriter, r *http.Request, secretID string) {
+	payload, _ := readObject(r)
+	account, db, ok := s.accountForRequest(w, r, stringValue(payload["accountId"], ""), false)
+	if !ok {
+		return
+	}
+	defer db.Close()
+	body := map[string]interface{}{}
+	if v, ok := payload["value"]; ok {
+		body["value"] = v
+	}
+	_, err := s.koyebRequest(r.Context(), stringValue(account["token"], ""), "/secrets/"+url.PathEscape(secretID)+"?update_mask=value", http.MethodPatch, body)
+	if err != nil {
+		response.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	response.JSON(w, http.StatusOK, map[string]interface{}{"success": true})
+}
+
+func (s *Service) catalog(w http.ResponseWriter, r *http.Request, kind string) {
+	account, db, ok := s.accountForRequest(w, r, r.URL.Query().Get("accountId"), false)
+	if !ok {
+		return
+	}
+	defer db.Close()
+	key := "instances"
+	if kind == "regions" {
+		key = "regions"
+	}
+	payload, err := s.koyebRequest(r.Context(), stringValue(account["token"], ""), "/catalog/"+kind, http.MethodGet, nil)
+	if err != nil {
+		response.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	response.JSON(w, http.StatusOK, map[string]interface{}{"success": true, "items": arrayValue(payload[key])})
+}
+
+func (s *Service) usageDetails(w http.ResponseWriter, r *http.Request) {
+	account, db, ok := s.accountForRequest(w, r, r.URL.Query().Get("accountId"), false)
+	if !ok {
+		return
+	}
+	defer db.Close()
+	params := []string{}
+	if start := r.URL.Query().Get("start"); start != "" {
+		params = append(params, "starting_time="+url.QueryEscape(start))
+	}
+	if end := r.URL.Query().Get("end"); end != "" {
+		params = append(params, "ending_time="+url.QueryEscape(end))
+	}
+	path := "/usages/details"
+	if len(params) > 0 {
+		path += "?" + strings.Join(params, "&")
+	}
+	payload, err := s.koyebRequest(r.Context(), stringValue(account["token"], ""), path, http.MethodGet, nil)
+	if err != nil {
+		response.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	response.JSON(w, http.StatusOK, map[string]interface{}{"success": true, "usage": payload})
+}
+
+// currentServiceDefinition 读取服务当前部署定义，作为配置更新/创建时的基线。
+func (s *Service) currentServiceDefinition(ctx context.Context, token, serviceID string) (map[string]interface{}, error) {
+	payload, err := s.koyebRequest(ctx, token, "/deployments?service_id="+url.QueryEscape(serviceID)+"&limit=1", http.MethodGet, nil)
+	if err == nil {
+		if deployments := objectSlice(payload["deployments"]); len(deployments) > 0 {
+			if def := objectValue(deployments[0]["definition"]); len(def) > 0 {
+				return def, nil
+			}
+		}
+	}
+	svcPayload, err := s.koyebRequest(ctx, token, "/services/"+url.PathEscape(serviceID), http.MethodGet, nil)
+	if err != nil {
+		return nil, err
+	}
+	svc := objectValue(svcPayload["service"])
+	if def := objectValue(svc["definition"]); len(def) > 0 {
+		return def, nil
+	}
+	return map[string]interface{}{"name": stringValue(svc["name"], ""), "type": "web"}, nil
+}
+
+// applyDefinitionOverrides 将请求字段叠加到基线定义上，仅覆盖显式传入的字段。
+func applyDefinitionOverrides(def map[string]interface{}, payload map[string]interface{}) {
+	if v, ok := payload["image"]; ok {
+		if image := strings.TrimSpace(stringValue(v, "")); image != "" {
+			docker := objectValue(def["docker"])
+			docker["image"] = image
+			def["docker"] = docker
+		}
+	}
+	if v, ok := payload["command"]; ok {
+		docker := objectValue(def["docker"])
+		docker["command"] = stringValue(v, "")
+		def["docker"] = docker
+	}
+	if v, ok := payload["args"]; ok {
+		docker := objectValue(def["docker"])
+		docker["args"] = v
+		def["docker"] = docker
+	}
+	if v, ok := payload["env"]; ok && v != nil {
+		def["env"] = normalizeEnvArray(v)
+	}
+	if v, ok := payload["ports"]; ok && v != nil {
+		def["ports"] = v
+	}
+	if v, ok := payload["regions"]; ok && v != nil {
+		def["regions"] = v
+	}
+	if v, ok := payload["instanceType"]; ok {
+		if instanceType := strings.TrimSpace(stringValue(v, "")); instanceType != "" {
+			def["instance_types"] = []map[string]interface{}{{"type": instanceType}}
+		}
+	}
+}
+
+// normalizeEnvArray 把前端传来的 env（["K=V"] 或 [{"key","value"}]）规整为 Koyeb 部署定义格式。
+func normalizeEnvArray(v interface{}) []interface{} {
+	out := []interface{}{}
+	for _, item := range arrayValue(v) {
+		switch t := item.(type) {
+		case string:
+			env := map[string]interface{}{"key": t}
+			if idx := strings.Index(t, "="); idx >= 0 {
+				env["key"] = t[:idx]
+				env["value"] = t[idx+1:]
+			}
+			out = append(out, env)
+		case map[string]interface{}:
+			env := map[string]interface{}{}
+			if k, ok := t["key"].(string); ok {
+				env["key"] = k
+			}
+			if val, ok := t["value"]; ok {
+				env["value"] = val
+			}
+			out = append(out, env)
+		}
+	}
+	return out
+}
+
 func (s *Service) accountForRequest(w http.ResponseWriter, r *http.Request, idText string, keepOpen bool) (map[string]interface{}, *sql.DB, bool) {
 	id, err := parseID(idText)
 	if err != nil {
@@ -664,6 +1173,68 @@ func (s *Service) fetchServiceLogs(ctx context.Context, token, serviceID string,
 		return nil, err
 	}
 	return arrayValue(fallback["logs"]), nil
+}
+
+// serviceLogsTail 实时跟随服务日志：透传 Koyeb /v1/streams/logs/tail 的 SSE 流，
+// 面板前端通过 fetch + ReadableStream 逐事件解析。客户端断开即取消上游连接。
+func (s *Service) serviceLogsTail(w http.ResponseWriter, r *http.Request, serviceID string) {
+	account, db, ok := s.accountForRequest(w, r, r.URL.Query().Get("accountId"), false)
+	if !ok {
+		return
+	}
+	defer db.Close()
+	token := cleanToken(stringValue(account["token"], ""))
+	path := "/streams/logs/tail?service_id=" + url.QueryEscape(serviceID)
+	for _, key := range []string{"stream", "regex", "text", "instance_id", "start"} {
+		if v := r.URL.Query().Get(key); v != "" {
+			path += "&" + key + "=" + url.QueryEscape(v)
+		}
+	}
+	if limit := intValue(r.URL.Query().Get("limit"), 0); limit > 0 {
+		path += "&limit=" + strconv.Itoa(limit)
+	}
+	req, err := http.NewRequestWithContext(r.Context(), http.MethodGet, s.apiBase+"/v1"+path, nil)
+	if err != nil {
+		response.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	upstream, err := s.streamClient.Do(req)
+	if err != nil {
+		response.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	defer upstream.Body.Close()
+	if upstream.StatusCode < 200 || upstream.StatusCode >= 300 {
+		body, _ := io.ReadAll(io.LimitReader(upstream.Body, 64*1024))
+		response.Error(w, http.StatusBadGateway, fmt.Sprintf("Koyeb tail 上游错误 %d: %s", upstream.StatusCode, strings.TrimSpace(string(body))))
+		return
+	}
+	flusher, _ := w.(http.Flusher)
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no")
+	reader := bufio.NewReader(upstream.Body)
+	for {
+		line, readErr := reader.ReadBytes('\n')
+		if len(line) > 0 {
+			if _, werr := w.Write(line); werr != nil {
+				return
+			}
+			if flusher != nil {
+				flusher.Flush()
+			}
+		}
+		if readErr != nil {
+			return
+		}
+		select {
+		case <-r.Context().Done():
+			return
+		default:
+		}
+	}
 }
 
 func (s *Service) pauseService(ctx context.Context, token, serviceID string) error {

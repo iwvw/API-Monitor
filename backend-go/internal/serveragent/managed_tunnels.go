@@ -21,11 +21,13 @@ import (
 )
 
 const (
-	cloudflaredVersion     = "2026.7.2"
-	cloudflaredAMD64URL    = "https://github.com/cloudflare/cloudflared/releases/download/2026.7.2/cloudflared-linux-amd64"
-	cloudflaredAMD64SHA256 = "ec905ea7b7e327ff8abdde8cb64697a2152de74dbcdbf6aec9db8364eb3886cd"
-	cloudflaredARM64URL    = "https://github.com/cloudflare/cloudflared/releases/download/2026.7.2/cloudflared-linux-arm64"
-	cloudflaredARM64SHA256 = "405df476437e027fc6d18729a5a77155c0a33a6082aeee60a799a688f3052e66"
+	cloudflaredVersion             = "2026.7.2"
+	cloudflaredAMD64URL            = "https://github.com/cloudflare/cloudflared/releases/download/2026.7.2/cloudflared-linux-amd64"
+	cloudflaredAMD64SHA256         = "ec905ea7b7e327ff8abdde8cb64697a2152de74dbcdbf6aec9db8364eb3886cd"
+	cloudflaredARM64URL            = "https://github.com/cloudflare/cloudflared/releases/download/2026.7.2/cloudflared-linux-arm64"
+	cloudflaredARM64SHA256         = "405df476437e027fc6d18729a5a77155c0a33a6082aeee60a799a688f3052e66"
+	cloudflaredWindowsAMD64URL     = "https://github.com/cloudflare/cloudflared/releases/download/2026.7.2/cloudflared-windows-amd64.exe"
+	cloudflaredWindowsAMD64SHA256  = "cdb5d4432f6ae1595654a692a51308b69d2bf7af961f5578d9391837cf072df9"
 )
 
 type managedTunnelState struct {
@@ -87,8 +89,6 @@ func (s *Service) handlePreferredAddressRoutes(w http.ResponseWriter, r *http.Re
 		s.savePreferredAddress(w, r, db, subparts[0])
 	case len(subparts) == 1 && r.Method == http.MethodDelete:
 		s.deletePreferredAddress(w, r, db, subparts[0])
-	case len(subparts) == 2 && subparts[1] == "check" && r.Method == http.MethodPost:
-		s.checkPreferredAddress(w, r, db, subparts[0])
 	default:
 		response.Error(w, http.StatusNotFound, "preferred address route not found")
 	}
@@ -375,7 +375,7 @@ func (s *Service) reconcileManagedTunnelHealth(ctx context.Context) {
 		return
 	}
 	defer db.Close()
-	rows, err := db.QueryContext(ctx, `SELECT server_id FROM managed_proxy_tunnels WHERE desired_status='running' AND apply_status IN ('running','disconnected') ORDER BY updated_at ASC`)
+	rows, err := db.QueryContext(ctx, `SELECT server_id FROM managed_proxy_tunnels WHERE desired_status='running' AND apply_status IN ('running','disconnected','reconciling') ORDER BY updated_at ASC`)
 	if err != nil {
 		return
 	}
@@ -390,6 +390,8 @@ func (s *Service) reconcileManagedTunnelHealth(ctx context.Context) {
 	for _, serverID := range serverIDs {
 		go s.reconcileManagedTunnelConnection(serverID)
 	}
+	// 整域转发规则的独立隧道同样纳入健康检查与自愈
+	s.reconcileForwardTunnelHealth(ctx)
 }
 
 func (s *Service) reconcileManagedTunnelConnection(serverID string) {
@@ -406,9 +408,14 @@ func (s *Service) reconcileManagedTunnelConnection(serverID string) {
 		return
 	}
 	defer db.Close()
-	var accountID, tunnelID string
-	if err := db.QueryRowContext(ctx, `SELECT account_id,tunnel_id FROM managed_proxy_tunnels WHERE server_id=? AND desired_status='running'`, serverID).Scan(&accountID, &tunnelID); err != nil || tunnelID == "" {
+	var accountID, tunnelID, applyStatus, lastReconcileAt string
+	if err := db.QueryRowContext(ctx, `SELECT account_id,tunnel_id,apply_status,COALESCE(last_reconcile_at,'') FROM managed_proxy_tunnels WHERE server_id=? AND desired_status='running'`, serverID).Scan(&accountID, &tunnelID, &applyStatus, &lastReconcileAt); err != nil || tunnelID == "" {
 		return
+	}
+	if applyStatus == "reconciling" && lastReconcileAt != "" {
+		if t, parseErr := time.Parse("2006-01-02 15:04:05", lastReconcileAt); parseErr == nil && time.Since(t) < 10*time.Minute {
+			return
+		}
 	}
 	connected := false
 	var checkErr error
@@ -426,7 +433,7 @@ func (s *Service) reconcileManagedTunnelConnection(serverID string) {
 		}
 	}
 	if connected {
-		_, _ = db.ExecContext(ctx, `UPDATE managed_proxy_tunnels SET apply_status='running',last_stage='health_check',last_error='',updated_at=datetime('now') WHERE server_id=? AND desired_status='running'`, serverID)
+		_, _ = db.ExecContext(ctx, `UPDATE managed_proxy_tunnels SET apply_status='running',last_stage='health_check',last_error='',reconcile_attempts=0,last_reconcile_at='',updated_at=datetime('now') WHERE server_id=? AND desired_status='running'`, serverID)
 		return
 	}
 	if checkErr != nil {
@@ -434,6 +441,76 @@ func (s *Service) reconcileManagedTunnelConnection(serverID string) {
 		return
 	}
 	_, _ = db.ExecContext(ctx, `UPDATE managed_proxy_tunnels SET apply_status='disconnected',last_stage='health_check',last_error='Cloudflare 未检测到 cloudflared 连接',updated_at=datetime('now') WHERE server_id=? AND desired_status='running'`, serverID)
+	s.attemptTunnelSelfHeal(serverID)
+}
+
+func (s *Service) attemptTunnelSelfHeal(serverID string) {
+	conn, ok := s.registry.Get(serverID)
+	if !ok || !conn.GetCapabilities()["cloudflared_runtime_v1"] {
+		return
+	}
+	if _, busy := s.taskRegistry.ActiveTask(proxyTaskResource(serverID)); busy {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+	db, err := s.open(ctx)
+	if err != nil {
+		return
+	}
+	defer db.Close()
+	var attempts int
+	var tokenEncrypted, lastReconcileAt string
+	if err := db.QueryRowContext(ctx, `SELECT reconcile_attempts,token_encrypted,COALESCE(last_reconcile_at,'') FROM managed_proxy_tunnels WHERE server_id=? AND desired_status='running' AND apply_status='disconnected'`, serverID).Scan(&attempts, &tokenEncrypted, &lastReconcileAt); err != nil {
+		return
+	}
+	if attempts >= s.tunnelReconcileMaxAttempts {
+		_, _ = db.ExecContext(ctx, `UPDATE managed_proxy_tunnels SET last_error='自愈重试已达上限，需人工排查',updated_at=datetime('now') WHERE server_id=?`, serverID)
+		return
+	}
+	if lastReconcileAt != "" {
+		if t, parseErr := time.Parse("2006-01-02 15:04:05", lastReconcileAt); parseErr == nil {
+			backoff := time.Duration(attempts) * s.tunnelReconcileBaseInterval
+			if time.Since(t) < backoff {
+				return
+			}
+		}
+	}
+	_, _ = db.ExecContext(ctx, `UPDATE managed_proxy_tunnels SET apply_status='reconciling',last_stage='self_heal',reconcile_attempts=reconcile_attempts+1,last_reconcile_at=datetime('now'),last_error='',updated_at=datetime('now') WHERE server_id=? AND desired_status='running'`, serverID)
+	token := secure.SecureDecrypt(tokenEncrypted)
+	if token == "" {
+		_, _ = db.ExecContext(ctx, `UPDATE managed_proxy_tunnels SET apply_status='disconnected',last_error='自愈解密 token 失败',updated_at=datetime('now') WHERE server_id=?`, serverID)
+		return
+	}
+	payload, _ := json.Marshal(cloudflaredTaskPayload("install", token))
+	if _, err := s.RunCloudflaredTaskAndWait(serverID, string(payload)); err != nil {
+		_, _ = db.ExecContext(ctx, `UPDATE managed_proxy_tunnels SET apply_status='disconnected',last_error='自愈重装 cloudflared 失败: '||?,updated_at=datetime('now') WHERE server_id=?`, err.Error(), serverID)
+		return
+	}
+	var accountID, tunnelID string
+	if err := db.QueryRowContext(ctx, `SELECT account_id,tunnel_id FROM managed_proxy_tunnels WHERE server_id=? AND desired_status='running'`, serverID).Scan(&accountID, &tunnelID); err != nil || tunnelID == "" {
+		_, _ = db.ExecContext(ctx, `UPDATE managed_proxy_tunnels SET apply_status='disconnected',last_error='自愈后读取隧道状态失败',updated_at=datetime('now') WHERE server_id=?`, serverID)
+		return
+	}
+	connected := false
+	for attempt := 0; attempt < s.tunnelHealthCheckAttempts; attempt++ {
+		count, checkErr := s.cloudflare.ManagedTunnelConnections(ctx, accountID, tunnelID)
+		if checkErr == nil && count > 0 {
+			connected = true
+			break
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(s.tunnelHealthCheckDelay):
+		}
+	}
+	if connected {
+		_, _ = db.ExecContext(ctx, `UPDATE managed_proxy_tunnels SET apply_status='running',last_stage='self_heal',last_error='',reconcile_attempts=0,last_reconcile_at='',updated_at=datetime('now') WHERE server_id=? AND desired_status='running'`, serverID)
+		applog.Info(ctx, "serveragent", "managed tunnel self-heal succeeded", "server_id", serverID)
+	} else {
+		_, _ = db.ExecContext(ctx, `UPDATE managed_proxy_tunnels SET apply_status='disconnected',last_error='自愈后 Cloudflare 仍未检测到连接',updated_at=datetime('now') WHERE server_id=? AND desired_status='running'`, serverID)
+	}
 }
 
 func rewriteTunnelClientURI(raw, oldHostname, newHostname string) (string, error) {
@@ -505,6 +582,7 @@ func cloudflaredTaskPayload(operation, token string) map[string]interface{} {
 		"operation": operation, "token": token, "version": cloudflaredVersion,
 		"asset_url_amd64": cloudflaredAMD64URL, "asset_sha256_amd64": cloudflaredAMD64SHA256,
 		"asset_url_arm64": cloudflaredARM64URL, "asset_sha256_arm64": cloudflaredARM64SHA256,
+		"asset_url_windows_amd64": cloudflaredWindowsAMD64URL, "asset_sha256_windows_amd64": cloudflaredWindowsAMD64SHA256,
 	}
 }
 
@@ -763,28 +841,4 @@ func (s *Service) deletePreferredAddress(w http.ResponseWriter, r *http.Request,
 		return
 	}
 	response.OK(w, map[string]bool{"deleted": true})
-}
-
-func (s *Service) checkPreferredAddress(w http.ResponseWriter, r *http.Request, db *sql.DB, id string) {
-	var address string
-	var port int
-	if err := db.QueryRowContext(r.Context(), `SELECT address,port FROM managed_proxy_preferences WHERE id=?`, id).Scan(&address, &port); err != nil {
-		response.Error(w, 404, "preferred address not found")
-		return
-	}
-	started := time.Now()
-	conn, err := net.DialTimeout("tcp", net.JoinHostPort(address, strconv.Itoa(port)), 5*time.Second)
-	latency := int(time.Since(started).Milliseconds())
-	status, message := "healthy", ""
-	if err != nil {
-		status, message, latency = "failed", err.Error(), 0
-	} else {
-		_ = conn.Close()
-	}
-	_, _ = db.ExecContext(r.Context(), `UPDATE managed_proxy_preferences SET last_status=?,last_latency_ms=?,last_error=?,checked_at=datetime('now'),updated_at=datetime('now') WHERE id=?`, status, latency, message, id)
-	if err != nil {
-		response.Error(w, 502, message)
-		return
-	}
-	response.OK(w, map[string]interface{}{"status": status, "latency_ms": latency})
 }
