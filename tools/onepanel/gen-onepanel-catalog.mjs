@@ -469,7 +469,7 @@ ${fields.join('\n')}
         for (const [name, prop] of Object.entries(schema.props)) {
           const required = schema.required.includes(name);
           // 由路径参数注入的字段不需要调用方在 body 里再传
-          const injected = (up.bodyFrom || '').includes(`path:${name}`) || pathVarNames.includes(name);
+          const injected = injectedField(name, up, pathVarNames);
           const type = goTypeOf(prop);
           const enumTag = prop.enum ? `, e: []string{${prop.enum.map((v) => goStr(v)).join(', ')}}` : '';
           const desc = `${schema.name}.${name}${injected ? '（可由路径参数自动注入）' : ''}`;
@@ -491,7 +491,16 @@ ${fields.join('\n')}
 }
 
 function injectedField(name, up, pathVars) {
-  if ((up.bodyFrom || '').includes(`path:${name}`)) return true;
+  // bodyFrom 支持「对外名=上游字段名」的映射（path:appInstallId=installId），
+  // 所以既要看左边的对外名，也要看右边注入到 body 的上游字段名。
+  for (const token of (up.bodyFrom || '').split(',')) {
+    const t = token.trim().replace(/^path:/, '');
+    if (!t) continue;
+    const eq = t.indexOf('=');
+    const from = eq >= 0 ? t.slice(0, eq) : t;
+    const to = eq >= 0 ? t.slice(eq + 1) : t;
+    if (name === from || name === to) return true;
+  }
   return pathVars.includes(name);
 }
 
