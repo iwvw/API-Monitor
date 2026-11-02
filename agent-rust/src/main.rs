@@ -2723,6 +2723,15 @@ async fn handle_pty_start_v2(
             .remove(&task_id_cleanup);
     });
 
+    // Agent 侧主动保活。
+    // 背景：tungstenite 0.26 的 WebSocketConfig 还没有 ping_interval 字段
+    // （0.27+ 才有），只能自己起 ticker 发 Ping。这条链路是长连接直连，
+    // 网络闪断时 TCP 会长期处于半开状态：双方都不报错、数据也过不来，
+    // 表现为「终端卡住但界面仍显示已连接」。定时 Ping 让写端尽早暴露失败。
+    let mut ping_ticker = tokio::time::interval(Duration::from_secs(15));
+    // 第一次 tick 会立即触发，先消耗掉避免刚建连就发。
+    ping_ticker.tick().await;
+
     loop {
         tokio::select! {
             Some(data) = pty_rx.recv() => {
@@ -2735,6 +2744,12 @@ async fn handle_pty_start_v2(
                         rows: None,
                     },
                 ).await.is_err() {
+                    break;
+                }
+            }
+            _ = ping_ticker.tick() => {
+                // 写 Ping 失败即代表链路已死，直接退出让上层重连。
+                if ws_writer.send(Message::Ping(Vec::new().into())).await.is_err() {
                     break;
                 }
             }
@@ -2753,9 +2768,29 @@ async fn handle_pty_start_v2(
                                         let _ = session.resize(cols, rows);
                                     }
                                 }
+                                // 应用层心跳：服务端/代理会吞掉 WS 控制帧时，
+                                // 前端改发 JSON ping，这里回 pong 维持链路。
+                                "ping" => {
+                                    let _ = send_terminal_stream_message(
+                                        &mut ws_writer,
+                                        TerminalStreamMessage {
+                                            message_type: "pong".to_string(),
+                                            data: None,
+                                            cols: None,
+                                            rows: None,
+                                        },
+                                    ).await;
+                                }
+                                "pong" => {}
                                 "stop" => break,
                                 _ => {}
                             }
+                        }
+                    }
+                    Some(Ok(Message::Ping(payload))) => {
+                        // 手动回应 Ping：部分代理只是转发控制帧，语义仍需对端回 Pong。
+                        if ws_writer.send(Message::Pong(payload)).await.is_err() {
+                            break;
                         }
                     }
                     Some(Ok(Message::Close(_))) | None => break,

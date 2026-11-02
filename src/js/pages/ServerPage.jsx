@@ -61,8 +61,12 @@ import {
   canOpenTerminal,
   hasSshEndpoint,
   isAgentServer,
+  isTerminalSocketDead,
   resolveTerminalProtocol,
   resolveTerminalSocketTransport,
+  shouldDropPtyAttach,
+  terminalReconnectDelay,
+  TERMINAL_HEARTBEAT_MS,
 } from '../modules/serverTerminal.js';
 import { canOpenRemoteDesktop, remoteDesktopPath } from '../modules/remoteDesktop.js';
 import { getSftpRoots, readSftpFile, writeSftpFile } from '../modules/server-sftp.js';
@@ -6725,94 +6729,164 @@ function ServerPage() {
     session?.id ||
     '';
 
-  const createSSHSocket = (sessionId, sessionMeta, terminal) => {
-    if (typeof WebSocket !== 'undefined') {
-      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const params = new URLSearchParams({
-        server_id: String(sessionMeta.server.id),
-        session_id: sessionId,
-        transport: resolveTerminalSocketTransport(
-          sessionMeta.server,
-          sessionMeta.server.preferred_terminal_transport || sessionMeta.type || 'auto'
-        ),
-        cols: String(sshSessionRefs.current[sessionId]?.terminal?.cols || 120),
-        rows: String(sshSessionRefs.current[sessionId]?.terminal?.rows || 32),
-      });
-      if (sessionMeta.attachToPtyId || sessionMeta.ptyId) {
-        params.set('pty_id', sessionMeta.attachToPtyId || sessionMeta.ptyId);
-        params.set('attach', '1');
-      }
-      if (sessionMeta.containerName) {
-        params.set('container', sessionMeta.containerName);
-      }
-      const ws = new WebSocket(`${protocol}//${window.location.host}/ws/ssh?${params.toString()}`);
+  const connectSessionSocket = (sessionId, sessionMeta, terminal, attempt = 0) => {
+    const inst = sshSessionRefs.current[sessionId];
+    if (!inst) return null;
 
-      ws.onmessage = event => {
-        try {
-          const message = JSON.parse(event.data);
-          if (message.type === 'data') {
-            const inst = sshSessionRefs.current[sessionId];
-            if (inst) inst.hasTerminalData = true;
-            terminal.write(message.data || '');
-          } else if (
-            message.type === 'status' &&
-            (message.data === 'connected' ||
-              message.data === 'connected_legacy' ||
-              message.data === 'attached')
-          ) {
-            const connectedTransport =
-              message.transport ||
-              sessionMeta.server.preferred_terminal_transport ||
-              sessionMeta.type ||
-              'ssh';
-            const inst = sshSessionRefs.current[sessionId];
-            if (inst && !inst.connectionBannerCleared && !inst.hasTerminalData) {
-              terminal.clear();
-              inst.connectionBannerCleared = true;
-              scheduleTerminalFit(sessionId, 30);
-            }
-            if (inst) {
-              inst.connected = true;
-              inst.transport = connectedTransport;
-            }
-            setSshSessions(prev =>
-              prev.map(s =>
-                s.id === sessionId ? { ...s, connected: true, transport: connectedTransport } : s
-              )
-            );
-          } else if (message.type === 'error') {
-            terminal.writeln(`\r\n\x1b[1;31m${message.data || 'SSH connection failed'}\x1b[0m`);
-          }
-        } catch {
-          terminal.write(String(event.data || ''));
-        }
-      };
-      ws.onerror = () => {
-        terminal.writeln('\r\n\x1b[1;31mSSH 终端连接失败。\x1b[0m');
-      };
-      ws.onclose = () => {
-        const inst = sshSessionRefs.current[sessionId];
-        if (inst) inst.connected = false;
-        setSshSessions(prev =>
-          prev.map(s => (s.id === sessionId ? { ...s, connected: false } : s))
-        );
-        terminal.writeln('\r\n\x1b[1;33mSSH 终端连接已关闭。\x1b[0m');
-      };
-      return ws;
+    if (typeof WebSocket === 'undefined') {
+      terminal.writeln(
+        '\n\x1b[1;33m当前环境不支持 WebSocket，无法建立终端连接。\x1b[0m'
+      );
+      setSshSessions(prev => prev.map(s => (s.id === sessionId ? { ...s, connected: false } : s)));
+      return null;
     }
 
-    terminal.writeln(
-      '\n\x1b[1;33mSSH 终端 WebSocket 已随 Node 后端迁移退役，当前 Go 后端仅保留 Agent /socket.io/ 实时通道。\x1b[0m'
-    );
-    setSshSessions(prev => prev.map(s => (s.id === sessionId ? { ...s, connected: false } : s)));
-    return {
-      readyState: WebSocket.CLOSED,
-      send: () => {},
-      close: () => {},
-      onclose: null,
-      onerror: null,
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const params = new URLSearchParams({
+      server_id: String(sessionMeta.server.id),
+      session_id: sessionId,
+      transport: resolveTerminalSocketTransport(
+        sessionMeta.server,
+        sessionMeta.server.preferred_terminal_transport || sessionMeta.type || 'auto'
+      ),
+      cols: String(inst.terminal?.cols || 120),
+      rows: String(inst.terminal?.rows || 32),
+    });
+    // 重连时优先 attach 回原来的 PTY，保留 shell 上下文（工作目录、环境变量、
+    // 正在跑的命令），而不是重开一个全新的 shell。
+    const reusePtyId = sessionMeta.attachToPtyId || sessionMeta.ptyId || inst.ptyId;
+    if (reusePtyId) {
+      params.set('pty_id', reusePtyId);
+      params.set('attach', '1');
+    }
+    if (sessionMeta.containerName) {
+      params.set('container', sessionMeta.containerName);
+    }
+
+    let ws;
+    try {
+      ws = new WebSocket(`${protocol}//${window.location.host}/ws/ssh?${params.toString()}`);
+    } catch (error) {
+      terminal.writeln(`\r\n\x1b[1;31m终端连接创建失败：${error?.message || error}\x1b[0m`);
+      return null;
+    }
+
+    const clearHeartbeat = () => {
+      if (inst.heartbeatInterval) {
+        clearInterval(inst.heartbeatInterval);
+        inst.heartbeatInterval = null;
+      }
     };
+
+    const scheduleReconnect = reason => {
+      if (inst.closing || sshSessionRefs.current[sessionId] !== inst) return;
+      clearHeartbeat();
+      const delay = terminalReconnectDelay(attempt);
+      if (inst.reconnectTimer) clearTimeout(inst.reconnectTimer);
+      inst.connected = false;
+      inst.reconnectAttempt = attempt + 1;
+      setSshSessions(prev =>
+        prev.map(s =>
+          s.id === sessionId
+            ? { ...s, connected: false, reconnecting: true, reconnectAttempt: attempt + 1 }
+            : s
+        )
+      );
+      terminal.writeln(
+        `\r\n\x1b[1;33m终端连接已断开（${reason}），${Math.round(delay / 1000)}s 后自动重连…\x1b[0m`
+      );
+      inst.reconnectTimer = setTimeout(() => {
+        inst.reconnectTimer = null;
+        if (inst.closing || sshSessionRefs.current[sessionId] !== inst) return;
+        connectSessionSocket(sessionId, sessionMeta, terminal, attempt + 1);
+      }, delay);
+    };
+
+    ws.onopen = () => {
+      if (sshSessionRefs.current[sessionId] !== inst) {
+        ws.close();
+        return;
+      }
+      inst.ws = ws;
+      inst.reconnectAttempt = 0;
+      // 应用层心跳：不走 WS 控制帧，因为部分反向代理/隧道会吞掉 ping/pong，
+      // 导致「连接看起来还在但数据过不来」。
+      clearHeartbeat();
+      inst.heartbeatInterval = setInterval(() => {
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: 'ping' }));
+        }
+      }, TERMINAL_HEARTBEAT_MS);
+    };
+
+    ws.onmessage = event => {
+      try {
+        const message = JSON.parse(event.data);
+        if (message.type === 'data') {
+          if (inst) inst.hasTerminalData = true;
+          // 断线重连期间可能积压了输出，恢复后先落地再继续。
+          terminal.write(message.data || '');
+        } else if (message.type === 'pong') {
+          inst.lastPongAt = Date.now();
+        } else if (
+          message.type === 'status' &&
+          (message.data === 'connected' ||
+            message.data === 'connected_legacy' ||
+            message.data === 'attached')
+        ) {
+          const connectedTransport =
+            message.transport ||
+            sessionMeta.server.preferred_terminal_transport ||
+            sessionMeta.type ||
+            'ssh';
+          if (inst && !inst.connectionBannerCleared && !inst.hasTerminalData) {
+            terminal.clear();
+            inst.connectionBannerCleared = true;
+            scheduleTerminalFit(sessionId, 30);
+          }
+          if (inst) {
+            inst.connected = true;
+            inst.transport = connectedTransport;
+            inst.reconnectAttempt = 0;
+          }
+          setSshSessions(prev =>
+            prev.map(s =>
+              s.id === sessionId
+                ? { ...s, connected: true, reconnecting: false, reconnectAttempt: 0, transport: connectedTransport }
+                : s
+            )
+          );
+        } else if (message.type === 'error') {
+          terminal.writeln(`\r\n\x1b[1;31m${message.data || 'SSH connection failed'}\x1b[0m`);
+        }
+      } catch {
+        terminal.write(String(event.data || ''));
+      }
+    };
+
+    ws.onerror = () => {
+      // onclose 一定会跟着触发，这里不重复处理，避免刷两条提示。
+    };
+
+    ws.onclose = () => {
+      if (sshSessionRefs.current[sessionId] !== inst) return;
+      if (inst.closing) return;
+      // attach 回原 PTY 失败时（PTY 已随 shell 退出而回收），退化为新开 shell，
+      // 否则会一直 attach 失败、无限重连。
+      if (shouldDropPtyAttach(attempt, inst.ptyId)) {
+        sessionMeta.attachToPtyId = '';
+        sessionMeta.ptyId = '';
+        inst.ptyId = '';
+      }
+      scheduleReconnect('连接关闭');
+    };
+
+    inst.ws = ws;
+    return ws;
   };
+
+  const createSSHSocket = (sessionId, sessionMeta, terminal) =>
+    connectSessionSocket(sessionId, sessionMeta, terminal, 0);
 
   const initSessionTerminal = (sessionId, sessionMeta) => {
     if (sshSessionRefs.current[sessionId]) return;
@@ -6863,6 +6937,13 @@ function ServerPage() {
       lastSeq: 0,
       connectionBannerCleared: false,
       hasTerminalData: false,
+      // 重连相关：reconnectTimer 防止重复排程，closing 让 onclose 不再重连，
+      // ptyId 记录当前 PTY，重连时 attach 回去以保留 shell 上下文。
+      reconnectTimer: null,
+      reconnectAttempt: 0,
+      closing: false,
+      ptyId: '',
+      lastPongAt: 0,
     };
 
     const ws = createSSHSocket(sessionId, sessionMeta, terminal);
@@ -6939,6 +7020,12 @@ function ServerPage() {
 
     const session = sshSessionRefs.current[sessionId];
     if (session) {
+      // 先标记关闭，避免 onclose 触发自动重连。
+      session.closing = true;
+      if (session.reconnectTimer) {
+        clearTimeout(session.reconnectTimer);
+        session.reconnectTimer = null;
+      }
       if (terminalResizeTimers.current[sessionId]) {
         clearTimeout(terminalResizeTimers.current[sessionId]);
         delete terminalResizeTimers.current[sessionId];
@@ -7043,6 +7130,11 @@ function ServerPage() {
     const session = sshSessionRefs.current[sessionId];
     if (!session) return;
 
+    // 用户手动重连：先清掉自动重连排程，避免两条连接同时建立。
+    if (session.reconnectTimer) {
+      clearTimeout(session.reconnectTimer);
+      session.reconnectTimer = null;
+    }
     if (session.heartbeatInterval) {
       clearInterval(session.heartbeatInterval);
       session.heartbeatInterval = null;
@@ -7053,11 +7145,40 @@ function ServerPage() {
     }
 
     session.terminal.writeln(`\r\n\x1b[1;33m正在恢复终端会话...\x1b[0m`);
-    setSshSessions(prev => prev.map(s => (s.id === sessionId ? { ...s, connected: false } : s)));
+    setSshSessions(prev =>
+      prev.map(s => (s.id === sessionId ? { ...s, connected: false, reconnecting: true } : s))
+    );
 
-    const nextWs = createSSHSocket(sessionId, session.sessionMeta, session.terminal);
+    session.reconnectAttempt = 0;
+    const nextWs = connectSessionSocket(sessionId, session.sessionMeta, session.terminal, 0);
     session.ws = nextWs;
   };
+
+  // 页面从后台切回时立即探活：切 WiFi / 手机热点后浏览器可能已静默断开，
+  // 但 WS 的 onclose 不一定及时触发（尤其在移动端休眠后）。
+  useEffect(() => {
+    const probeSessions = () => {
+      if (document.visibilityState !== 'visible') return;
+      Object.values(sshSessionRefs.current).forEach(session => {
+        if (session.closing) return;
+        const ws = session.ws;
+        if (isTerminalSocketDead(ws) && !session.reconnectTimer) {
+          session.reconnectAttempt = 0;
+          connectSessionSocket(session.id, session.sessionMeta, session.terminal, 0);
+          return;
+        }
+        if (ws?.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: 'ping' }));
+        }
+      });
+    };
+    document.addEventListener('visibilitychange', probeSessions);
+    window.addEventListener('online', probeSessions);
+    return () => {
+      document.removeEventListener('visibilitychange', probeSessions);
+      window.removeEventListener('online', probeSessions);
+    };
+  }, []);
 
   // -------------------- 拖拽放置分屏逻辑 --------------------
   const handleTerminalDragStart = (event, id) => {
@@ -12303,10 +12424,25 @@ function ServerPage() {
                         className="h-full min-w-0 justify-start px-2 text-[11px] font-semibold text-inherit"
                       >
                         <span
-                          className={`h-1.5 w-1.5 rounded-full ${sess.connected ? 'bg-kumo-success' : 'bg-kumo-warning'}`}
+                          className={`h-1.5 w-1.5 rounded-full ${
+                            sess.connected
+                              ? 'bg-kumo-success'
+                              : sess.reconnecting
+                                ? 'animate-pulse bg-kumo-warning'
+                                : 'bg-kumo-danger'
+                          }`}
+                          title={
+                            sess.connected
+                              ? '已连接'
+                              : sess.reconnecting
+                                ? `连接断开，正在第 ${sess.reconnectAttempt || 1} 次自动重连`
+                                : '连接已断开'
+                          }
                         ></span>
                         <span className="max-w-28 truncate">{sess.name}</span>
-                        <span className="text-[9px] uppercase text-kumo-subtle">{sess.type}</span>
+                        <span className="text-[9px] uppercase text-kumo-subtle">
+                          {sess.reconnecting ? '重连中' : sess.type}
+                        </span>
                       </Button>
                       <Button
                         shape="square"

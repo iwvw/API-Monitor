@@ -84,3 +84,39 @@ export function resolveTerminalSocketTransport(server = {}, requested = '') {
 export function canOpenTerminal(server = {}) {
   return Boolean(resolveTerminalProtocol(server));
 }
+
+// 终端保活与重连参数。
+// 心跳 25s：必须小于后端 terminalPongWait（120s），也要小于常见反向代理的
+// 空闲超时（Nginx proxy_read_timeout 默认 60s），否则连接会被中间设备静默切断。
+export const TERMINAL_HEARTBEAT_MS = 25000;
+export const TERMINAL_RECONNECT_BASE_MS = 1000;
+export const TERMINAL_RECONNECT_MAX_MS = 30000;
+
+/**
+ * 计算下一次重连等待时长：指数退避 1s → 2s → 4s …… 上限 30s。
+ * attempt 从 0 开始（首次重连）。
+ */
+export function terminalReconnectDelay(attempt = 0) {
+  const safeAttempt = Math.max(0, Math.min(Number(attempt) || 0, 5));
+  return Math.min(TERMINAL_RECONNECT_BASE_MS * 2 ** safeAttempt, TERMINAL_RECONNECT_MAX_MS);
+}
+
+/**
+ * WebSocket 是否已经不可用（需要主动重连）。
+ * 注意 CONNECTING 不算 dead：正常握手途中不该打断。
+ */
+export function isTerminalSocketDead(ws) {
+  if (!ws) return true;
+  return ws.readyState === 3 /* CLOSED */ || ws.readyState === 2 /* CLOSING */;
+}
+
+/**
+ * 判断 attach 回原 PTY 是否应该放弃。
+ *
+ * 重连时优先 attach 原 PTY 以保留 shell 上下文（工作目录、环境变量、正在跑的
+ * 命令）。但 PTY 可能已经随 shell 退出被回收，此时会一直 attach 失败、无限
+ * 重连。约定：连续失败到第 2 次（attempt >= 1）就放弃 attach，退化为新开 shell。
+ */
+export function shouldDropPtyAttach(attempt, ptyId) {
+  return Boolean(ptyId) && Number(attempt) >= 1;
+}
