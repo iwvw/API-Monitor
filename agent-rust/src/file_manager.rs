@@ -866,16 +866,22 @@ fn resolve_real_path(input_path: &str) -> Result<PathBuf, String> {
 
 /// `resolve_real_path` 的可测试内核：根目录由调用方显式传入。
 fn resolve_real_path_with_roots(input_path: &str, roots: &[PathBuf]) -> Result<PathBuf, String> {
-    let normalized = input_path.replace('\\', "/");
-    let trimmed = normalized.trim_matches(|c| c == '/' || c == ' ');
+    // 不把 `\` 换成 `/`：Windows 上 `C:/Users/x` 经 trim_start_matches('/')
+    // 会丢掉盘符后的分隔符，变成相对路径「C:Users\x」，被误判为越界。
+    // 直接用平台原生 Path 处理，Unix 下的 `\` 本来就属于文件名而非分隔符。
+    let trimmed = input_path.trim();
 
     if trimmed.is_empty() || trimmed == "." {
         return Err("路径不能为空".to_string());
     }
 
-    let candidate = PathBuf::from(strip_drive_prefix(trimmed.trim_start_matches('/')));
+    let candidate = PathBuf::from(trimmed);
     let absolute = if candidate.is_absolute() {
         candidate
+    } else if cfg!(windows) {
+        // 形如 `C:relative`（盘符相对）也按绝对处理，避免落到进程 CWD。
+        let stripped = strip_drive_prefix(trimmed.trim_start_matches('/'));
+        PathBuf::from(format!("/{}", stripped))
     } else {
         PathBuf::from("/").join(candidate)
     };
@@ -1093,6 +1099,30 @@ mod tests {
         );
         // 关键断言：解析结果必须在白名单根内，而不是被挪到别处。
         assert!(fs::canonicalize(&resolved).unwrap().starts_with(&root));
+
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    /// Windows 盘符路径不能被裁剪成相对路径。
+    ///
+    /// 曾经的实现先把 `\` 换成 `/` 再 trim_start_matches('/')，
+    /// `C:/Users/x` 会变成 `C:Users\x`（丢了盘符后的分隔符），
+    /// 于是白名单内的路径也被判成越界。这里直接断言盘符路径能正确解析。
+    #[test]
+    #[cfg(windows)]
+    fn real_path_keeps_windows_drive_separator() {
+        let base = std::env::temp_dir().join(format!("api-monitor-drive-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(&base).unwrap();
+        let root = fs::canonicalize(&base).unwrap();
+
+        // 故意用正斜杠形式（面板传参常见），盘符必须保留。
+        let as_forward = root.to_string_lossy().replace('\\', "/");
+        assert!(as_forward.contains(":/"), "test setup: {as_forward}");
+
+        let resolved = super::resolve_real_path_with_roots(&as_forward, &[root.clone()])
+            .expect("drive path with forward slashes must resolve");
+        assert_eq!(fs::canonicalize(&resolved).unwrap(), root);
 
         let _ = std::fs::remove_dir_all(&base);
     }
