@@ -1298,8 +1298,6 @@ func inferRouteMethods(route manifest.Route) []string {
 		return []string{"GET"}
 	case "/api/prompts/entries/{id}/publish":
 		return []string{"POST"}
-	case "/api/onepanel/{serverId}/openresty/reload":
-		return []string{"POST"}
 	case "/api/server/agent/auto-install/{id}":
 		return []string{"POST"}
 	case "/api/server/agent/proxy/runtimes":
@@ -1339,19 +1337,17 @@ func inferRouteMethods(route manifest.Route) []string {
 		"/api/koyeb/apps/{appId}/pause",
 		"/api/koyeb/apps/{appId}/resume",
 		"/api/koyeb/domains/{domainId}/refresh",
-		"/api/koyeb/secrets/{secretId}/update",
-		"/api/onepanel/{serverId}/websites/{id}/operate",
-		"/api/onepanel/{serverId}/apps/install",
-		"/api/onepanel/{serverId}/containers/operate",
-		"/api/onepanel/{serverId}/ssl/obtain",
-		"/api/onepanel/{serverId}/upgrade",
-		"/api/onepanel/{serverId}/databases/{id}/password",
-		"/api/onepanel/{serverId}/websites/{id}/nginx",
-		"/api/onepanel/{serverId}/websites/{id}/https",
-		"/api/onepanel/{serverId}/websites/{id}/proxy":
+		"/api/koyeb/secrets/{secretId}/update":
 		return []string{"POST"}
 	case "/api/koyeb/data":
 		return []string{"GET"}
+	}
+
+	// 1Panel 快捷路由由生成器统一登记真实方法（见 onepanel_gen.go），
+	// 不能落到下面基于描述的推断：MatchPattern 的兜底是 GET，会把
+	// POST/DELETE 接口标成只读。
+	if methods, ok := onepanelRouteMethods[route.Prefix]; ok {
+		return append([]string(nil), methods...)
 	}
 	description := strings.ToLower(route.Description)
 	switch {
