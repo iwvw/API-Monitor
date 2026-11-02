@@ -1005,6 +1005,7 @@ fn format_permissions(meta: &fs::Metadata) -> String {
 #[cfg(test)]
 mod tests {
     use super::canonicalize_missing_tail;
+    use std::fs;
 
     /// 父目录整体不存在时不应直接失败，而是回退到最近的已存在祖先再拼回尾段。
     #[test]
@@ -1025,23 +1026,46 @@ mod tests {
 
     /// realPath=true 时，白名单外的路径必须报错，绝不能静默锚定到沙箱根。
     /// 这是「面板显示保存成功但真实文件没变」的回归防线。
+    ///
+    /// 用显式 roots 而非全局沙箱根：CI runner 对 /var/lib/api-monitor 没有写权限，
+    /// 依赖默认根会让单测因环境权限失败。
     #[test]
     fn real_path_rejects_paths_outside_allowed_roots() {
-        let resolved = super::resolve_real_path("/definitely/not/whitelisted/file.yml");
-        assert!(resolved.is_err(), "expected rejection, got {resolved:?}");
-        let message = resolved.unwrap_err();
+        let base = std::env::temp_dir().join(format!("api-monitor-reject-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(&base).unwrap();
+        let target = base.join("file.yml");
+        std::fs::write(&target, "a: 1\n").unwrap();
+
+        // 白名单里放一个**别的**目录，target 不在其中。
+        let other = std::env::temp_dir().join(format!("api-monitor-other-{}", std::process::id()));
+        fs::create_dir_all(&other).unwrap();
+        let roots = vec![fs::canonicalize(&other).unwrap()];
+
+        let err = super::resolve_real_path_with_roots(&target.to_string_lossy(), &roots)
+            .expect_err("path outside whitelist must be rejected");
         assert!(
-            message.contains("白名单"),
-            "error should explain whitelist, got: {message}"
+            err.contains("白名单"),
+            "error should explain whitelist, got: {err}"
         );
+
+        let _ = std::fs::remove_dir_all(&base);
+        let _ = std::fs::remove_dir_all(&other);
     }
 
-    /// 默认沙箱根自身是允许的，realPath 解析不应把它判为越界。
+    /// 白名单根自身是允许的，realPath 解析不应把它判为越界。
     #[test]
-    fn real_path_accepts_sandbox_root() {
-        let root = super::canonical_files_root().expect("sandbox root");
-        let resolved = super::resolve_real_path(&root.to_string_lossy()).expect("sandbox root allowed");
+    fn real_path_accepts_allowed_root_itself() {
+        let base = std::env::temp_dir().join(format!("api-monitor-root-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        fs::create_dir_all(&base).unwrap();
+        let root = fs::canonicalize(&base).unwrap();
+
+        let resolved = super::resolve_real_path_with_roots(&root.to_string_lossy(), &[root.clone()])
+            .expect("allowed root itself must pass");
         assert_eq!(resolved, root);
+
+        let _ = std::fs::remove_dir_all(&base);
     }
 
     /// 白名单根下的真实路径应被放行，且解析到主机真实位置（不锚定到沙箱）。
@@ -1053,12 +1077,13 @@ mod tests {
         let target = base.join("compose").join("docker-compose.yml");
         std::fs::write(&target, "services: {}\n").unwrap();
 
-        let roots = vec![std::fs::canonicalize(&base).unwrap()];
+        let root = fs::canonicalize(&base).unwrap();
+        let roots = vec![root.clone()];
         let resolved = super::resolve_real_path_with_roots(&target.to_string_lossy(), &roots)
             .expect("whitelisted path allowed");
-        assert_eq!(resolved, std::fs::canonicalize(&target).unwrap());
-        // 关键断言：解析结果必须是主机真实路径，而不是沙箱内的同名副本。
-        assert!(!resolved.starts_with(super::canonical_files_root().unwrap()));
+        assert_eq!(resolved, fs::canonicalize(&target).unwrap());
+        // 关键断言：解析结果必须在白名单根内，而不是被挪到别处。
+        assert!(resolved.starts_with(&root));
 
         let _ = std::fs::remove_dir_all(&base);
     }
