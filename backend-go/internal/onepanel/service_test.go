@@ -188,8 +188,12 @@ func TestProxyListSendsDefaultBodyForSearch(t *testing.T) {
 	if !strings.Contains(runner.command, "/containers/search") {
 		t.Fatalf("should target /containers/search, got:\n%s", runner.command)
 	}
-	if !strings.Contains(runner.command, `-d '{"page":1,"pageSize":50,"state":"all","orderBy":"name","order":"ascending"}'`) {
-		t.Fatalf("default search body missing:\n%s", runner.command)
+	// 默认体由 tools/onepanel/quick-routes.json 生成，json.Marshal 会按 key 排序，
+	// 因此按语义比对而不是字面串。
+	for _, want := range []string{`"page":1`, `"pageSize":50`, `"state":"all"`, `"orderBy":"name"`, `"order":"ascending"`} {
+		if !strings.Contains(runner.command, want) {
+			t.Fatalf("default search body missing %s:\n%s", want, runner.command)
+		}
 	}
 }
 

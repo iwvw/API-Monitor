@@ -85,15 +85,43 @@ var routeAliases = map[string][]string{
 	"/api/koyeb": {"koyeb"},
 	"/api/koyeb/services/{serviceId}/redeploy": {"重新部署服务"},
 
-	"/api/onepanel":                           {"1panel", "面板", "面板服务器"},
-	"/api/onepanel/{serverId}/websites":       {"网站列表", "建站"},
-	"/api/onepanel/{serverId}/containers":     {"容器列表", "docker 容器"},
-	"/api/onepanel/{serverId}/apps/installed": {"已安装应用", "应用市场"},
-	"/api/onepanel/{serverId}/apps/install":   {"安装应用", "应用安装"},
-	"/api/onepanel/{serverId}/databases":      {"数据库列表", "创建数据库"},
-	"/api/onepanel/{serverId}/runtimes":       {"运行环境", "php 环境"},
-	"/api/onepanel/{serverId}/ssl":            {"ssl 证书", "https 证书"},
-	"/api/onepanel/{serverId}/openresty":      {"openresty", "nginx", "反代配置"},
+	"/api/onepanel":                                  {"1panel", "面板", "面板服务器", "one-panel"},
+	"/api/onepanel/config":                           {"1panel 连接配置", "面板配置", "面板 apikey", "1panel apikey"},
+	"/api/onepanel/{serverId}/health":                {"面板状态", "面板健康", "面板连通性", "1panel 状态"},
+	"/api/onepanel/{serverId}/overview":              {"面板总览", "面板概览", "面板摘要"},
+	"/api/onepanel/{serverId}/dashboard/current":     {"面板负载", "面板实时监控", "面板 cpu", "面板资源"},
+	"/api/onepanel/{serverId}/upgrade":               {"面板升级", "1panel 升级", "升级面板"},
+	"/api/onepanel/{serverId}/upgrade/check":         {"面板升级检查", "面板新版本", "检查面板更新"},
+	"/api/onepanel/{serverId}/websites":              {"网站列表", "建站", "站点列表", "1panel 网站"},
+	"/api/onepanel/{serverId}/websites/{id}":         {"网站详情", "删除网站", "读取网站"},
+	"/api/onepanel/{serverId}/websites/{id}/operate": {"启停网站", "重启网站", "停止网站", "启动网站"},
+	"/api/onepanel/{serverId}/websites/{id}/proxy":   {"反向代理", "反代配置", "网站反代", "配置反代"},
+	"/api/onepanel/{serverId}/websites/{id}/https":   {"网站 https", "启用 https", "站点证书"},
+	"/api/onepanel/{serverId}/websites/{id}/nginx":   {"网站 nginx 配置", "修改 nginx", "站点配置"},
+	"/api/onepanel/{serverId}/apps":                  {"应用市场", "可安装应用", "应用商店", "app store"},
+	"/api/onepanel/{serverId}/apps/installed":        {"已安装应用", "已装应用"},
+	"/api/onepanel/{serverId}/apps/install":          {"安装应用", "应用安装", "部署应用"},
+	"/api/onepanel/{serverId}/apps/installed/{appInstallId}/op": {"启停应用", "重启应用", "停止应用", "卸载应用"},
+	"/api/onepanel/{serverId}/containers":                       {"容器列表", "docker 容器", "1panel 容器"},
+	"/api/onepanel/{serverId}/containers/operate":               {"重启容器", "停止容器", "启动容器", "批量容器操作"},
+	"/api/onepanel/{serverId}/containers/{name}/logs":           {"容器日志", "查看容器日志", "docker 日志"},
+	"/api/onepanel/{serverId}/containers/compose":               {"创建 compose", "编排应用", "compose 部署"},
+	"/api/onepanel/{serverId}/ssl":                              {"ssl 证书", "https 证书", "证书列表", "ssl 列表"},
+	"/api/onepanel/{serverId}/ssl/obtain":                       {"申请证书", "申请 ssl", "签发证书", "acme 申请"},
+	"/api/onepanel/{serverId}/acme":                             {"acme 账号", "创建 acme", "证书账号"},
+	"/api/onepanel/{serverId}/openresty/status":                 {"openresty 状态", "nginx 状态", "连接数"},
+	"/api/onepanel/{serverId}/openresty/reload":                 {"重载 nginx", "重载 openresty", "reload nginx"},
+	"/api/onepanel/{serverId}/backup":                           {"立即备份", "执行备份", "面板备份"},
+	"/api/onepanel/{serverId}/backups/records":                  {"备份记录", "备份列表", "备份历史"},
+	"/api/onepanel/{serverId}/backups/options":                  {"备份账号", "备份存储", "存储账号"},
+	"/api/onepanel/{serverId}/databases":                        {"数据库列表", "创建数据库", "1panel 数据库"},
+	"/api/onepanel/{serverId}/databases/{id}":                   {"删除数据库", "移除数据库"},
+	"/api/onepanel/{serverId}/databases/{id}/password":          {"修改数据库密码", "重置数据库密码", "数据库密码"},
+	"/api/onepanel/{serverId}/runtimes":                         {"运行环境", "php 环境", "node 环境", "运行时"},
+	"/api/onepanel/{serverId}/cronjobs":                         {"1panel 定时任务", "面板计划任务", "面板 cron"},
+	"/api/onepanel/{serverId}/proxy":                            {"通用代理", "调用 1panel 任意接口", "直接调用 1panel"},
+	"/api/onepanel/{serverId}/proxy/catalog":                    {"1panel 接口目录", "官方 api 目录", "1panel swagger"},
+	"/api/onepanel/spec":                                        {"1panel 接口目录", "1panel 官方接口", "1panel swagger"},
 
 	"/api/github":                           {"github", "github 仓库"},
 	"/api/github/repositories/{id}/refresh": {"刷新仓库", "仓库刷新", "刷新 github 仓库"},
@@ -195,18 +223,37 @@ var routeAliases = map[string][]string{
 	"/api/admin-ai/memories":               {"AI 长期记忆", "记忆列表"},
 }
 
-// aliasesForPrefix 返回路由或其最近父前缀登记的别名列表。
+// aliasesForPrefix 返回路由自身 + 各级祖先前缀登记的别名列表。
+//
+// 只取「最近父前缀」会让子路由丢掉模块级身份：onepanel 的别名登记在
+// /api/onepanel 上，`{serverId}/websites` 这类子路由就完全拿不到「1panel」
+// 信号，导致意图含模块名时召回全落在聚合根上。这里改为逐级向上累积，
+// 祖先别名在评分时按 alias(parent) 降权，因此不会盖过子路由自身别名。
 func aliasesForPrefix(prefix string) []string {
+	var out []string
 	for {
 		if list, ok := routeAliases[prefix]; ok {
-			return list
+			for _, alias := range list {
+				if !containsString(out, alias) {
+					out = append(out, alias)
+				}
+			}
 		}
 		idx := strings.LastIndex(prefix, "/")
 		if idx <= 0 {
-			return nil
+			return out
 		}
 		prefix = prefix[:idx]
 	}
+}
+
+// aliasOwnedByPrefix 判断某别名是否是这条路由自己登记的（用于区分
+// alias 与 alias(parent) 的权重）。自身登记的别名权重更高。
+func aliasOwnedByPrefix(prefix, alias string) bool {
+	if list, ok := routeAliases[prefix]; ok {
+		return containsString(list, alias)
+	}
+	return false
 }
 
 // intentSignals 预解析意图：规范化整句、英文 token、中文三字片段与口语同义变体。
@@ -215,6 +262,9 @@ type intentSignals struct {
 	tokens   []string
 	trigrams []string
 	synonyms []string
+	// asciiStripped 是剔除 ASCII 词元后的紧凑串（「安装1panel应用」→「安装应用」），
+	// 用于别名匹配绕开夹在中间的模块名/品牌名。
+	asciiStripped string
 }
 
 // intentSynonyms 口语/同义词映射：键为用户在意图里可能说的口语词，
@@ -265,7 +315,31 @@ func analyzeIntent(query string) intentSignals {
 		trigrams = append(trigrams, chunk)
 	}
 	synonyms := expandIntentSynonyms(joined)
-	return intentSignals{joined: joined, tokens: tokens, trigrams: trigrams, synonyms: synonyms}
+	return intentSignals{
+		joined:        joined,
+		tokens:        tokens,
+		trigrams:      trigrams,
+		synonyms:      synonyms,
+		asciiStripped: stripASCIIWords(joined),
+	}
+}
+
+// stripASCIIWords 去掉紧凑串里的连续 ASCII 词元（品牌名/模块名），
+// 让「安装1panel应用」也能命中「安装应用」这类连续中文别名。
+func stripASCIIWords(joined string) string {
+	var b strings.Builder
+	inASCII := false
+	for _, r := range joined {
+		ascii := (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '-' || r == '.' || r == '_'
+		if ascii {
+			inASCII = true
+			continue
+		}
+		inASCII = false
+		b.WriteRune(r)
+	}
+	_ = inASCII
+	return b.String()
 }
 
 // expandIntentSynonyms 遍历口语同义词映射，把意图中出现口语词的位置替换为正式词，
@@ -350,16 +424,34 @@ func scoreRouteMatch(route apiDocRoute, signals intentSignals) (int, []matchReas
 	reasons := make([]matchReason, 0, 4)
 	score := 0
 	aliases := aliasesForPrefix(route.Prefix)
-	exactAliases := routeAliases[route.Prefix]
+	// 别名里可能夹着模块名（「安装 1panel 应用」），而意图串会把空格去掉后
+	// 变成「安装1panel应用」，导致「安装应用」这种连续子串匹配失败。
+	// 这里额外准备一份剔除了 ASCII 词的紧凑串，用于别名包含判断。
+	aliasHaystacks := []string{signals.joined, signals.asciiStripped}
 	for _, alias := range aliases {
 		aliasNorm := strings.ToLower(strings.ReplaceAll(alias, " ", ""))
-		if aliasNorm == "" || !strings.Contains(signals.joined, aliasNorm) {
+		if aliasNorm == "" {
+			continue
+		}
+		hit := false
+		for _, hay := range aliasHaystacks {
+			if hay != "" && strings.Contains(hay, aliasNorm) {
+				hit = true
+				break
+			}
+		}
+		// 英文别名（如 ssl、nginx、compose）不能在剔除 ASCII 的串里匹配，
+		// 否则「ssl」会被完全抹掉；这里只对含 CJK 的别名放宽。
+		if !hit && hasCJK(aliasNorm) && strings.Contains(signals.asciiStripped, aliasNorm) {
+			hit = true
+		}
+		if !hit {
 			continue
 		}
 		// 精确登记在自身前缀的别名权重更高；父前缀继承的别名降权，避免同族路由同分。
 		weight := 2
 		level := "alias(parent)"
-		if containsString(exactAliases, alias) {
+		if aliasOwnedByPrefix(route.Prefix, alias) {
 			weight = 5
 			level = "alias"
 		}

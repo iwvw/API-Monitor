@@ -8,7 +8,9 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -80,148 +82,322 @@ func ensureSchema(ctx context.Context, db *sql.DB) error {
 	return nil
 }
 
+// ServeHTTP 按生成的 quickRoutes 表分发：路由形状、可用方法、上游映射全部
+// 来自 tools/onepanel/quick-routes.json，避免代码与文档各写一份再漂移。
 func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	path := strings.TrimPrefix(r.URL.Path, "/api/onepanel")
-	path = strings.Trim(path, "/")
-	parts := []string{}
-	if path != "" {
-		parts = strings.Split(path, "/")
-	}
+	parts := splitPath(strings.TrimPrefix(r.URL.Path, "/api/onepanel"))
 
-	switch {
-	// === 配置管理（全局，不按服务器）===
-	case len(parts) == 1 && parts[0] == "config" && r.Method == http.MethodGet:
-		s.listConfigs(w, r)
-		return
-	case len(parts) == 1 && parts[0] == "config" && r.Method == http.MethodPost:
-		s.createConfig(w, r)
-		return
-	case len(parts) == 2 && parts[0] == "config" && r.Method == http.MethodPut:
-		s.updateConfig(w, r, parts[1])
-		return
-	case len(parts) == 2 && parts[0] == "config" && r.Method == http.MethodDelete:
-		s.deleteConfig(w, r, parts[1])
-		return
-	}
-
-	if len(parts) == 1 && parts[0] == "spec" && r.Method == http.MethodGet {
-		s.serveCatalog(w, r)
-		return
-	}
-
-	if len(parts) < 2 || parts[0] == "config" {
+	route, params, ok := matchQuickRoute(parts)
+	if !ok {
 		response.Error(w, http.StatusNotFound, "onepanel route not implemented")
 		return
 	}
-	serverID := parts[0]
 
-	switch {
-	// === 面板与总览 ===
-	case len(parts) == 2 && parts[1] == "health" && r.Method == http.MethodGet:
-		s.proxyGet(w, r, serverID, "/dashboard/base/no/no")
-	case len(parts) == 2 && parts[1] == "overview" && r.Method == http.MethodGet:
-		s.overview(w, r, serverID)
-	case len(parts) == 3 && parts[1] == "dashboard" && parts[2] == "current" && r.Method == http.MethodGet:
-		s.proxyGet(w, r, serverID, "/dashboard/current/no/no")
+	allowed := false
+	for _, m := range route.Methods {
+		if m == r.Method {
+			allowed = true
+			break
+		}
+	}
+	if !allowed {
+		w.Header().Set("Allow", strings.Join(route.Methods, ", "))
+		response.Error(w, http.StatusMethodNotAllowed, "onepanel route does not support "+r.Method)
+		return
+	}
 
-	// === 升级 ===
-	case len(parts) == 3 && parts[1] == "upgrade" && parts[2] == "check" && r.Method == http.MethodGet:
-		s.proxyGet(w, r, serverID, "/core/settings/upgrade")
-	case len(parts) == 2 && parts[1] == "upgrade" && r.Method == http.MethodPost:
-		s.proxyPost(w, r, serverID, "/core/settings/upgrade")
-
-	// === 网站管理 ===
-	case len(parts) == 2 && parts[1] == "websites" && r.Method == http.MethodGet:
-		s.proxyGet(w, r, serverID, "/websites/list")
-	case len(parts) == 2 && parts[1] == "websites" && r.Method == http.MethodPost:
-		s.proxyPost(w, r, serverID, "/websites")
-	case len(parts) == 3 && parts[1] == "websites" && r.Method == http.MethodGet:
-		s.proxyGet(w, r, serverID, "/websites/"+parts[2])
-	case len(parts) == 4 && parts[1] == "websites" && parts[3] == "operate" && r.Method == http.MethodPost:
-		s.proxyPost(w, r, serverID, "/websites/operate")
-	case len(parts) == 4 && parts[1] == "websites" && parts[3] == "proxy" && r.Method == http.MethodPost:
-		s.proxyPost(w, r, serverID, "/websites/proxies/update")
-	case len(parts) == 4 && parts[1] == "websites" && parts[3] == "https" && r.Method == http.MethodPost:
-		s.proxyPost(w, r, serverID, "/websites/"+parts[2]+"/https")
-	case len(parts) == 4 && parts[1] == "websites" && parts[3] == "nginx" && r.Method == http.MethodPost:
-		s.proxyPost(w, r, serverID, "/websites/nginx/update")
-	case len(parts) == 3 && parts[1] == "websites" && r.Method == http.MethodDelete:
-		s.proxyPost(w, r, serverID, "/websites/del")
-
-	// === 应用管理 ===
-	case len(parts) == 2 && parts[1] == "apps" && r.Method == http.MethodGet:
-		s.proxyList(w, r, serverID, "/apps/search", `{"page":1,"pageSize":50}`)
-	case len(parts) == 3 && parts[1] == "apps" && parts[2] == "install" && r.Method == http.MethodPost:
-		s.proxyPost(w, r, serverID, "/apps/install")
-	case len(parts) == 3 && parts[1] == "apps" && parts[2] == "installed" && r.Method == http.MethodGet:
-		s.proxyGet(w, r, serverID, "/apps/installed/list")
-	case len(parts) == 5 && parts[1] == "apps" && parts[2] == "installed" && parts[4] == "op" && r.Method == http.MethodPost:
-		s.proxyPost(w, r, serverID, "/apps/installed/op")
-
-	// === 容器管理 ===
-	case len(parts) == 2 && parts[1] == "containers" && r.Method == http.MethodGet:
-		s.proxyList(w, r, serverID, "/containers/search", `{"page":1,"pageSize":50,"state":"all","orderBy":"name","order":"ascending"}`)
-	case len(parts) == 3 && parts[1] == "containers" && parts[2] == "operate" && r.Method == http.MethodPost:
-		s.proxyPost(w, r, serverID, "/containers/operate")
-	case len(parts) == 4 && parts[1] == "containers" && parts[3] == "logs" && r.Method == http.MethodGet:
-		s.proxyGet(w, r, serverID, "/containers/search/log?name="+parts[2])
-	case len(parts) == 3 && parts[1] == "containers" && parts[2] == "compose" && r.Method == http.MethodPost:
-		s.proxyPost(w, r, serverID, "/containers/compose")
-
-	// === SSL ===
-	case len(parts) == 2 && parts[1] == "ssl" && r.Method == http.MethodGet:
-		s.proxyList(w, r, serverID, "/websites/ssl/search", `{"page":1,"pageSize":50}`)
-	case len(parts) == 3 && parts[1] == "ssl" && parts[2] == "obtain" && r.Method == http.MethodPost:
-		s.proxyPost(w, r, serverID, "/websites/ssl/obtain")
-	case len(parts) == 2 && parts[1] == "acme" && r.Method == http.MethodPost:
-		s.proxyPost(w, r, serverID, "/websites/acme")
-
-	// === OpenResty ===
-	case len(parts) == 3 && parts[1] == "openresty" && parts[2] == "status" && r.Method == http.MethodGet:
-		s.proxyGet(w, r, serverID, "/openresty/status")
-	case len(parts) == 3 && parts[1] == "openresty" && parts[2] == "reload" && r.Method == http.MethodPost:
-		s.reloadOpenResty(w, r, serverID)
-
-	// === 备份 ===
-	case len(parts) == 2 && parts[1] == "backup" && r.Method == http.MethodPost:
-		s.proxyPost(w, r, serverID, "/backups/backup")
-	case len(parts) == 3 && parts[1] == "backups" && parts[2] == "records" && r.Method == http.MethodGet:
-		s.proxyList(w, r, serverID, "/backups/record/search", `{"page":1,"pageSize":50}`)
-	case len(parts) == 3 && parts[1] == "backups" && parts[2] == "options" && r.Method == http.MethodGet:
-		s.proxyGet(w, r, serverID, "/backups/options")
-
-	// === 数据库 ===
-	case len(parts) == 2 && parts[1] == "databases" && r.Method == http.MethodGet:
-		s.proxyList(w, r, serverID, "/databases/db/search", `{"page":1,"pageSize":50,"type":"mysql"}`)
-	case len(parts) == 2 && parts[1] == "databases" && r.Method == http.MethodPost:
-		s.proxyPost(w, r, serverID, "/databases/db")
-	case len(parts) == 4 && parts[1] == "databases" && parts[3] == "password" && r.Method == http.MethodPost:
-		s.proxyPost(w, r, serverID, "/databases/change/password")
-	case len(parts) == 3 && parts[1] == "databases" && r.Method == http.MethodDelete:
-		s.proxyPost(w, r, serverID, "/databases/db/del")
-
-		// === 运行环境 ===
-	case len(parts) == 2 && parts[1] == "runtimes" && r.Method == http.MethodGet:
-		s.proxyList(w, r, serverID, "/runtimes/search", `{"page":1,"pageSize":50}`)
-	case len(parts) == 2 && parts[1] == "runtimes" && r.Method == http.MethodPost:
-		s.proxyPost(w, r, serverID, "/runtimes")
-
-		// === 定时任务 ===
-	case len(parts) == 2 && parts[1] == "cronjobs" && r.Method == http.MethodGet:
-		s.proxyList(w, r, serverID, "/cronjobs/search", `{"page":1,"pageSize":50}`)
-	case len(parts) == 2 && parts[1] == "cronjobs" && r.Method == http.MethodPost:
-		s.proxyPost(w, r, serverID, "/cronjobs")
-
-	// === 通用代理 ===
-	case len(parts) == 3 && parts[1] == "proxy" && parts[2] == "catalog" && r.Method == http.MethodGet:
-		s.serveCatalog(w, r)
-	case len(parts) == 2 && parts[1] == "proxy" && r.Method == http.MethodPost:
-		s.proxyGeneric(w, r, serverID)
-
+	switch route.Kind {
+	case "local":
+		s.serveQuickLocal(w, r, route, params)
+	case "aggregate":
+		s.overview(w, r, params["serverId"])
+	case "proxy":
+		s.serveQuickProxy(w, r, route, params)
 	default:
-		response.Error(w, http.StatusNotFound, "onepanel route not implemented")
+		response.Error(w, http.StatusInternalServerError, "unknown quick route kind: "+route.Kind)
 	}
 }
+
+// matchQuickRoute 按段匹配 prefix（{xxx} 为通配段），返回路由与路径参数。
+// 传入的 parts 是请求路径去掉 /api/onepanel 之后的段，因此这里也比对去掉前缀的 pattern。
+// 多条命中时取「静态段最多」的那条，避免 {id} 抢走固定子路径。
+func matchQuickRoute(parts []string) (quickRoute, map[string]string, bool) {
+	var best quickRoute
+	var bestParams map[string]string
+	bestStatic := -1
+	for _, route := range quickRoutes {
+		pattern := quickRouteTail(route.Prefix)
+		if len(pattern) != len(parts) {
+			continue
+		}
+		params := map[string]string{}
+		static := 0
+		matched := true
+		for i, seg := range pattern {
+			if strings.HasPrefix(seg, "{") && strings.HasSuffix(seg, "}") {
+				name := strings.Trim(seg, "{}")
+				if parts[i] == "" {
+					matched = false
+					break
+				}
+				params[name] = parts[i]
+				continue
+			}
+			if seg != parts[i] {
+				matched = false
+				break
+			}
+			static++
+		}
+		if !matched {
+			continue
+		}
+		if static > bestStatic {
+			best, bestParams, bestStatic = route, params, static
+		}
+	}
+	return best, bestParams, bestStatic >= 0
+}
+
+// serveQuickLocal 处理不经过 1Panel 的本地接口（配置管理、内置目录、通用代理等）。
+func (s *Service) serveQuickLocal(w http.ResponseWriter, r *http.Request, route quickRoute, params map[string]string) {
+	switch route.Prefix {
+	case "/api/onepanel/config":
+		if r.Method == http.MethodGet {
+			s.listConfigs(w, r)
+			return
+		}
+		s.createConfig(w, r)
+	case "/api/onepanel/config/{serverId}":
+		if r.Method == http.MethodPut {
+			s.updateConfig(w, r, params["serverId"])
+			return
+		}
+		s.deleteConfig(w, r, params["serverId"])
+	case "/api/onepanel/spec", "/api/onepanel/{serverId}/proxy/catalog":
+		s.serveCatalog(w, r)
+	case "/api/onepanel/{serverId}/openresty/reload":
+		s.reloadOpenResty(w, r, params["serverId"])
+	case "/api/onepanel/{serverId}/proxy":
+		s.proxyGeneric(w, r, params["serverId"])
+	default:
+		response.Error(w, http.StatusNotFound, "onepanel local route not implemented: "+route.Prefix)
+	}
+}
+
+// serveQuickProxy 按 upstream 映射构造 1Panel 请求并转发。
+func (s *Service) serveQuickProxy(w http.ResponseWriter, r *http.Request, route quickRoute, params map[string]string) {
+	// 路径参数最终会拼进上游 URL 与请求体，先做字符集校验（纵深防御）：
+	// 容器名/站点 ID 这类值不会包含引号、分号、换行。
+	for name, value := range params {
+		if name == "serverId" {
+			continue
+		}
+		if !quickParamPattern.MatchString(value) {
+			response.Error(w, http.StatusBadGateway, "invalid path parameter "+name)
+			return
+		}
+	}
+
+	var up *quickUpstream
+	for i := range route.Upstreams {
+		if route.Upstreams[i].Method == r.Method {
+			up = &route.Upstreams[i]
+			break
+		}
+	}
+	if up == nil {
+		response.Error(w, http.StatusNotFound, "onepanel upstream not declared for "+r.Method)
+		return
+	}
+
+	serverID := params["serverId"]
+	cfg, err := s.getConfig(r.Context(), serverID)
+	if err != nil {
+		response.Error(w, http.StatusNotFound, err.Error())
+		return
+	}
+
+	// 上游路径里的 {param} 用对外路径参数替换（serverId 不进上游路径）。
+	upstreamPath := up.Upstream
+	for name, value := range params {
+		if name == "serverId" {
+			continue
+		}
+		upstreamPath = strings.ReplaceAll(upstreamPath, "{"+name+"}", url.PathEscape(value))
+	}
+
+	body := buildQuickBody(r, up, params, route.Query)
+	upstreamPath = applyQuickQuery(r, upstreamPath, up, params, body, route.Query)
+
+	method := r.Method
+	if up.As != "" {
+		method = up.As
+	}
+
+	result := s.execPanelCmd(r.Context(), serverID, cfg, method, upstreamPath, body)
+	if result.err != nil {
+		response.Error(w, http.StatusBadGateway, result.err.Error())
+		return
+	}
+	var payload interface{}
+	_ = json.Unmarshal([]byte(result.output), &payload)
+	response.JSON(w, http.StatusOK, payload)
+}
+
+// buildQuickBody 组装发往 1Panel 的 JSON 请求体：
+// 以 Defaults 为基线 → 合并调用方请求体 → 注入路径参数 → 用查询参数覆盖同名基线字段。
+func buildQuickBody(r *http.Request, up *quickUpstream, params map[string]string, queryKeys []string) string {
+	payload := map[string]interface{}{}
+	if up.Defaults != "" {
+		_ = json.Unmarshal([]byte(up.Defaults), &payload)
+	}
+
+	// 调用方显式传的请求体优先于默认值。
+	if raw := readBody(r); len(raw) > 0 {
+		var incoming map[string]interface{}
+		if err := json.Unmarshal(raw, &incoming); err == nil {
+			for k, v := range incoming {
+				payload[k] = v
+			}
+		}
+	}
+
+	// 路径参数注入：一对多时用 `outward=upstream` 语法声明上游字段名。
+	if up.BodyFrom != "" {
+		for _, token := range strings.Split(up.BodyFrom, ",") {
+			token = strings.TrimSpace(strings.TrimPrefix(token, "path:"))
+			if token == "" {
+				continue
+			}
+			from, to := token, token
+			if eq := strings.Index(token, "="); eq >= 0 {
+				from, to = token[:eq], token[eq+1:]
+			}
+			if v, ok := params[from]; ok {
+				payload[to] = coerceScalar(v)
+			}
+		}
+	}
+
+	// 查询参数若在基线体里已存在（如 databases 的 type），用它覆盖请求体字段。
+	for _, key := range queryKeys {
+		if _, inBody := payload[key]; !inBody {
+			continue
+		}
+		if v := r.URL.Query().Get(key); v != "" {
+			payload[key] = coerceScalar(v)
+		}
+	}
+
+	if len(payload) == 0 {
+		return ""
+	}
+	encoded, err := json.Marshal(payload)
+	if err != nil {
+		return ""
+	}
+	return string(encoded)
+}
+
+// applyQuickQuery 处理上游的查询串：显式映射（如 container=path:name）与
+// 调用方透传的查询参数（如 tail / since）。已在请求体里用掉的参数不再重复拼。
+func applyQuickQuery(r *http.Request, upstreamPath string, up *quickUpstream, params map[string]string, body string, queryKeys []string) string {
+	pairs := []string{}
+	add := func(k, v string) {
+		if k == "" || v == "" {
+			return
+		}
+		pairs = append(pairs, url.QueryEscape(k)+"="+url.QueryEscape(v))
+	}
+
+	for k, spec := range up.Query {
+		if strings.HasPrefix(spec, "path:") {
+			add(k, params[strings.TrimPrefix(spec, "path:")])
+			continue
+		}
+		add(k, spec)
+	}
+
+	bodyFields := map[string]bool{}
+	if body != "" {
+		var m map[string]interface{}
+		if json.Unmarshal([]byte(body), &m) == nil {
+			for k := range m {
+				bodyFields[k] = true
+			}
+		}
+	}
+	for _, key := range queryKeys {
+		if bodyFields[key] {
+			continue
+		}
+		if _, mapped := up.Query[key]; mapped {
+			continue
+		}
+		add(key, r.URL.Query().Get(key))
+	}
+
+	if len(pairs) == 0 {
+		return upstreamPath
+	}
+	sep := "?"
+	if strings.Contains(upstreamPath, "?") {
+		sep = "&"
+	}
+	return upstreamPath + sep + strings.Join(pairs, "&")
+}
+
+// coerceScalar 把纯数字字符串转成 JSON number：1Panel 的 ID 字段是 integer，
+// 从路径段拿到的永远是字符串，直接塞进 body 会触发类型校验失败。
+func coerceScalar(v string) interface{} {
+	if v == "" {
+		return v
+	}
+	if _, err := strconv.ParseInt(v, 10, 64); err == nil {
+		return json.Number(v)
+	}
+	return v
+}
+
+// quickParamPattern 限制路径参数的字符集：域名/容器名/ID 都不需要引号、
+// 分号、空格和控制字符。上游路径与请求体最终都会进入 shell 命令，这层
+// 校验与 execPanelCmd 里的 validPanelPath 共同构成注入防线。
+var quickParamPattern = regexp.MustCompile(`^[A-Za-z0-9._:@\-]{1,128}$`)
+
+// splitPath 把 URL 路径切成非空段（保留 {param} 的原样比较）。
+func splitPath(p string) []string {
+	p = strings.Trim(p, "/")
+	if p == "" {
+		return nil
+	}
+	parts := strings.Split(p, "/")
+	out := parts[:0]
+	for _, seg := range parts {
+		if seg == "" {
+			continue
+		}
+		out = append(out, seg)
+	}
+	return out
+}
+
+// quickRouteTail 返回前缀去掉 /api/onepanel 之后的段。
+func quickRouteTail(prefix string) []string {
+	segs := splitPath(prefix)
+	const head = "/api/onepanel"
+	h := splitPath(head)
+	if len(segs) < len(h) {
+		return nil
+	}
+	for i := range h {
+		if segs[i] != h[i] {
+			return nil
+		}
+	}
+	return segs[len(h):]
+}
+
 
 // ========== 配置管理 ==========
 
@@ -386,53 +562,75 @@ func (s *Service) overview(w http.ResponseWriter, r *http.Request, serverID stri
 		return
 	}
 
+	// 面板基础信息是连通性探针：失败即整体 502，其余区块按需降级。
 	base := s.execPanelCmd(r.Context(), serverID, cfg, "GET", "/dashboard/base/no/no", "")
 	if base.err != nil {
 		response.Error(w, http.StatusBadGateway, "panel unreachable")
 		return
 	}
 
-	var dashboardData struct {
-		Code int             `json:"code"`
-		Data json.RawMessage `json:"data"`
-	}
-	_ = json.Unmarshal([]byte(base.output), &dashboardData)
-
 	result := map[string]interface{}{
-		"dashboard": dashboardData.Data,
+		"dashboard": panelData(base.output),
 	}
 
-	ws := s.execPanelCmd(r.Context(), serverID, cfg, "GET", "/websites/list", "")
-	if ws.err == nil {
-		var wsData struct {
-			Code int             `json:"code"`
-			Data json.RawMessage `json:"data"`
-		}
-		_ = json.Unmarshal([]byte(ws.output), &wsData)
-		result["websites"] = wsData.Data
+	// 其余区块复用快捷路由的上游定义，避免这里再手写一份 1Panel 路径。
+	blocks := []struct {
+		key    string
+		prefix string
+		method string
+	}{
+		{"websites", "/api/onepanel/{serverId}/websites", "GET"},
+		{"openresty", "/api/onepanel/{serverId}/openresty/status", "GET"},
+		{"containers", "/api/onepanel/{serverId}/containers", "GET"},
 	}
-
-	os := s.execPanelCmd(r.Context(), serverID, cfg, "GET", "/openresty/status", "")
-	if os.err == nil {
-		var osData struct {
-			Code int             `json:"code"`
-			Data json.RawMessage `json:"data"`
+	for _, block := range blocks {
+		route, ok := quickRouteByPrefix(block.prefix)
+		if !ok {
+			continue
 		}
-		_ = json.Unmarshal([]byte(os.output), &osData)
-		result["openresty"] = osData.Data
-	}
-
-	cs := s.execPanelCmd(r.Context(), serverID, cfg, "POST", "/containers/search", `{"page":1,"pageSize":50,"state":"all","orderBy":"name","order":"ascending"}`)
-	if cs.err == nil {
-		var csData struct {
-			Code int             `json:"code"`
-			Data json.RawMessage `json:"data"`
+		var up *quickUpstream
+		for i := range route.Upstreams {
+			if route.Upstreams[i].Method == block.method {
+				up = &route.Upstreams[i]
+				break
+			}
 		}
-		_ = json.Unmarshal([]byte(cs.output), &csData)
-		result["containers"] = csData.Data
+		if up == nil {
+			continue
+		}
+		method := block.method
+		if up.As != "" {
+			method = up.As
+		}
+		res := s.execPanelCmd(r.Context(), serverID, cfg, method, up.Upstream, up.Defaults)
+		if res.err != nil {
+			continue
+		}
+		if data := panelData(res.output); data != nil {
+			result[block.key] = data
+		}
 	}
 
 	response.OK(w, result)
+}
+
+// panelData 剥掉 1Panel 的 {code,message,data} 外壳，只留 data。
+func panelData(output string) interface{} {
+	var envelope struct {
+		Code int             `json:"code"`
+		Data json.RawMessage `json:"data"`
+	}
+	if err := json.Unmarshal([]byte(output), &envelope); err != nil {
+		return nil
+	}
+	if len(envelope.Data) == 0 {
+		return nil
+	}
+	var data interface{}
+	if err := json.Unmarshal(envelope.Data, &data); err != nil {
+		return nil
+	}
+	return data
 }
 
 // ========== OpenResty 重载 ==========
@@ -459,67 +657,6 @@ func (s *Service) reloadOpenResty(w http.ResponseWriter, r *http.Request, server
 		return
 	}
 	response.OK(w, map[string]string{"output": out})
-}
-
-// ========== 通用代理 GET ==========
-
-func (s *Service) proxyGet(w http.ResponseWriter, r *http.Request, serverID, panelPath string) {
-	cfg, err := s.getConfig(r.Context(), serverID)
-	if err != nil {
-		response.Error(w, http.StatusNotFound, err.Error())
-		return
-	}
-	result := s.execPanelCmd(r.Context(), serverID, cfg, "GET", panelPath, "")
-	if result.err != nil {
-		response.Error(w, http.StatusBadGateway, result.err.Error())
-		return
-	}
-	var payload interface{}
-	_ = json.Unmarshal([]byte(result.output), &payload)
-	response.JSON(w, http.StatusOK, payload)
-}
-
-// ========== 通用代理 POST ==========
-
-func (s *Service) proxyPost(w http.ResponseWriter, r *http.Request, serverID, panelPath string) {
-	cfg, err := s.getConfig(r.Context(), serverID)
-	if err != nil {
-		response.Error(w, http.StatusNotFound, err.Error())
-		return
-	}
-	bodyBytes := readBody(r)
-	result := s.execPanelCmd(r.Context(), serverID, cfg, "POST", panelPath, string(bodyBytes))
-	if result.err != nil {
-		response.Error(w, http.StatusBadGateway, result.err.Error())
-		return
-	}
-	var payload interface{}
-	_ = json.Unmarshal([]byte(result.output), &payload)
-	response.JSON(w, http.StatusOK, payload)
-}
-
-// ========== 列表查询（POST search，带默认分页体） ==========
-
-// proxyList 向后端 search 类接口发送 POST。若前端带了请求体则原样透传，
-// 否则使用 defaultBody 作为搜索条件，保证 1Panel 必填字段不缺省。
-func (s *Service) proxyList(w http.ResponseWriter, r *http.Request, serverID, panelPath, defaultBody string) {
-	cfg, err := s.getConfig(r.Context(), serverID)
-	if err != nil {
-		response.Error(w, http.StatusNotFound, err.Error())
-		return
-	}
-	body := defaultBody
-	if reqBody := readBody(r); len(reqBody) > 0 {
-		body = string(reqBody)
-	}
-	result := s.execPanelCmd(r.Context(), serverID, cfg, "POST", panelPath, body)
-	if result.err != nil {
-		response.Error(w, http.StatusBadGateway, result.err.Error())
-		return
-	}
-	var payload interface{}
-	_ = json.Unmarshal([]byte(result.output), &payload)
-	response.JSON(w, http.StatusOK, payload)
 }
 
 // ========== 通用代理（任意 Method/Path） ==========

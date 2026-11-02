@@ -1,0 +1,643 @@
+{
+  "_comment": [
+    "1Panel 快捷路由单一事实源。tools/gen-onepanel-catalog.mjs 读本文件 + 官方 swagger，",
+    "生成 backend-go/internal/onepanel/catalog.json、onepanel 路由表，以及 system 层的",
+    "文档 seed / 请求契约 / search 默认请求体。",
+    "",
+    "字段说明：",
+    "  prefix      API Monitor 对外路径（与 manifest 前缀匹配规则一致）",
+    "  kind        local=后端本地实现（不走 1Panel）| aggregate=多次 1Panel 调用聚合 | proxy=单次代理",
+    "  methods     对外可用方法（按 handler 真实能力，必须与 kind/upstream 自洽）",
+    "  upstream    方法 -> 1Panel 上游；path 支持 {id} 形式引用对外路径段",
+    "  defaults    search 类接口的基线请求体；生成器会再自动补齐 swagger 声明的 required 字段",
+    "  query       该接口对外暴露的查询参数（生成器校验其在上游 swagger 中存在）",
+    "",
+    "改完本文件后执行：npm run onepanel:generate"
+  ],
+  "swaggerVersion": "v2.4.1",
+  "routes": [
+    {
+      "prefix": "/api/onepanel/config",
+      "module": "onepanel-config",
+      "matchMode": "exact",
+      "kind": "local",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "description": "列出或新增 1Panel 连接配置（serverId / apiKey / baseUrl）",
+      "contract": {
+        "required": [
+          "serverId",
+          "apiKey"
+        ],
+        "fields": {
+          "serverId": {
+            "type": "string",
+            "description": "API Monitor 服务器 ID"
+          },
+          "apiKey": {
+            "type": "string",
+            "description": "1Panel API 签名密钥（core.db settings 的 ApiKey）"
+          },
+          "baseUrl": {
+            "type": "string",
+            "description": "面板基地址，默认 https://127.0.0.1:8888"
+          }
+        }
+      }
+    },
+    {
+      "prefix": "/api/onepanel/config/{serverId}",
+      "module": "onepanel-config",
+      "matchMode": "pattern",
+      "kind": "local",
+      "methods": [
+        "PUT",
+        "DELETE"
+      ],
+      "description": "更新或删除指定服务器的 1Panel 连接配置（只传 apiKey 或 baseUrl 时按部分更新处理）",
+      "contract": {
+        "required": [],
+        "fields": {
+          "apiKey": {
+            "type": "string",
+            "description": "新的 1Panel API 签名密钥；留空表示保持不变"
+          },
+          "baseUrl": {
+            "type": "string",
+            "description": "面板基地址；留空表示保持不变"
+          }
+        }
+      }
+    },
+    {
+      "prefix": "/api/onepanel/spec",
+      "module": "onepanel-spec",
+      "matchMode": "exact",
+      "kind": "local",
+      "methods": [
+        "GET"
+      ],
+      "description": "读取内置的 1Panel 官方 API 目录（由官方 swagger 生成，含 method / path / summary / tag）",
+      "contract": {
+        "noBody": true
+      }
+    },
+    {
+      "prefix": "/api/onepanel/{serverId}/health",
+      "kind": "proxy",
+      "methods": [
+        "GET"
+      ],
+      "description": "检查指定服务器上的 1Panel 面板连通性",
+      "upstream": {
+        "GET": {
+          "path": "/dashboard/base/no/no"
+        }
+      },
+      "contract": {
+        "noBody": true
+      }
+    },
+    {
+      "prefix": "/api/onepanel/{serverId}/dashboard/current",
+      "kind": "proxy",
+      "methods": [
+        "GET"
+      ],
+      "description": "读取面板实时资源监控（CPU / 内存 / 磁盘 / 网络）",
+      "upstream": {
+        "GET": {
+          "path": "/dashboard/current/no/no"
+        }
+      },
+      "contract": {
+        "noBody": true
+      }
+    },
+    {
+      "prefix": "/api/onepanel/{serverId}/overview",
+      "kind": "aggregate",
+      "methods": [
+        "GET"
+      ],
+      "description": "聚合读取面板状态、网站、容器与 OpenResty 摘要（4 次 1Panel 调用，单项失败只缺该字段）",
+      "contract": {
+        "noBody": true
+      }
+    },
+    {
+      "prefix": "/api/onepanel/{serverId}/upgrade/check",
+      "kind": "proxy",
+      "methods": [
+        "GET"
+      ],
+      "description": "检查 1Panel 面板是否有可升级版本",
+      "upstream": {
+        "GET": {
+          "path": "/core/settings/upgrade"
+        }
+      }
+    },
+    {
+      "prefix": "/api/onepanel/{serverId}/upgrade",
+      "kind": "proxy",
+      "methods": [
+        "POST"
+      ],
+      "description": "升级 1Panel 面板到指定版本",
+      "upstream": {
+        "POST": {
+          "path": "/core/settings/upgrade"
+        }
+      }
+    },
+    {
+      "prefix": "/api/onepanel/{serverId}/websites",
+      "kind": "proxy",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "description": "列出网站或创建网站",
+      "upstream": {
+        "GET": {
+          "path": "/websites/list"
+        },
+        "POST": {
+          "path": "/websites"
+        }
+      }
+    },
+    {
+      "prefix": "/api/onepanel/{serverId}/websites/{id}",
+      "kind": "proxy",
+      "methods": [
+        "GET",
+        "DELETE"
+      ],
+      "description": "读取或删除网站",
+      "upstream": {
+        "GET": {
+          "path": "/websites/{id}"
+        },
+        "DELETE": {
+          "path": "/websites/del",
+          "bodyFrom": "path:id",
+          "as": "POST"
+        }
+      }
+    },
+    {
+      "prefix": "/api/onepanel/{serverId}/websites/{id}/operate",
+      "kind": "proxy",
+      "methods": [
+        "POST"
+      ],
+      "description": "启停或重启网站（start / stop / restart）",
+      "upstream": {
+        "POST": {
+          "path": "/websites/operate",
+          "bodyFrom": "path:id"
+        }
+      }
+    },
+    {
+      "prefix": "/api/onepanel/{serverId}/websites/{id}/proxy",
+      "kind": "proxy",
+      "methods": [
+        "POST"
+      ],
+      "description": "更新网站反向代理配置",
+      "upstream": {
+        "POST": {
+          "path": "/websites/proxies/update",
+          "bodyFrom": "path:id"
+        }
+      }
+    },
+    {
+      "prefix": "/api/onepanel/{serverId}/websites/{id}/https",
+      "kind": "proxy",
+      "methods": [
+        "POST"
+      ],
+      "description": "启用或配置网站 HTTPS",
+      "upstream": {
+        "POST": {
+          "path": "/websites/{id}/https",
+          "bodyFrom": "path:id"
+        }
+      }
+    },
+    {
+      "prefix": "/api/onepanel/{serverId}/websites/{id}/nginx",
+      "kind": "proxy",
+      "methods": [
+        "POST"
+      ],
+      "description": "更新网站 nginx 配置",
+      "upstream": {
+        "POST": {
+          "path": "/websites/nginx/update",
+          "bodyFrom": "path:id"
+        }
+      }
+    },
+    {
+      "prefix": "/api/onepanel/{serverId}/apps",
+      "kind": "proxy",
+      "methods": [
+        "GET"
+      ],
+      "description": "查询应用市场（可安装应用）",
+      "upstream": {
+        "GET": {
+          "path": "/apps/search",
+          "as": "POST",
+          "defaults": {
+            "page": 1,
+            "pageSize": 50
+          }
+        }
+      }
+    },
+    {
+      "prefix": "/api/onepanel/{serverId}/apps/install",
+      "kind": "proxy",
+      "methods": [
+        "POST"
+      ],
+      "description": "安装应用（支持 dockerCompose）",
+      "upstream": {
+        "POST": {
+          "path": "/apps/install"
+        }
+      }
+    },
+    {
+      "prefix": "/api/onepanel/{serverId}/apps/installed",
+      "kind": "proxy",
+      "methods": [
+        "GET"
+      ],
+      "description": "列出已安装应用",
+      "upstream": {
+        "GET": {
+          "path": "/apps/installed/list"
+        }
+      }
+    },
+    {
+      "prefix": "/api/onepanel/{serverId}/apps/installed/{appInstallId}/op",
+      "kind": "proxy",
+      "methods": [
+        "POST"
+      ],
+      "description": "启动 / 停止 / 重启已安装应用",
+      "upstream": {
+        "POST": {
+          "path": "/apps/installed/op",
+          "bodyFrom": "path:appInstallId=installId"
+        }
+      }
+    },
+    {
+      "prefix": "/api/onepanel/{serverId}/containers",
+      "kind": "proxy",
+      "methods": [
+        "GET"
+      ],
+      "description": "列出容器",
+      "upstream": {
+        "GET": {
+          "path": "/containers/search",
+          "as": "POST",
+          "defaults": {
+            "page": 1,
+            "pageSize": 50,
+            "state": "all",
+            "orderBy": "name",
+            "order": "ascending"
+          }
+        }
+      }
+    },
+    {
+      "prefix": "/api/onepanel/{serverId}/containers/operate",
+      "kind": "proxy",
+      "methods": [
+        "POST"
+      ],
+      "description": "批量启停或重启容器",
+      "upstream": {
+        "POST": {
+          "path": "/containers/operate"
+        }
+      }
+    },
+    {
+      "prefix": "/api/onepanel/{serverId}/containers/{name}/logs",
+      "kind": "proxy",
+      "methods": [
+        "GET"
+      ],
+      "description": "读取容器日志",
+      "upstream": {
+        "GET": {
+          "path": "/containers/search/log",
+          "query": {
+            "container": "path:name"
+          }
+        }
+      },
+      "query": [
+        "tail",
+        "since"
+      ]
+    },
+    {
+      "prefix": "/api/onepanel/{serverId}/containers/compose",
+      "kind": "proxy",
+      "methods": [
+        "POST"
+      ],
+      "description": "创建 Compose 应用",
+      "upstream": {
+        "POST": {
+          "path": "/containers/compose"
+        }
+      }
+    },
+    {
+      "prefix": "/api/onepanel/{serverId}/ssl",
+      "kind": "proxy",
+      "methods": [
+        "GET"
+      ],
+      "description": "列出 SSL 证书",
+      "upstream": {
+        "GET": {
+          "path": "/websites/ssl/search",
+          "as": "POST",
+          "defaults": {
+            "page": 1,
+            "pageSize": 50,
+            "orderBy": "created_at",
+            "order": "descending"
+          }
+        }
+      }
+    },
+    {
+      "prefix": "/api/onepanel/{serverId}/ssl/obtain",
+      "kind": "proxy",
+      "methods": [
+        "POST"
+      ],
+      "description": "为网站申请 SSL 证书（ACME）",
+      "upstream": {
+        "POST": {
+          "path": "/websites/ssl/obtain"
+        }
+      }
+    },
+    {
+      "prefix": "/api/onepanel/{serverId}/acme",
+      "kind": "proxy",
+      "methods": [
+        "POST"
+      ],
+      "description": "创建网站 ACME 账号",
+      "upstream": {
+        "POST": {
+          "path": "/websites/acme"
+        }
+      }
+    },
+    {
+      "prefix": "/api/onepanel/{serverId}/openresty/status",
+      "kind": "proxy",
+      "methods": [
+        "GET"
+      ],
+      "description": "读取 OpenResty 状态与连接数",
+      "upstream": {
+        "GET": {
+          "path": "/openresty/status"
+        }
+      }
+    },
+    {
+      "prefix": "/api/onepanel/{serverId}/openresty/reload",
+      "kind": "local",
+      "methods": [
+        "POST"
+      ],
+      "description": "校验并重载 OpenResty 配置（docker exec nginx -t && nginx -s reload）",
+      "contract": {
+        "noBody": true
+      }
+    },
+    {
+      "prefix": "/api/onepanel/{serverId}/backup",
+      "kind": "proxy",
+      "methods": [
+        "POST"
+      ],
+      "description": "立即执行备份",
+      "upstream": {
+        "POST": {
+          "path": "/backups/backup"
+        }
+      }
+    },
+    {
+      "prefix": "/api/onepanel/{serverId}/backups/records",
+      "kind": "proxy",
+      "methods": [
+        "GET"
+      ],
+      "description": "查询备份记录",
+      "upstream": {
+        "GET": {
+          "path": "/backups/record/search",
+          "as": "POST",
+          "defaults": {
+            "page": 1,
+            "pageSize": 50,
+            "type": "app"
+          }
+        }
+      },
+      "query": [
+        "type",
+        "name",
+        "detailName"
+      ]
+    },
+    {
+      "prefix": "/api/onepanel/{serverId}/backups/options",
+      "kind": "proxy",
+      "methods": [
+        "GET"
+      ],
+      "description": "读取备份存储账号",
+      "upstream": {
+        "GET": {
+          "path": "/backups/options"
+        }
+      }
+    },
+    {
+      "prefix": "/api/onepanel/{serverId}/databases",
+      "kind": "proxy",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "description": "列出或创建数据库",
+      "upstream": {
+        "GET": {
+          "path": "/databases/db/search",
+          "as": "POST",
+          "defaults": {
+            "page": 1,
+            "pageSize": 50,
+            "type": "mysql",
+            "orderBy": "createdAt",
+            "order": "descending"
+          }
+        },
+        "POST": {
+          "path": "/databases/db"
+        }
+      },
+      "query": [
+        "type"
+      ]
+    },
+    {
+      "prefix": "/api/onepanel/{serverId}/databases/{id}",
+      "kind": "proxy",
+      "methods": [
+        "DELETE"
+      ],
+      "description": "删除数据库",
+      "upstream": {
+        "DELETE": {
+          "path": "/databases/db/del",
+          "bodyFrom": "path:id",
+          "as": "POST"
+        }
+      }
+    },
+    {
+      "prefix": "/api/onepanel/{serverId}/databases/{id}/password",
+      "kind": "proxy",
+      "methods": [
+        "POST"
+      ],
+      "description": "修改数据库密码",
+      "upstream": {
+        "POST": {
+          "path": "/databases/change/password",
+          "bodyFrom": "path:id"
+        }
+      }
+    },
+    {
+      "prefix": "/api/onepanel/{serverId}/runtimes",
+      "kind": "proxy",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "description": "列出或创建运行环境（PHP / Node）",
+      "upstream": {
+        "GET": {
+          "path": "/runtimes/search",
+          "as": "POST",
+          "defaults": {
+            "page": 1,
+            "pageSize": 50
+          }
+        },
+        "POST": {
+          "path": "/runtimes"
+        }
+      }
+    },
+    {
+      "prefix": "/api/onepanel/{serverId}/cronjobs",
+      "kind": "proxy",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "description": "列出或创建定时任务",
+      "upstream": {
+        "GET": {
+          "path": "/cronjobs/search",
+          "as": "POST",
+          "defaults": {
+            "page": 1,
+            "pageSize": 50,
+            "orderBy": "createdAt",
+            "order": "descending"
+          }
+        },
+        "POST": {
+          "path": "/cronjobs"
+        }
+      }
+    },
+    {
+      "prefix": "/api/onepanel/{serverId}/proxy/catalog",
+      "kind": "local",
+      "methods": [
+        "GET"
+      ],
+      "description": "读取内置 1Panel 官方 API 目录",
+      "contract": {
+        "noBody": true
+      }
+    },
+    {
+      "prefix": "/api/onepanel/{serverId}/proxy",
+      "kind": "local",
+      "methods": [
+        "POST"
+      ],
+      "description": "通用代理：直接调用任意 1Panel API（method / path / body 由调用方指定）",
+      "contract": {
+        "required": [
+          "method",
+          "path"
+        ],
+        "fields": {
+          "method": {
+            "type": "string",
+            "enum": [
+              "GET",
+              "POST",
+              "PUT",
+              "DELETE",
+              "PATCH"
+            ],
+            "description": "1Panel API 方法"
+          },
+          "path": {
+            "type": "string",
+            "description": "1Panel API 路径，如 /websites/list（不含 /api/v2 前缀）"
+          },
+          "body": {
+            "type": "object",
+            "description": "请求体（可选）"
+          }
+        }
+      }
+    }
+  ]
+}

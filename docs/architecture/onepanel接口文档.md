@@ -1,6 +1,6 @@
 # 1Panel 快捷控制接口文档
 
-最后更新：2026-08-13
+最后更新：2026-11-02（对齐 1Panel v2.4.1 官方 swagger）
 
 通过 API Monitor 的 onepanel 模块，可对安装了 1Panel 的服务器进行面板状态查询、网站/容器/应用/SSL/备份/数据库等全生命周期管理。
 
@@ -11,6 +11,35 @@ Agent (MCP/call_api) → API Monitor 后端 (/api/onepanel/*) → Agent shell �
 ```
 
 后端不直接连接 1Panel，而是通过 API Monitor Agent 在内网执行签名请求到 `127.0.0.1:8888`。
+
+### 单一事实源与生成器
+
+快捷路由的对外路径、可用方法、上游 1Panel 路径/方法、默认请求体和查询参数，
+全部登记在 `tools/onepanel/quick-routes.json`。改完执行：
+
+```bash
+npm run onepanel:generate   # 重新生成
+npm run onepanel:check      # 只校验生成产物是否最新（CI 用，离线）
+```
+
+生成产物（**禁止手改**）：
+
+| 文件 | 内容 |
+|---|---|
+| `backend-go/internal/onepanel/catalog.json` | `/spec` 返回的官方端点目录 |
+| `backend-go/internal/onepanel/routes_gen.go` | 快捷路由表（`ServeHTTP` 据此分发） |
+| `backend-go/internal/system/onepanel_gen.go` | 文档 seed、请求契约、方法推断表、中文描述 |
+
+生成器会用 1Panel 官方 swagger 交叉校验：上游路径/方法真实存在、
+查询参数真实存在、分页默认体覆盖 swagger 声明的全部 `required` 字段、
+路径占位符都被使用。任一不满足直接失败，不写文件。
+
+对齐的 1Panel 版本由 `tools/onepanel/quick-routes.json` 的 `swaggerVersion` 钉住，
+对应快照在 `tools/onepanel/swagger/<tag>.json`（离线可复现）。切换版本：
+
+```bash
+node tools/onepanel/gen-onepanel-catalog.mjs --tag v2.5.0 --pin
+```
 
 ## 响应语义
 
@@ -225,7 +254,10 @@ GET /api/onepanel/{serverId}/apps/installed
 
 ```
 POST /api/onepanel/{serverId}/apps/installed/{appInstallId}/op
-Body: { "id": 1, "operate": "start|stop|restart" }
+Body: { "operate": "start|stop|restart|delete|rebuild" }
+```
+
+`installId` 由路径参数 `{appInstallId}` 自动注入，不必在 body 里重复传。
 ```
 
 ## 容器管理
@@ -237,9 +269,13 @@ GET /api/onepanel/{serverId}/containers
 ```
 
 请求体（POST 搜索）：
+面板默认请求体（1Panel v2.4.1 把 `order`/`orderBy` 标为 required，缺失会 400）：
+
 ```json
-{ "page": 1, "pageSize": 50, "state": "running", "orderBy": "name", "order": "ascending" }
+{ "page": 1, "pageSize": 50, "state": "all", "orderBy": "name", "order": "ascending" }
 ```
+
+`orderBy` 可选 `name` / `createdAt` / `state`，`order` 可选 `null` / `ascending` / `descending`。
 
 ### 批量操作容器
 
@@ -258,8 +294,10 @@ GET /api/onepanel/{serverId}/containers/{name}/logs
 
 ```
 POST /api/onepanel/{serverId}/containers/compose
-Body: { "name": "myapp", "compose": { ... } }
+Body: { "from": "edit|path|template", "name": "myapp", "path": "/opt/1panel/docker/compose/myapp", "file": "<compose yaml>" }
 ```
+
+必填 `from`（`edit` 直接给内容 / `path` 指目录 / `template` 用模板）。
 
 ## SSL 证书
 
@@ -313,14 +351,23 @@ POST /api/onepanel/{serverId}/openresty/reload
 
 ```
 POST /api/onepanel/{serverId}/backup
-Body: { "type": "app|website|mysql|mariadb|redis|postgresql|mongodb", "name": "存储账号", "detailName": "备份对象" }
+Body: {
+  "type": "app|website|mysql|mariadb|redis|postgresql|mongodb|container|compose|...",
+  "name": "存储账号",
+  "detailName": "备份对象"
+}
 ```
+
+`type` 必填，可选值还包括 `mysql-cluster` / `postgresql-cluster` / `redis-cluster` / `container` / `compose`。
 
 ### 备份记录
 
 ```
-GET /api/onepanel/{serverId}/backups/records
+GET /api/onepanel/{serverId}/backups/records?type=app
 ```
+
+`type` 在 1Panel 侧是必填项，面板默认填 `app`；可用查询参数覆盖，
+另支持 `name` / `detailName` 过滤。
 
 ### 备份存储账号
 
@@ -333,16 +380,35 @@ GET /api/onepanel/{serverId}/backups/options
 ### 列出/创建数据库
 
 ```
-GET /api/onepanel/{serverId}/databases
+GET /api/onepanel/{serverId}/databases?type=mysql
 POST /api/onepanel/{serverId}/databases
-Body: { "type": "mysql|mariadb|postgresql|redis|mongodb", "name": "dbname", "format": "utf8mb4", "username": "user", "password": "pass" }
+Body: {
+  "from": "local|remote",
+  "type": "mysql|mariadb|postgresql|redis|mongodb",
+  "name": "dbname",
+  "username": "user",
+  "version": "8.0",
+  "password": "pass",
+  "format": "utf8mb4"
+}
+```
+
+必填 `from` / `type` / `name` / `username` / `version`（1Panel v2.4.1 的 `DatabaseCreate` 校验）。
 ```
 
 ### 修改密码
 
 ```
 POST /api/onepanel/{serverId}/databases/{id}/password
-Body: { "password": "newpass", "database": "dbname" }
+Body: {
+  "from": "local|remote",
+  "type": "mysql|mariadb|postgresql|redis|mongodb",
+  "database": "dbname",
+  "value": "newpass"
+}
+```
+
+`id` 由路径参数自动注入。
 ```
 
 ### 删除数据库
@@ -368,7 +434,16 @@ Body: { "type": "php|python|nodejs", "name": "myenv", "version": "8.2" }
 ```
 GET /api/onepanel/{serverId}/cronjobs
 POST /api/onepanel/{serverId}/cronjobs
-Body: { "type": "shell|backup", "name": "每日备份", "spec": "0 3 * * *", "script": "..." }
+Body: {
+  "type": "shell|backup|...",
+  "name": "每日备份",
+  "spec": "0 3 * * *",
+  "script": "...",
+  "retainCopies": 7
+}
+```
+
+必填 `name` / `type` / `spec` / `retainCopies`（1Panel 会同时校验这四项）。
 ```
 
 ## 内置 API 目录（兜底）
@@ -379,7 +454,8 @@ Body: { "type": "shell|backup", "name": "每日备份", "spec": "0 3 * * *", "sc
 GET /api/onepanel/spec
 ```
 
-返回内置的 717 个 1Panel v2 官方 API 端点清单（method / path / summary），**无需 serverId**。
+返回内置的 1Panel 官方 API 端点清单（method / path / summary / tag）与 `swaggerVersion`，**无需 serverId**。
+内容由官方 swagger 生成，当前对齐 1Panel v2.4.1（770 个 operation / 759 条 path）。
 
 ### 通用代理执行
 
@@ -406,6 +482,6 @@ Body: { "method": "GET|POST|PUT|DELETE", "path": "/websites/list", "body": {} }
 
 | 方式 | 适用场景 | 接口数 |
 |---|---|---|
-| 快捷操作 | 高频管理：启停网站/容器/重载/备份/升级 | 38 个 |
-| 通用代理 | 覆盖全部 717 个 1Panel API | 1 个 `proxy` |
+| 快捷操作 | 高频管理：启停网站/容器/重载/备份/升级 | 37 个（见 `quick-routes.json`） |
+| 通用代理 | 覆盖官方 swagger 的全部 operation | 1 个 `proxy` |
 | 先查目录再用 proxy | 发现 + 手动执行 | `spec` + `proxy` |
