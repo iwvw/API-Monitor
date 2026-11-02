@@ -1,6 +1,6 @@
 {
   "name": "api-monitor",
-  "version": "2.1.4",
+  "version": "2.1.5",
   "description": "Multi-api monitoring dashboard",
   "engines": {
     "node": ">=20.0.0"
