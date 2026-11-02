@@ -409,6 +409,90 @@ func TestRouteContractCoverage(t *testing.T) {
 	}
 }
 
+// TestOpenAPIRequestBodyUsesSchema OpenAPI 导出的请求体必须带 schema（可生成客户端），
+// 不能只有 example——那是「接口索引」而不是「契约」。这条测试守住 P0 回归。
+func TestOpenAPIRequestBodyUsesSchema(t *testing.T) {
+	s := New(config.Config{Version: "test", DataDir: t.TempDir(), DBName: "data.db"})
+	defer s.Shutdown()
+	req, _ := http.NewRequest(http.MethodGet, "/api/system/openapi.json", nil)
+	doc := s.openapiDocument(req)
+
+	schemas, ok := doc["components"].(map[string]interface{})["schemas"].(map[string]interface{})
+	if !ok || len(schemas) == 0 {
+		t.Fatalf("components.schemas 为空，外部工具无法据此生成客户端")
+	}
+	if _, ok := schemas["Envelope"]; !ok {
+		t.Fatalf("components.schemas 缺少统一响应外壳 Envelope")
+	}
+
+	withBody, withSchema := 0, 0
+	paths := doc["paths"].(map[string]interface{})
+	for _, ops := range paths {
+		for _, raw := range ops.(map[string]interface{}) {
+			op, _ := raw.(map[string]interface{})
+			rb, ok := op["requestBody"].(map[string]interface{})
+			if !ok {
+				continue
+			}
+			withBody++
+			content, _ := rb["content"].(map[string]interface{})
+			for _, rawMedia := range content {
+				if media, ok := rawMedia.(map[string]interface{}); ok {
+					if _, has := media["schema"]; has {
+						withSchema++
+						break
+					}
+				}
+			}
+		}
+	}
+	if withBody == 0 {
+		t.Fatal("OpenAPI 里没有任何 requestBody")
+	}
+	// 允许极少数只有示例的旧契约，但绝大多数必须有 schema。
+	if withSchema*10 < withBody*9 {
+		t.Errorf("requestBody 带 schema 比例过低: %d/%d（要求 ≥90%%）", withSchema, withBody)
+	}
+	t.Logf("requestBody: %d, 带 schema: %d, components.schemas: %d", withBody, withSchema, len(schemas))
+}
+
+// TestOpenAPIAuthNotDuplicatedAsParameter 鉴权信息只能出现在 security 里，
+// 不能把 sid Cookie 当普通参数重复声明（会误导调用方去手写 Cookie）。
+func TestOpenAPIAuthNotDuplicatedAsParameter(t *testing.T) {
+	s := New(config.Config{Version: "test", DataDir: t.TempDir(), DBName: "data.db"})
+	defer s.Shutdown()
+	req, _ := http.NewRequest(http.MethodGet, "/api/system/openapi.json", nil)
+	doc := s.openapiDocument(req)
+
+	for path, ops := range doc["paths"].(map[string]interface{}) {
+		for method, raw := range ops.(map[string]interface{}) {
+			op, _ := raw.(map[string]interface{})
+			params, _ := op["parameters"].([]map[string]interface{})
+			for _, p := range params {
+				if p["in"] == "cookie" {
+					t.Errorf("%s %s 把 Cookie 参数 %v 写进了 parameters，应只用 security 表达", method, path, p["name"])
+				}
+			}
+		}
+	}
+}
+
+// TestOpenAPIServerURLHonorsForwardedHeaders 反向代理后的 servers.url 必须可被外部调用。
+func TestOpenAPIServerURLHonorsForwardedHeaders(t *testing.T) {
+	s := New(config.Config{Version: "test", DataDir: t.TempDir(), DBName: "data.db"})
+	defer s.Shutdown()
+
+	req, _ := http.NewRequest(http.MethodGet, "/api/system/openapi.json", nil)
+	req.Host = "10.0.0.5:3000"
+	req.Header.Set("X-Forwarded-Proto", "https")
+	req.Header.Set("X-Forwarded-Host", "panel.example.com")
+	doc := s.openapiDocument(req)
+	servers := doc["servers"].([]map[string]string)
+	if got := servers[0]["url"]; got != "https://panel.example.com" {
+		t.Errorf("servers.url = %q, want https://panel.example.com", got)
+	}
+}
+
 func TestAIProgressiveDisclosure(t *testing.T) {
 	tempDir, err := os.MkdirTemp("", "api_monitor_disclosure_test_*")
 	if err != nil {

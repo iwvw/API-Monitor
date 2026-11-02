@@ -1038,6 +1038,17 @@ func (s *Server) applySecurityHeaders(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	origin := strings.TrimRight(strings.TrimSpace(r.Header.Get("Origin")), "/")
+	// 文档类公共接口（OpenAPI / API 目录 / 健康检查）不依赖会话 Cookie，
+	// 外部 AI 连接器、Postman Web、浏览器端工具需要能直接读取：
+	// 当 API_MONITOR_PUBLIC_CORS 打开时对任意 Origin 回显，但不放行凭据。
+	if s.cfg.PublicCORS && isPublicDocRoute(r.URL.Path) && origin != "" {
+		w.Header().Set("Access-Control-Allow-Origin", origin)
+		w.Header().Set("Access-Control-Allow-Methods", "GET,OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", allowHeadersAgent)
+		w.Header().Set("Access-Control-Max-Age", "7200")
+		w.Header().Add("Vary", "Origin")
+		return
+	}
 	for _, allowed := range s.cfg.CORSAllowedOrigins {
 		if origin != "" && origin == allowed {
 			w.Header().Set("Access-Control-Allow-Origin", origin)
@@ -1048,6 +1059,16 @@ func (s *Server) applySecurityHeaders(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 	}
+}
+
+// isPublicDocRoute 判断是否为「公开文档类」接口：只读、无需会话凭据、
+// 允许外部工具跨域读取。刻意不包含任何业务接口，避免放大攻击面。
+func isPublicDocRoute(path string) bool {
+	switch path {
+	case "/health", "/api/openapi.json", "/api/system/openapi.json", "/api/system/api-docs", "/api/system/openapi.yaml":
+		return true
+	}
+	return false
 }
 
 func isGatewayRoute(path string) bool {

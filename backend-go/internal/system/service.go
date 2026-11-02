@@ -2,7 +2,9 @@ package system
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"net/http"
@@ -10,6 +12,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -880,6 +883,12 @@ func (s *Service) openapiCompactDocument(r *http.Request) map[string]interface{}
 
 func (s *Service) openapiDocument(r *http.Request) map[string]interface{} {
 	paths := map[string]interface{}{}
+	// schemas 收集请求体 schema，按路由前缀去重后放进 components.schemas，
+	// 让外部工具（Postman / OpenAPI Generator / AI 连接器）能直接生成客户端，
+	// 而不只是看到一份路径清单。
+	schemas := map[string]interface{}{}
+	// routes 保留参与生成的叶子路由，用于推导顶层 tags 声明。
+	routes := make([]apiDocRoute, 0, 256)
 	for _, route := range s.apiDocs()["routes"].([]apiDocRoute) {
 		// 家族前缀聚合路由（MatchPrefix，如 /api/aliyun、/api/auth/2fa、/api/server/v2/docker）
 		// 仅作路由匹配声明，不是可调用端点：OpenAPI 不展开其操作，避免文档/巡检误报。
@@ -892,6 +901,7 @@ func (s *Service) openapiDocument(r *http.Request) map[string]interface{} {
 		case "/api/auth/2fa", "/api/auth/webauthn/login", "/api/server/v2/docker", "/v1":
 			continue
 		}
+		routes = append(routes, route)
 		methods := route.Methods
 		if len(methods) == 0 {
 			methods = []string{"GET"}
@@ -915,7 +925,25 @@ func (s *Service) openapiDocument(r *http.Request) map[string]interface{} {
 			if security := openAPISecurity(route.Auth); len(security) > 0 {
 				operation["security"] = security
 			}
-			if route.RequestBody != nil {
+			if route.RequestSchema != nil {
+				contentType := route.RequestType
+				if strings.TrimSpace(contentType) == "" {
+					contentType = "application/json"
+				}
+				media := map[string]interface{}{
+					"schema": openAPISchemaFor(route.Prefix, route.RequestSchema, schemas),
+				}
+				if example := requestExampleFor(route); example != nil {
+					media["example"] = example
+				}
+				operation["requestBody"] = map[string]interface{}{
+					"required": true,
+					"content": map[string]interface{}{
+						contentType: media,
+					},
+				}
+			} else if route.RequestBody != nil {
+				// 只有示例、没有 schema 的旧契约：仍按示例输出，但内容类型走 example。
 				contentType := route.RequestType
 				if strings.TrimSpace(contentType) == "" {
 					contentType = "application/json"
@@ -949,8 +977,17 @@ func (s *Service) openapiDocument(r *http.Request) map[string]interface{} {
 	if r.TLS != nil {
 		scheme = "https"
 	}
-	serverURL := fmt.Sprintf("%s://%s", scheme, r.Host)
-	if r.Host == "" {
+	// 反向代理后 r.Host 是内网地址，外部使用者拿到会调不通；
+	// X-Forwarded-Proto/Host 只有可信代理才会设置，优先采用。
+	if proto := strings.TrimSpace(r.Header.Get("X-Forwarded-Proto")); proto == "http" || proto == "https" {
+		scheme = proto
+	}
+	host := r.Host
+	if forwarded := firstHeaderValue(r.Header.Get("X-Forwarded-Host")); forwarded != "" {
+		host = forwarded
+	}
+	serverURL := fmt.Sprintf("%s://%s", scheme, host)
+	if host == "" {
 		serverURL = "/"
 	}
 
@@ -959,9 +996,10 @@ func (s *Service) openapiDocument(r *http.Request) map[string]interface{} {
 		"info": map[string]interface{}{
 			"title":       "API Monitor API",
 			"version":     s.cfg.Version,
-			"description": "由系统路由清单自动生成的接口索引。请求/响应 Schema 会在后续元数据补齐后逐步增强。",
+			"description": "由系统路由清单自动生成。请求体 schema 来自 routeRequestContracts，响应为统一 envelope（见 components.schemas.Envelope）。",
 		},
 		"servers": []map[string]string{{"url": serverURL}},
+		"tags":    openAPITags(routes),
 		"components": map[string]interface{}{
 			"securitySchemes": map[string]interface{}{
 				"sessionCookie": map[string]interface{}{
@@ -980,9 +1018,230 @@ func (s *Service) openapiDocument(r *http.Request) map[string]interface{} {
 					"bearerFormat": "Agent Key",
 				},
 			},
+			"schemas": withEnvelopeSchema(schemas),
 		},
 		"paths": paths,
 	}
+}
+
+// envelopeSchemaName 是统一响应外壳的 schema 名。
+const envelopeSchemaName = "Envelope"
+
+// withEnvelopeSchema 把收集到的请求体 schema 与统一响应外壳一起放进 components.schemas。
+func withEnvelopeSchema(schemas map[string]interface{}) map[string]interface{} {
+	out := make(map[string]interface{}, len(schemas)+1)
+	for name, schema := range schemas {
+		out[name] = schema
+	}
+	out[envelopeSchemaName] = map[string]interface{}{
+		"type":        "object",
+		"description": "所有接口共用的响应外壳",
+		"required":    []string{"success"},
+		"properties": map[string]interface{}{
+			"success": map[string]interface{}{"type": "boolean", "description": "业务是否成功"},
+			"data":    map[string]interface{}{"description": "业务数据，随接口而异"},
+			"error":   map[string]interface{}{"type": "string", "description": "失败原因"},
+			"requestId": map[string]interface{}{
+				"type":        "string",
+				"description": "服务端请求 ID，便于排查",
+			},
+		},
+	}
+	return out
+}
+
+// openAPITags 从路由分组生成顶层 tags 声明（按出现顺序去重）。
+func openAPITags(routes []apiDocRoute) []map[string]string {
+	seen := map[string]bool{}
+	tags := make([]map[string]string, 0, 16)
+	for _, route := range routes {
+		if route.Group == "" || seen[route.Group] {
+			continue
+		}
+		seen[route.Group] = true
+		tags = append(tags, map[string]string{"name": route.Group})
+	}
+	return tags
+}
+
+// requestExampleFor 返回路由的请求体示例；没有显式示例时按 schema 生成一份。
+func requestExampleFor(route apiDocRoute) interface{} {
+	if route.RequestBody != nil {
+		return route.RequestBody
+	}
+	return exampleFromSchema(route.RequestSchema)
+}
+
+// exampleFromSchema 依据 JSON Schema 生成最小可用示例（required 字段优先）。
+func exampleFromSchema(schema map[string]interface{}) interface{} {
+	if schema == nil {
+		return nil
+	}
+	props, _ := schema["properties"].(map[string]interface{})
+	if len(props) == 0 {
+		return nil
+	}
+	required := map[string]bool{}
+	if list, ok := schema["required"].([]string); ok {
+		for _, name := range list {
+			required[name] = true
+		}
+	} else if list, ok := schema["required"].([]interface{}); ok {
+		for _, name := range list {
+			if s, ok := name.(string); ok {
+				required[s] = true
+			}
+		}
+	}
+	example := map[string]interface{}{}
+	for name, raw := range props {
+		fieldSchema, _ := raw.(map[string]interface{})
+		if !required[name] && len(example) > 0 {
+			continue
+		}
+		example[name] = exampleValueFor(fieldSchema)
+	}
+	if len(example) == 0 {
+		return nil
+	}
+	return example
+}
+
+// exampleValueFor 按字段 schema 给出占位取值。
+func exampleValueFor(fieldSchema map[string]interface{}) interface{} {
+	if enum, ok := fieldSchema["enum"].([]string); ok && len(enum) > 0 {
+		return enum[0]
+	}
+	if enum, ok := fieldSchema["enum"].([]interface{}); ok && len(enum) > 0 {
+		return enum[0]
+	}
+	switch fieldSchema["type"] {
+	case "integer":
+		return 0
+	case "number":
+		return 0
+	case "boolean":
+		return false
+	case "array":
+		return []interface{}{}
+	case "object":
+		return map[string]interface{}{}
+	default:
+		return ""
+	}
+}
+
+// openAPISchemaFor 把内部 JSON Schema 转成 OpenAPI 3.1 友好的结构，
+// 同时把顶层对象注册进 components.schemas 并返回 $ref。
+func openAPISchemaFor(prefix string, schema map[string]interface{}, schemas map[string]interface{}) map[string]interface{} {
+	if schema == nil {
+		return map[string]interface{}{"type": "object"}
+	}
+	converted := convertSchemaForOpenAPI(schema)
+	if name := schemaRefName(converted, prefix); name != "" {
+		schemas[name] = converted
+		return map[string]interface{}{"$ref": "#/components/schemas/" + name}
+	}
+	return converted
+}
+
+// schemaRefName 为可复用的顶层 object schema 生成组件名。
+// 命名优先用路由路径（/api/foo/{id}/bar → FooIdBar），同一路径的多方法共享同一份；
+// 非 object（如数组/标量）不注册，直接内联。
+func schemaRefName(schema map[string]interface{}, prefix string) string {
+	if schema["type"] != "object" {
+		return ""
+	}
+	props, _ := schema["properties"].(map[string]interface{})
+	if len(props) == 0 {
+		return ""
+	}
+	if name := schemaNameFromPrefix(prefix); name != "" {
+		return name
+	}
+	return "RequestBody_" + schemaHash(props)
+}
+
+// schemaNameFromPrefix 把路由路径转成 PascalCase 组件名。
+func schemaNameFromPrefix(prefix string) string {
+	prefix = strings.TrimPrefix(prefix, "/")
+	if prefix == "" {
+		return ""
+	}
+	replacer := strings.NewReplacer("/", " ", "{", " ", "}", " ", "-", " ", "_", " ", ".", " ")
+	parts := strings.Fields(replacer.Replace(prefix))
+	var b strings.Builder
+	for _, part := range parts {
+		if part == "" {
+			continue
+		}
+		b.WriteString(strings.ToUpper(part[:1]))
+		if len(part) > 1 {
+			b.WriteString(part[1:])
+		}
+	}
+	name := b.String()
+	if len(name) > 96 {
+		return ""
+	}
+	return name
+}
+
+// schemaHash 对属性名做稳定排序后取短哈希，保证同名 schema 复用、异构不复用。
+func schemaHash(props map[string]interface{}) string {
+	names := make([]string, 0, len(props))
+	for name := range props {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	digest := sha256.Sum256([]byte(strings.Join(names, ",")))
+	return hex.EncodeToString(digest[:4])
+}
+
+// convertSchemaForOpenAPI 递归补全 OpenAPI 3.1 要求的细节：
+// 标量补 type（没写 type 但有 enum 的按 string），数组补 items。
+func convertSchemaForOpenAPI(schema map[string]interface{}) map[string]interface{} {
+	if schema == nil {
+		return map[string]interface{}{"type": "object"}
+	}
+	out := make(map[string]interface{}, len(schema)+1)
+	for k, v := range schema {
+		out[k] = v
+	}
+	if _, ok := out["type"]; !ok {
+		if _, hasEnum := out["enum"]; hasEnum {
+			out["type"] = "string"
+		}
+	}
+	if out["type"] == "object" {
+		if props, ok := out["properties"].(map[string]interface{}); ok {
+			converted := make(map[string]interface{}, len(props))
+			for name, raw := range props {
+				fieldSchema, _ := raw.(map[string]interface{})
+				converted[name] = convertSchemaForOpenAPI(fieldSchema)
+			}
+			out["properties"] = converted
+		}
+	}
+	if out["type"] == "array" {
+		if items, ok := out["items"].(map[string]interface{}); ok {
+			out["items"] = convertSchemaForOpenAPI(items)
+		} else {
+			out["items"] = map[string]interface{}{}
+		}
+	}
+	return out
+}
+
+// firstHeaderValue 取逗号分隔头的第一个值（X-Forwarded-Host 可能是链式）。
+func firstHeaderValue(raw string) string {
+	if raw == "" {
+		return ""
+	}
+	if idx := strings.Index(raw, ","); idx >= 0 {
+		raw = raw[:idx]
+	}
+	return strings.TrimSpace(raw)
 }
 
 func buildOpenAPIDescription(route apiDocRoute) string {
@@ -996,9 +1255,16 @@ func buildOpenAPIDescription(route apiDocRoute) string {
 	return strings.Join(filterNonEmpty(parts), "\n\n")
 }
 
+// openAPIParameters 把路由的路径/查询/头参数转成 OpenAPI parameters。
+// 注意：鉴权头（Cookie sid、Authorization）不在这里出现——它们由
+// operation.security + components.securitySchemes 表达，重复写会造成
+// 「Cookie 被当成调用方参数」的误导。
 func openAPIParameters(route apiDocRoute) []map[string]interface{} {
 	params := make([]map[string]interface{}, 0, len(route.PathParams)+len(route.QueryParams)+len(route.Headers))
 	appendParam := func(param apiDocParameter) {
+		if param.In == "cookie" {
+			return
+		}
 		params = append(params, map[string]interface{}{
 			"name":        param.Name,
 			"in":          param.In,

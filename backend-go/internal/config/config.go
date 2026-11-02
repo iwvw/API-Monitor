@@ -38,6 +38,12 @@ type Config struct {
 	// 可与默认沙箱一并被面板文件管理访问；为空时不注入，保持历史行为。
 	// 环境变量 API_MONITOR_AGENT_FILE_ROOTS 配置。
 	AgentFileRoots []string
+	// PublicCORS 控制「无需凭据的文档类接口」是否回显任意 Origin 的 CORS 头。
+	// 打开后 /api/openapi.json、/api/system/openapi.json、/health 可被外部
+	// AI 连接器 / Postman Web / 浏览器端工具直接读取；这些接口都不依赖会话
+	// Cookie，回显 Origin 不构成 CSRF 风险。
+	// 环境变量 API_MONITOR_PUBLIC_CORS（默认 true）配置。
+	PublicCORS bool
 }
 
 func Load(version string) Config {
@@ -61,6 +67,7 @@ func Load(version string) Config {
 		GatewayBodyMaxBytes:       int64(envInt("GATEWAY_BODY_MAX_MB", 16)) * 1024 * 1024,
 		RequestDecompressMaxBytes: int64(envInt("REQUEST_DECOMPRESS_MAX_MB", 32)) * 1024 * 1024,
 		AgentFileRoots:            envList("API_MONITOR_AGENT_FILE_ROOTS"),
+		PublicCORS:                envBool("API_MONITOR_PUBLIC_CORS", true),
 	}
 }
 
