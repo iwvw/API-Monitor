@@ -7,6 +7,7 @@ API Monitor —— 自托管 API / 云资源 / 主机监控面板。前端 React
 ## 命令
 
 - 装依赖：`npm install`；起前端+后端：`npm run dev`（Vite + `go run`，前端 `http://localhost:5173`）。
+- 本机打生产镜像（不走 CI 全量编译）：`./tools/local-image.sh` → `iwvw/api-monitor:local`，以已发布镜像为基底只覆盖本机编译的 Go/前端/Agent 产物，约 10 秒。配套 `docker-compose.local.yml` 起在 3001 端口。Agent 静态编译需 `apt install musl-tools` + `rustup target add aarch64-unknown-linux-musl`。
 - 前端单测：`npm test`（vitest，`test/`、`src/js/modules/**`、`src/js/components/**`、`src/js/pages/**` 下 `*.test.js`，node 环境）。单个文件：`npx vitest run test/<x>.test.js`。
 - Go 单测：`npm run backend-go:test`（= `cd backend-go && go test ./...`）。单包/单测：`cd backend-go && go test ./internal/<pkg>/ -run <Name> -v`。CI 用 `-p 1` 串行（并发包会在 Linux 撞 TempDir 句柄，非真失败，会自动重跑一次）。
 - 快速审计：`npm run audit:fast`（`icons:generate` → `governance:check` → `ui:governance` → `kumo:registry:check` → `docs:check` → `lint` → `test`）。完整审计：`npm run audit:full`（另含 Go 测试、路由清单、后端冒烟，需运行中的 Go 后端在 `API_MONITOR_BASE_URL` 或 `http://127.0.0.1:3000`）。
