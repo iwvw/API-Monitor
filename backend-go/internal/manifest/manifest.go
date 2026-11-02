@@ -460,6 +460,7 @@ func buildRoutes() []Route {
 		{Prefix: "/api/server/sftp/delete", Module: "server-sftp", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "SFTP delete file", MatchMode: MatchExact},
 		{Prefix: "/api/server/sftp/rmdir", Module: "server-sftp", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "SFTP remove directory", MatchMode: MatchExact},
 		{Prefix: "/api/server/sftp/chmod", Module: "server-sftp", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "SFTP change permissions", MatchMode: MatchExact},
+		{Prefix: "/api/server/sftp/roots", Module: "server-sftp", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "SFTP accessible roots", MatchMode: MatchExact},
 		{Prefix: "/api/server/sftp/upload", Module: "server-sftp", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "SFTP upload file", MatchMode: MatchExact},
 		{Prefix: "/api/server/sftp/download/{serverId}", Module: "server-sftp", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "SFTP download file", MatchMode: MatchPattern},
 

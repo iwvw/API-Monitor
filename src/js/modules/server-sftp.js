@@ -10,6 +10,12 @@ export async function readSftpFile(serverId, path, maxSize) {
   return post('/api/server/sftp/read', { serverId, path, maxSize }, { fallbackMessage: FALLBACK });
 }
 
+// 查询该主机的文件可访问根目录（Agent 沙箱根 + 白名单根，或 SSH 直连提示）。
+// 面板用它把「路径不在白名单内」这类错误变成可操作的提示。
+export async function getSftpRoots(serverId) {
+  return post('/api/server/sftp/roots', { serverId }, { fallbackMessage: FALLBACK });
+}
+
 export async function writeSftpFile(serverId, path, content) {
   return post('/api/server/sftp/write', { serverId, path, content }, { fallbackMessage: FALLBACK });
 }

@@ -1,0 +1,34 @@
+# syntax=docker/dockerfile:1
+# 本机构建用的「产物覆盖」Dockerfile。
+#
+# 正式发布仍走仓库根目录的 Dockerfile（多阶段、源码全量编译）。
+# 这里为了本地开发调试：以已发布镜像为运行时基底，只覆盖本机编译的
+# Go 后端二进制、前端 dist 与三平台 Agent，几秒完成，不拉任何镜像。
+#
+# 用法：
+#   ./tools/local-image.sh            # 编译 + 打 iwvw/api-monitor:local
+#   docker compose ... 使用 local 标签（见 compose 片段）
+ARG RUNTIME_BASE=iwvw/api-monitor:dev
+FROM ${RUNTIME_BASE}
+
+ARG APP_VERSION=dev-local
+LABEL org.opencontainers.image.version="${APP_VERSION}"
+
+# 覆盖为本机编译的产物（Go 静态二进制 + 前端 dist + Agent 三平台）
+COPY --chown=appuser:appuser dist /app/dist
+COPY --chown=appuser:appuser backend-go/api-monitor /app/api-monitor
+
+# Agent 下载清单：sha256 必须与文件一致，否则面板下发升级会被校验拒绝。
+# 空文件（未构建的平台）保持原样，避免写出错误的校验和。
+# 基底镜像里的 .sha256 属于 root，需先切回 root 才能覆写。
+USER root
+RUN cd /app/dist/agent && \
+    for f in agent-linux-amd64 agent-linux-arm64 agent-windows-amd64.exe; do \
+      if [ -s "$f" ]; then sha256sum "$f" | awk '{print $1}' > "$f.sha256"; fi; \
+    done && \
+    chown appuser:appuser /app/dist /app/api-monitor && \
+    chown -R appuser:appuser /app/dist/agent
+
+USER appuser
+ENTRYPOINT ["/sbin/tini", "--"]
+CMD ["/app/api-monitor"]

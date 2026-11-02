@@ -20,6 +20,11 @@ antigravity-accounts-*.json
 agent-rust/config.json
 agent-rust/*.exe
 agent-rust/target/
+# 本地镜像构建（tools/local-image.sh）产出的三平台 Agent 二进制，
+# 只是本机编译缓存，不入库；正式发布由 CI 编译。
+agent-rust/agent-linux-amd64
+agent-rust/agent-linux-arm64
+agent-rust/agent-windows-amd64.exe
 # AI Agent 托管进程表是 Agent 运行期状态，由 Agent 自行读写，不入库。
 # 测试运行也会生成它，必须忽略，否则会带着测试数据（inst_e2e 等）被提交。
 agent-rust/aiagent_processes.json

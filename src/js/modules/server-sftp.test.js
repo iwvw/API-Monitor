@@ -10,6 +10,7 @@ import {
   chmodSftpPath,
   uploadSftpFile,
   buildSftpDownloadUrl,
+  getSftpRoots,
 } from './server-sftp.js';
 
 const okResponse = (payload, ok = true) => ({ ok, json: async () => payload });
@@ -46,6 +47,14 @@ describe('server-sftp fetches', () => {
     await readSftpFile('srv-1', '/etc/a', 1024);
     expect(calledUrl(fetchMock)).toBe('/api/server/sftp/read');
     expect(calledInit(fetchMock).body).toBe('{"serverId":"srv-1","path":"/etc/a","maxSize":1024}');
+  });
+
+  it('getSftpRoots posts serverId', async () => {
+    fetchMock.mockResolvedValue(jsonResponse());
+    await getSftpRoots('srv-1');
+    expect(calledUrl(fetchMock)).toBe('/api/server/sftp/roots');
+    expect(calledInit(fetchMock).method).toBe('POST');
+    expect(calledInit(fetchMock).body).toBe('{"serverId":"srv-1"}');
   });
 
   it('writeSftpFile posts serverId, path and content', async () => {

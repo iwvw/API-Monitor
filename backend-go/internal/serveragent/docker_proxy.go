@@ -28,6 +28,11 @@ const (
 	dockerTaskContainers  = 27
 )
 
+// dockerStatsTimeout 是面板等待 Agent 采集「全部运行容器」stats 的上限。
+// Agent 侧已改为并发采集，但每个容器仍要等 Docker 的第二个采样点（约 2s），
+// 容器多时 15s 不够；给到 45s 以覆盖几十个容器的场景。
+const dockerStatsTimeout = 45 * time.Second
+
 func (s *Service) handleDockerProxyRoutes(w http.ResponseWriter, r *http.Request, db *sql.DB, subparts []string) {
 	if len(subparts) < 2 {
 		response.Error(w, http.StatusBadRequest, "docker server id and resource are required")
@@ -76,7 +81,9 @@ func (s *Service) handleDockerProxyContainers(w http.ResponseWriter, r *http.Req
 		return
 	}
 	if len(rest) == 1 && rest[0] == "stats" && r.Method == http.MethodGet {
-		s.writeDockerTaskJSON(w, r, serverID, dockerTaskStats, "", 15*time.Second)
+		// Agent 侧并发采集（限 8 路），单容器仍需等 Docker 第二个采样点（约 2s），
+		// 40 个容器以内约 10s 完成。15s 对多容器主机会直接超时。
+		s.writeDockerTaskJSON(w, r, serverID, dockerTaskStats, "", dockerStatsTimeout)
 		return
 	}
 	if len(rest) == 2 {

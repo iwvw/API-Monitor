@@ -15,6 +15,9 @@ const FILES_ROOT: &str = "/var/lib/api-monitor/agent/files";
 #[serde(rename_all = "camelCase")]
 pub struct FileListRequest {
     pub path: String,
+    /// 为 true 时按主机真实绝对路径列目录（仅限白名单根内）
+    #[serde(default)]
+    pub real_path: bool,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -62,6 +65,10 @@ pub struct FileRootsResponse {
 pub struct FileReadRequest {
     pub path: String,
     pub max_size: Option<i64>,
+    /// 为 true 时要求按主机真实绝对路径访问（仅限白名单根内），
+    /// 未命中白名单直接报错，绝不再静默锚定到沙箱根。
+    #[serde(default)]
+    pub real_path: bool,
 }
 
 #[derive(Deserialize, Debug)]
@@ -69,12 +76,16 @@ pub struct FileReadRequest {
 pub struct FileWriteRequest {
     pub path: String,
     pub content: String,
+    #[serde(default)]
+    pub real_path: bool,
 }
 
 #[derive(Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct FileMkdirRequest {
     pub path: String,
+    #[serde(default)]
+    pub real_path: bool,
 }
 
 #[derive(Deserialize, Debug)]
@@ -82,6 +93,9 @@ pub struct FileMkdirRequest {
 pub struct FileDeleteRequest {
     pub path: String,
     pub recursive: bool,
+    /// 为 true 时按主机真实绝对路径操作（仅限白名单根内）
+    #[serde(default)]
+    pub real_path: bool,
 }
 
 #[derive(Deserialize, Debug)]
@@ -89,12 +103,17 @@ pub struct FileDeleteRequest {
 pub struct FileRenameRequest {
     pub old_path: String,
     pub new_path: String,
+    /// 为 true 时按主机真实绝对路径操作（仅限白名单根内）
+    #[serde(default)]
+    pub real_path: bool,
 }
 
 #[derive(Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct FileStatRequest {
     pub path: String,
+    #[serde(default)]
+    pub real_path: bool,
 }
 
 #[derive(Deserialize, Debug)]
@@ -103,6 +122,9 @@ pub struct FileStatRequest {
 pub struct FileChmodRequest {
     pub path: String,
     pub mode: u32,
+    /// 为 true 时按主机真实绝对路径操作（仅限白名单根内）
+    #[serde(default)]
+    pub real_path: bool,
 }
 
 #[derive(Deserialize, Debug)]
@@ -111,6 +133,9 @@ pub struct FileDownloadChunkRequest {
     pub path: String,
     pub offset: i64,
     pub size: i32,
+    /// 为 true 时按主机真实绝对路径读取（仅限白名单根内）
+    #[serde(default)]
+    pub real_path: bool,
 }
 
 #[derive(Deserialize, Debug)]
@@ -160,6 +185,9 @@ pub struct FileWriteBase64Request {
     /// 是否在写入前截断文件（仅首块需要）
     #[serde(default)]
     pub truncate: bool,
+    /// 为 true 时要求按主机真实绝对路径写入（仅限白名单根内）
+    #[serde(default)]
+    pub real_path: bool,
 }
 
 pub struct FileManager;
@@ -169,7 +197,7 @@ impl FileManager {
         let req: FileListRequest =
             serde_json::from_str(data).map_err(|e| format!("解析请求失败: {}", e))?;
 
-        let abs_path = resolve_path(&req.path)?;
+        let abs_path = resolve_path_for(&req.path, req.real_path)?;
 
         let entries = fs::read_dir(&abs_path).map_err(|e| format!("读取目录失败: {}", e))?;
 
@@ -251,6 +279,8 @@ impl FileManager {
                 .to_string()
                 + "真实落盘路径见各文件工具的 realPath 字段；"
                 + "只有 allowed_roots 内的路径才按真实绝对路径访问。"
+                + "面板文件管理与 Compose 配置编辑会传 realPath=true：此时路径必须落在 "
+                + "allowed_roots 内，否则直接报错而不会静默写进沙箱。"
                 + "agent_run_command 执行在真实文件系统上，必须使用 realPath。",
         };
         serde_json::to_string(&resp).map_err(|e| e.to_string())
@@ -264,7 +294,7 @@ impl FileManager {
             return Err("文件路径不能为空".to_string());
         }
 
-        let abs_path = resolve_path(&req.path)?;
+        let abs_path = resolve_path_for(&req.path, req.real_path)?;
         let meta = fs::metadata(&abs_path).map_err(|e| format!("获取文件信息失败: {}", e))?;
 
         let max_size = req.max_size.unwrap_or(2 * 1024 * 1024); // 2MB default
@@ -288,14 +318,19 @@ impl FileManager {
             return Err("文件路径不能为空".to_string());
         }
 
-        let abs_path = resolve_path(&req.path)?;
+        let abs_path = resolve_path_for(&req.path, req.real_path)?;
         if let Some(parent) = abs_path.parent() {
             fs::create_dir_all(parent).map_err(|e| format!("创建父目录失败: {}", e))?;
         }
 
         fs::write(&abs_path, req.content.as_bytes()).map_err(|e| format!("写入文件失败: {}", e))?;
 
-        Ok("文件保存成功".to_string())
+        // 回传真实落盘路径，面板可据此提示用户「到底写到了哪」。
+        let payload = serde_json::json!({
+            "message": "文件保存成功",
+            "realPath": abs_path.to_string_lossy().replace('\\', "/"),
+        });
+        Ok(payload.to_string())
     }
 
     pub fn handle_file_mkdir(data: &str) -> Result<String, String> {
@@ -306,7 +341,7 @@ impl FileManager {
             return Err("目录路径不能为空".to_string());
         }
 
-        let abs_path = resolve_path(&req.path)?;
+        let abs_path = resolve_path_for(&req.path, req.real_path)?;
         fs::create_dir_all(&abs_path).map_err(|e| format!("创建目录失败: {}", e))?;
 
         Ok("目录创建成功".to_string())
@@ -320,7 +355,7 @@ impl FileManager {
             return Err("路径不能为空".to_string());
         }
 
-        let abs_path = resolve_path(&req.path)?;
+        let abs_path = resolve_path_for(&req.path, req.real_path)?;
 
         // Safety checks: 不允许删除任何被放行的根目录本身
         // （默认沙箱根与 API_MONITOR_FILE_ROOTS 额外根都算，
@@ -354,8 +389,8 @@ impl FileManager {
             return Err("路径不能为空".to_string());
         }
 
-        let old_abs = resolve_path(&req.old_path)?;
-        let new_abs = resolve_path(&req.new_path)?;
+        let old_abs = resolve_path_for(&req.old_path, req.real_path)?;
+        let new_abs = resolve_path_for(&req.new_path, req.real_path)?;
 
         fs::rename(old_abs, new_abs).map_err(|e| format!("重命名失败: {}", e))?;
 
@@ -370,7 +405,7 @@ impl FileManager {
             return Err("路径不能为空".to_string());
         }
 
-        let abs_path = resolve_path(&req.path)?;
+        let abs_path = resolve_path_for(&req.path, req.real_path)?;
         let meta = fs::metadata(&abs_path).map_err(|e| format!("获取文件信息失败: {}", e))?;
 
         let mtime = meta
@@ -429,7 +464,7 @@ impl FileManager {
 
         #[cfg(unix)]
         {
-            let abs_path = resolve_path(&req.path)?;
+            let abs_path = resolve_path_for(&req.path, req.real_path)?;
             use std::os::unix::fs::PermissionsExt;
             fs::set_permissions(&abs_path, fs::Permissions::from_mode(req.mode))
                 .map_err(|e| format!("修改权限失败: {}", e))?;
@@ -455,7 +490,7 @@ impl FileManager {
             req.size as usize
         };
 
-        let abs_path = resolve_path(&req.path)?;
+        let abs_path = resolve_path_for(&req.path, req.real_path)?;
         let mut file = fs::File::open(&abs_path).map_err(|e| format!("打开文件失败: {}", e))?;
 
         file.seek(SeekFrom::Start(req.offset as u64))
@@ -651,7 +686,7 @@ impl FileManager {
             .decode(req.data.as_bytes())
             .map_err(|e| format!("base64 解码失败: {}", e))?;
 
-        let abs_path = resolve_path(&req.path)?;
+        let abs_path = resolve_path_for(&req.path, req.real_path)?;
         if let Some(parent) = abs_path.parent() {
             fs::create_dir_all(parent).map_err(|e| format!("创建父目录失败: {}", e))?;
         }
@@ -818,6 +853,64 @@ fn resolve_path(input_path: &str) -> Result<PathBuf, String> {
     resolve_path_root(input_path).map(|(path, _)| path)
 }
 
+/// 按「主机真实绝对路径」解析：只接受落在白名单根（默认沙箱根或
+/// `API_MONITOR_FILE_ROOTS` 额外根）内的路径。
+///
+/// 与 `resolve_path` 的关键区别：**绝不**把未命中的绝对路径锚定到沙箱根。
+/// 面板的文件管理/Compose 配置编辑都要求「读到的就是主机上那份文件」，
+/// 一旦静默改写到 `<sandbox>/opt/x/y.yml`，界面显示保存成功但真实文件没变，
+/// 属于最危险的一类静默数据丢失。因此越界时直接报错。
+fn resolve_real_path(input_path: &str) -> Result<PathBuf, String> {
+    resolve_real_path_with_roots(input_path, &allowed_roots()?)
+}
+
+/// `resolve_real_path` 的可测试内核：根目录由调用方显式传入。
+fn resolve_real_path_with_roots(input_path: &str, roots: &[PathBuf]) -> Result<PathBuf, String> {
+    let normalized = input_path.replace('\\', "/");
+    let trimmed = normalized.trim_matches(|c| c == '/' || c == ' ');
+
+    if trimmed.is_empty() || trimmed == "." {
+        return Err("路径不能为空".to_string());
+    }
+
+    let candidate = PathBuf::from(strip_drive_prefix(trimmed.trim_start_matches('/')));
+    let absolute = if candidate.is_absolute() {
+        candidate
+    } else {
+        PathBuf::from("/").join(candidate)
+    };
+
+    let resolved = if absolute.exists() {
+        fs::canonicalize(&absolute).map_err(|e| format!("无法访问路径: {}", e))?
+    } else {
+        canonicalize_missing_tail(&absolute, "无法访问父目录")?
+    };
+
+    if matched_root(&resolved, roots).is_none() {
+        return Err(format!(
+            "路径不在 Agent 文件白名单内: {}。允许的根目录: {}；请在面板配置 API_MONITOR_AGENT_FILE_ROOTS 并重装/重启 Agent 后重试。",
+            resolved.display(),
+            roots
+                .iter()
+                .map(|r| r.display().to_string())
+                .collect::<Vec<_>>()
+                .join(", ")
+        ));
+    }
+
+    Ok(resolved)
+}
+
+/// 按调用方要求解析路径：`real_path=true` 走白名单强校验，否则沿用历史
+/// 沙箱锚定语义（保持 AI 文件工具与既有脚本行为不变）。
+fn resolve_path_for(input_path: &str, real_path: bool) -> Result<PathBuf, String> {
+    if real_path {
+        resolve_real_path(input_path)
+    } else {
+        resolve_path(input_path)
+    }
+}
+
 /// 剥离 Windows 盘符前缀（如 `C:`），返回去掉前缀后的路径片段。
 /// 输入首两个字节必须是 ASCII 盘符（字母 + 冒号），否则原样返回。
 fn strip_drive_prefix(p: &str) -> &str {
@@ -926,6 +1019,63 @@ mod tests {
         // 已存在祖先会被 canonicalize（Windows 下带 `\\?\` 前缀、展开 8.3 短名），
         // 因此只断言解析成功且保留了缺失尾段，不比较字面前缀。
         assert!(resolved.ends_with("moved-away/docker-compose.yml"));
+
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    /// realPath=true 时，白名单外的路径必须报错，绝不能静默锚定到沙箱根。
+    /// 这是「面板显示保存成功但真实文件没变」的回归防线。
+    #[test]
+    fn real_path_rejects_paths_outside_allowed_roots() {
+        let resolved = super::resolve_real_path("/definitely/not/whitelisted/file.yml");
+        assert!(resolved.is_err(), "expected rejection, got {resolved:?}");
+        let message = resolved.unwrap_err();
+        assert!(
+            message.contains("白名单"),
+            "error should explain whitelist, got: {message}"
+        );
+    }
+
+    /// 默认沙箱根自身是允许的，realPath 解析不应把它判为越界。
+    #[test]
+    fn real_path_accepts_sandbox_root() {
+        let root = super::canonical_files_root().expect("sandbox root");
+        let resolved = super::resolve_real_path(&root.to_string_lossy()).expect("sandbox root allowed");
+        assert_eq!(resolved, root);
+    }
+
+    /// 白名单根下的真实路径应被放行，且解析到主机真实位置（不锚定到沙箱）。
+    #[test]
+    fn real_path_accepts_whitelisted_host_path() {
+        let base = std::env::temp_dir().join(format!("api-monitor-realpath-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(base.join("compose")).unwrap();
+        let target = base.join("compose").join("docker-compose.yml");
+        std::fs::write(&target, "services: {}\n").unwrap();
+
+        let roots = vec![std::fs::canonicalize(&base).unwrap()];
+        let resolved = super::resolve_real_path_with_roots(&target.to_string_lossy(), &roots)
+            .expect("whitelisted path allowed");
+        assert_eq!(resolved, std::fs::canonicalize(&target).unwrap());
+        // 关键断言：解析结果必须是主机真实路径，而不是沙箱内的同名副本。
+        assert!(!resolved.starts_with(super::canonical_files_root().unwrap()));
+
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    /// 同一条路径在白名单缺失时必须被拒绝（回归线上事故的根因）。
+    #[test]
+    fn real_path_rejects_when_root_not_whitelisted() {
+        let base = std::env::temp_dir().join(format!("api-monitor-realpath-reject-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(&base).unwrap();
+        let target = base.join("docker-compose.yml");
+        std::fs::write(&target, "services: {}\n").unwrap();
+
+        let empty: Vec<std::path::PathBuf> = Vec::new();
+        let err = super::resolve_real_path_with_roots(&target.to_string_lossy(), &empty)
+            .expect_err("path outside whitelist must be rejected");
+        assert!(err.contains("白名单"), "unexpected error: {err}");
 
         let _ = std::fs::remove_dir_all(&base);
     }

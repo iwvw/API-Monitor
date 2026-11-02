@@ -137,7 +137,7 @@ npm run backend-go:build
 | `API_MONITOR_AGENT_OFFLINE_AFTER_MS` / `API_MONITOR_AGENT_SUSPECT_AFTER_MS` / `API_MONITOR_AGENT_STARTUP_GRACE_MS` / `API_MONITOR_AGENT_RECOVERY_SAMPLES` | 可选 | - | Agent 在线状态判定调参 |
 | `API_MONITOR_AGENT_METRICS_PERSIST_INTERVAL_MS` | 可选 | - | Agent 指标持久化间隔（毫秒） |
 | `API_MONITOR_AGENT_NETWORK_QUALITY_PERSIST_INTERVAL_MS` | 可选 | - | Agent 网络质量采集持久化间隔（毫秒） |
-| `API_MONITOR_AGENT_FILE_ROOTS` | 可选 | - | 下发给 Agent 的额外文件白名单根目录（逗号分隔）；生成安装脚本时注入为 `API_MONITOR_FILE_ROOTS` |
+| `API_MONITOR_AGENT_FILE_ROOTS` | 可选 | - | 下发给 Agent 的额外文件白名单根目录（逗号分隔）；生成安装脚本时注入为 `API_MONITOR_FILE_ROOTS`。面板的 Compose 配置编辑/文件管理读写主机真实路径，需把 compose 目录（如 `/opt/1panel/docker/compose`）加进来，否则会被拒绝 |
 | `API_MONITOR_PPROF` | 可选 | `0` | 设为 `1` 开启 pprof 性能剖析（仅排查性能问题时使用） |
 
 ### 开发工具脚本（可选）

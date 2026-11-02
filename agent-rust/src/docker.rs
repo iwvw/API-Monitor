@@ -90,6 +90,10 @@ struct RemoteDigestCacheEntry {
     expires_at: Instant,
 }
 
+/// 采集容器 stats 的最大并发度。每个采样要等 Docker 给出第二个采样点
+/// （约 2s），并发才能让总耗时与容器数解耦；上限 8 避免瞬时压满 dockerd。
+const DOCKER_STATS_CONCURRENCY: usize = 8;
+
 fn is_docker_installed() -> bool {
     // 1. Check if "docker" executable exists in PATH
     let cmd = if cfg!(target_os = "windows") {
@@ -502,7 +506,8 @@ impl DockerBridge {
         let docker_client = self
             .docker
             .as_ref()
-            .ok_or_else(|| "Docker client unavailable".to_string())?;
+            .ok_or_else(|| "Docker client unavailable".to_string())?
+            .clone();
 
         let containers = docker_client
             .list_containers(Some(ListContainersOptions::<String> {
@@ -512,29 +517,39 @@ impl DockerBridge {
             .await
             .map_err(|e| format!("Docker stats list containers failed: {}", e))?;
 
-        let mut result = Vec::new();
-        for container in containers {
-            let Some(container_id) = container.id.as_deref() else {
-                continue;
-            };
+        // 每个容器的 stats 采样必须等 Docker 给出第二个采样点（one_shot=false，
+        // 实测约 2s/容器）。串行采集会让总耗时随容器数线性增长，12 个容器就已
+        // 超过面板 10~15s 的超时阈值，整页「实时统计」直接超时。
+        // 这里并发采集并限制并发度，避免瞬时打爆 dockerd。
+        let targets: Vec<(String, Option<Vec<String>>)> = containers
+            .into_iter()
+            .filter_map(|container| {
+                container
+                    .id
+                    .map(|id| (id, container.names))
+            })
+            .collect();
 
-            let mut stream = docker_client.stats(
-                container_id,
-                Some(StatsOptions {
-                    stream: false,
-                    one_shot: false,
-                }),
-            );
+        let collected = stream::iter(targets.into_iter().map(|(container_id, names)| {
+            let client = docker_client.clone();
+            async move {
+                let mut stream = client.stats(
+                    &container_id,
+                    Some(StatsOptions {
+                        stream: false,
+                        one_shot: false,
+                    }),
+                );
+                let item = stream.next().await?;
+                item.ok().map(|sample| docker_container_stats_from_sample(&sample, &names))
+            }
+        }))
+        .buffer_unordered(DOCKER_STATS_CONCURRENCY)
+        .collect::<Vec<_>>()
+        .await;
 
-            let Some(item) = stream.next().await else {
-                continue;
-            };
-            let sample = item.map_err(|e| format!("Docker stats failed: {}", e))?;
-            result.push(docker_container_stats_from_sample(
-                &sample,
-                &container.names,
-            ));
-        }
+        // 单个容器采样失败（容器刚好退出等）只跳过该容器，不让整页统计失败。
+        let result: Vec<DockerContainerStats> = collected.into_iter().flatten().collect();
 
         serde_json::to_string(&result).map_err(|e| format!("serialize docker stats failed: {}", e))
     }

@@ -611,6 +611,7 @@ var routeDescriptions = map[string]string{
 	"/api/server/sftp/delete":                           "删除远程文件",
 	"/api/server/sftp/rmdir":                            "删除远程目录",
 	"/api/server/sftp/chmod":                            "修改远程文件权限",
+	"/api/server/sftp/roots":                            "查询远程文件可访问根目录",
 	"/api/server/sftp/upload":                           "上传文件到远程主机",
 	"/api/server/sftp/download/{serverId}":              "从远程主机下载文件",
 	"/api/server/monitor/status":                        "读取主机监控状态",

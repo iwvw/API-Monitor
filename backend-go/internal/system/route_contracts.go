@@ -664,6 +664,9 @@ func init() {
 		"path":     {t: "string", req: true},
 		"mode":     {t: "integer", req: true},
 	})
+	routeRequestContracts["/api/server/sftp/roots"] = obj([]string{"serverId"}, map[string]prop{
+		"serverId": {t: "string", req: true},
+	})
 	routeRequestContracts["/api/server/sftp/upload"] = obj([]string{"serverId", "path", "content"}, map[string]prop{
 		"serverId": {t: "string", req: true},
 		"path":     {t: "string", req: true},

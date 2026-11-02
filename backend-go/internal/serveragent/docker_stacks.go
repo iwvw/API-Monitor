@@ -56,15 +56,14 @@ func (s *Service) handleDockerStacks(w http.ResponseWriter, r *http.Request, db 
 
 func upsertDockerStackSnapshot(ctx context.Context, db *sql.DB, serverID string, composeProjects interface{}) {
 	projects := asMapList(composeProjects)
-	if len(projects) == 0 {
-		return
-	}
 	now := time.Now().Format(time.RFC3339Nano)
+	seen := make(map[string]struct{}, len(projects))
 	for _, project := range projects {
 		name := stackString(firstNonNil(project["Name"], project["name"], project["Project"], project["project"]))
 		if name == "" {
 			continue
 		}
+		seen[name] = struct{}{}
 		status := stackString(firstNonNil(project["Status"], project["status"]))
 		if status == "" {
 			status = "unknown"
@@ -83,6 +82,36 @@ func upsertDockerStackSnapshot(ctx context.Context, db *sql.DB, serverID string,
 				config_hash = excluded.config_hash,
 				updated_at = excluded.updated_at`,
 			serverID, name, workingDir, configFilesJSON, status, configHash, now)
+	}
+
+	// 本次扫描是权威快照：不在列表里的项目已从主机消失（目录被删/改名/停止后
+	// 不再被 docker compose ls 报告），必须一并清理，否则 docker_stacks 只增不减，
+	// /stacks 会长期返回指向已不存在目录的僵尸记录。
+	// 注意：空结果不清理——Agent 采集失败时也会返回空数组，那样会误删全部快照。
+	if len(seen) == 0 {
+		return
+	}
+	pruneDockerStacks(ctx, db, serverID, seen)
+}
+
+// pruneDockerStacks 删除该主机上不在 seen 里的 compose 快照记录。
+func pruneDockerStacks(ctx context.Context, db *sql.DB, serverID string, seen map[string]struct{}) {
+	rows, err := db.QueryContext(ctx, `SELECT name FROM docker_stacks WHERE server_id = ?`, serverID)
+	if err != nil {
+		return
+	}
+	stale := make([]string, 0, 4)
+	for rows.Next() {
+		var name string
+		if rows.Scan(&name) == nil {
+			if _, ok := seen[name]; !ok {
+				stale = append(stale, name)
+			}
+		}
+	}
+	_ = rows.Close()
+	for _, name := range stale {
+		_, _ = db.ExecContext(ctx, `DELETE FROM docker_stacks WHERE server_id = ? AND name = ?`, serverID, name)
 	}
 }
 

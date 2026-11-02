@@ -65,7 +65,7 @@ import {
   resolveTerminalSocketTransport,
 } from '../modules/serverTerminal.js';
 import { canOpenRemoteDesktop, remoteDesktopPath } from '../modules/remoteDesktop.js';
-import { readSftpFile, writeSftpFile } from '../modules/server-sftp.js';
+import { getSftpRoots, readSftpFile, writeSftpFile } from '../modules/server-sftp.js';
 import { formatDockerContainerPorts } from '../modules/docker-format.js';
 import { summarizeDockerContainers } from '../modules/dockerSummary.js';
 import {
@@ -6360,16 +6360,39 @@ function ServerPage() {
           : prev
       );
     } catch (error) {
+      // 读不到时补一条「能访问哪些目录」的说明：Agent 文件白名单没配时
+      // 原始报错是 No such file or directory，用户无法判断是路径错还是权限问题。
+      const hint = await describeSftpAccessHint(server.id);
+      const message = error.message || '读取 Compose 配置失败';
       setDockerComposeEditor(prev =>
         prev
           ? {
               ...prev,
               loading: false,
-              error: error.message || '读取 Compose 配置失败',
+              error: hint ? `${message}（${hint}）` : message,
             }
           : prev
       );
-      toast.error(error.message || '读取 Compose 配置失败');
+      toast.error(message);
+    }
+  };
+
+  // describeSftpAccessHint 查询主机可访问的文件根目录，生成一句可操作提示。
+  // 失败时返回空串（不影响主流程，错误信息保持原样）。
+  const describeSftpAccessHint = async serverId => {
+    if (!serverId) return '';
+    try {
+      const roots = await getSftpRoots(serverId);
+      const allowed = asArray(roots?.allowedRoots);
+      if (roots?.transport === 'ssh') {
+        return '当前走 SSH/SFTP 直连，可访问该用户有权限的路径';
+      }
+      if (allowed.length > 0) {
+        return `Agent 可访问根目录: ${allowed.join(', ')}；如需访问其它目录，请配置 API_MONITOR_AGENT_FILE_ROOTS 后重装 Agent`;
+      }
+      return '';
+    } catch {
+      return '';
     }
   };
 
@@ -6429,16 +6452,18 @@ function ServerPage() {
       toast.success('Compose 配置已保存');
       scheduleDockerResourceRefresh(500);
     } catch (error) {
+      const hint = await describeSftpAccessHint(dockerComposeEditor.serverId);
+      const message = error.message || '保存 Compose 配置失败';
       setDockerComposeEditor(prev =>
         prev
           ? {
               ...prev,
               saving: false,
-              error: error.message || '保存 Compose 配置失败',
+              error: hint ? `${message}（${hint}）` : message,
             }
           : prev
       );
-      toast.error(error.message || '保存 Compose 配置失败');
+      toast.error(message);
     }
   };
 

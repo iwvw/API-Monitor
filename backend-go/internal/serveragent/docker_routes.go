@@ -312,6 +312,13 @@ func (s *Service) handleV2DockerRoutes(w http.ResponseWriter, r *http.Request, d
 	response.Error(w, http.StatusNotFound, "v2 docker route not found")
 }
 
+const (
+	// dockerOverviewTaskTimeout 是 overview 聚合查询里单个资源的等待上限。
+	// 之前写死 10s：容器/镜像/网络/卷/Compose 在几十个资源的机器上经常擦线超时，
+	// 表现为整页「空数据 + task timeout」。放宽到 20s 留出抖动余量。
+	dockerOverviewTaskTimeout = 20 * time.Second
+)
+
 func (s *Service) handleDockerOverview(w http.ResponseWriter, r *http.Request, db *sql.DB) {
 	serverID := r.URL.Query().Get("serverId")
 	query := "SELECT id, name, status, COALESCE(cached_info, '{}') FROM server_accounts"
@@ -397,10 +404,10 @@ func (s *Service) handleDockerOverview(w http.ResponseWriter, r *http.Request, d
 				ch := make(chan taskRes, 6)
 				tasksCount := 0
 
-				runTask := func(key string, taskType int) {
+				runTask := func(key string, taskType int, timeout time.Duration) {
 					tasksCount++
 					go func() {
-						resStr, err := s.runAgentTaskAndWait(d.id, taskType, "", 10*time.Second)
+						resStr, err := s.runAgentTaskAndWait(d.id, taskType, "", timeout)
 						if err != nil {
 							ch <- taskRes{key: key, val: []interface{}{}, errS: err.Error()}
 							return
@@ -415,22 +422,24 @@ func (s *Service) handleDockerOverview(w http.ResponseWriter, r *http.Request, d
 				}
 
 				if scopes["containers"] {
-					runTask("containers", 27) // DOCKER_CONTAINERS
+					runTask("containers", 27, dockerOverviewTaskTimeout) // DOCKER_CONTAINERS
 				}
 				if scopes["images"] {
-					runTask("images", 13) // DOCKER_IMAGES
+					runTask("images", 13, dockerOverviewTaskTimeout) // DOCKER_IMAGES
 				}
 				if scopes["networks"] {
-					runTask("networks", 15) // DOCKER_NETWORKS
+					runTask("networks", 15, dockerOverviewTaskTimeout) // DOCKER_NETWORKS
 				}
 				if scopes["volumes"] {
-					runTask("volumes", 17) // DOCKER_VOLUMES
+					runTask("volumes", 17, dockerOverviewTaskTimeout) // DOCKER_VOLUMES
 				}
 				if scopes["stats"] {
-					runTask("stats", 20) // DOCKER_STATS
+					// stats 需要逐容器等 Docker 第二个采样点，Agent 侧已并发但
+					// 仍比其它资源慢，单独给更长预算，否则整页统计恒为超时。
+					runTask("stats", 20, dockerStatsTimeout) // DOCKER_STATS
 				}
 				if scopes["compose"] {
-					runTask("compose", 21) // DOCKER_COMPOSE_LIST
+					runTask("compose", 21, dockerOverviewTaskTimeout) // DOCKER_COMPOSE_LIST
 				}
 
 				for i := 0; i < tasksCount; i++ {

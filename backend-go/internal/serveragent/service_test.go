@@ -3168,7 +3168,7 @@ func TestSFTPListUsesAgentTunnelWhenOnlineWithoutSSHCredentials(t *testing.T) {
 			}
 			return `{"cwd":"/home/agent","files":[{"name":"app.log","path":"/home/agent/app.log","isDirectory":false,"isFile":true,"size":12,"mode":420,"mtime":1000,"permissions":"-rw-r--r--"}]}`
 		},
-	})
+	}).SetMetadata("agent_version", minAgentFileRealPathVersion)
 
 	res := perform(service, http.MethodPost, "/api/server/sftp/list", `{"serverId":"server-agent-file","path":"."}`)
 	if res.Code != http.StatusOK {
@@ -3910,4 +3910,104 @@ func TestDockerPruneNotMisroutedAsResourceRemove(t *testing.T) {
 		}
 		calls = nil
 	}
+}
+
+// TestAgentSFTPReadWriteRequireRealPath 验证面板文件管理在 Agent 在线时
+// 一律带 realPath=true：否则 Agent 会把 /opt/x 静默锚定到沙箱根，
+// 出现「界面显示保存成功、主机真实文件没变」的静默数据丢失。
+func TestAgentSFTPReadWriteRequireRealPath(t *testing.T) {
+	service, db := testService(t)
+	ctx := context.Background()
+	_, err := db.ExecContext(ctx, `INSERT INTO server_accounts (id, name, host, username, auth_type) VALUES ('file-agent', 'file', '', 'root', 'password')`)
+	if err != nil {
+		t.Fatalf("insert account: %v", err)
+	}
+
+	var seen []string
+	service.registry.Register("file-agent", &taskReplySocket{
+		t:       t,
+		service: service,
+		reply: func(taskType int, data string) string {
+			seen = append(seen, data)
+			switch taskType {
+			case agentFileReadTask:
+				return "services: {}"
+			case agentFileWriteTask:
+				return `{"message":"文件保存成功","realPath":"/opt/app/docker-compose.yml"}`
+			case agentFileListTask:
+				return `{"files":[],"cwd":"/opt/app"}`
+			case agentFileMkdirTask:
+				return "目录创建成功"
+			default:
+				t.Fatalf("unexpected task type: %d", taskType)
+				return ""
+			}
+		},
+	}).SetMetadata("agent_version", minAgentFileRealPathVersion)
+
+	body := `{"serverId":"file-agent","path":"/opt/app/docker-compose.yml","content":"services: {}"}`
+	if res := perform(service, http.MethodPost, "/api/server/sftp/read", body); res.Code != http.StatusOK {
+		t.Fatalf("read status=%d body=%s", res.Code, res.Body.String())
+	}
+	if res := perform(service, http.MethodPost, "/api/server/sftp/write", body); res.Code != http.StatusOK {
+		t.Fatalf("write status=%d body=%s", res.Code, res.Body.String())
+	}
+	if res := perform(service, http.MethodPost, "/api/server/sftp/list", `{"serverId":"file-agent","path":"/opt/app"}`); res.Code != http.StatusOK {
+		t.Fatalf("list status=%d body=%s", res.Code, res.Body.String())
+	}
+	if res := perform(service, http.MethodPost, "/api/server/sftp/mkdir", `{"serverId":"file-agent","path":"/opt/app/sub"}`); res.Code != http.StatusOK {
+		t.Fatalf("mkdir status=%d body=%s", res.Code, res.Body.String())
+	}
+
+	if len(seen) != 4 {
+		t.Fatalf("expected 4 agent file tasks, got %d: %#v", len(seen), seen)
+	}
+	for _, data := range seen {
+		if !strings.Contains(data, `"realPath":true`) {
+			t.Fatalf("file task must request realPath: %s", data)
+		}
+	}
+}
+
+// TestDockerStacksPruneRemovedProjects 验证 compose 快照是权威快照：
+// 主机上已消失的项目必须从 docker_stacks 删除，否则 /stacks 长期返回僵尸记录。
+func TestDockerStacksPruneRemovedProjects(t *testing.T) {
+	_, db := testService(t)
+	ctx := context.Background()
+	// docker_stacks.server_id 外键指向 server_accounts，先建主机记录。
+	if _, err := db.ExecContext(ctx, `INSERT INTO server_accounts (id, name, host, username, auth_type) VALUES ('stack-agent', 'stack', '', 'root', 'password')`); err != nil {
+		t.Fatalf("insert account: %v", err)
+	}
+
+	first := []interface{}{
+		map[string]interface{}{"Name": "keep", "Status": "running(1)", "ConfigFiles": "/srv/keep/docker-compose.yml"},
+		map[string]interface{}{"Name": "gone", "Status": "running(1)", "ConfigFiles": "/srv/gone/docker-compose.yml"},
+	}
+	upsertDockerStackSnapshot(ctx, db, "stack-agent", first)
+	if got := countDockerStacks(t, db, "stack-agent"); got != 2 {
+		t.Fatalf("after first sync rows=%d, want 2", got)
+	}
+
+	second := []interface{}{
+		map[string]interface{}{"Name": "keep", "Status": "running(1)", "ConfigFiles": "/srv/keep/docker-compose.yml"},
+	}
+	upsertDockerStackSnapshot(ctx, db, "stack-agent", second)
+	if got := countDockerStacks(t, db, "stack-agent"); got != 1 {
+		t.Fatalf("after prune rows=%d, want 1", got)
+	}
+
+	// 空结果（Agent 采集失败/返回空）不得清空快照。
+	upsertDockerStackSnapshot(ctx, db, "stack-agent", []interface{}{})
+	if got := countDockerStacks(t, db, "stack-agent"); got != 1 {
+		t.Fatalf("empty sync must not wipe snapshot, rows=%d", got)
+	}
+}
+
+func countDockerStacks(t *testing.T, db *sql.DB, serverID string) int {
+	t.Helper()
+	var n int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM docker_stacks WHERE server_id = ?`, serverID).Scan(&n); err != nil {
+		t.Fatalf("count stacks: %v", err)
+	}
+	return n
 }
