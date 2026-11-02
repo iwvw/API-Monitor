@@ -6,12 +6,13 @@
 #   docker compose -f docker-compose.local.yml up -d
 #
 # 与正式 compose 的差异只有 image、container_name 与端口保持隔离，避免和线上容器打架。
+# 端口用 3080：本机 3000 被线上容器占用，3001/3002/3003 也已被其它服务占用。
 services:
   api-monitor:
     image: iwvw/api-monitor:local
     container_name: api-monitor-local
     ports:
-      - "3001:3000"
+      - "3080:3000"
     volumes:
       - ./data:/app/data
     environment:

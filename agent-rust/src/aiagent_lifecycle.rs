@@ -1020,6 +1020,10 @@ fn process_alive(_pid: u32) -> bool {
 }
 
 /// 轮询等待进程退出，最多约 2 秒。返回是否已确认退出。
+///
+/// 仅被 Windows / Linux 的 `terminate` 调用；macOS 等平台走上面的兜底
+/// `process_alive`，没有调用方，需要显式 allow 掉 dead_code（CI 用 -D warnings）。
+#[allow(dead_code)]
 async fn wait_process_exit(pid: u32) -> bool {
     for _ in 0..10 {
         if !process_alive(pid) {
