@@ -518,7 +518,13 @@ jobs:
           INPUT_VERSION: ${{ github.event.inputs.version }}
         run: |
           VERSION="${INPUT_VERSION:-${GITHUB_REF_NAME#v}}"
-          echo "version=v${VERSION}" >> "$GITHUB_OUTPUT"
+          VERSION="${VERSION#v}"
+          MAJOR="${VERSION%%.*}"
+          REST="${VERSION#*.}"
+          MINOR="${REST%%.*}"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "major_minor=${MAJOR}.${MINOR}" >> "$GITHUB_OUTPUT"
+          echo "major=${MAJOR}" >> "$GITHUB_OUTPUT"
 
       - name: Extract metadata
         id: meta
@@ -529,9 +535,9 @@ jobs:
             ${{ env.DOCKERHUB_REPO }}
           tags: |
             type=raw,value=latest
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=semver,pattern={{major}}
+            type=raw,value=${{ steps.app-version.outputs.version }}
+            type=raw,value=${{ steps.app-version.outputs.major_minor }}
+            type=raw,value=${{ steps.app-version.outputs.major }}
           labels: |
             org.opencontainers.image.title=API Monitor
             org.opencontainers.image.description=API聚合监控面板
@@ -600,6 +606,24 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
+      - name: Resolve application version
+        id: app-version
+        shell: bash
+        env:
+          INPUT_VERSION: ${{ github.event.inputs.version }}
+        run: |
+          # workflow_dispatch 时 GITHUB_REF_NAME 是分支名，不是 tag；
+          # 依赖 semver pattern 推导 tag 会静默只产出 latest。
+          VERSION="${INPUT_VERSION:-${GITHUB_REF_NAME#v}}"
+          VERSION="${VERSION#v}"
+          MAJOR="${VERSION%%.*}"
+          REST="${VERSION#*.}"
+          MINOR="${REST%%.*}"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "major_minor=${MAJOR}.${MINOR}" >> "$GITHUB_OUTPUT"
+          echo "major=${MAJOR}" >> "$GITHUB_OUTPUT"
+          echo "Resolved application version: ${VERSION}"
+
       - name: Extract metadata
         id: meta
         uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
@@ -609,9 +633,9 @@ jobs:
             ${{ env.DOCKERHUB_REPO }}
           tags: |
             type=raw,value=latest
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=semver,pattern={{major}}
+            type=raw,value=${{ steps.app-version.outputs.version }}
+            type=raw,value=${{ steps.app-version.outputs.major_minor }}
+            type=raw,value=${{ steps.app-version.outputs.major }}
 
       - name: Create and push manifest
         env:
