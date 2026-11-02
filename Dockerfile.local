@@ -24,7 +24,10 @@ COPY --chown=appuser:appuser backend-go/api-monitor /app/api-monitor
 USER root
 RUN cd /app/dist/agent && \
     for f in agent-linux-amd64 agent-linux-arm64 agent-windows-amd64.exe; do \
-      if [ -s "$f" ]; then sha256sum "$f" | awk '{print $1}' > "$f.sha256"; fi; \
+      if [ -s "$f" ]; then \
+        case "$f" in *.exe) ;; *) chmod 0755 "$f" ;; esac; \
+        sha256sum "$f" | awk '{print $1}' > "$f.sha256"; \
+      fi; \
     done && \
     chown appuser:appuser /app/dist /app/api-monitor && \
     chown -R appuser:appuser /app/dist/agent
