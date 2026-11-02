@@ -9,6 +9,29 @@
 > - `node tools/backend-route-inventory.mjs`：从 manifest 提取全量路由（owner/prefix/module/auth/methods）
 > - 运行时 `GET /api/system/openapi.json`：OpenAPI 3.1 出口（基于 manifest + 契约自动生成）
 > - 面板内「接口文档」页（`/api/system/api-docs`）
+>
+> **OpenAPI 出口的契约说明**（2026-11 起）
+>
+> | 内容 | 说明 |
+> |---|---|
+> | `components.schemas` | 每个有请求体的接口都会注册一份 schema，命名取自路由路径（如 `ApiServerAccounts{id}` 转 PascalCase），可直接给 OpenAPI Generator / Postman 用 |
+> | `requestBody.content.*.schema` | 来自 `route_contracts.go` 的 `routeRequestContracts`，含 `required` / `enum` / 字段说明 |
+> | `components.schemas.Envelope` | 统一响应外壳 `{success, data, error, requestId}` |
+> | `security` | 会话 Cookie / Bearer / Agent Key 三种方案；**鉴权信息只出现在 security 里**，不再重复写成 `parameters` |
+> | `tags` | 由路由分组生成，供客户端按业务域归类 |
+> | `servers.url` | 优先取 `X-Forwarded-Proto` / `X-Forwarded-Host`，放在反向代理后面也能给出外部可访问地址 |
+>
+> 两点运维相关：
+>
+> - **外部工具跨域读取**：`/api/openapi.json`、`/api/system/openapi.json`、`/api/system/api-docs`、`/health`
+>   这几个只读文档接口，在 `API_MONITOR_PUBLIC_CORS=true`（默认）时对任意 Origin 回显 CORS 头，
+>   方便外部 AI 连接器 / Postman Web 直接读取；它们都不依赖会话 Cookie，不开 `Allow-Credentials`。
+>   业务接口仍只认 `CORS_ALLOWED_ORIGINS` 白名单。
+> - **方法漂移门禁**：`npm run openapi:drift` 交叉校验「契约里是写接口」与「方法表声明的方法」，
+>   已接入 `npm run audit:fast`。历史上 1Panel 模块曾因描述推断把 11 个写接口标成只读，这条门禁防复发。
+>
+> **按业务域浏览（AI 目录）**：模块名被细分成很多子名（`onepanel-config`、`cloudflare-dns`…），
+> 用 `list_apis(domain="onepanel")` 可一次拿到同域全部接口；`module` 仍支持精确过滤。
 
 ---
 

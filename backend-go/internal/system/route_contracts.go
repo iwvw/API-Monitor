@@ -1151,6 +1151,25 @@ func init() {
 		"newPassword":     {t: "string", req: true},
 	})
 	routeRequestContracts["/api/auth/logout"] = noBody
+	// 登录/设密/校验/2FA 开关：handler 实际读的字段按 auth 包里的请求结构体登记
+	// （loginRequest / setPasswordRequest / verifyPasswordRequest / enable2FARequest / disable2FARequest）。
+	routeRequestContracts["/api/auth/login"] = obj([]string{"password"}, map[string]prop{
+		"password":  {t: "string", req: true, d: "管理员密码"},
+		"totpToken": {t: "string", d: "2FA 一次性验证码（账号启用 2FA 时必填）"},
+	})
+	routeRequestContracts["/api/auth/set-password"] = obj([]string{"password"}, map[string]prop{
+		"password": {t: "string", req: true, d: "首次初始化时设置的管理员密码"},
+	})
+	routeRequestContracts["/api/auth/verify-password"] = obj([]string{"password"}, map[string]prop{
+		"password": {t: "string", req: true, d: "用于二次确认的管理员密码"},
+	})
+	routeRequestContracts["/api/auth/2fa/enable"] = obj([]string{"secret", "token"}, map[string]prop{
+		"secret": {t: "string", req: true, d: "setup 返回的 TOTP 密钥"},
+		"token":  {t: "string", req: true, d: "验证器当前生成的 6 位验证码"},
+	})
+	routeRequestContracts["/api/auth/2fa/disable"] = obj([]string{"password"}, map[string]prop{
+		"password": {t: "string", req: true, d: "关闭 2FA 需再次确认管理员密码"},
+	})
 	routeRequestContracts["/api/auth/2fa/setup"] = obj([]string{"secret", "code"}, map[string]prop{
 		"secret": {t: "string", req: true, d: "TOTP 密钥"},
 		"code":   {t: "string", req: true, d: "6 位验证码"},
@@ -1189,6 +1208,12 @@ func init() {
 	})
 	routeRequestContracts["/api/settings/database/import"] = obj([]string{"databasePath"}, map[string]prop{
 		"databasePath": {t: "string", req: true},
+	})
+	// 提交导入必须带 preview 返回的一次性 token，并要求显式 confirm，
+	// 避免误触把当前数据库整体替换掉。
+	routeRequestContracts["/api/settings/database/import/commit"] = obj([]string{"token", "confirm"}, map[string]prop{
+		"token":   {t: "string", req: true, d: "preview 返回的导入令牌（一次性）"},
+		"confirm": {t: "boolean", req: true, d: "必须为 true，确认替换当前数据库"},
 	})
 	routeRequestContracts["/api/settings/export-database"] = noBody
 	routeRequestContracts["/api/settings/vacuum-database"] = noBody

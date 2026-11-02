@@ -570,13 +570,32 @@ func (s *Service) callAITool(r *http.Request, name string, args map[string]inter
 	}
 }
 
-// aiRouteCatalog 返回紧凑的接口目录，支持 group / module / search 过滤与分页，用于渐进式披露。
+// routeDomain 把碎片化的 module 归到一个业务域：module 名以 "-" 分段，
+// 第一段即为域（onepanel-config / onepanel-spec → onepanel，
+// cloudflare-dns / cloudflare-workers → cloudflare）。
+//
+// 这样 list_apis(domain=...) 能一次拿到整块业务的全部接口，
+// 不必再逐个猜子 module 名；原 module 字段保持不变，前端分层与既有调用不受影响。
+func routeDomain(module string) string {
+	module = strings.TrimSpace(module)
+	if module == "" {
+		return ""
+	}
+	if idx := strings.Index(module, "-"); idx > 0 {
+		return module[:idx]
+	}
+	return module
+}
+
+// aiRouteCatalog 返回紧凑的接口目录，支持 group / domain / module / search 过滤与分页，用于渐进式披露。
 func (s *Service) aiRouteCatalog(args map[string]interface{}) (interface{}, error) {
 	group, _ := args["group"].(string)
 	module, _ := args["module"].(string)
+	domain, _ := args["domain"].(string)
 	search, _ := args["search"].(string)
 	group = strings.TrimSpace(group)
 	module = strings.TrimSpace(module)
+	domain = strings.TrimSpace(domain)
 	search = strings.ToLower(strings.TrimSpace(search))
 
 	limit := 30
@@ -598,6 +617,9 @@ func (s *Service) aiRouteCatalog(args map[string]interface{}) (interface{}, erro
 			continue
 		}
 		if module != "" && item.Module != module {
+			continue
+		}
+		if domain != "" && routeDomain(item.Module) != domain {
 			continue
 		}
 		if search != "" {
@@ -628,6 +650,7 @@ func (s *Service) aiRouteCatalog(args map[string]interface{}) (interface{}, erro
 			"path":    item.Prefix,
 			"methods": item.Methods,
 			"group":   item.Group,
+			"domain":  routeDomain(item.Module),
 			"module":  item.Module,
 			"auth":    string(item.Auth),
 			"desc":    desc,
@@ -1804,7 +1827,7 @@ func (s *Service) readOnlyAICall(req AICallRequest) (interface{}, error) {
 
 func (s *Service) aiTools() []map[string]interface{} {
 	return []map[string]interface{}{
-		{"name": "list_apis", "description": "接口目录浏览：支持按 group（如 主机实例 / Cloudflare / 模型网关）或模块过滤、关键词 search、分页 offset/limit。返回的 prefixRoute=true 条目是聚合前缀（模块总入口），不可直接调用，请改用其子路由。先按 group 缩到 100 条以内再挑，效率最高；配合 find_api 定位更省 token。", "inputSchema": map[string]interface{}{"type": "object", "properties": map[string]interface{}{"group": map[string]interface{}{"type": "string", "description": "按分组过滤（如 模型网关 / Cloudflare / 主机实例）"}, "module": map[string]interface{}{"type": "string", "description": "按模块过滤（如 flyio / cloudflare-dns）"}, "search": map[string]interface{}{"type": "string", "description": "按路径或描述关键词过滤"}, "limit": map[string]interface{}{"type": "number", "description": "返回条数上限（默认 30，最大 100）"}, "offset": map[string]interface{}{"type": "number", "description": "分页偏移（默认 0）"}}}},
+		{"name": "list_apis", "description": "接口目录浏览：支持按 group（如 主机实例 / Cloudflare / 模型网关）、domain（业务域，如 onepanel / cloudflare / prompts / server，会把同域的子 module 一起返回）、module（精确模块名）、关键词 search 过滤，分页 offset/limit。优先用 domain 而不是 module：模块被细分成很多子名（onepanel-config、cloudflare-dns…），用 domain 一次就能拿到整块业务。返回的 prefixRoute=true 条目是聚合前缀（模块总入口），不可直接调用，请改用其子路由。先按 group 或 domain 缩到 100 条以内再挑，效率最高；配合 find_api 定位更省 token。", "inputSchema": map[string]interface{}{"type": "object", "properties": map[string]interface{}{"group": map[string]interface{}{"type": "string", "description": "按分组过滤（如 模型网关 / Cloudflare / 主机实例）"}, "domain": map[string]interface{}{"type": "string", "description": "按业务域过滤（如 onepanel / cloudflare / prompts / server / auth / settings），自动包含该域下所有子模块"}, "module": map[string]interface{}{"type": "string", "description": "按模块精确过滤（如 flyio / cloudflare-dns）"}, "search": map[string]interface{}{"type": "string", "description": "按路径或描述关键词过滤"}, "limit": map[string]interface{}{"type": "number", "description": "返回条数上限（默认 30，最大 100）"}, "offset": map[string]interface{}{"type": "number", "description": "分页偏移（默认 0）"}}}},
 		{"name": "find_api", "description": "自然语言意图定位接口（top-k 召回）。适用：知道想做什么但不确定接口路径/名称时，例如 intent=“给 flyio 应用更新镜像”。每个命中会给出 path/methods/desc 与命中原因；优先取 score 高且非 prefixRoute 的条目。不要用来列全量目录（那是 list_apis 的职责）；召回不满或低置信度时，结合 list_apis 的 group/search 兜底。", "inputSchema": map[string]interface{}{"type": "object", "properties": map[string]interface{}{"intent": map[string]interface{}{"type": "string", "description": "意图描述，如“列出所有 DNS 解析记录”“给 flyio 应用更新镜像”“查看主机监控状态”"}, "limit": map[string]interface{}{"type": "number", "description": "返回条数上限（默认 5，最大 10）"}, "group": map[string]interface{}{"type": "string", "description": "按分组过滤（可选）"}}, "required": []string{"intent"}}},
 		{"name": "get_route", "description": "读取单个接口的完整契约：真实可用方法（methods，已按 handler 校准）、鉴权、路径参数（含示例值）、查询参数、请求体 schema 与示例。调用 call_api 前必须先用本工具确认方法与请求体结构；路径参数要用实际资源 ID 替换占位符（先调用对应 list 接口获取真实 ID）。", "inputSchema": map[string]interface{}{"type": "object", "properties": map[string]interface{}{"path": map[string]interface{}{"type": "string", "description": "接口路径，如 /api/flyio/apps/{appName}/update-image 或具体路径"}}, "required": []string{"path"}}},
 		{"name": "get_openapi", "description": "读取 OpenAPI 3.1 文档", "inputSchema": map[string]interface{}{"type": "object", "properties": map[string]interface{}{}}},
