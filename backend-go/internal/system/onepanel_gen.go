@@ -509,7 +509,7 @@ func init() {
 		"webUI": {t: "string", req: false, d: "request.AppInstallCreate.webUI"},
 	})
 
-	routeRequestContracts["/api/onepanel/{serverId}/apps/installed/{appInstallId}/op"] = obj([]string{"installId", "operate"}, map[string]prop{
+	routeRequestContracts["/api/onepanel/{serverId}/apps/installed/{appInstallId}/op"] = obj([]string{"operate"}, map[string]prop{
 		"backup": {t: "boolean", req: false, d: "request.AppInstalledOperate.backup"},
 		"backupId": {t: "integer", req: false, d: "request.AppInstalledOperate.backupId"},
 		"deleteBackup": {t: "boolean", req: false, d: "request.AppInstalledOperate.deleteBackup"},
@@ -519,7 +519,7 @@ func init() {
 		"dockerCompose": {t: "string", req: false, d: "request.AppInstalledOperate.dockerCompose"},
 		"favorite": {t: "boolean", req: false, d: "request.AppInstalledOperate.favorite"},
 		"forceDelete": {t: "boolean", req: false, d: "request.AppInstalledOperate.forceDelete"},
-		"installId": {t: "integer", req: true, d: "request.AppInstalledOperate.installId"},
+		"installId": {t: "integer", req: false, d: "request.AppInstalledOperate.installId（可由路径参数自动注入）"},
 		"operate": {t: "string", req: true, d: "request.AppInstalledOperate.operate"},
 		"pullImage": {t: "boolean", req: false, d: "request.AppInstalledOperate.pullImage"},
 		"taskID": {t: "string", req: false, d: "request.AppInstalledOperate.taskID"},
