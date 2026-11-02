@@ -1063,7 +1063,12 @@ mod tests {
 
         let resolved = super::resolve_real_path_with_roots(&root.to_string_lossy(), &[root.clone()])
             .expect("allowed root itself must pass");
-        assert_eq!(resolved, root);
+        // Windows 下 canonicalize 会带 `\\?\` 前缀、并展开 8.3 短名，
+        // 不能直接比较字面量；统一再规范化一次后比较。
+        assert_eq!(
+            fs::canonicalize(&resolved).unwrap(),
+            fs::canonicalize(&root).unwrap()
+        );
 
         let _ = std::fs::remove_dir_all(&base);
     }
@@ -1081,9 +1086,13 @@ mod tests {
         let roots = vec![root.clone()];
         let resolved = super::resolve_real_path_with_roots(&target.to_string_lossy(), &roots)
             .expect("whitelisted path allowed");
-        assert_eq!(resolved, fs::canonicalize(&target).unwrap());
+        // Windows 上 canonicalize 结果带 `\\?\` 前缀，统一规范化后比较。
+        assert_eq!(
+            fs::canonicalize(&resolved).unwrap(),
+            fs::canonicalize(&target).unwrap()
+        );
         // 关键断言：解析结果必须在白名单根内，而不是被挪到别处。
-        assert!(resolved.starts_with(&root));
+        assert!(fs::canonicalize(&resolved).unwrap().starts_with(&root));
 
         let _ = std::fs::remove_dir_all(&base);
     }
