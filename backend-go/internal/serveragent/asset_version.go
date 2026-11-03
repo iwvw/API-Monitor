@@ -2,6 +2,7 @@ package serveragent
 
 import (
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -125,4 +126,127 @@ func (r *assetResolver) currentTag() string {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	return r.tag
+}
+
+// fetchReleaseAssetSHA256 下载 release 资产的 .sha256 sidecar（内容为
+// 「<hex>  <filename>」或仅 hex），返回小写 hex。
+//
+// 存在理由：转发资产（relay / auth-proxy / stun）的 SHA-256 曾被硬编码在
+// managed_forward_deploy.go 里，指向 v0.6.1。但 release 资产被重传过，
+// 哈希与常量不再一致，导致任意新主机执行 bootstrap_relay 时必然
+// 「SHA-256 校验失败」，tcp_relay 在未装过 relay 的主机上永久不可用。
+// 改为在解析到 release tag 时按需拉取 sidecar，哈希始终与真实资产一致。
+func fetchReleaseAssetSHA256(ctx context.Context, url string) (string, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("User-Agent", "api-monitor/1.0")
+	client := &http.Client{Timeout: assetHTTPTimeout}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 256))
+		return "", fmt.Errorf("release asset sha256: http %d", resp.StatusCode)
+	}
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 512))
+	if err != nil {
+		return "", err
+	}
+	// 取第一个 64 位 hex token，兼容「<hash>  <file>」与纯 hash 两种写法。
+	for _, field := range strings.Fields(string(body)) {
+		if len(field) == 64 {
+			if _, err := hex.DecodeString(field); err == nil {
+				return strings.ToLower(field), nil
+			}
+		}
+	}
+	return "", fmt.Errorf("release asset sha256: no digest in %q", strings.TrimSpace(string(body)))
+}
+
+// resolveReleaseAsset 返回（下载地址, SHA-256）。
+//
+// 解析顺序：
+//  1. latest release tag + 该资产的 .sha256 sidecar（正常情况下走这里）；
+//  2. fallbackURL 自身的 .sha256 sidecar —— 修掉「latest 还没有该资产」时
+//     回退到过期硬编码哈希的问题（v2.1.x 的 release 一直没有 relay 资产，
+//     但 v0.6.1 的 sidecar 是准的）；
+//  3. fallbackURL + fallbackSHA（离线/无 sidecar 时的最后兜底）。
+func (r *assetResolver) resolveReleaseAsset(assetName, fallbackURL, fallbackSHA string) (string, string) {
+	r.mu.RLock()
+	tag := r.tag
+	r.mu.RUnlock()
+
+	trySidecar := func(url string) (string, bool) {
+		ctx, cancel := context.WithTimeout(context.Background(), assetHTTPTimeout)
+		defer cancel()
+		sha, err := fetchReleaseAssetSHA256(ctx, url+".sha256")
+		if err != nil || sha == "" {
+			return "", false
+		}
+		return sha, true
+	}
+
+	if tag != "" {
+		url := releaseBaseURL + tag + "/" + assetName
+		if sha, ok := trySidecar(url); ok {
+			return url, sha
+		}
+	}
+	// latest 缺该资产（或 sidecar 不是 2xx）：退回 fallback 地址，但哈希仍取
+	// fallback 自己的 sidecar，保证与实际下载的字节一致。
+	if sha, ok := trySidecar(fallbackURL); ok {
+		return fallbackURL, sha
+	}
+	return fallbackURL, fallbackSHA
+}
+
+// resolveReleaseAssetCached 是 resolveReleaseAsset 的进程内缓存版本：
+// 同一资产在 TTL 内只解析一次，避免每次部署都打 GitHub。
+func resolveReleaseAssetCached(assetName, fallbackURL, fallbackSHA string) (string, string) {
+	key := assetName + "|" + fallbackURL
+	assetSHAOnce.mu.Lock()
+	if entry, ok := assetSHAOnce.entries[key]; ok && time.Since(entry.at) < assetRefreshTTL {
+		assetSHAOnce.mu.Unlock()
+		return entry.url, entry.sha
+	}
+	assetSHAOnce.mu.Unlock()
+
+	url, sha := releaseAssets.resolveReleaseAsset(assetName, fallbackURL, fallbackSHA)
+
+	assetSHAOnce.mu.Lock()
+	assetSHAOnce.entries[key] = assetSHAResolution{url: url, sha: sha, at: time.Now()}
+	assetSHAOnce.mu.Unlock()
+	return url, sha
+}
+
+// resetReleaseAssetCacheForTest 清空解析缓存，仅供单测使用。
+func resetReleaseAssetCacheForTest() {
+	assetSHAOnce.mu.Lock()
+	assetSHAOnce.entries = map[string]assetSHAResolution{}
+	assetSHAOnce.mu.Unlock()
+}
+
+var assetSHAOnce = struct {
+	mu      sync.Mutex
+	entries map[string]assetSHAResolution
+}{entries: map[string]assetSHAResolution{}}
+
+type assetSHAResolution struct {
+	url string
+	sha string
+	at  time.Time
+}
+
+// forwardAssetURLSHA 是 relay/auth-proxy/stun 资产函数共用的出口：
+// 从 fallback URL 提取文件名后交给 resolver 动态解析 tag 与 SHA-256。
+func forwardAssetURLSHA(fallbackURL, fallbackSHA string) (string, string) {
+	name := fallbackURL
+	if i := strings.LastIndex(fallbackURL, "/"); i >= 0 {
+		name = fallbackURL[i+1:]
+	}
+	return resolveReleaseAssetCached(name, fallbackURL, fallbackSHA)
 }

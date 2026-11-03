@@ -468,6 +468,10 @@ func (s *Service) handleSFTPRename(w http.ResponseWriter, r *http.Request, db *s
 			})
 			return
 		}
+		// 与其他文件操作一致：Agent 白名单拒绝时回退 SSH。
+		if s.canFallbackToSSH(db, req.ServerID) {
+			break
+		}
 		writeSFTPError(w, err)
 		return
 	case agentFileUnavailable:
@@ -515,6 +519,15 @@ func (s *Service) handleSFTPDelete(w http.ResponseWriter, r *http.Request, db *s
 				"message":   firstNonEmpty(result, "file deleted"),
 			})
 			return
+		}
+		// 与 list/write/mkdir 保持一致：Agent 因白名单拒绝该路径时，
+		// 配置了 SSH 凭据的主机仍应能删除真实文件系统上的文件。
+		//
+		// 历史缺陷：这里直接 writeSFTPError 返回，导致同一个目录
+		// 「能写入、能新建、能浏览，却删不掉」—— 因为 write/mkdir/list
+		// 都会回退到 SSH，只有 delete 不会，用户看到的就是本条错误。
+		if s.canFallbackToSSH(db, req.ServerID) {
+			break
 		}
 		writeSFTPError(w, err)
 		return
@@ -564,6 +577,10 @@ func (s *Service) handleSFTPRmdir(w http.ResponseWriter, r *http.Request, db *sq
 				"message":   firstNonEmpty(result, "directory deleted"),
 			})
 			return
+		}
+		// 与 list/write/mkdir 一致：Agent 白名单拒绝时回退 SSH。
+		if s.canFallbackToSSH(db, req.ServerID) {
+			break
 		}
 		writeSFTPError(w, err)
 		return
@@ -624,6 +641,10 @@ func (s *Service) handleSFTPChmod(w http.ResponseWriter, r *http.Request, db *sq
 				"message":   firstNonEmpty(result, "permissions changed"),
 			})
 			return
+		}
+		// 与其他文件操作一致：Agent 白名单拒绝时回退 SSH。
+		if s.canFallbackToSSH(db, req.ServerID) {
+			break
 		}
 		writeSFTPError(w, agentErr)
 		return

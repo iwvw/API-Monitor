@@ -165,11 +165,12 @@ func (s *Service) RunP2PTaskAndWait(serverID, payload string) (string, error) {
 	return s.runAgentTaskAndWait(serverID, 54, payload, 60*time.Second)
 }
 
-// RunTCPForwarderBootstrap 让目标主机的 Agent 安装并常驻 api-monitor-relay（幂等）。
-func (s *Service) RunTCPForwarderBootstrap(serverID, assetURL, assetSHA string) error {
-	payload, _ := json.Marshal(map[string]interface{}{
-		"operation": "bootstrap_relay", "relay_asset_url": assetURL, "relay_asset_sha256": assetSHA,
-	})
+// RunTCPForwarderBootstrap 让目标主机的 Agent 确保内嵌 relay 在跑（幂等）。
+//
+// relay 已合并进 agent 二进制，不再需要资产 URL / SHA-256；保留函数签名
+// 的无参形态是刻意的：调用方不该再关心「从哪下载、哈希是多少」。
+func (s *Service) RunTCPForwarderBootstrap(serverID string) error {
+	payload, _ := json.Marshal(map[string]interface{}{"operation": "bootstrap_relay"})
 	_, err := s.runAgentTaskAndWait(serverID, 53, string(payload), 3*time.Minute)
 	return err
 }

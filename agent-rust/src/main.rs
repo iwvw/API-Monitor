@@ -15,6 +15,10 @@ mod protocol;
 mod proxy_runtime;
 mod proxy_traffic;
 mod pty;
+mod relay_http;
+mod relay_server;
+#[cfg(test)]
+mod relay_server_test;
 mod tcp_forwarder;
 mod remote_desktop;
 mod storage_server;
@@ -171,7 +175,14 @@ impl OutboundQueues {
 
 #[tokio::main]
 async fn main() {
-    let cli = CliArgs::parse();
+    // 兼容旧 relay unit 的单横线写法：原 Go relay 用 flag 包，接受
+    // `-listen` / `-config`；已部署的 systemd unit 与运维脚本里大量存在
+    // 这种形式。clap 只认 `--listen`，会把 `-listen` 当成短选项拼写并报
+    // "unexpected argument '-l'"，导致升级后 relay 起来就崩
+    // （Restart=always → 无限重启）。解析前统一规整，比要求用户改 unit 稳妥。
+    let cli = CliArgs::parse_from(normalize_legacy_relay_args(
+        std::env::args_os().collect(),
+    ));
 
     if let Some(ref action) = cli.action {
         if let Err(e) = handle_action(action, &cli) {
@@ -2471,7 +2482,15 @@ fn agent_config_path() -> Option<PathBuf> {
     Some(config::agent_base_dir().join("config.json"))
 }
 
-/// 自动清理历史安装/升级产生的陈旧备份文件与临时下载文件（如 .previous, *.prev.exe, *.bak*, *.download* 等）
+/// 自动清理历史安装/升级产生的陈旧备份文件与临时下载文件
+/// （如 .previous、*.prev.exe、*.download* 等）。
+///
+/// 注意：**不能**删 `*.bak-*`。升级脚本正是把旧二进制备份成
+/// `api-monitor-agent.bak-<版本>`，并在同目录写 `ROLLBACK.txt` 指向它。
+/// 历史上这里把 `.bak-` 也当作残留清理，导致 Agent 一启动就把刚做好的
+/// 回滚副本删掉 —— 用户按 ROLLBACK.txt 操作时会发现备份文件不存在，
+/// 回滚彻底失效。备份文件保留成本很低（一个旧版本二进制），
+/// 但丢掉它意味着升级出问题时无路可退。
 fn cleanup_legacy_backups() {
     let base = config::agent_base_dir();
     let Ok(entries) = fs::read_dir(&base) else {
@@ -2491,17 +2510,19 @@ fn cleanup_legacy_backups() {
     }
 }
 
-/// 判断安装目录下的文件名是否为历史安装/升级残留（备份二进制或临时下载文件）。
+/// 判断安装目录下的文件名是否为可安全删除的历史残留（临时下载文件）。
+///
+/// 备份二进制（`*.bak-*` / `.previous` / `.prev.exe`）**不在此列**：
+/// 它们是 ROLLBACK.txt 的回滚依据，必须保留到用户主动清理或下一次成功升级。
 fn is_legacy_artifact(name: &str) -> bool {
-    // 备份二进制：api-monitor-agent.previous / api-monitor-agent.prev.exe / *.bak-*
-    let is_backup = name.ends_with(".previous")
-        || name.ends_with(".prev.exe")
-        || name.contains(".bak-");
     // 临时下载：*.download / *.download.exe
     let is_download = name.ends_with(".download")
         || name.ends_with(".download.exe")
         || (name.starts_with("api-monitor-agent.") && name.contains(".download.exe"));
-    is_backup || is_download
+    // .previous / .prev.exe 属于更早期的升级器遗留（不配 ROLLBACK.txt，
+    // 也没有任何代码再引用它们），可以安全清理。
+    let is_orphan_previous = name.ends_with(".previous") || name.ends_with(".prev.exe");
+    is_download || is_orphan_previous
 }
 
 #[cfg(target_os = "windows")]
@@ -3210,6 +3231,48 @@ fn handle_action(action: &str, cli: &CliArgs) -> Result<(), String> {
             );
             Ok(())
         }
+        // relay 已合并进本二进制：`api-monitor-agent relay --listen ... --config ...`
+        // 保留独立进程/独立 systemd 服务，因此 relay 崩溃或重启不影响 agent 主进程。
+        //
+        // 注意：不能在这里 build 新 runtime 再 block_on —— main 本身是
+        // #[tokio::main]，嵌套启动 runtime 会直接 panic。
+        "relay" => {
+            let listen = cli
+                .relay_listen
+                .clone()
+                .or_else(|| std::env::var("API_MONITOR_RELAY_ADDR").ok())
+                .unwrap_or_else(|| "127.0.0.1:18080".to_string());
+            let config = cli
+                .relay_config
+                .clone()
+                .unwrap_or_else(|| "/etc/api-monitor-relay/config.json".to_string());
+            let token = cli
+                .relay_mgmt_token
+                .clone()
+                .or_else(|| std::env::var("API_MONITOR_RELAY_TOKEN").ok())
+                .filter(|t| !t.is_empty());
+            // handle_action 是同步函数：用一个独立线程跑 relay，避免嵌套 runtime。
+            let (tx, rx) = std::sync::mpsc::channel();
+            std::thread::spawn(move || {
+                let rt = match tokio::runtime::Builder::new_multi_thread()
+                    .enable_all()
+                    .build()
+                {
+                    Ok(rt) => rt,
+                    Err(e) => {
+                        let _ = tx.send(Err(format!("build relay runtime: {e}")));
+                        return;
+                    }
+                };
+                let res = rt.block_on(relay_server::run(
+                    &listen,
+                    std::path::Path::new(&config),
+                    token,
+                ));
+                let _ = tx.send(res);
+            });
+            rx.recv().unwrap_or_else(|e| Err(format!("relay thread: {e}")))
+        }
         _ => Err(format!("不支持的动作: {}", action)),
     }
 }
@@ -3233,9 +3296,60 @@ fn hide_console_window() {
 #[cfg(not(target_os = "windows"))]
 fn hide_console_window() {}
 
+/// 把旧 relay 风格的单横线长选项（`-listen` / `-config` / `-mgmt-token`）
+/// 规整为 clap 认识的 `--xxx`。
+///
+/// 只处理这三个已知选项，其余单横线参数（如 `-s` / `-k` 等短选项）原样保留，
+/// 避免误改写。幂等：已经是双横线的不会被二次处理。
+fn normalize_legacy_relay_args(args: Vec<std::ffi::OsString>) -> Vec<std::ffi::OsString> {
+    const LEGACY: [&str; 3] = ["-listen", "-config", "-mgmt-token"];
+    args.into_iter()
+        .map(|arg| {
+            let Some(text) = arg.to_str() else { return arg };
+            for legacy in LEGACY {
+                if text == legacy {
+                    return std::ffi::OsString::from(format!("-{}", legacy));
+                }
+                // 同时支持 `-listen=127.0.0.1:18080` 形式
+                if let Some(rest) = text.strip_prefix(&format!("{legacy}=")) {
+                    return std::ffi::OsString::from(format!("-{}={rest}", legacy));
+                }
+            }
+            arg
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn legacy_relay_single_dash_args_are_normalized() {
+        // 原 Go relay 用 flag 包，unit 里写的是 `-listen` / `-config`。
+        // 若不改写，clap 会报 "unexpected argument '-l'"，relay 无限重启。
+        let input: Vec<std::ffi::OsString> = ["agent", "relay", "-listen", "127.0.0.1:18080",
+            "-config", "/etc/api-monitor-relay/config.json", "-mgmt-token", "tk"]
+            .iter().map(std::ffi::OsString::from).collect();
+        let out = normalize_legacy_relay_args(input);
+        let got: Vec<String> = out.iter().map(|a| a.to_string_lossy().into_owned()).collect();
+        assert_eq!(got, vec!["agent", "relay", "--listen", "127.0.0.1:18080",
+            "--config", "/etc/api-monitor-relay/config.json", "--mgmt-token", "tk"]);
+
+        // `-opt=value` 形式同样要处理
+        let input: Vec<std::ffi::OsString> = ["agent", "relay", "-listen=127.0.0.1:18080"]
+            .iter().map(std::ffi::OsString::from).collect();
+        let got: Vec<String> = normalize_legacy_relay_args(input)
+            .iter().map(|a| a.to_string_lossy().into_owned()).collect();
+        assert_eq!(got, vec!["agent", "relay", "--listen=127.0.0.1:18080"]);
+
+        // 短选项与正常参数不能被改写
+        let input: Vec<std::ffi::OsString> = ["agent", "-s", "https://x", "--id", "abc"]
+            .iter().map(std::ffi::OsString::from).collect();
+        let got: Vec<String> = normalize_legacy_relay_args(input)
+            .iter().map(|a| a.to_string_lossy().into_owned()).collect();
+        assert_eq!(got, vec!["agent", "-s", "https://x", "--id", "abc"]);
+    }
 
     #[test]
     fn prefer_ipv4_addresses_moves_ipv4_before_ipv6() {
@@ -3305,16 +3419,27 @@ mod tests {
 
     #[test]
     fn legacy_artifact_matches_upgrade_leftovers_only() {
-        // 历史备份与临时下载：必须被清理
+        // 临时下载文件：必须被清理
         for legacy in [
-            "api-monitor-agent.previous",
-            "api-monitor-agent.prev.exe",
-            "api-monitor-agent.bak-20260101",
             "api-monitor-agent.download",
             "api-monitor-agent.0123456789abcdef.download.exe",
             "runtime.download",
+            // 更早期升级器的孤儿备份（不配 ROLLBACK.txt，无代码引用）
+            "api-monitor-agent.previous",
+            "api-monitor-agent.prev.exe",
         ] {
             assert!(is_legacy_artifact(legacy), "{legacy} should be cleaned");
+        }
+        // 升级备份：绝不能被自动清理。
+        // 它们正是 ROLLBACK.txt 里写的回滚源，删掉就等于让回滚失效。
+        for keep in [
+            "api-monitor-agent.bak-20260101",
+            "api-monitor-agent.bak-api-monitor-agent_0.6.36",
+        ] {
+            assert!(
+                !is_legacy_artifact(keep),
+                "{keep} 是 ROLLBACK.txt 的回滚目标，必须保留"
+            );
         }
         // 正常文件：绝不能被误删
         for keep in [
@@ -3324,6 +3449,7 @@ mod tests {
             "aiagent_processes.json",
             "launch.vbs",
             "apimon-snapshot.db.gz",
+            "ROLLBACK.txt",
         ] {
             assert!(!is_legacy_artifact(keep), "{keep} must be kept");
         }

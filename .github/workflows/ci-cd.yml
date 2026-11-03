@@ -7,14 +7,14 @@
 # - 手动触发
 #
 # 功能：
-# - 阶段 0 (Detect)：检测 agent / relay 是否变更（仅 dev 分支推送启用）。
+# - 阶段 0 (Detect)：检测 agent 是否变更（仅 dev 分支推送启用）。
 #   未变更时跳过三平台编译，直接复用滚动 release（built-agents，固定 tag）
 #   里的最近产物；有变更时执行完整编译并把新产物 --clobber 覆盖回滚动 release。
 #   PR / 手动触发 / 其它分支一律走完整全流程（与既有行为一致），正式发布由
 #   release.yml 全量编译、不受影响。
 # - 阶段 1 (CI)：前端 ESLint 检查、测试、构建验证
 # - 阶段 2 (Build Agent)：并行编译部署所需的 Linux / Windows Agent（仅变更时）
-# - 阶段 2c (Publish)：发布新编译的 agent / relay 到滚动 release 供后续复用
+# - 阶段 2c (Publish)：发布新编译的 agent 到滚动 release 供后续复用
 # - 阶段 2d (Fetch)：从滚动 release 取回 agent 三件套，统一产物供镜像构建
 # - 阶段 3 (CD - Docker)：多架构 Docker 镜像自动构建与发布
 # - 阶段 4 (Merge)：合并多架构 Docker Manifest 并生成相应标签（main -> latest, dev -> dev）
@@ -166,7 +166,7 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
 
   # ==========================================
-  # 阶段 0: 仅 dev 分支推送时检测 agent / relay 是否有变更
+  # 阶段 0: 仅 dev 分支推送时检测 agent 是否有变更
   # 未变更 → 跳过三平台编译，直接复用滚动 release 产物；
   # 有变更或非 dev 事件（PR / 手动 / 其它分支）→ 走完整全流程。
   # ==========================================
@@ -174,7 +174,6 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       agent_changed: ${{ steps.flags.outputs.agent_changed }}
-      relay_changed: ${{ steps.flags.outputs.relay_changed }}
       binaries_changed: ${{ steps.flags.outputs.binaries_changed }}
     steps:
       - name: Checkout repository
@@ -191,8 +190,6 @@ jobs:
           filters: |
             agent:
               - 'agent-rust/**'
-            relay:
-              - 'backend-go/cmd/api-monitor-relay/**'
 
       - name: Resolve flags
         id: flags
@@ -203,7 +200,6 @@ jobs:
         run: |
           if [ "${{ github.event_name }}" = "push" ] && [ "${{ github.ref }}" = "refs/heads/dev" ]; then
             AGENT="${{ steps.changed.outputs.agent }}"
-            RELAY="${{ steps.changed.outputs.relay }}"
 
             # 如果最新 commit 历史里有 agent-rust 变更未发布，或者当前 release 版本低于 Cargo.toml，强制构建
             CARGO_VER="$(grep -m1 '^version = ' agent-rust/Cargo.toml | cut -d'"' -f2)"
@@ -268,11 +264,9 @@ jobs:
             fi
           else
             AGENT="true"
-            RELAY="true"
           fi
           echo "agent_changed=${AGENT:-false}" >> "$GITHUB_OUTPUT"
-          echo "relay_changed=${RELAY:-false}" >> "$GITHUB_OUTPUT"
-          if [ "${AGENT:-false}" = "true" ] || [ "${RELAY:-false}" = "true" ]; then
+          if [ "${AGENT:-false}" = "true" ]; then
             echo "binaries_changed=true" >> "$GITHUB_OUTPUT"
           else
             echo "binaries_changed=false" >> "$GITHUB_OUTPUT"
@@ -372,55 +366,7 @@ jobs:
           retention-days: 1
 
   # ==========================================
-  # 阶段 2b: 编译 api-monitor-relay（Go，三平台交叉编译，仅 relay 变更时）
-  # ==========================================
-  build-relay:
-    needs: [detect-agent-changes]
-    if: needs.detect-agent-changes.outputs.relay_changed == 'true'
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - goos: linux
-            goarch: amd64
-            output_name: api-monitor-relay-linux-amd64
-          - goos: linux
-            goarch: arm64
-            output_name: api-monitor-relay-linux-arm64
-          - goos: windows
-            goarch: amd64
-            output_name: api-monitor-relay-windows-amd64.exe
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.0.0
-
-      - name: Setup Go from backend-go/go.mod
-        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.0.0
-        with:
-          go-version-file: backend-go/go.mod
-          cache-dependency-path: backend-go/go.sum
-
-      - name: Build Relay
-        working-directory: backend-go
-        shell: bash
-        run: |
-          mkdir -p dist
-          CGO_ENABLED=0 GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} go build -trimpath -o dist/${{ matrix.output_name }} ./cmd/api-monitor-relay
-          (cd dist && sha256sum "${{ matrix.output_name }}" | awk '{print $1}' > "${{ matrix.output_name }}.sha256")
-          ls -lh dist/
-
-      - name: Upload relay artifact
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: ${{ matrix.output_name }}
-          path: |
-            dist/${{ matrix.output_name }}
-            dist/${{ matrix.output_name }}.sha256
-          retention-days: 1
-
-  # ==========================================
-  # 阶段 2c: 全流程时把新编译 agent / relay 覆盖到滚动 release（built-agents）
+  # 阶段 2c: 全流程时把新编译 agent 覆盖到滚动 release（built-agents）
   # 下载链接（固定 tag）稳定不变，供后续无变更推送直接复用。
   # 滚动 tag 挂在孤儿提交上，避免被 release.yml 变更日志的 git describe 命中。
   #
@@ -431,14 +377,13 @@ jobs:
   # 因此这里把「agent 变更 ⇒ 三平台全部构建成功」作为发布前置条件。
   # ==========================================
   publish-agents:
-    needs: [detect-agent-changes, build-agent, build-relay]
+    needs: [detect-agent-changes, build-agent]
     if: >-
       always() &&
       github.event_name == 'push' &&
       github.ref == 'refs/heads/dev' &&
       needs.detect-agent-changes.outputs.binaries_changed == 'true' &&
-      (needs.detect-agent-changes.outputs.agent_changed != 'true' || needs.build-agent.result == 'success') &&
-      (needs.detect-agent-changes.outputs.relay_changed != 'true' || needs.build-relay.result == 'success')
+      (needs.detect-agent-changes.outputs.agent_changed != 'true' || needs.build-agent.result == 'success')
     runs-on: ubuntu-latest
     env:
       GH_TOKEN: ${{ github.token }}
@@ -453,14 +398,6 @@ jobs:
           pattern: agent-*
           merge-multiple: true
 
-      - name: Download compiled relay binaries (本轮构建)
-        if: needs.detect-agent-changes.outputs.relay_changed == 'true'
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          path: relay-assets
-          pattern: api-monitor-relay-*
-          merge-multiple: true
-
       # 发布前校验本次要覆盖的每个组件都齐三平台。缺任何一个即失败，
       # 而不是静默发布不完整产物集——静默的部分发布会让滚动 release 进入
       # 「新旧混装」且无法自愈的状态（缺失平台不会被后续推送重建）。
@@ -468,7 +405,6 @@ jobs:
         shell: bash
         env:
           AGENT_CHANGED: ${{ needs.detect-agent-changes.outputs.agent_changed }}
-          RELAY_CHANGED: ${{ needs.detect-agent-changes.outputs.relay_changed }}
         run: |
           set -euo pipefail
           fail=0
@@ -484,16 +420,11 @@ jobs:
             require agent-assets agent-linux-arm64
             require agent-assets agent-windows-amd64.exe
           fi
-          if [ "${RELAY_CHANGED}" = "true" ]; then
-            require relay-assets api-monitor-relay-linux-amd64
-            require relay-assets api-monitor-relay-linux-arm64
-            require relay-assets api-monitor-relay-windows-amd64.exe
-          fi
           if [ "$fail" -ne 0 ]; then
             echo "本次构建未产出完整三平台产物，已中止发布以保护滚动 release 的一致性。" >&2
             exit 1
           fi
-          ls -lh agent-assets relay-assets 2>/dev/null || true
+          ls -lh agent-assets 2>/dev/null || true
 
       - name: Publish assets to rolling release
         shell: bash
@@ -501,7 +432,6 @@ jobs:
           set -euo pipefail
           mkdir -p assets
           cp -f agent-assets/* assets/ 2>/dev/null || true
-          cp -f relay-assets/* assets/ 2>/dev/null || true
           if ! ls assets/* >/dev/null 2>&1; then
             echo "nothing to publish"; exit 0
           fi
@@ -518,8 +448,8 @@ jobs:
             git -C "$TMP" push -q -f origin "$ORPHAN:refs/tags/$RELEASE_TAG"
             # tag 已由上面 push 创建，这里直接绑定 release（不重复传 --target）
             gh release create "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
-              --title "built-agents (rolling agent/relay artifacts)" \
-              --notes "CI 持续覆盖的 agent / relay 产物，供 dev 镜像构建复用下载。下载链接稳定。"
+              --title "built-agents (rolling agent artifacts)" \
+              --notes "CI 持续覆盖的 agent 产物，供 dev 镜像构建复用下载。下载链接稳定。"
           fi
 
           gh release upload "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" assets/* --clobber

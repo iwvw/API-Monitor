@@ -1,6 +1,6 @@
 [package]
 name = "api-monitor-agent"
-version = "0.6.40"
+version = "0.6.41"
 edition = "2021"
 
 [dependencies]
@@ -68,3 +68,12 @@ windows-sys = { version = "0.61.2", features = [
 [features]
 default = ["nvidia"]
 nvidia = ["dep:nvml-wrapper"]
+
+# 发布构建裁剪：原二进制 15MB（未 strip）。strip + LTO 后约 10MB，
+# 足够抵消合并 relay 带来的增量，整体（agent+relay 两文件）从 ~24MB 降到 ~10MB。
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true

@@ -378,8 +378,12 @@ jobs:
           retention-days: 7
 
   # ==========================================
-  # build-go-assets: 交叉编译 Go 命令行资产（relay / stun）三平台并生成 sha256
-  # 新增 Go 命令行资产（如 auth-proxy）时，只需在 matrix 加一行
+  # build-go-assets: 交叉编译 Go 命令行资产（stun / auth-proxy）三平台并生成 sha256
+  # 新增 Go 命令行资产时，只需在 matrix 加一行。
+  # 注意：build 步骤的 working-directory 是 backend-go，产物落在
+  # backend-go/dist/；upload-artifact 的 path 相对 workspace 根，必须带
+  # backend-go/ 前缀，否则永远找不到文件（曾导致 relay/stun 连续多个版本
+  # 没被上传，面板只能回退到 v0.6.1 的老资产哈希）。
   # ==========================================
   build-go-assets:
     if: github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/main'
@@ -388,12 +392,12 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - {binary: relay, goos: linux,   goarch: amd64, output_name: api-monitor-relay-linux-amd64}
-          - {binary: relay, goos: linux,   goarch: arm64, output_name: api-monitor-relay-linux-arm64}
-          - {binary: relay, goos: windows, goarch: amd64, output_name: api-monitor-relay-windows-amd64.exe}
-          - {binary: stun,  goos: linux,   goarch: amd64, output_name: api-monitor-stun-linux-amd64}
-          - {binary: stun,  goos: linux,   goarch: arm64, output_name: api-monitor-stun-linux-arm64}
-          - {binary: stun,  goos: windows, goarch: amd64, output_name: api-monitor-stun-windows-amd64.exe}
+          - {binary: stun,       goos: linux,   goarch: amd64, output_name: api-monitor-stun-linux-amd64}
+          - {binary: stun,       goos: linux,   goarch: arm64, output_name: api-monitor-stun-linux-arm64}
+          - {binary: stun,       goos: windows, goarch: amd64, output_name: api-monitor-stun-windows-amd64.exe}
+          - {binary: auth-proxy, goos: linux,   goarch: amd64, output_name: api-monitor-auth-proxy-linux-amd64}
+          - {binary: auth-proxy, goos: linux,   goarch: arm64, output_name: api-monitor-auth-proxy-linux-arm64}
+          - {binary: auth-proxy, goos: windows, goarch: amd64, output_name: api-monitor-auth-proxy-windows-amd64.exe}
     steps:
       - name: Checkout repository
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.0.0
@@ -418,8 +422,8 @@ jobs:
         with:
           name: ${{ matrix.output_name }}
           path: |
-            dist/${{ matrix.output_name }}
-            dist/${{ matrix.output_name }}.sha256
+            backend-go/dist/${{ matrix.output_name }}
+            backend-go/dist/${{ matrix.output_name }}.sha256
           retention-days: 7
 
   # ==========================================
@@ -443,7 +447,7 @@ jobs:
           for f in artifacts/*; do
             [ -f "$f" ] || continue
             case "$(basename "$f")" in
-              agent-*|api-monitor-relay-*|api-monitor-stun-*)
+              agent-*|api-monitor-stun-*|api-monitor-auth-proxy-*)
                 cp -f "$f" release-assets/ ;;
             esac
           done

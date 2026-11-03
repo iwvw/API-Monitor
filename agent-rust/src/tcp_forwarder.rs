@@ -576,13 +576,18 @@ async fn unlisten(request: &Request) -> Result<String, String> {
     Ok(serde_json::json!({"status":"unlistened","forward_id":request.forward_id}).to_string())
 }
 
-// ==================== 中继入口自举（默认安装 relay） ====================
-// 让任意主机都能作为中继入口：面板在部署前先发 bootstrap_relay（幂等，已运行则跳过）。
+// ==================== 中继入口自举 ====================
+// relay 已合并进 agent 二进制（`api-monitor-agent relay ...`），不再下载独立
+// 的 api-monitor-relay：省掉一个 ~8MB 的重复二进制，也彻底消除「Release
+// 资产缺失 / SHA 常量过期导致中继装不上」的故障面。
+//
+// 仍以独立 systemd 服务托管（ExecStart 指向本二进制 + relay 子命令），
+// 因此 relay 崩溃/重启不影响 agent 主进程。
 
 #[cfg(unix)]
 fn relay_systemd_unit(binary: &std::path::Path) -> String {
     format!(
-        "[Unit]\nDescription=API Monitor TCP relay\nAfter=network-online.target\nWants=network-online.target\n\n[Service]\nType=simple\nExecStart={} -listen 127.0.0.1:18080 -config /etc/api-monitor-relay/config.json\nRestart=always\nRestartSec=5s\nLimitNOFILE=1048576\n\n[Install]\nWantedBy=multi-user.target\n",
+        "[Unit]\nDescription=API Monitor TCP relay (embedded in agent)\nAfter=network-online.target\nWants=network-online.target\n\n[Service]\nType=simple\nExecStart={} relay -listen 127.0.0.1:18080 -config /etc/api-monitor-relay/config.json\nRestart=always\nRestartSec=5s\nLimitNOFILE=1048576\n\n[Install]\nWantedBy=multi-user.target\n",
         binary.display()
     )
 }
@@ -601,52 +606,94 @@ fn relay_cmd_run(command: &mut std::process::Command, label: &str) -> Result<(),
     }
 }
 
+/// 本机 relay 是否在跑。注意旧版本可能装的是独立二进制，这里统一按
+/// 「服务名」判断，与实现方式解耦。
 #[cfg(unix)]
-async fn bootstrap_relay(request: &Request) -> Result<String, String> {
-    use std::os::unix::fs::PermissionsExt;
-
-    // 幂等：已运行直接返回
-    let active = std::process::Command::new("systemctl")
+fn relay_service_active() -> bool {
+    std::process::Command::new("systemctl")
         .args(["is-active", "--quiet", "api-monitor-relay.service"])
         .status()
-        .is_ok_and(|s| s.success());
-    if active {
+        .is_ok_and(|s| s.success())
+}
+
+#[cfg(unix)]
+async fn bootstrap_relay(_request: &Request) -> Result<String, String> {
+    if relay_service_active() {
+        // 服务在跑，但可能是旧版独立二进制：顺手把 unit 迁到「本二进制 + relay
+        // 子命令」，并清掉遗留的 bin/api-monitor-relay，避免继续占用 ~8MB。
+        migrate_relay_unit_if_needed()?;
         return Ok(serde_json::json!({"status":"already_running"}).to_string());
     }
-    let url = request.relay_asset_url.trim();
-    let sha = request.relay_asset_sha256.trim();
-    if !url.starts_with("https://") || sha.len() != 64 || !sha.bytes().all(|b| b.is_ascii_hexdigit()) {
-        return Err("relay 资产必须为 HTTPS 地址并带 SHA-256".to_string());
-    }
-    let dir = crate::config::agent_sub_bin_dir();
-    std::fs::create_dir_all(&dir).map_err(|e| format!("创建 relay 目录失败: {e}"))?;
-    let binary = dir.join("api-monitor-relay");
-    let candidate = dir.join(".api-monitor-relay.download");
-    let _ = std::fs::remove_file(&candidate);
-    relay_cmd_run(
-        std::process::Command::new("curl").args(["--fail", "--location", "--retry", "3", "--proto", "=https", "--output"]).arg(&candidate).arg(url),
-        "下载 api-monitor-relay",
-    )?;
-    let sum = std::process::Command::new("sha256sum").arg(&candidate).output()
-        .map_err(|e| format!("sha256sum: {e}"))?;
-    let actual = String::from_utf8_lossy(&sum.stdout).split_whitespace().next().unwrap_or("").to_ascii_lowercase();
-    if !sum.status.success() || actual != sha.to_ascii_lowercase() {
-        let _ = std::fs::remove_file(&candidate);
-        return Err("api-monitor-relay SHA-256 校验失败".to_string());
-    }
-    std::fs::set_permissions(&candidate, std::fs::Permissions::from_mode(0o755))
-        .map_err(|e| format!("chmod relay: {e}"))?;
-    std::fs::rename(&candidate, &binary).map_err(|e| format!("激活 relay 二进制: {e}"))?;
 
-    std::fs::create_dir_all("/etc/api-monitor-relay").map_err(|e| format!("创建 relay 配置目录: {e}"))?;
-    std::fs::write("/etc/api-monitor-relay/config.json", "{\"forwards\":[]}").map_err(|e| format!("写 relay 配置: {e}"))?;
-    std::fs::write("/etc/systemd/system/api-monitor-relay.service", relay_systemd_unit(&binary))
-        .map_err(|e| format!("写 systemd 单元: {e}"))?;
-    relay_cmd_run(std::process::Command::new("systemctl").args(["daemon-reload"]), "systemctl daemon-reload")?;
-    relay_cmd_run(std::process::Command::new("systemctl").args(["enable", "--now", "api-monitor-relay.service"]), "enable relay")?;
-    relay_cmd_run(std::process::Command::new("systemctl").args(["restart", "api-monitor-relay.service"]), "restart relay")?;
-    relay_cmd_run(std::process::Command::new("systemctl").args(["is-active", "--quiet", "api-monitor-relay.service"]), "校验 relay 服务")?;
+    let binary = std::env::current_exe().map_err(|e| format!("定位 agent 二进制失败: {e}"))?;
+
+    std::fs::create_dir_all("/etc/api-monitor-relay")
+        .map_err(|e| format!("创建 relay 配置目录: {e}"))?;
+    let cfg_path = "/etc/api-monitor-relay/config.json";
+    if !std::path::Path::new(cfg_path).exists() {
+        std::fs::write(cfg_path, "{\"forwards\":[]}")
+            .map_err(|e| format!("写 relay 配置: {e}"))?;
+    }
+    std::fs::write(
+        "/etc/systemd/system/api-monitor-relay.service",
+        relay_systemd_unit(&binary),
+    )
+    .map_err(|e| format!("写 systemd 单元: {e}"))?;
+    relay_cmd_run(
+        std::process::Command::new("systemctl").args(["daemon-reload"]),
+        "systemctl daemon-reload",
+    )?;
+    relay_cmd_run(
+        std::process::Command::new("systemctl").args(["enable", "--now", "api-monitor-relay.service"]),
+        "enable relay",
+    )?;
+    relay_cmd_run(
+        std::process::Command::new("systemctl").args(["restart", "api-monitor-relay.service"]),
+        "restart relay",
+    )?;
+    relay_cmd_run(
+        std::process::Command::new("systemctl").args(["is-active", "--quiet", "api-monitor-relay.service"]),
+        "校验 relay 服务",
+    )?;
+    // 服务已切到内嵌实现，旧二进制不再被使用。
+    remove_legacy_relay_binary();
     Ok(serde_json::json!({"status":"running"}).to_string())
+}
+
+/// 把已有的独立二进制 unit 迁到「本二进制 + relay 子命令」。
+#[cfg(unix)]
+fn migrate_relay_unit_if_needed() -> Result<(), String> {
+    const UNIT: &str = "/etc/systemd/system/api-monitor-relay.service";
+    let Ok(content) = std::fs::read_to_string(UNIT) else {
+        return Ok(());
+    };
+    // 已经是内嵌形态则什么都不做。
+    if content.contains(" relay -listen") {
+        remove_legacy_relay_binary();
+        return Ok(());
+    }
+    let binary = std::env::current_exe().map_err(|e| format!("定位 agent 二进制失败: {e}"))?;
+    std::fs::write(UNIT, relay_systemd_unit(&binary))
+        .map_err(|e| format!("迁移 systemd 单元: {e}"))?;
+    relay_cmd_run(
+        std::process::Command::new("systemctl").args(["daemon-reload"]),
+        "systemctl daemon-reload",
+    )?;
+    relay_cmd_run(
+        std::process::Command::new("systemctl").args(["restart", "api-monitor-relay.service"]),
+        "restart relay",
+    )?;
+    remove_legacy_relay_binary();
+    Ok(())
+}
+
+/// 删除旧的 `bin/api-monitor-relay`（内嵌后不再需要）。
+#[cfg(unix)]
+fn remove_legacy_relay_binary() {
+    let legacy = crate::config::agent_sub_bin_dir().join("api-monitor-relay");
+    if legacy.exists() {
+        let _ = std::fs::remove_file(&legacy);
+    }
 }
 
 #[cfg(windows)]

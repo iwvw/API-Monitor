@@ -16,29 +16,6 @@ import (
 	"github.com/iwvw/api-monitor/backend-go/internal/secure"
 )
 
-// api-monitor-relay 中继二进制资产（与 GitHub Release v0.6.1 一致）
-const (
-	relayLinuxAMD64URL      = "https://github.com/iwvw/API-Monitor/releases/download/v0.6.1/api-monitor-relay-linux-amd64"
-	relayLinuxAMD64SHA256   = "455051b47cb1d4da2ece0b29c2b469191e68e712fabc43f21651ce0fdf52640f"
-	relayLinuxARM64URL      = "https://github.com/iwvw/API-Monitor/releases/download/v0.6.1/api-monitor-relay-linux-arm64"
-	relayLinuxARM64SHA256   = "e163a95eb5b24945a834a8ca2ffc1d2112d1449f4ff839425d9630ab6f90aa85"
-	relayWindowsAMD64URL    = "https://github.com/iwvw/API-Monitor/releases/download/v0.6.1/api-monitor-relay-windows-amd64.exe"
-	relayWindowsAMD64SHA256 = "226fffc6450591b5b5bbe2c3f2c2d59dcc1594824cf593e338c0b79284f67948"
-)
-
-// relayAssetFor 按主机平台/架构返回 relay 二进制下载地址与 SHA-256。
-func relayAssetFor(platform, arch string) (url, sha string, ok bool) {
-	platform = strings.ToLower(strings.TrimSpace(platform))
-	arch = strings.ToLower(strings.TrimSpace(arch))
-	if strings.Contains(platform, "windows") || strings.Contains(platform, "win") {
-		return relayWindowsAMD64URL, relayWindowsAMD64SHA256, true
-	}
-	if strings.Contains(arch, "arm64") || strings.Contains(arch, "aarch64") {
-		return relayLinuxARM64URL, relayLinuxARM64SHA256, true
-	}
-	return relayLinuxAMD64URL, relayLinuxAMD64SHA256, true
-}
-
 // api-monitor-auth-proxy 鉴权代理二进制资产（与 GitHub Release v0.6.1 一致）
 const (
 	authProxyLinuxAMD64URL      = "https://github.com/iwvw/API-Monitor/releases/download/v0.6.1/api-monitor-auth-proxy-linux-amd64"
@@ -53,13 +30,15 @@ const (
 func authProxyAssetFor(platform, arch string) (url, sha string, ok bool) {
 	platform = strings.ToLower(strings.TrimSpace(platform))
 	arch = strings.ToLower(strings.TrimSpace(arch))
-	if strings.Contains(platform, "windows") || strings.Contains(platform, "win") {
-		return authProxyWindowsAMD64URL, authProxyWindowsAMD64SHA256, true
+	switch {
+	case strings.Contains(platform, "windows") || strings.Contains(platform, "win"):
+		url, sha = forwardAssetURLSHA(authProxyWindowsAMD64URL, authProxyWindowsAMD64SHA256)
+	case strings.Contains(arch, "arm64") || strings.Contains(arch, "aarch64"):
+		url, sha = forwardAssetURLSHA(authProxyLinuxARM64URL, authProxyLinuxARM64SHA256)
+	default:
+		url, sha = forwardAssetURLSHA(authProxyLinuxAMD64URL, authProxyLinuxAMD64SHA256)
 	}
-	if strings.Contains(arch, "arm64") || strings.Contains(arch, "aarch64") {
-		return authProxyLinuxARM64URL, authProxyLinuxARM64SHA256, true
-	}
-	return authProxyLinuxAMD64URL, authProxyLinuxAMD64SHA256, true
+	return url, sha, true
 }
 
 // api-monitor-stun 自建 STUN 服务器二进制资产。
@@ -78,13 +57,18 @@ const (
 func stunAssetFor(platform, arch string) (url, sha string, ok bool) {
 	platform = strings.ToLower(strings.TrimSpace(platform))
 	arch = strings.ToLower(strings.TrimSpace(arch))
-	if strings.Contains(platform, "windows") || strings.Contains(platform, "win") {
-		return stunWindowsAMD64URL, stunWindowsAMD64SHA, true
+	switch {
+	case strings.Contains(platform, "windows") || strings.Contains(platform, "win"):
+		url, sha = forwardAssetURLSHA(stunWindowsAMD64URL, stunWindowsAMD64SHA)
+	case strings.Contains(arch, "arm64") || strings.Contains(arch, "aarch64"):
+		url, sha = forwardAssetURLSHA(stunLinuxARM64URL, stunLinuxARM64SHA256)
+	default:
+		url, sha = forwardAssetURLSHA(stunLinuxAMD64URL, stunLinuxAMD64SHA256)
 	}
-	if strings.Contains(arch, "arm64") || strings.Contains(arch, "aarch64") {
-		return stunLinuxARM64URL, stunLinuxARM64SHA256, true
+	if sha == "" {
+		return "", "", false
 	}
-	return stunLinuxAMD64URL, stunLinuxAMD64SHA256, true
+	return url, sha, true
 }
 
 func (s *Service) deployManagedForward(w http.ResponseWriter, r *http.Request, db *sql.DB, id string) {
@@ -235,14 +219,16 @@ func (s *Service) deployTCPRelayCore(ctx context.Context, db *sql.DB, item *mana
 		return http.StatusBadGateway, errors.New(issue)
 	}
 
-	// 0) 默认安装中继入口：任何主机都能成为中继（agent 侧幂等，已运行即跳过）
-	relayMeta := relayConn.GetMetadata()
-	relayURL, relaySHA, relayOK := relayAssetFor(fmt.Sprint(relayMeta["platform"]), fmt.Sprint(relayMeta["arch"]))
-	if relayOK {
-		if err := s.RunTCPForwarderBootstrap(item.RelayServerID, relayURL, relaySHA); err != nil {
-			_, _ = db.ExecContext(ctx, `UPDATE managed_forwards SET apply_status='failed',last_stage='deploy_relay_bootstrap',last_error=?,updated_at=datetime('now') WHERE id=?`, "中继安装失败: "+err.Error(), item.ID)
-			return 500, errors.New("中继入口安装失败: "+err.Error())
-		}
+	// 0) 确保中继入口在跑。
+	//
+	// relay 已合并进 agent 二进制（`api-monitor-agent relay ...`），所以这里
+	// 不再下载 api-monitor-relay 资产、也不再校验 SHA-256 —— 那套机制曾因
+	// release 漏传资产 + 哈希常量过期，导致任意新主机「中继安装失败」。
+	// bootstrap_relay 现在只负责：把 systemd 单元指向本二进制的 relay 子命令
+	// 并确保服务在运行（agent 侧幂等，已运行则顺手迁移旧单元）。
+	if err := s.RunTCPForwarderBootstrap(item.RelayServerID); err != nil {
+		_, _ = db.ExecContext(ctx, `UPDATE managed_forwards SET apply_status='failed',last_stage='deploy_relay_bootstrap',last_error=?,updated_at=datetime('now') WHERE id=?`, "中继安装失败: "+err.Error(), item.ID)
+		return 500, errors.New("中继入口安装失败: " + err.Error())
 	}
 
 	port := allocateRelayPort(ctx, db, item, item.RelayServerID)
