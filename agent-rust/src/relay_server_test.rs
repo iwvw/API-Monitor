@@ -19,6 +19,7 @@ use crate::relay_server::{
 };
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::UdpSocket;
+use tokio::net::TcpListener;
 
 /// 申请一个当前可用的 TCP 端口。
 ///
@@ -429,4 +430,94 @@ async fn forwards_persist_and_restore() {
 
     let _ = std::fs::remove_dir_all(&dir);
     server2.shutdown_all().await;
+}
+
+// ==================== 管理 HTTP 接口 ====================
+//
+// 这组用例专门覆盖「HTTP 路由是否真的能匹配上」。
+// 之前所有测试都直接调用 upsert_forward，绕过了 axum 路由，
+// 于是 `{id}`（axum 0.8 语法）在 axum 0.7 上永远 404 的问题没被发现——
+// 表现为面板删除规则成功、relay 侧监听却还在，端口一直占着。
+
+/// 起一个带管理接口的 relay，返回 (server, mgmt_port)。
+async fn start_with_mgmt() -> (Arc<RelayServer>, u16) {
+    let port = free_port();
+    let server = RelayServer::new(None);
+    let app = crate::relay_http::router(server.clone());
+    let listener = TcpListener::bind(("127.0.0.1", port)).await.expect("mgmt bind");
+    tokio::spawn(async move {
+        let _ = axum::serve(listener, app).await;
+    });
+    tokio::time::sleep(Duration::from_millis(80)).await;
+    (server, port)
+}
+
+async fn http_req(port: u16, method: &str, path: &str, body: Option<&str>) -> (u16, String) {
+    use tokio::io::AsyncWriteExt as _;
+    let mut s = TcpStream::connect(("127.0.0.1", port)).await.expect("connect");
+    let payload = body.unwrap_or("");
+    let req = format!(
+        "{method} {path} HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{payload}",
+        payload.len()
+    );
+    s.write_all(req.as_bytes()).await.expect("write");
+    let mut buf = Vec::new();
+    let _ = s.read_to_end(&mut buf).await;
+    let text = String::from_utf8_lossy(&buf).into_owned();
+    let status = text
+        .split_whitespace()
+        .nth(1)
+        .and_then(|v| v.parse::<u16>().ok())
+        .unwrap_or(0);
+    (status, text)
+}
+
+#[tokio::test]
+async fn mgmt_delete_route_matches() {
+    let _serial = serial();
+    let (server, port) = start_with_mgmt().await;
+    let fwd_port = free_port();
+
+    // 通过 HTTP 创建（同时验证 POST /forwards 路由）
+    let (status, body) = http_req(
+        port,
+        "POST",
+        "/forwards",
+        Some(&format!(
+            r#"{{"id":"fwd_http_del","listen_port":{fwd_port},"token":"","udp":false}}"#
+        )),
+    )
+    .await;
+    assert_eq!(status, 200, "POST /forwards should succeed: {body}");
+    wait_ready().await;
+    assert!(server.forwards.lock().unwrap().contains_key("fwd_http_del"));
+
+    // DELETE /forwards/{id}：axum 0.7 必须写成 :id，否则这里 404
+    let (status, body) = http_req(port, "DELETE", "/forwards/fwd_http_del", None).await;
+    assert_eq!(
+        status, 200,
+        "DELETE /forwards/:id 未匹配（axum 0.7 路径参数语法应为 :id）: {body}"
+    );
+    assert!(
+        !server.forwards.lock().unwrap().contains_key("fwd_http_del"),
+        "删除后规则应已移除"
+    );
+
+    // 端口必须真正释放，否则删除就是「假删除」
+    tokio::time::sleep(Duration::from_millis(120)).await;
+    assert!(
+        tokio::net::TcpStream::connect(("127.0.0.1", fwd_port)).await.is_err(),
+        "删除规则后监听端口 {fwd_port} 应已释放"
+    );
+
+    server.shutdown_all().await;
+}
+
+#[tokio::test]
+async fn mgmt_delete_unknown_returns_404() {
+    let _serial = serial();
+    let (server, port) = start_with_mgmt().await;
+    let (status, _) = http_req(port, "DELETE", "/forwards/does_not_exist", None).await;
+    assert_eq!(status, 404, "未知规则应返回 404 而不是路由未匹配的 404");
+    server.shutdown_all().await;
 }

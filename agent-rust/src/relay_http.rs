@@ -32,7 +32,10 @@ pub fn router(server: Arc<RelayServer>) -> Router {
     Router::new()
         .route("/forwards", post(add_forward))
         .route("/forwards", get(list_forwards))
-        .route("/forwards/{id}", delete(delete_forward))
+        // axum 0.7 的路径参数语法是 `:id`（`{id}` 是 0.8 起才支持）。
+        // 写成 `{id}` 时该路由永远匹配不上，DELETE 会 404，
+        // 表现为「面板删除规则成功，但 relay 侧监听还在、端口一直占着」。
+        .route("/forwards/:id", delete(delete_forward))
         .route("/health", get(health))
         .with_state(server)
 }
