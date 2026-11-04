@@ -11,6 +11,7 @@ export const buildSampleEventData = (rule = {}) => {
     return {
       severity: rule.severity || 'info',
       eventType: rule.event_type || 'task.completed',
+      sourceModule: 'cron',
       taskId: 12,
       taskName: '每日 Token 用量统计',
       workflowId: 8,
@@ -27,6 +28,7 @@ export const buildSampleEventData = (rule = {}) => {
   return {
     severity: rule.severity || 'warning',
     eventType: rule.event_type || 'down',
+    sourceModule: rule.source_module || 'uptime',
     monitorName: 'API Gateway',
     serverName: 'prod-node-01',
     url: 'https://api.example.com/health',
@@ -41,7 +43,9 @@ export const buildSampleEventData = (rule = {}) => {
     traffic_used: '863.5 GB',
     traffic_limit: '1 TB',
     threshold: 90,
-    downDuration: '3 分钟',
+    downDuration: '5 分钟 32 秒',
+    downDurationMs: 332000,
+    lastActive: new Date(Date.now() - 332000).toISOString(),
   };
 };
 
