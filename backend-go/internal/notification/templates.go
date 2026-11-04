@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"strings"
 	"time"
-
 )
 
 func formatNotificationDuration(duration time.Duration) string {
@@ -94,6 +93,11 @@ func formatMessage(rule Rule, data map[string]interface{}, loc *time.Location) s
 		add("最后活跃", toLocalTimeStr(stringValue(lastActiveVal), loc))
 	}
 
+	// 断开/恢复时间（仅可用性生命周期注入）
+	if disconnectedAt := stringValue(data["disconnectedAt"]); disconnectedAt != "" {
+		add("断开时间", toLocalTimeStr(disconnectedAt, loc))
+	}
+
 	add("错误原因", data["error"])
 	add("延迟 (Ping)", data["ping"])
 	add("CPU 使用率", formatNotificationPercent(data["cpu_usage"]))
@@ -104,6 +108,9 @@ func formatMessage(rule Rule, data map[string]interface{}, loc *time.Location) s
 	add("流量配额", data["traffic_limit"])
 	add("报警阈值", formatNotificationPercent(data["threshold"]))
 	add("持续时间", data["downDuration"])
+	if recoveredAt := stringValue(data["recoveredAt"]); recoveredAt != "" {
+		add("恢复时间", toLocalTimeStr(recoveredAt, loc))
+	}
 	add("证书剩余天数", data["daysLeft"])
 	if expiry := stringValue(data["expiry"]); expiry != "" {
 		add("证书到期时间", toLocalTimeStr(expiry, loc))
@@ -250,7 +257,7 @@ func notificationEventLabel(eventType string) string {
 		"security.revealed": "敏感信息已查看", "backup.imported": "备份已导入", "backup.exported": "备份已导出",
 		"gateway_error_high": "网关错误率过高", "gateway_error_normal": "网关错误率恢复正常",
 		"quota_window_refreshed": "Antigravity 配额窗口已刷新",
-		"task.completed": "定时任务执行完成", "task.failed": "定时任务执行失败",
+		"task.completed":         "定时任务执行完成", "task.failed": "定时任务执行失败",
 		"workflow.completed": "工作流执行完成", "workflow.failed": "工作流执行失败",
 		"asset_expiry": "资产即将到期",
 	}
@@ -272,6 +279,12 @@ func notificationTemplateData(data map[string]interface{}, loc *time.Location) m
 	result["timeZone"] = loc.String()
 	if lastActive := stringValue(data["lastActive"]); lastActive != "" {
 		result["lastActiveLocal"] = toLocalTimeStr(lastActive, loc)
+	}
+	if disconnectedAt := stringValue(data["disconnectedAt"]); disconnectedAt != "" {
+		result["disconnectedAtLocal"] = toLocalTimeStr(disconnectedAt, loc)
+	}
+	if recoveredAt := stringValue(data["recoveredAt"]); recoveredAt != "" {
+		result["recoveredAtLocal"] = toLocalTimeStr(recoveredAt, loc)
 	}
 	return result
 }

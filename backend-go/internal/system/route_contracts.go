@@ -1429,10 +1429,10 @@ func init() {
 	})
 	routeRequestContracts["/api/notification/rules/{id}/enable"] = noBody
 	routeRequestContracts["/api/notification/rules/{id}/disable"] = noBody
-	routeRequestContracts["/api/notification/templates/preview"] = obj([]string{"template"}, map[string]prop{
-		"template":  {t: "string", req: true, d: "模板文本"},
-		"eventType": {t: "string", d: "事件类型"},
-		"context":   {t: "object", d: "渲染上下文"},
+	routeRequestContracts["/api/notification/templates/preview"] = obj(nil, map[string]prop{
+		"title_template":   {t: "string", d: "标题模板，支持 {{变量}}"},
+		"message_template": {t: "string", d: "内容模板，支持 {{变量}}；留空则用默认模板"},
+		"data":             {t: "object", d: "渲染上下文（事件字段），如 serverName/lastActive/downDurationMs"},
 	})
 	routeRequestContracts["/api/notification/config"] = obj(nil, map[string]prop{
 		"globalEnabled": {t: "boolean", d: "全局开关"},

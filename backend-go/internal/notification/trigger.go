@@ -7,7 +7,6 @@ import (
 	"log/slog"
 	"strings"
 	"time"
-
 )
 
 func (s *Service) DryRun(ctx context.Context, rule Rule, eventData map[string]interface{}) (map[string]interface{}, error) {
@@ -292,19 +291,111 @@ func (s *Service) enrichLifecycleEventData(ctx context.Context, sourceModule, ev
 		}
 		previousData = parseObject(state.LastData)
 		result["lifecyclePreviousEvent"] = state.EventType
-		if stringValue(result["downDuration"]) == "" {
-			result["downDuration"] = formatNotificationDuration(now.Sub(startedAt))
-		}
 	}
 	result["lifecycleKind"] = lifecycle.Kind
 	result["lifecyclePhase"] = lifecycle.Phase
 	result["lifecycleMutation"] = lifecycle.Phase
 	result["lifecycleResourceKey"] = lifecycle.ResourceKey
 	result["lifecycleStartedAt"] = startedAt.Format(time.RFC3339)
+	// 可用性事件的持续时间以真实断开时间为起点，避免把离线判定延迟也算进故障时长。
+	durationStart := startedAt
+	if lifecycle.Kind == "availability" {
+		disconnectedAt := resolveNotificationDisconnectTime(result, previousData, startedAt, now, lifecycle.Phase == "resolve")
+		result["disconnectedAt"] = disconnectedAt.UTC().Format(time.RFC3339)
+		durationStart = disconnectedAt
+		if lifecycle.Phase == "resolve" {
+			result["recoveredAt"] = now.UTC().Format(time.RFC3339)
+		}
+	}
+	if found && stringValue(result["downDuration"]) == "" {
+		result["downDuration"] = formatNotificationDuration(now.Sub(durationStart))
+	}
 	if len(previousData) > 0 {
 		result["lifecycleChanges"] = notificationDataChanges(previousData, eventData)
 	}
 	return result, nil
+}
+
+// resolveNotificationDisconnectTime 推断主机/监控项的断开时间：
+//  1. 事件自带 downDurationMs（如 uptime 故障时长）时，用 now - 时长还原故障起点；
+//  2. 恢复（resolve）阶段优先沿用上一段 open 消息已记录的断开时间/最后活跃时间；
+//     恢复事件自身的 lastActive 基本等于恢复时刻，不能拿来当断开时间；
+//  3. open 阶段取事件里的断开时间/最后活跃时间；
+//  4. 都缺失时退回生命周期开始时间。
+func resolveNotificationDisconnectTime(current, previous map[string]interface{}, startedAt, now time.Time, resolve bool) time.Time {
+	if durationMs := intValue(current["downDurationMs"], 0); durationMs > 0 {
+		return now.Add(-time.Duration(durationMs) * time.Millisecond)
+	}
+	pick := func(data map[string]interface{}) (time.Time, bool) {
+		if parsed, ok := parseLifecycleStateTime(stringValue(data["disconnectedAt"])); ok {
+			return parsed, true
+		}
+		parsed, ok := parseLifecycleStateTime(stringValue(data["lastActive"]))
+		return parsed, ok
+	}
+	if resolve && len(previous) > 0 {
+		if parsed, ok := pick(previous); ok {
+			return parsed
+		}
+		// 上一段状态没留下时间时，仍可用本次事件携带的真实断开时间。
+		if parsed, ok := parseLifecycleStateTime(stringValue(current["disconnectedAt"])); ok {
+			return parsed
+		}
+		return startedAt
+	}
+	if parsed, ok := pick(current); ok {
+		return parsed
+	}
+	return startedAt
+}
+
+// previewAvailabilityData 为模板预览补齐可用性事件的时间字段，口径与线上
+// enrichLifecycleEventData 一致，让用户保存规则前就能看到断开/恢复时间。
+func previewAvailabilityData(data map[string]interface{}, sourceModule, eventType string, now time.Time) map[string]interface{} {
+	if len(data) == 0 {
+		return data
+	}
+	phase, ok := notificationAvailabilityPhase(sourceModule, eventType)
+	if !ok {
+		return data
+	}
+	result := cloneNotificationData(data)
+	startedAt := now.UTC()
+	if parsed, ok := parseLifecycleStateTime(stringValue(result["lastActive"])); ok {
+		startedAt = parsed
+	}
+	if stringValue(result["disconnectedAt"]) == "" {
+		result["disconnectedAt"] = resolveNotificationDisconnectTime(result, nil, startedAt, now, false).UTC().Format(time.RFC3339)
+	}
+	if phase == "resolve" && stringValue(result["recoveredAt"]) == "" {
+		result["recoveredAt"] = now.UTC().Format(time.RFC3339)
+	}
+	return result
+}
+
+// notificationAvailabilityPhase 判断事件是否属于可用性生命周期及其阶段。
+// 与 notificationMessageLifecycle 的可用性分支保持一致，但不要求资源 ID，
+// 供模板预览这类没有真实资源记录的场合复用。
+func notificationAvailabilityPhase(sourceModule, eventType string) (string, bool) {
+	sourceModule = strings.ToLower(strings.TrimSpace(sourceModule))
+	eventType = strings.ToLower(strings.TrimSpace(eventType))
+	switch sourceModule {
+	case "uptime":
+		switch eventType {
+		case "down":
+			return "open", true
+		case "up":
+			return "resolve", true
+		}
+	case "server":
+		switch eventType {
+		case "interrupted", "offline", "degraded":
+			return "open", true
+		case "online":
+			return "resolve", true
+		}
+	}
+	return "", false
 }
 
 func (s *Service) recordLifecycleRefreshHistory(ctx context.Context, rule Rule, channelID, title, message string, eventData map[string]interface{}, loc *time.Location) error {
@@ -393,22 +484,16 @@ func notificationMessageLifecycle(sourceModule, eventType string, eventData map[
 	switch sourceModule {
 	case "uptime":
 		lifecycle.ResourceKey = stringValue(eventData["monitorId"])
-		lifecycle.Kind = "availability"
-		switch eventType {
-		case "down":
-			lifecycle.Phase = "open"
-		case "up":
-			lifecycle.Phase = "resolve"
+		if phase, ok := notificationAvailabilityPhase(sourceModule, eventType); ok {
+			lifecycle.Kind, lifecycle.Phase = "availability", phase
 		}
 	case "server":
 		lifecycle.ResourceKey = stringValue(eventData["serverId"])
+		if phase, ok := notificationAvailabilityPhase(sourceModule, eventType); ok {
+			lifecycle.Kind, lifecycle.Phase = "availability", phase
+			break
+		}
 		switch eventType {
-		case "interrupted", "offline", "degraded":
-			lifecycle.Kind = "availability"
-			lifecycle.Phase = "open"
-		case "online":
-			lifecycle.Kind = "availability"
-			lifecycle.Phase = "resolve"
 		case "traffic_high":
 			lifecycle.Kind = "traffic"
 			lifecycle.Phase = "open"

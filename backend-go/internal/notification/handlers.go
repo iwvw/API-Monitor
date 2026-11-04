@@ -166,14 +166,20 @@ func (s *Service) previewTemplate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	data := objectValue(payload["data"])
+	eventType := stringDefault(data["eventType"], "preview")
+	sourceModule := stringValue(data["sourceModule"])
+	if sourceModule == "" {
+		sourceModule = stringValue(payload["sourceModule"])
+	}
+	loc, _ := s.systemLocation(r.Context())
+	data = previewAvailabilityData(data, sourceModule, eventType, time.Now())
 	rule := Rule{
 		Name:            "Template Preview",
 		Severity:        stringDefault(data["severity"], "info"),
-		EventType:       stringDefault(data["eventType"], "preview"),
+		EventType:       eventType,
 		TitleTemplate:   stringValue(payload["title_template"]),
 		MessageTemplate: stringValue(payload["message_template"]),
 	}
-	loc, _ := s.systemLocation(r.Context())
 	templateData := notificationTemplateData(data, loc)
 	response.OK(w, map[string]interface{}{
 		"title":     formatTitle(rule, data),
@@ -197,6 +203,7 @@ func (s *Service) dryRunRule(w http.ResponseWriter, r *http.Request, id string) 
 		return
 	}
 	data := objectValue(payload["data"])
+	data = previewAvailabilityData(data, rule.SourceModule, rule.EventType, time.Now())
 	result, err := s.DryRun(r.Context(), rule, data)
 	if err != nil {
 		response.Error(w, http.StatusInternalServerError, err.Error())

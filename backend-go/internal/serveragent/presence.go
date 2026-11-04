@@ -434,6 +434,21 @@ func (p *agentPresenceManager) triggerNotification(ctx context.Context, serverID
 		"hostname":   serverName,
 		"status":     status,
 	}
+	// 带上最后一次收到信号的时刻与实际断开时刻：通知里的「断开时间」优先用
+	// LastDisconnect（连接真正断开的瞬间），但它可能是上一轮超时离线留下的旧值，
+	// 只有晚于最后活跃时间才属于当前这段故障，否则交给 lastActive 兜底。
+	p.mu.RLock()
+	rec := p.records[serverID]
+	if rec != nil {
+		lastActive := maxTime(rec.LastHeartbeat, rec.LastMetricsSeen, rec.LastConnect)
+		if !lastActive.IsZero() {
+			eventData["lastActive"] = lastActive.UTC().Format(time.RFC3339)
+		}
+		if !rec.LastDisconnect.IsZero() && rec.LastDisconnect.After(lastActive) {
+			eventData["disconnectedAt"] = rec.LastDisconnect.UTC().Format(time.RFC3339)
+		}
+	}
+	p.mu.RUnlock()
 	if err := p.service.notifier.Trigger(ctx, "server", status, eventData); err != nil {
 		applog.Warn(ctx, "serveragent", "failed to trigger presence notification", "server_id", serverID, "status", status, "error", err.Error())
 	}
