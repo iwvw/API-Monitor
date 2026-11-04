@@ -1,19 +1,16 @@
 import { useState } from 'react';
 import { EmptyState, cx } from '../../components/ui/AppPrimitives.jsx';
-import { Globe, AntigravityBrand, DeepSeekBrand, CodeBuddyBrand, PostHogBrand, QoderBrand } from '../../components/Icons.jsx';
+import { Globe, AntigravityBrand, CodeBuddyBrand, PostHogBrand, QoderBrand } from '../../components/Icons.jsx';
 import { ProxyPoolPlugin } from './plugins/ProxyPoolPlugin.jsx';
 import { AntigravityPlugin } from './plugins/AntigravityPlugin.jsx';
-import { DS2APIPlugin } from './plugins/DS2APIPlugin.jsx';
 import { WorkBuddyPlugin } from './plugins/WorkBuddyPlugin.jsx';
-import { GeminiCliPlugin, GeminiCliBrand } from './plugins/GeminiCliPlugin.jsx';
 import { LobsterAIPlugin, LobsterAIBrand } from './plugins/LobsterAIPlugin.jsx';
 import { PostHogCodePlugin } from './plugins/PostHogCodePlugin.jsx';
 import { QoderPlugin } from './plugins/QoderPlugin.jsx';
-import { OpenCodePlugin, OpenCodeBrand } from './plugins/OpenCodePlugin.jsx';
 
 // 插件注册表：后续新增插件只需向 PLUGINS 追加一项（id 唯一、提供详情组件）。
 // 插件中心是列表式容器，本身不承载具体模块逻辑。
-// 有明确品牌的上游（Antigravity / DeepSeek / CodeBuddy）用 @lobehub/icons 的单色品牌图标；
+// 有明确品牌的上游（Antigravity / CodeBuddy / PostHog / Qoder）用单色品牌图标；
 // 「代理池」是通用基础设施，无对应品牌，沿用通用图标。
 const PLUGINS = [
   {
@@ -29,20 +26,6 @@ const PLUGINS = [
     description: 'Antigravity 账号转 API。',
     icon: AntigravityBrand,
     detail: AntigravityPlugin,
-  },
-  {
-    id: 'ds2api',
-    name: 'DS2API',
-    description: 'DeepSeek 网页版转 API。',
-    icon: DeepSeekBrand,
-    detail: DS2APIPlugin,
-  },
-  {
-    id: 'geminicli',
-    name: 'Gemini CLI',
-    description: 'Google Gemini CLI 账号转 API。',
-    icon: GeminiCliBrand,
-    detail: GeminiCliPlugin,
   },
   {
     id: 'workbuddy',
@@ -71,13 +54,6 @@ const PLUGINS = [
     description: 'Qoder（qoder.cn / qoder.com）账号转 API。',
     icon: QoderBrand,
     detail: QoderPlugin,
-  },
-  {
-    id: 'opencode',
-    name: 'OpenCode',
-    description: 'OpenCode Zen 免费模型转 OpenAI 兼容 API。',
-    icon: OpenCodeBrand,
-    detail: OpenCodePlugin,
   },
 ];
 
