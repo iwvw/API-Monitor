@@ -17,7 +17,7 @@
 - 插件内完成 CodeBuddy **扫码登录**与 **access token 自动刷新**，凭据落库；
 - 模型目录**动态**来自上游 `GET /v3/config`（不硬编码），随上游发布自动生效；
 - 对外暴露 `POST /api/workbuddy/v1/chat/completions`（流式 + 非流式），
-  按 ds2api 同样的方式**接入网关端点列表**，由网关统一计费/日志/路由；
+  按其它账号池插件同样的方式**接入网关端点列表**，由网关统一计费/日志/路由；
 - 前端在「模型网关 → 插件」页提供一张插件卡片：启用开关、扫码登录、账号列表、模型启停、网关接入。
 
 ## 2. 移植策略
@@ -35,7 +35,7 @@
 | CPA `plugins/` + `config.yaml` 启用 | `manifest.go` 路由登记 + `server.go` 组装接线 |
 | `wrappers`（`pluginapi.ModelInfo` 等） | 本项目自有 `ModelInfo` 结构 |
 
-参照物是项目内的 **DS2API 插件**（同为「网页产品账号池 → OpenAI 兼容」形态），
+参照物是项目内同类的**网页产品账号池插件**（同为「账号池 → OpenAI 兼容」形态），
 目录结构、表命名、link 语义、前缀语义全部对齐，便于后续维护与统一卸载。
 
 ## 3. 上游协议事实清单（来自参考仓库）
@@ -172,7 +172,7 @@ backend-go/internal/workbuddy/
 
 ### 6.1 `backend-go/internal/manifest/manifest.go`
 
-在插件区块（`/api/ds2api` 之后）追加两条：
+在插件区块追加两条：
 
 ```go
 {Prefix: "/api/workbuddy", Module: "workbuddy", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "WorkBuddy 插件（腾讯 CodeBuddy 转 OpenAI 兼容 API）管理"},

@@ -27,7 +27,7 @@
 
 参考仓库是独立的 Go HTTP 服务（`lobsterai2api`，默认 `:8367`），本项目是**内嵌 Go 进程**架构，
 `server.go` 直接组装各插件 Service，不存在外部插件宿主，因此**不托管外部进程**，改为按其记录的
-上游协议事实**原生实现**（与 workbuddy/geminicli/ds2api 一致）。
+上游协议事实**原生实现**（与 workbuddy/qoder 等插件一致）。
 
 | 参考仓库 | 本项目对应 |
 | --- | --- |
@@ -158,7 +158,7 @@ backend-go/internal/lobsterai/
 
 ### 6.1 `backend-go/internal/manifest/manifest.go`
 
-在插件区块（`/api/geminicli` 之后）追加两条：
+在插件区块追加两条：
 
 ```go
 {Prefix: "/api/lobsterai", Module: "lobsterai", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "LobsterAI 插件（网易有道龙虾转 OpenAI 兼容 API）管理"},
@@ -261,6 +261,6 @@ backend-go/internal/lobsterai/
 2. **签到幂等**：`idempotencyKey` 用随机 UUID，同一天重复触发时依赖上游 `claimedToday` 判定；
    若上游对幂等键有更强约束，可改为按「账号 + 日期」派生。
 3. **凭据存储位置**：现存在 `lobsterai_settings` 表的 JSON 里（单源最简）。
-4. **选号策略**：现按累计调用次数最少选号（与 geminicli 一致）；若积分差异大，
+4. **选号策略**：现按累计调用次数最少选号（与其它同类插件一致）；若积分差异大，
    可改为「剩余积分最多优先」（参考仓库做法）。
 5. **模型前缀默认值**：现默认空串（沿用上游模型名），避免与其它端点重名可设为 `lobster-`。

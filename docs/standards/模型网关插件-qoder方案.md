@@ -13,7 +13,7 @@
   **qoder2api-hub**（`shuishuipingan/qoder2api-hub`，双区域）记录的设备登录、
   加密 SSE 与控制面接口。
 - 实现：`backend-go/internal/qoder/`，前端 `src/js/pages/openai/plugins/QoderPlugin.jsx`。
-- 与同类插件（lobsterai/workbuddy/geminicli）目录结构、表命名、link 语义保持一致。
+- 与同类插件（lobsterai/workbuddy）目录结构、表命名、link 语义保持一致。
 
 ## 2. 目录结构
 

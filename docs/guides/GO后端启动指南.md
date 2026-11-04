@@ -103,7 +103,7 @@ API_MONITOR_BASE_URL=http://127.0.0.1:3000 npm run backend-go:smoke
 - TOTP、Cron、Scheduler、Filebox、Notification、Uptime。
 - Cloudflare DNS、Workers、Pages、R2、Tunnels。
 - 阿里云、腾讯云、Koyeb、Fly.io、M365、GitHub、Docker Hub。
-- OpenAI-compatible 网关与插件（代理池、Antigravity、DS2API）。
+- OpenAI-compatible 网关与插件（代理池、Antigravity、WorkBuddy、LobsterAI 等）。
 - Oracle OCI、GCP、华为云云厂商模块（账号/实例/网络/存储/费用）。
 - Server 账号、凭据、代码片段、Agent 安装、实时指标、Docker、终端、SFTP、转发中心。
 - 管理 AI、提示词库、Draw.io、备份、订阅分发。
