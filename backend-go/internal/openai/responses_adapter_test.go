@@ -18,7 +18,6 @@ func TestResponsesModeForEndpoint(t *testing.T) {
 		want responsesMode
 	}{
 		{"third-party openai", Endpoint{Name: "x", BaseURL: "https://x666.me/v1", UpstreamType: "openai"}, responsesModeConvert},
-		{"ds2api internal", Endpoint{Name: "ds2", BaseURL: "http://127.0.0.1:3000/api/ds2api/v1", PluginID: "ds2api", UpstreamType: "openai"}, responsesModePassthrough},
 		{"antigravity", Endpoint{Name: "ag", BaseURL: "http://127.0.0.1:3000/api/antigravity/v1", PluginID: "antigravity", UpstreamType: "openai"}, responsesModePassthrough},
 		{"gemini", Endpoint{Name: "g", BaseURL: "https://generativelanguage.googleapis.com", UpstreamType: "gemini"}, responsesModePassthrough},
 		{"vertex", Endpoint{Name: "v", BaseURL: "https://aiplatform.googleapis.com/v1/publishers/google", UpstreamType: "vertex"}, responsesModePassthrough},

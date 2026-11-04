@@ -688,7 +688,7 @@ func (s *Service) pipeOpenAIStream(ctx context.Context, w http.ResponseWriter, b
 		 * 这里必须加回去，否则：
 		 *   - 调用方看到的「输入词元」只有未命中部分（199065 显示成 1551）；
 		 *   - 网关按 cached_tokens / prompt_tokens 算命中率会 > 100%，被 clamp 成 100%。
-		 * 记账同样用回加后的总量，保证与 OpenAI 兼容插件（geminicli/qoder/workbuddy）
+		 * 记账同样用回加后的总量，保证与 OpenAI 兼容插件（qoder/workbuddy）
 		 * 的「prompt_tokens 含缓存」口径一致。
 		 */
 		promptTotal := inTok + cacheReadTok

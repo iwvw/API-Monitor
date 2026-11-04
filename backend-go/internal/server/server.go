@@ -26,12 +26,10 @@ import (
 	"github.com/iwvw/api-monitor/backend-go/internal/database"
 	dockerhubmodule "github.com/iwvw/api-monitor/backend-go/internal/dockerhub"
 	drawiomodule "github.com/iwvw/api-monitor/backend-go/internal/drawio"
-	"github.com/iwvw/api-monitor/backend-go/internal/ds2api"
 	"github.com/iwvw/api-monitor/backend-go/internal/emailcode"
 	"github.com/iwvw/api-monitor/backend-go/internal/filebox"
 	"github.com/iwvw/api-monitor/backend-go/internal/flyio"
 	"github.com/iwvw/api-monitor/backend-go/internal/gcp"
-	"github.com/iwvw/api-monitor/backend-go/internal/geminicli"
 	githubmodule "github.com/iwvw/api-monitor/backend-go/internal/github"
 	"github.com/iwvw/api-monitor/backend-go/internal/huawei"
 	"github.com/iwvw/api-monitor/backend-go/internal/koyeb"
@@ -41,7 +39,6 @@ import (
 	"github.com/iwvw/api-monitor/backend-go/internal/notification"
 	"github.com/iwvw/api-monitor/backend-go/internal/onepanel"
 	"github.com/iwvw/api-monitor/backend-go/internal/openai"
-	"github.com/iwvw/api-monitor/backend-go/internal/opencode"
 	"github.com/iwvw/api-monitor/backend-go/internal/oracle"
 	originpkg "github.com/iwvw/api-monitor/backend-go/internal/origin"
 	"github.com/iwvw/api-monitor/backend-go/internal/posthogcode"
@@ -85,10 +82,7 @@ type Server struct {
 	m365        *m365.Service
 	openai      *openai.Service
 	antigravity *antigravity.Service
-	opencode    *opencode.Service
-	ds2api      *ds2api.Service
 	workbuddy   *workbuddy.Service
-	geminicli   *geminicli.Service
 	lobsterai   *lobsterai.Service
 	emailcode   *emailcode.Service
 	posthogcode *posthogcode.Service
@@ -225,10 +219,7 @@ func newServer(cfg config.Config) (*Server, error) {
 		m365:        m365.New(cfg),
 		openai:      openai.New(cfg),
 		antigravity: antigravity.New(cfg),
-		opencode:    opencode.New(cfg),
-		ds2api:      ds2api.New(cfg),
 		workbuddy:   workbuddy.New(cfg),
-		geminicli:   geminicli.New(cfg),
 		lobsterai:   lobsterai.New(cfg),
 		emailcode:   emailcode.New(cfg),
 		posthogcode: posthogcode.New(cfg),
@@ -270,18 +261,10 @@ func newServer(cfg config.Config) (*Server, error) {
 	server.openai.SetProxyPoolSelector(server.proxypool)
 	// Antigravity 插件可引用独立代理池作为出网出口。
 	server.antigravity.SetProxyPoolSelector(server.proxypool)
-	// OpenCode 插件可引用独立代理池作为出网出口。
-	server.opencode.SetProxyPoolSelector(server.proxypool)
-	// OpenCode 插件后台自动发现免费模型并探测可用性（开关由前端控制，关闭时静默跳过）。
-	server.opencode.StartDiscovery(warmupCtx)
 	// Antigravity 插件配额刷新检测：上报事件走统一通知中心。
 	server.antigravity.SetNotifier(notifyService)
-	// DS2API 插件可引用独立代理池作为出网出口。
-	server.ds2api.SetProxyPoolSelector(server.proxypool)
 	// WorkBuddy 插件可引用独立代理池作为出网出口。
 	server.workbuddy.SetProxyPoolSelector(server.proxypool)
-	// Gemini CLI 插件可引用独立代理池作为出网出口。
-	server.geminicli.SetProxyPoolSelector(server.proxypool)
 	// LobsterAI 插件可引用独立代理池作为出网出口。
 	server.lobsterai.SetProxyPoolSelector(server.proxypool)
 	// PostHog Code 插件可引用独立代理池作为出网出口。
@@ -301,12 +284,9 @@ func newServer(cfg config.Config) (*Server, error) {
 	// Antigravity 插件 access token 自动续期：Google refresh_token 换新 access_token，
 	// 避免过期后直到转发时才暴露 invalid_grant。
 	server.antigravity.StartAutoRefresh(warmupCtx)
-	// 启动两个插件的调用次数定期落盘（重启保留，ctx 取消时补最后一次落盘）。
-	server.ds2api.StartCallStatsFlush(warmupCtx)
+	// 启动插件的调用次数定期落盘（重启保留，ctx 取消时补最后一次落盘）。
 	server.antigravity.StartCallStatsFlush(warmupCtx)
 	server.workbuddy.StartCallStatsFlush(warmupCtx)
-	// Gemini CLI 插件调用次数与用量定期落盘。
-	server.geminicli.StartCallStatsFlush(warmupCtx)
 	// LobsterAI 插件调用次数与用量定期落盘。
 	server.lobsterai.StartCallStatsFlush(warmupCtx)
 	// LobsterAI 插件每日自动签到调度（站点时区 9/21 点，关闭开关时后台静默跳过）。
@@ -506,7 +486,7 @@ func (s *Server) authorizeGoRoute(w http.ResponseWriter, r *http.Request, route 
 		return true
 	}
 	// 仅本机内部调用：网关转发等 loopback 来源免密钥放行，外部一律拒绝。
-	// 适用于插件兼容中继（antigravity/ds2api /v1），避免把独立兼容端点暴露到公网。
+	// 适用于插件兼容中继（antigravity /v1），避免把独立兼容端点暴露到公网。
 	if route.Auth == manifest.AuthInternal {
 		if isLoopbackRemoteAddr(r.RemoteAddr) {
 			return true
@@ -514,7 +494,7 @@ func (s *Server) authorizeGoRoute(w http.ResponseWriter, r *http.Request, route 
 		response.JSON(w, http.StatusForbidden, map[string]interface{}{"success": false, "error": "该接口仅限本机内部调用"})
 		return false
 	}
-	if route.Auth == manifest.AuthAPIKey && (route.Module == "openai-compatible" || route.Module == "anthropic-compatible" || route.Module == "antigravity-compatible" || route.Module == "ds2api-compatible" || route.Module == "workbuddy-compatible") {
+	if route.Auth == manifest.AuthAPIKey && (route.Module == "openai-compatible" || route.Module == "anthropic-compatible" || route.Module == "antigravity-compatible" || route.Module == "workbuddy-compatible") {
 		authorizedRequest, err := s.openai.AuthorizeGatewayRequest(r)
 		if err != nil {
 			response.JSON(w, http.StatusUnauthorized, map[string]interface{}{
@@ -593,8 +573,6 @@ func apiKeyRequiresSession(path string) bool {
 		// 必须强制真实会话，不能由只读 API key 下载。
 		"/api/posthogcode/accounts/export",
 		"/api/posthogcode/accounts/import",
-		"/api/geminicli/accounts/export",
-		"/api/geminicli/accounts/import",
 		"/api/workbuddy/accounts/export",
 		"/api/workbuddy/accounts/import",
 		"/api/lobsterai/accounts/export",

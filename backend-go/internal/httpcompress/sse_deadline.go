@@ -18,8 +18,8 @@ const sseWriteDeadlineWindow = 5 * time.Minute
 //
 // Go http.Server 的 WriteTimeout 是「从请求开始到响应写完」的总时长硬限；
 // 它不会因持续写入而自动顺延，除非 handler 显式调用 SetWriteDeadline。
-// 面板嵌入了 DS2API 引擎，其 SSE 输出端只 Flush 不续期，因此 DeepSeek 思考
-// 流在 60 秒整会被强制掐断。此中间件在每次写入 SSE 事件前用 ResponseController
+// 部分上游的 SSE 输出端只 Flush 不续期，长时间思考/生成流会在 60 秒整被
+// 强制掐断。此中间件在每次写入 SSE 事件前用 ResponseController
 // 把写 deadline 重置为「现在 + 窗口」，让持续流式的长响应不再受固定总时长限制。
 // 非 SSE 响应原样透传，零开销。
 func SSEWriteDeadline(next http.Handler) http.Handler {

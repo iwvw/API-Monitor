@@ -19,7 +19,7 @@ import (
 
 // estimateTokens 估算文本的 token 数（纯字符遍历）。
 // 非 ASCII 字符按 1.3 字符/token、ASCII 按 4 字符/token 折算，与项目内
-// ds2api/util.EstimateTokens 的口径一致。
+// 其它插件的 estimateTokens 口径一致。
 func estimateTokens(text string) int64 {
 	if text == "" {
 		return 0

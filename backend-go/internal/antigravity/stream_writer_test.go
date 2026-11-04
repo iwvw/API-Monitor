@@ -17,7 +17,7 @@ import (
 // 是中间层（openresty）在超时。nginx 默认缓冲 proxied 响应，SSE 被缓冲后
 // 客户端长时间收不到字节，代理按 read timeout 返回 504。
 //
-// 本仓其它插件（qoder / workbuddy / openai / ds2api …）全都设了这个头，
+// 本仓其它插件（qoder / workbuddy / openai …）全都设了这个头，
 // 只有 antigravity 的两条流式路径漏了。
 func TestPipeOpenAIStream_SetsAccelBufferingHeader(t *testing.T) {
 	s := &Service{}

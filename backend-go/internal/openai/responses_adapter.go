@@ -17,8 +17,8 @@ const (
 	// responsesModeConvert 表示端点不支持原生 /responses，需把 Responses 请求转换为
 	// /chat/completions 转发，并把上游 Chat Completions 响应转回 Responses 格式。
 	responsesModeConvert responsesMode = iota
-	// responsesModePassthrough 表示端点原生支持 /responses（当前仅 DS2API 内部端点），
-	// 直接透传请求体与响应流。
+	// responsesModePassthrough 表示端点原生支持 /responses（如 Antigravity 等
+	// 非 OpenAI chat 协议上游），直接透传请求体与响应流。
 	responsesModePassthrough
 )
 
@@ -26,11 +26,10 @@ const (
 // 转换模式（默认）：把 Responses 请求转成 /chat/completions 转发，适配所有 OpenAI
 // 兼容端点（日日新、x666、merge 等第三方通常只实现 /chat/completions）。
 // 透传模式：端点原生支持 /responses，直接透传保留完整能力。
-//   - DS2API 内部端点原生实现完整 Responses（响应存储、文件检索等）；
 //   - Gemini/Vertex 上游不走 OpenAI chat 协议，透传避免发送错误的请求体；
 //   - Antigravity 是 Anthropic 兼容中继（仅 /v1/messages），透传避免打 chat 路径。
 func (s *Service) responsesModeForEndpoint(ep Endpoint) responsesMode {
-	if ep.PluginID == "ds2api" || ep.PluginID == "antigravity" {
+	if ep.PluginID == "antigravity" {
 		return responsesModePassthrough
 	}
 	switch normalizeUpstreamType(ep.UpstreamType) {
@@ -1332,7 +1331,6 @@ func (t *chatToResponsesStreamer) closeFunctions() [][]byte {
 // ==================== 辅助 ====================
 
 // NormalizeOpenAIContentForPrompt 计算 content 的非空文本，用于空内容判断。
-// 与 ds2api promptcompat 同名函数行为对齐。
 func NormalizeOpenAIContentForPrompt(v interface{}) string {
 	if v == nil {
 		return ""

@@ -46,9 +46,9 @@ func main() {
 		applog.Error(nil, "startup", "backend initialization failed", "error", err.Error())
 		os.Exit(1)
 	}
-	// SSEWriteDeadline 为 SSE 流式响应（如 DS2API 引擎的 DeepSeek 思考/生成流）
-	// 做写超时续期：Go http.Server 的 WriteTimeout 是总时长硬限，引擎只 Flush
-	// 不续期，60s 一到长流就会被掐断。此中间件让持续有输出的 SSE 不受该限制。
+	// SSEWriteDeadline 为 SSE 流式响应（如长时间思考/生成流）做写超时续期：
+	// Go http.Server 的 WriteTimeout 是总时长硬限，上游只 Flush 不续期，
+	// 60s 一到长流就会被掐断。此中间件让持续有输出的 SSE 不受该限制。
 	// DecompressRequest 放在最外层：客户端可用 gzip/br/zstd 压缩请求体上传
 	// （大 prompt 压缩比常达 5~10 倍），省掉「客户端 → 面板」这一腿的上行流量。
 	// 数据库导入自己按 2GB 管理体积（ContentLength 上限 + LimitReader），

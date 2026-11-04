@@ -784,7 +784,7 @@ func TestPluginCompatibleRelayRoutesAreInternalOnly(t *testing.T) {
 	handler := testServer(t)
 
 	// 外部来源（非 loopback）：插件 /v1 兼容中继应被 AuthInternal 拒绝。
-	for _, path := range []string{"/api/antigravity/v1/messages", "/api/ds2api/v1/chat/completions"} {
+	for _, path := range []string{"/api/antigravity/v1/messages", "/api/workbuddy/v1/chat/completions"} {
 		req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(`{}`))
 		req.RemoteAddr = "203.0.113.9:12345"
 		res := httptest.NewRecorder()
@@ -795,7 +795,7 @@ func TestPluginCompatibleRelayRoutesAreInternalOnly(t *testing.T) {
 	}
 
 	// 本机回环来源：放行到插件（鉴权通过，落点行为与插件内部一致）。
-	req := httptest.NewRequest(http.MethodPost, "/api/ds2api/v1/chat/completions", strings.NewReader(`{}`))
+	req := httptest.NewRequest(http.MethodPost, "/api/workbuddy/v1/chat/completions", strings.NewReader(`{}`))
 	req.RemoteAddr = "127.0.0.1:12345"
 	res := httptest.NewRecorder()
 	handler.ServeHTTP(res, req)

@@ -7,7 +7,7 @@
 // 信息 AES 加密 + RSA 包裹 + MD5 签名，POST 到 api3.qoder.sh 的
 // agent_chat_generation 流式端点，响应为 {body: <openai chunk>} 信封。
 //
-// 目录结构、表命名、link 语义与同类插件（lobsterai/workbuddy/geminicli）保持一致。
+// 目录结构、表命名、link 语义与同类插件（lobsterai/workbuddy）保持一致。
 package qoder
 
 import (

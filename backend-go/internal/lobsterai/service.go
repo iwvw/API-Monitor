@@ -8,7 +8,7 @@
 // /api/models/available 动态模型目录、/api/user/profile-summary 额度明细，
 // 以及 /api/client-activities 每日签到。
 //
-// 目录结构、表命名、link 语义与同类插件（geminicli/workbuddy/ds2api）保持一致。
+// 目录结构、表命名、link 语义与同类插件（workbuddy/qoder）保持一致。
 package lobsterai
 
 import (

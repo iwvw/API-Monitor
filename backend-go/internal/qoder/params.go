@@ -9,8 +9,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
-
-	"github.com/iwvw/api-monitor/backend-go/internal/ds2api/engine/core/util"
 )
 
 // requestOptions 是从 OpenAI 请求体里提取的、需要映射到上游的控制项。
@@ -197,14 +195,34 @@ func resolveThinking(m ModelInfo, opt requestOptions) (isReasoning bool, effort 
 // **不要用 tiktoken**：实测 go-tiktoken 在本项目的调用方式下耗时呈超线性——
 // 20000 字符 350ms、40000 字符 1.8s，上万字符的普通对话就会让每次请求多等
 // 一秒以上，放在转发热路径上不可接受。上下文校验只需要「判定是否明显超限」，
-// 不需要精确值，因此用 ds2api 的 EstimateTokens（纯字符遍历，O(n) 且常数极小，
+// 不需要精确值，因此用字符启发式（纯字符遍历，O(n) 且常数极小，
 // ASCII 约 4 字符/token、CJK 约 1.3 字符/token），对拦截超限足够保守。
 func usageTokensForCheck(payload map[string]interface{}) int64 {
 	text := requestTextForTokenCount(payload)
 	if text == "" {
 		return 0
 	}
-	return int64(util.EstimateTokens(text))
+	return int64(estimateTokens(text))
+}
+
+// estimateTokens 估算文本的 token 数（纯字符遍历）。
+func estimateTokens(text string) int64 {
+	if text == "" {
+		return 0
+	}
+	var ascii, nonASCII int64
+	for _, r := range text {
+		if r < 128 {
+			ascii++
+		} else {
+			nonASCII++
+		}
+	}
+	n := ascii/4 + (nonASCII*10+7)/13
+	if n < 1 {
+		return 1
+	}
+	return n
 }
 
 // requestTextForTokenCount 把 messages 与 tools 拼成待计数的文本。

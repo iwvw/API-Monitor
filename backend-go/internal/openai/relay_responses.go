@@ -780,8 +780,8 @@ func (s *Service) proxyResponses(w http.ResponseWriter, r *http.Request) {
 			// 按端点能力分流：
 			//   - 转换模式（responsesModeConvert）：不支持原生 /responses 的 OpenAI
 			//     兼容端点，把 Responses 请求体转换为 /chat/completions 请求转发；
-			//   - 透传模式（responsesModePassthrough）：原生支持 responses 的端点
-			//     （DS2API），保持原样转发到 /responses。
+			//   - 透传模式（responsesModePassthrough）：原生支持 responses 或非
+			//     OpenAI chat 协议的端点（如 Antigravity），保持原样转发到 /responses。
 			upstreamMode := s.responsesModeForEndpoint(cand)
 			var fullURL string
 			var upstreamBodyBytes []byte
