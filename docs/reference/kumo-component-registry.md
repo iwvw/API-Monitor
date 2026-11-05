@@ -1794,6 +1794,8 @@ Read-only text field with a one-click copy-to-clipboard button.
   The text to display and copy to clipboard.
 - `textToCopy`: string
   If provided, this text will be copied to clipboard instead of the `text` prop.
+- `masked`: boolean
+  Masks the text initially and adds a control to reveal or hide it.
 - `className`: string
   Additional CSS classes merged via `cn()`.
 - `tooltip`: object
@@ -1855,6 +1857,12 @@ Read-only text field with a one-click copy-to-clipboard button.
 
 ```tsx
 <ClipboardText text="0c239dd2" />
+```
+
+```tsx
+<div className="w-full max-w-xs">
+      <ClipboardText className="w-full" text="sk_live_51H8_abc123" masked />
+    </div>
 ```
 
 ```tsx
@@ -3338,13 +3346,14 @@ DatePicker — a date selection calendar.
 
 **Colors (kumo tokens used):**
 
-`bg-kumo-base`
+`bg-kumo-base`, `bg-kumo-contrast`, `bg-kumo-fill`, `bg-kumo-interact`, `bg-kumo-tint`, `ring-kumo-brand`, `ring-kumo-line`, `text-kumo-default`, `text-kumo-inactive`, `text-kumo-inverse`, `text-kumo-link`, `text-kumo-subtle`
 
 **Examples:**
 
 ```tsx
 <div className="flex flex-col gap-4">
       <DatePicker
+        className="p-3"
         mode="single"
         selected={date}
         onChange={(d) => {
@@ -3362,6 +3371,7 @@ DatePicker — a date selection calendar.
 ```tsx
 <div className="flex flex-col gap-4">
       <DatePicker
+        className="p-3"
         mode="multiple"
         selected={dates}
         onChange={setDates}
@@ -3376,6 +3386,7 @@ DatePicker — a date selection calendar.
 ```tsx
 <div className="flex flex-col gap-4">
       <DatePicker
+        className="p-3"
         mode="range"
         selected={range}
         onChange={setRange}
@@ -3393,6 +3404,7 @@ DatePicker — a date selection calendar.
 ```tsx
 <div className="flex flex-col gap-4">
       <DatePicker
+        className="p-3"
         mode="range"
         selected={range}
         onChange={setRange}
@@ -3403,6 +3415,18 @@ DatePicker — a date selection calendar.
         }
       />
     </div>
+```
+
+```tsx
+<DatePicker
+      className="p-3"
+      mode="single"
+      selected={date}
+      onChange={setDate}
+      captionLayout="dropdown"
+      startMonth={new Date(2020, 0)}
+      endMonth={new Date(2030, 11)}
+    />
 ```
 
 ```tsx
@@ -3455,7 +3479,7 @@ DatePicker — a date selection calendar.
                   onClick={() => handlePresetClick(preset)}
                   className={`rounded-md px-3 py-1.5 text-left whitespace-nowrap ${
                     isActive
-                      ? "bg-kumo-bg-inverse text-kumo-text-inverse"
+                      ? "bg-kumo-contrast text-kumo-inverse"
                       : "text-kumo-subtle hover:bg-kumo-control"
                   }`}
                 >
@@ -3481,6 +3505,7 @@ DatePicker — a date selection calendar.
 
 ```tsx
 <DatePicker
+      className="p-3"
       mode="multiple"
       selected={dates}
       onChange={setDates}
@@ -5742,7 +5767,7 @@ LayerDialog component
 
 **Colors (kumo tokens used):**
 
-`bg-kumo-base`, `bg-kumo-contrast`, `bg-kumo-elevated`, `bg-kumo-fill`, `bg-kumo-recessed`, `border-kumo-hairline`
+`bg-kumo-base`, `bg-kumo-contrast`, `bg-kumo-elevated`, `bg-kumo-fill`, `bg-kumo-hairline`, `bg-kumo-recessed`, `border-kumo-hairline`
 
 **Sub-Components:**
 
@@ -5791,6 +5816,10 @@ Body sub-component
 
 Props:
 - `children`: ReactNode (required)
+
+#### LayerDialog.Separator
+
+Separator sub-component
 
 #### LayerDialog.Action
 
@@ -5931,6 +5960,32 @@ Props:
             )}
           </div>
         </LayerDialog.Body>
+      </LayerDialog.Content>
+    </LayerDialog.Root>
+```
+
+```tsx
+<LayerDialog.Root>
+      <LayerDialog.Trigger
+        render={(props) => <Button {...props}>Review deployment</Button>}
+      />
+      <LayerDialog.Content>
+        <LayerDialog.Title>Deployment summary</LayerDialog.Title>
+        <LayerDialog.Description>
+          Review the configuration before deploying.
+        </LayerDialog.Description>
+        <LayerDialog.Body>
+          <Text variant="secondary">
+            production-api will deploy to the global network.
+          </Text>
+          <LayerDialog.Separator />
+          <Text variant="secondary">
+            The deployment uses compatibility date 2026-10-26.
+          </Text>
+        </LayerDialog.Body>
+        <LayerDialog.Actions>
+          <LayerDialog.Action>Deploy</LayerDialog.Action>
+        </LayerDialog.Actions>
       </LayerDialog.Content>
     </LayerDialog.Root>
 ```
