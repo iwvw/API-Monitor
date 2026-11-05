@@ -6,7 +6,7 @@
 
 ## 当前架构
 
-- 前端：React 19、Vite 8、Tailwind CSS 4、Zustand，以及 `@cloudflare/kumo` 2.15.0。
+- 前端：React 19、Vite 8、Tailwind CSS 4、Zustand，以及 `@cloudflare/kumo` 2.17.0。
 - UI 体系：基础控件与图表只用 Kumo。本地组件应当是业务组合组件或收窄的过渡包装。
 - 后端：`backend-go/` 中的 Go 单进程后端，路由由 `backend-go/internal/manifest/manifest.go` 统一治理。
 - 持久化：SQLite 仍是唯一的持久化存储。除非有明确的产品决策，否则不要替换它。
