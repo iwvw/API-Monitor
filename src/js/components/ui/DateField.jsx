@@ -187,7 +187,6 @@ export function DateField({
           )}
           <div className="p-3">
             <DatePicker
-              className={cx('app-date-picker', showDropdown && 'app-date-picker--dropdown')}
               mode="single"
               selected={selected}
               onChange={select}
