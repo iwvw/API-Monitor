@@ -26,6 +26,7 @@ const (
 	ResponseStream    ResponseMode = "stream"
 	ResponseWebSocket ResponseMode = "websocket"
 	ResponseProxy     ResponseMode = "proxy"
+	ResponseText      ResponseMode = "text"
 
 	MatchPrefix  MatchMode = "prefix"
 	MatchExact   MatchMode = "exact"
@@ -73,6 +74,7 @@ func Routes() []Route {
 func buildRoutes() []Route {
 	return []Route{
 		{Prefix: "/health", Module: "health", Owner: OwnerGo, Auth: AuthPublic, ResponseMode: ResponseJSON, Description: "Go shell health check"},
+		{Prefix: "/metrics", Module: "prometheus-metrics", Owner: OwnerGo, Auth: AuthPublic, ResponseMode: ResponseText, Description: "Prometheus exposition of managed host metrics (disabled unless enabled in settings; optional Bearer token)", MatchMode: MatchExact},
 		{Prefix: "/api/migration/status", Module: "migration", Owner: OwnerGo, Auth: AuthPublic, ResponseMode: ResponseJSON, Description: "Go migration status and route ownership"},
 		{Prefix: "/api/auth/2fa/status", Module: "auth-2fa-status", Owner: OwnerGo, Auth: AuthPublic, ResponseMode: ResponseJSON, Description: "Public 2FA login status route"},
 		{Prefix: "/api/auth/login-options", Module: "auth-login-options", Owner: OwnerGo, Auth: AuthPublic, ResponseMode: ResponseJSON, Description: "Public login method availability", MatchMode: MatchExact},

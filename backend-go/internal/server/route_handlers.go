@@ -98,6 +98,7 @@ var moduleHandlers = map[string]routeHandler{
 	"scheduler":                  func(s *Server, w http.ResponseWriter, r *http.Request) { s.cron.ServeHTTP(w, r) },
 	"server-accounts":            func(s *Server, w http.ResponseWriter, r *http.Request) { s.server.ServeHTTP(w, r) },
 	"server-agent":               func(s *Server, w http.ResponseWriter, r *http.Request) { s.server.ServeHTTP(w, r) },
+	"prometheus-metrics":         func(s *Server, w http.ResponseWriter, r *http.Request) { s.server.MetricsExposition(w, r) },
 	"server-agent-forward":       func(s *Server, w http.ResponseWriter, r *http.Request) { s.server.ServeHTTP(w, r) },
 	"server-agent-proxy":         func(s *Server, w http.ResponseWriter, r *http.Request) { s.server.ServeHTTP(w, r) },
 	"server-agent-proxy-legacy":  func(s *Server, w http.ResponseWriter, r *http.Request) { s.server.ServeHTTP(w, r) },
