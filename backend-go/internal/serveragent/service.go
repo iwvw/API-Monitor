@@ -574,7 +574,7 @@ func New(cfg config.Config) *Service {
 		s.presence.start()
 	}
 	backgroundCtx := s.backgroundCtx
-	s.backgroundWG.Add(7)
+	s.backgroundWG.Add(8)
 	go func() {
 		defer s.backgroundWG.Done()
 		StartReleaseAssetResolver(backgroundCtx)
@@ -582,6 +582,27 @@ func New(cfg config.Config) *Service {
 	go func() {
 		defer s.backgroundWG.Done()
 		s.startMetricsCollectorLoop(backgroundCtx)
+	}()
+	go func() {
+		defer s.backgroundWG.Done()
+		// 首次部署时把历史指标补进 rollup 表；已回填过则立即返回。
+		// 单独一个 goroutine（不在采集循环里）是因为它是一次性全量聚合，
+		// 实测可达 1 秒，不该拖慢第一轮采集。
+		select {
+		case <-backgroundCtx.Done():
+			return
+		case <-time.After(20 * time.Second):
+		}
+		ctx, cancel := context.WithTimeout(backgroundCtx, 2*time.Minute)
+		defer cancel()
+		db, err := s.open(ctx)
+		if err != nil {
+			return
+		}
+		defer db.Close()
+		if err := s.BackfillRollup(ctx, db); err != nil {
+			applog.Warn(ctx, "serveragent", "metrics rollup backfill failed", "error", err.Error())
+		}
 	}()
 	go func() {
 		defer s.backgroundWG.Done()

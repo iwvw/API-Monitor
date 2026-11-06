@@ -25,7 +25,8 @@ import (
 //   - 查询侧：跨度 > rollupThresholdHours 时改查 rollup，短跨度仍走原始表
 //     （短跨度下原始点更真实，且行数可控）。
 //   - 聚合由 `RollupMetrics` 在清理循环里顺带执行，只处理「整点已过去」的
-//     小时桶，避免把正在积累的当前小时提前固化。
+//     小时桶，避免把正在积累的当前小时提前固化；并且只回看最近
+//     rollupLookbackHours 小时（见该常量的说明），不做全量重算。
 //
 // 刻意不做的事
 // ------------
@@ -35,6 +36,14 @@ import (
 //     两者职责分离（rollup 负责"查得快"，清理负责"占得少"）。
 
 const rollupTable = "metrics_hourly_rollup"
+
+// rollupLookbackHours 是每轮增量聚合的回看窗口。
+//
+// 为什么不是 30 天：早先的实现每轮都全量重算 30 天，实测 43 万行约 1080ms，
+// 而这段查询跑在 `SetMaxOpenConns(1)` 的单连接上，等于把整个面板的 DB
+// 读写堵住一秒。已经固化的历史桶不会再变化（只会被保留策略删除），
+// 所以只需要覆盖「最近这段时间」；48 小时足以兜住服务停机半天后重启的场景。
+const rollupLookbackHours = 48
 
 // rollupThresholdHours 是「超过多少小时的历史改走 rollup」的分界。
 //
@@ -68,26 +77,88 @@ func ensureRollupSchema(ctx context.Context, db *sql.DB) error {
 //
 // 幂等：用 INSERT ... ON CONFLICT DO UPDATE 覆盖，重复执行结果一致
 // （即使中途崩溃、下一轮重跑也不会产生重复行或错值）。
+//
+// 性能：只重算**最近 rollupLookbackHours 小时**内、且尚未落进 rollup 的桶。
+// 早期版本每次都全量扫 30 天，实测 43 万行要 ~1080ms；而这段查询跑在
+// `SetMaxOpenConns(1)` 的单连接上，会把整个面板的 DB 读写堵住一秒。
+// 历史的旧桶在第一次聚合后就不再变化（它们只会被保留策略删除），
+// 因此增量窗口足够；窗口取 48 小时，覆盖「服务停了半天再起来」的场景。
 func (s *Service) RollupMetrics(ctx context.Context, db *sql.DB) error {
 	if err := ensureRollupSchema(ctx, db); err != nil {
 		return err
 	}
 	// 只汇总「已完整过去」的小时：当前小时还在积累，提前固化会让 avg 偏低。
+	// DO UPDATE ... WHERE samples <> excluded.samples 让「样本数没变」的桶
+	// 完全不产生写入，避免每轮 5 分钟都白写一遍 48×N 行。
 	_, err := db.ExecContext(ctx, `
 		INSERT INTO `+rollupTable+`
 			(server_id, bucket_hour, cpu_avg, cpu_max, cpu_min,
 			 mem_avg, mem_max, mem_min, disk_avg, disk_max, disk_min, samples)
 		SELECT
-			server_id,
-			strftime('%Y-%m-%d %H:00:00', recorded_at) AS bucket_hour,
-			AVG(cpu_usage), MAX(cpu_usage), MIN(cpu_usage),
-			AVG(mem_usage), MAX(mem_usage), MIN(mem_usage),
-			AVG(disk_usage), MAX(disk_usage), MIN(disk_usage),
+			h.server_id,
+			strftime('%Y-%m-%d %H:00:00', h.recorded_at) AS bucket_hour,
+			AVG(h.cpu_usage), MAX(h.cpu_usage), MIN(h.cpu_usage),
+			AVG(h.mem_usage), MAX(h.mem_usage), MIN(h.mem_usage),
+			AVG(h.disk_usage), MAX(h.disk_usage), MIN(h.disk_usage),
 			COUNT(*)
-		FROM server_metrics_history
-		WHERE recorded_at >= datetime('now', '-30 days')
-		  AND recorded_at < strftime('%Y-%m-%d %H:00:00', 'now')
-		GROUP BY server_id, bucket_hour
+		FROM server_metrics_history h
+		WHERE h.recorded_at >= datetime('now', '-' || ? || ' hours')
+		  AND h.recorded_at < strftime('%Y-%m-%d %H:00:00', 'now')
+		GROUP BY h.server_id, bucket_hour
+		ON CONFLICT(server_id, bucket_hour) DO UPDATE SET
+			cpu_avg = excluded.cpu_avg, cpu_max = excluded.cpu_max, cpu_min = excluded.cpu_min,
+			mem_avg = excluded.mem_avg, mem_max = excluded.mem_max, mem_min = excluded.mem_min,
+			disk_avg = excluded.disk_avg, disk_max = excluded.disk_max, disk_min = excluded.disk_min,
+			samples = excluded.samples
+		WHERE samples <> excluded.samples
+	`, rollupLookbackHours)
+	if err != nil {
+		return fmt.Errorf("rollup metrics: %w", err)
+	}
+	return nil
+}
+
+// BackfillRollup 在**首次**启用降采样时把历史数据一次性聚合进去。
+//
+// 为什么需要：RollupMetrics 只回看 rollupLookbackHours 小时。如果一个库已经
+// 积累了 30 天原始数据，只跑增量会导致「最近 48 小时有图、更早一片空白」。
+// 这个函数在启动时跑一次，把更早的历史补齐；之后完全由增量维护。
+//
+// 判定是否已回填：rollup 里有**超出回看窗口**的行即认为已回填过，
+// 不必再加一张元数据表（少一次迁移）。
+func (s *Service) BackfillRollup(ctx context.Context, db *sql.DB) error {
+	if err := ensureRollupSchema(ctx, db); err != nil {
+		return err
+	}
+
+	var olderRows int
+	if err := db.QueryRowContext(ctx, `
+		SELECT COUNT(*) FROM `+rollupTable+`
+		WHERE bucket_hour < datetime('now', '-' || ? || ' hours')
+	`, rollupLookbackHours).Scan(&olderRows); err != nil {
+		return fmt.Errorf("check rollup backfill state: %w", err)
+	}
+	if olderRows > 0 {
+		return nil // 已经回填过
+	}
+
+	// 一次全量历史聚合。只在首次部署时跑，之后由增量维护；
+	// 实测 43 万行约 1 秒，可接受（放在启动后的后台任务里，不阻塞服务）。
+	_, err := db.ExecContext(ctx, `
+		INSERT INTO `+rollupTable+`
+			(server_id, bucket_hour, cpu_avg, cpu_max, cpu_min,
+			 mem_avg, mem_max, mem_min, disk_avg, disk_max, disk_min, samples)
+		SELECT
+			h.server_id,
+			strftime('%Y-%m-%d %H:00:00', h.recorded_at) AS bucket_hour,
+			AVG(h.cpu_usage), MAX(h.cpu_usage), MIN(h.cpu_usage),
+			AVG(h.mem_usage), MAX(h.mem_usage), MIN(h.mem_usage),
+			AVG(h.disk_usage), MAX(h.disk_usage), MIN(h.disk_usage),
+			COUNT(*)
+		FROM server_metrics_history h
+		WHERE h.recorded_at >= datetime('now', '-30 days')
+		  AND h.recorded_at < strftime('%Y-%m-%d %H:00:00', 'now')
+		GROUP BY h.server_id, bucket_hour
 		ON CONFLICT(server_id, bucket_hour) DO UPDATE SET
 			cpu_avg = excluded.cpu_avg, cpu_max = excluded.cpu_max, cpu_min = excluded.cpu_min,
 			mem_avg = excluded.mem_avg, mem_max = excluded.mem_max, mem_min = excluded.mem_min,
@@ -95,8 +166,9 @@ func (s *Service) RollupMetrics(ctx context.Context, db *sql.DB) error {
 			samples = excluded.samples
 	`)
 	if err != nil {
-		return fmt.Errorf("rollup metrics: %w", err)
+		return fmt.Errorf("backfill rollup: %w", err)
 	}
+	applog.Info(ctx, "serveragent", "metrics rollup backfill completed")
 	return nil
 }
 

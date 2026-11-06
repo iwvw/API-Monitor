@@ -198,3 +198,86 @@ func TestQueryHistoryPointsUsesRawForShortRanges(t *testing.T) {
 		t.Fatalf("字段映射错误: %+v", points[0])
 	}
 }
+
+// 增量聚合只回看 rollupLookbackHours：更早的桶不重算（性能）。
+func TestRollupMetricsOnlyScansRecentWindow(t *testing.T) {
+	service, db := testService(t)
+	ctx := context.Background()
+	if _, err := db.ExecContext(ctx, `INSERT INTO server_accounts (id, name, host, port, username, auth_type)
+		VALUES ('roll-win', 'r', '127.0.0.1', 22, 'root', 'password')`); err != nil {
+		t.Fatalf("insert account: %v", err)
+	}
+
+	oldHour := time.Now().UTC().Add(-10 * 24 * time.Hour).Truncate(time.Hour).Format("2006-01-02 15:04:05")
+	recentHour := time.Now().UTC().Add(-2 * time.Hour).Truncate(time.Hour).Format("2006-01-02 15:04:05")
+	insertRawMetric(t, db, "roll-win", oldHour, 10, 10, 10)
+	insertRawMetric(t, db, "roll-win", recentHour, 20, 20, 20)
+
+	if err := service.RollupMetrics(ctx, db); err != nil {
+		t.Fatalf("RollupMetrics: %v", err)
+	}
+
+	var oldCount, recentCount int
+	_ = db.QueryRow(`SELECT COUNT(*) FROM metrics_hourly_rollup WHERE server_id='roll-win' AND bucket_hour = ?`, oldHour).Scan(&oldCount)
+	_ = db.QueryRow(`SELECT COUNT(*) FROM metrics_hourly_rollup WHERE server_id='roll-win' AND bucket_hour = ?`, recentHour).Scan(&recentCount)
+	if recentCount != 1 {
+		t.Fatalf("窗口内的小时桶应被聚合, got %d", recentCount)
+	}
+	if oldCount != 0 {
+		t.Fatalf("窗口外的小时桶不应在增量里被聚合, got %d", oldCount)
+	}
+}
+
+// BackfillRollup 负责把窗口外的历史一次性补齐。
+func TestBackfillRollupFillsHistory(t *testing.T) {
+	service, db := testService(t)
+	ctx := context.Background()
+	if _, err := db.ExecContext(ctx, `INSERT INTO server_accounts (id, name, host, port, username, auth_type)
+		VALUES ('roll-bf', 'r', '127.0.0.1', 22, 'root', 'password')`); err != nil {
+		t.Fatalf("insert account: %v", err)
+	}
+	oldHour := time.Now().UTC().Add(-10 * 24 * time.Hour).Truncate(time.Hour).Format("2006-01-02 15:04:05")
+	insertRawMetric(t, db, "roll-bf", oldHour, 10, 10, 10)
+
+	if err := service.BackfillRollup(ctx, db); err != nil {
+		t.Fatalf("BackfillRollup: %v", err)
+	}
+	var count int
+	_ = db.QueryRow(`SELECT COUNT(*) FROM metrics_hourly_rollup WHERE server_id='roll-bf' AND bucket_hour = ?`, oldHour).Scan(&count)
+	if count != 1 {
+		t.Fatalf("历史桶应被补齐, got %d", count)
+	}
+
+	// 二次调用必须直接返回（幂等，不重复写）
+	if err := service.BackfillRollup(ctx, db); err != nil {
+		t.Fatalf("BackfillRollup second call: %v", err)
+	}
+}
+
+// 样本数没变化时不应重复写 rollup（每 5 分钟白写一遍 48×N 行）。
+func TestRollupMetricsSkipsUnchangedBuckets(t *testing.T) {
+	service, db := testService(t)
+	ctx := context.Background()
+	if _, err := db.ExecContext(ctx, `INSERT INTO server_accounts (id, name, host, port, username, auth_type)
+		VALUES ('roll-noop', 'r', '127.0.0.1', 22, 'root', 'password')`); err != nil {
+		t.Fatalf("insert account: %v", err)
+	}
+	hour := time.Now().UTC().Add(-2 * time.Hour).Truncate(time.Hour).Format("2006-01-02 15:04:05")
+	insertRawMetric(t, db, "roll-noop", hour, 10, 20, 30)
+	if err := service.RollupMetrics(ctx, db); err != nil {
+		t.Fatalf("first rollup: %v", err)
+	}
+	var createdAt string
+	_ = db.QueryRow(`SELECT created_at FROM metrics_hourly_rollup WHERE server_id='roll-noop'`).Scan(&createdAt)
+
+	// 再来一条新样本 → 样本数变化 → 应更新
+	insertRawMetric(t, db, "roll-noop", hour, 40, 20, 30)
+	if err := service.RollupMetrics(ctx, db); err != nil {
+		t.Fatalf("second rollup: %v", err)
+	}
+	var samples int
+	_ = db.QueryRow(`SELECT samples FROM metrics_hourly_rollup WHERE server_id='roll-noop'`).Scan(&samples)
+	if samples != 2 {
+		t.Fatalf("样本数应更新为 2, got %d", samples)
+	}
+}
