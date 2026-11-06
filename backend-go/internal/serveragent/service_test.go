@@ -4164,6 +4164,10 @@ func TestBuildInfoStructOmitsAgentSelfWhenAbsent(t *testing.T) {
 // ---- 离线补发（issue #76）----
 
 // 补发必须按原始采集时刻落库，否则整段离线数据会被压到重连那一刻。
+//
+// 且必须归一化成 recorded_at 的唯一格式（UTC、空格分隔）：历史查询、
+// rollup、保留清理全部用字符串比较，混入 RFC3339 会让这些行既不被聚合
+// 也不被删除。
 func TestPersistMetricsAtUsesProvidedTimestamp(t *testing.T) {
 	service, db := testService(t)
 	ctx := context.Background()
@@ -4174,18 +4178,57 @@ func TestPersistMetricsAtUsesProvidedTimestamp(t *testing.T) {
 		t.Fatalf("insert account: %v", err)
 	}
 
-	recordedAt := "2026-11-06T01:02:03Z"
+	// Agent 侧给的是 RFC3339（带时区），落库必须是统一的空格 UTC 格式
 	if err := service.persistMetricsAt(ctx, db, "offline-ts",
-		map[string]interface{}{"cpu": 42.0}, recordedAt); err != nil {
+		map[string]interface{}{"cpu": 42.0}, "2026-11-06T01:02:03Z"); err != nil {
 		t.Fatalf("persistMetricsAt: %v", err)
 	}
 
-	var got string
-	if err := db.QueryRow(`SELECT recorded_at FROM server_metrics_history WHERE server_id = 'offline-ts'`).Scan(&got); err != nil {
+	// 必须用 quote() 看**落库字节**：把 DATETIME 列 Scan 到 string 时
+	// database/sql 会把 time.Time 转成 RFC3339，看到的不是真实存储形态。
+	var stored string
+	if err := db.QueryRow(`SELECT quote(recorded_at) FROM server_metrics_history WHERE server_id = 'offline-ts'`).Scan(&stored); err != nil {
 		t.Fatalf("query recorded_at: %v", err)
 	}
-	if got != recordedAt {
-		t.Fatalf("recorded_at = %q, want %q", got, recordedAt)
+	const want = "'2026-11-06 01:02:03'"
+	if stored != want {
+		t.Fatalf("落库值 = %s, want %s（必须归一化到 UTC 空格格式）", stored, want)
+	}
+
+	// 归一化的意义：字符串比较必须能把它纳入时间范围（rollup / 保留清理都靠这个）。
+	var inRange int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM server_metrics_history
+		WHERE server_id = 'offline-ts' AND recorded_at < '2026-11-07 00:00:00'`).Scan(&inRange); err != nil {
+		t.Fatalf("range query: %v", err)
+	}
+	if inRange != 1 {
+		t.Fatalf("该行未被时间范围过滤纳入（count=%d），会导致永不 rollup、永不被清理", inRange)
+	}
+}
+
+// 非 UTC 时区的输入要换算成 UTC，而不是直接丢弃时区后缀。
+func TestPersistMetricsAtConvertsTimezoneToUTC(t *testing.T) {
+	service, db := testService(t)
+	ctx := context.Background()
+
+	_, err := db.ExecContext(ctx, `INSERT INTO server_accounts (id, name, host, port, username, auth_type)
+		VALUES ('offline-tz', 'offline', '127.0.0.1', 22, 'root', 'password')`)
+	if err != nil {
+		t.Fatalf("insert account: %v", err)
+	}
+
+	// +08:00 的 09:02:03 == UTC 01:02:03
+	if err := service.persistMetricsAt(ctx, db, "offline-tz",
+		map[string]interface{}{"cpu": 1.0}, "2026-11-06T09:02:03+08:00"); err != nil {
+		t.Fatalf("persistMetricsAt: %v", err)
+	}
+
+	var stored string
+	if err := db.QueryRow(`SELECT quote(recorded_at) FROM server_metrics_history WHERE server_id = 'offline-tz'`).Scan(&stored); err != nil {
+		t.Fatalf("query recorded_at: %v", err)
+	}
+	if stored != "'2026-11-06 01:02:03'" {
+		t.Fatalf("落库值 = %s, want '2026-11-06 01:02:03'（UTC 归一化）", stored)
 	}
 }
 
@@ -4222,10 +4265,18 @@ func TestNormalizeRecordedAtRejectsGarbage(t *testing.T) {
 	if v := normalizeRecordedAt(""); v != nil {
 		t.Fatalf("空串应返回 nil, got %#v", v)
 	}
+	if v := normalizeRecordedAt("   "); v != nil {
+		t.Fatalf("空白应返回 nil, got %#v", v)
+	}
 	if v := normalizeRecordedAt("2026-13-45"); v != nil {
 		t.Fatalf("非法日期应返回 nil, got %#v", v)
 	}
-	if v := normalizeRecordedAt("2026-11-06T01:02:03Z"); v != "2026-11-06T01:02:03Z" {
-		t.Fatalf("合法 RFC3339 应原样返回, got %#v", v)
+	// 已经是 SQLite 格式的输入不是 RFC3339，应按非法处理（绝不会二次写入）
+	if v := normalizeRecordedAt("2026-11-06 01:02:03"); v != nil {
+		t.Fatalf("非 RFC3339 应返回 nil, got %#v", v)
+	}
+	// 合法输入必须归一化成空格格式
+	if v := normalizeRecordedAt("2026-11-06T01:02:03Z"); v != "2026-11-06 01:02:03" {
+		t.Fatalf("归一化结果 = %#v, want 2026-11-06 01:02:03", v)
 	}
 }
