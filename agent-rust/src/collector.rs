@@ -6,6 +6,21 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use sysinfo::{Components, Disks, Networks, System};
 
+/// 磁盘用量刷新间隔。
+///
+/// 磁盘占用在秒级尺度上几乎不变，但 `Disks::refresh_list()` 要解析
+/// `/proc/mounts`（本机 65 条 / 25KB，~0.2ms）并对每个挂载点 statvfs。
+/// 按 1.5 秒上报频率算，这是纯浪费；15 秒足够让仪表盘的磁盘曲线看起来连续。
+const DISK_REFRESH_INTERVAL: Duration = Duration::from_secs(15);
+
+/// 连接数刷新间隔。
+///
+/// Linux 上 `get_conn_counts()` 要读 /proc/net/tcp + tcp6 + udp + udp6 并逐行计数，
+/// 实测 /proc/net/tcp 单次 ~1.36ms CPU（85KB / 569 连接），是本采集路径最贵的一项，
+/// 且成本随宿主机 socket 数线性增长。连接数本身是「瞬时快照类」指标，
+/// 10 秒粒度对监控用途没有损失（面板本来也只用来判断"有没有连接异常"）。
+const CONN_COUNT_REFRESH_INTERVAL: Duration = Duration::from_secs(10);
+
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub struct HostInfo {
     pub platform: String,
@@ -138,6 +153,18 @@ pub struct Collector {
     last_net_tx: u64,
     last_net_time: Instant,
 
+    /// 磁盘用量缓存。用「总量-可用」覆盖所有已挂载块设备，需要先 refresh_list()
+    /// 解析 /proc/mounts 并对每个挂载点做 statvfs，属于毫秒级、且**在 1.5 秒
+    /// 尺度上几乎不变**的指标，没必要每次采样都重算。
+    last_disk_used: u64,
+    last_disk_refresh: Instant,
+
+    /// 连接数缓存。Linux 上要读 /proc/net/tcp{,6} 与 /proc/net/udp{,6} 四个文件
+    /// 并逐行计数；实测 /proc/net/tcp 单次约 1.36ms CPU（85KB / 569 连接），
+    /// 是采集路径上最贵的一项，且随宿主机连接数线性增长。
+    last_conn_counts: (i32, i32),
+    last_conn_refresh: Instant,
+
     cached_host_info: Arc<Mutex<Option<HostInfo>>>,
 
     last_gpu_usage: f64,
@@ -181,6 +208,15 @@ impl Collector {
             last_net_rx: total_rx,
             last_net_tx: total_tx,
             last_net_time: Instant::now(),
+            // 首次采样立即全量刷新，结果缓存供后续周期复用。
+            last_disk_used: 0,
+            last_disk_refresh: Instant::now()
+                .checked_sub(DISK_REFRESH_INTERVAL)
+                .unwrap_or_else(Instant::now),
+            last_conn_counts: (0, 0),
+            last_conn_refresh: Instant::now()
+                .checked_sub(CONN_COUNT_REFRESH_INTERVAL)
+                .unwrap_or_else(Instant::now),
             cached_host_info: Arc::new(Mutex::new(None)),
             last_gpu_usage: 0.0,
             last_gpu_mem_used: 0,
@@ -324,54 +360,18 @@ impl Collector {
         // Refresh CPU, Memory, Components
         self.sys.refresh_cpu_all();
         self.sys.refresh_memory();
-        self.components.refresh_list();
+        // components.refresh_list() 会重新枚举 /sys/class/hwmon 并逐个建路径，
+        // 但温度本身已有 5 秒缓存（见 collect_temperature_readings）。
+        // 这里跟着温度缓存一起走：不到期就不重新枚举。
+        if self.last_temperature_time.elapsed() >= Duration::from_millis(5000) {
+            self.components.refresh_list();
+        }
 
         let cpu = self.sys.global_cpu_usage() as f64;
         let mem_used = self.sys.used_memory();
         let swap_used = self.sys.used_swap();
 
-        // Disk usage
-        self.disks.refresh_list();
-        let mut disk_used = 0;
-        let mut seen_devices = Vec::new();
-        for disk in &self.disks {
-            let fs = disk.file_system().to_string_lossy().to_lowercase();
-            let mount_point = disk.mount_point();
-            let is_root = mount_point == Path::new("/") || mount_point.to_string_lossy() == "/";
-            if !is_root
-                && (fs == "tmpfs"
-                    || fs == "overlay"
-                    || fs == "devtmpfs"
-                    || fs == "proc"
-                    || fs == "sysfs"
-                    || fs == "cgroup"
-                    || fs == "devpts"
-                    || fs == "configfs"
-                    || fs == "debugfs"
-                    || fs == "tracefs"
-                    || fs == "hugetlbfs"
-                    || fs == "mqueue"
-                    || fs == "pstore"
-                    || fs == "securityfs"
-                    || fs == "fusectl"
-                    || fs == "nsfs"
-                    || fs == "autofs"
-                    || fs == "binfmt_misc"
-                    || fs == "squashfs"
-                    || fs == "udev"
-                    || fs == "iso9660")
-            {
-                continue;
-            }
-            let device_name = disk.name().to_string_lossy().to_string();
-            if device_name.starts_with('/') {
-                if seen_devices.contains(&device_name) {
-                    continue;
-                }
-                seen_devices.push(device_name);
-            }
-            disk_used += disk.total_space() - disk.available_space();
-        }
+        let disk_used = self.collect_disk_used();
 
         // Networks speeds
         self.networks.refresh();
@@ -416,7 +416,7 @@ impl Collector {
         };
 
         // TCP & UDP connection counts
-        let (tcp_conn_count, udp_conn_count) = self.collect_conn_counts();
+        let (tcp_conn_count, udp_conn_count) = self.collect_conn_counts_cached();
         let process_count = self.collect_process_count();
 
         // Temperatures and CPU package power
@@ -474,6 +474,75 @@ impl Collector {
         }
 
         get_conn_counts()
+    }
+
+    /// 带缓存的磁盘用量。
+    ///
+    /// 口径与旧实现一致：跳过 tmpfs/overlay/cgroup 等虚拟文件系统，
+    /// 同一设备被多次挂载时只算一次（避免 btrfs 子卷或 bind mount 重复计入）。
+    fn collect_disk_used(&mut self) -> u64 {
+        if self.last_disk_refresh.elapsed() < DISK_REFRESH_INTERVAL {
+            return self.last_disk_used;
+        }
+
+        self.disks.refresh_list();
+        let mut disk_used = 0;
+        let mut seen_devices = Vec::new();
+        for disk in &self.disks {
+            let fs = disk.file_system().to_string_lossy().to_lowercase();
+            let mount_point = disk.mount_point();
+            let is_root = mount_point == Path::new("/") || mount_point.to_string_lossy() == "/";
+            if !is_root
+                && (fs == "tmpfs"
+                    || fs == "overlay"
+                    || fs == "devtmpfs"
+                    || fs == "proc"
+                    || fs == "sysfs"
+                    || fs == "cgroup"
+                    || fs == "devpts"
+                    || fs == "configfs"
+                    || fs == "debugfs"
+                    || fs == "tracefs"
+                    || fs == "hugetlbfs"
+                    || fs == "mqueue"
+                    || fs == "pstore"
+                    || fs == "securityfs"
+                    || fs == "fusectl"
+                    || fs == "nsfs"
+                    || fs == "autofs"
+                    || fs == "binfmt_misc"
+                    || fs == "squashfs"
+                    || fs == "udev"
+                    || fs == "iso9660")
+            {
+                continue;
+            }
+            let device_name = disk.name().to_string_lossy().to_string();
+            if device_name.starts_with('/') {
+                if seen_devices.contains(&device_name) {
+                    continue;
+                }
+                seen_devices.push(device_name);
+            }
+            disk_used += disk.total_space() - disk.available_space();
+        }
+
+        self.last_disk_used = disk_used;
+        self.last_disk_refresh = Instant::now();
+        disk_used
+    }
+
+    /// 带缓存的连接数。
+    fn collect_conn_counts_cached(&mut self) -> (i32, i32) {
+        if !cfg!(target_os = "windows") && self.last_conn_refresh.elapsed() < CONN_COUNT_REFRESH_INTERVAL
+        {
+            return self.last_conn_counts;
+        }
+
+        let counts = self.collect_conn_counts();
+        self.last_conn_counts = counts;
+        self.last_conn_refresh = Instant::now();
+        counts
     }
 
     /// 进程数（不含线程）。
@@ -1268,8 +1337,10 @@ fn should_count_network_interface(name: &str) -> bool {
 mod tests {
     use super::{
         aggregate_network_totals, format_cpu_model, parse_ipcheck_geo,
-        should_count_network_interface, Collector,
+        should_count_network_interface, Collector, CONN_COUNT_REFRESH_INTERVAL,
+        DISK_REFRESH_INTERVAL,
     };
+    use std::time::Instant;
 
     #[test]
     fn format_cpu_model_includes_physical_core_count() {
@@ -1292,6 +1363,53 @@ mod tests {
             "GenuineIntel 16 Core(s)"
         );
         assert_eq!(format_cpu_model("", "", 16), "Unknown CPU 16 Core(s)");
+    }
+
+    // ---- 采集缓存（issue #72）----
+
+    /// 连接数在缓存窗口内必须返回同一份结果，不能每次都去读 /proc/net/tcp。
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn conn_counts_are_cached_within_refresh_interval() {
+        let mut collector = Collector::new();
+        // 首次调用填充缓存（构造时把 last_conn_refresh 回退了一个间隔）。
+        let first = collector.collect_conn_counts_cached();
+        let second = collector.collect_conn_counts_cached();
+        assert_eq!(first, second, "缓存窗口内两次调用结果应当一致");
+
+        // 直接改内部时间戳模拟"缓存已过期"，验证确实会重新采样。
+        collector.last_conn_refresh = Instant::now()
+            .checked_sub(CONN_COUNT_REFRESH_INTERVAL)
+            .expect("subtract");
+        let refreshed = collector.collect_conn_counts_cached();
+        assert!(
+            refreshed.0 > 0,
+            "刷新后 TCP 连接数应大于 0（本机至少有自己的 socket），got {refreshed:?}"
+        );
+    }
+
+    /// 磁盘用量同样走缓存：窗口内返回值不变。
+    #[test]
+    fn disk_usage_is_cached_within_refresh_interval() {
+        let mut collector = Collector::new();
+        let first = collector.collect_disk_used();
+        let second = collector.collect_disk_used();
+        assert_eq!(first, second);
+        assert!(first > 0, "根分区已用空间不应为 0");
+    }
+
+    /// 缓存过期后必须重新计算，且结果仍是一个合理值。
+    #[test]
+    fn disk_usage_refreshes_after_interval() {
+        let mut collector = Collector::new();
+        let first = collector.collect_disk_used();
+        collector.last_disk_refresh = Instant::now()
+            .checked_sub(DISK_REFRESH_INTERVAL)
+            .expect("subtract");
+        let refreshed = collector.collect_disk_used();
+        assert!(refreshed > 0);
+        // 两次之间最多相差一个刚写入的文件，量级应保持一致。
+        assert_eq!(first, refreshed);
     }
 
     #[test]
