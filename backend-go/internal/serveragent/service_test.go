@@ -4097,3 +4097,66 @@ func countDockerStacks(t *testing.T, db *sql.DB, serverID string) int {
 	}
 	return n
 }
+
+// Agent 自监控指标要能从 cached_info 透出到 info.agentSelf。
+//
+// 这些数以前完全不采集：面板上出现数据延迟时，无法判断是 Agent 自己
+// 过载/反复重连还是网络问题。
+func TestBuildInfoStructExposesAgentSelfMetrics(t *testing.T) {
+	service, _ := testService(t)
+
+	cached := map[string]interface{}{
+		"cpu": 12.5,
+		"self_metrics": map[string]interface{}{
+			"rss_bytes":        float64(8 * 1024 * 1024),
+			"cpu_percent":      0.42,
+			"dropped_low":      float64(3),
+			"reconnect_count":  float64(7),
+			"collect_state_us": float64(2500),
+			"outbound_backlog": float64(2),
+		},
+	}
+
+	info := service.buildInfoStruct(cached)
+	if info == nil {
+		t.Fatal("buildInfoStruct returned nil")
+	}
+	raw, ok := info["agentSelf"]
+	if !ok {
+		t.Fatal("info 缺少 agentSelf 字段")
+	}
+	self, ok := raw.(map[string]interface{})
+	if !ok {
+		t.Fatalf("agentSelf 类型 = %T, want map", raw)
+	}
+	if got := self["rssMB"]; got != float64(8) {
+		t.Fatalf("rssMB = %#v, want 8", got)
+	}
+	if got := self["cpuPercent"]; got != 0.42 {
+		t.Fatalf("cpuPercent = %#v, want 0.42", got)
+	}
+	if got := self["droppedLow"]; got != float64(3) {
+		t.Fatalf("droppedLow = %#v, want 3", got)
+	}
+	if got := self["reconnectCount"]; got != float64(7) {
+		t.Fatalf("reconnectCount = %#v, want 7", got)
+	}
+	if got := self["collectStateUs"]; got != float64(2500) {
+		t.Fatalf("collectStateUs = %#v, want 2500", got)
+	}
+	if got := self["outboundBacklog"]; got != float64(2) {
+		t.Fatalf("outboundBacklog = %#v, want 2", got)
+	}
+}
+
+// 老版本 Agent 不上报 self_metrics 时不能凭空造一个零值块，
+// 否则前端会显示「Agent 内存 0MB」这种假数据。
+func TestBuildInfoStructOmitsAgentSelfWhenAbsent(t *testing.T) {
+	service, _ := testService(t)
+
+	cached := map[string]interface{}{"cpu": 5.0}
+	info := service.buildInfoStruct(cached)
+	if _, exists := info["agentSelf"]; exists {
+		t.Fatal("缺少 self_metrics 时不应生成 agentSelf")
+	}
+}

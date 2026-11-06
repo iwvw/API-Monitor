@@ -773,5 +773,20 @@ func (s *Service) buildInfoStruct(cached map[string]interface{}) map[string]inte
 	}
 	info["lastUpdate"] = lastUpdate
 
+	// Agent 自监控：把这台主机上 Agent 自己的开销单独暴露出来。
+	// 排障顺序应当是「先看 Agent 是否过载/频繁重连，再怀疑网络或主机」，
+	// 这一块以前完全缺失，只能靠外部 perf/strace 才能看到。
+	if agentSelf, ok := cached["self_metrics"].(map[string]interface{}); ok {
+		info["agentSelf"] = map[string]interface{}{
+			"rssBytes":        getFloat(agentSelf, "rss_bytes"),
+			"rssMB":           getFloat(agentSelf, "rss_bytes") / 1048576,
+			"cpuPercent":      getFloat(agentSelf, "cpu_percent"),
+			"droppedLow":      getFloat(agentSelf, "dropped_low"),
+			"reconnectCount":  getFloat(agentSelf, "reconnect_count"),
+			"collectStateUs":  getFloat(agentSelf, "collect_state_us"),
+			"outboundBacklog": getFloat(agentSelf, "outbound_backlog"),
+		}
+	}
+
 	return info
 }

@@ -19,6 +19,7 @@ mod relay_http;
 mod relay_server;
 #[cfg(test)]
 mod relay_server_test;
+mod selfmetrics;
 mod tcp_forwarder;
 mod remote_desktop;
 mod storage_server;
@@ -27,7 +28,6 @@ use futures_util::{SinkExt, StreamExt};
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::net::SocketAddr;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tokio::net::TcpStream;
@@ -37,11 +37,12 @@ use tokio_tungstenite::{
     client_async_with_config, connect_async, tungstenite::protocol::Message, MaybeTlsStream,
 };
 
-use crate::collector::{Collector, DockerInfo, State};
+use crate::collector::{AgentSelfMetrics, Collector, DockerInfo, State};
 use crate::config::{CliArgs, Config};
 use crate::docker::DockerBridge;
 use crate::file_manager::FileManager;
 use crate::protocol::*;
+use crate::selfmetrics::SelfMetricsSource;
 use crate::pty::PtySession;
 use crate::remote_desktop::{
     RemoteDesktopManager, SignalPayload as RemoteDesktopSignalPayload,
@@ -164,17 +165,48 @@ fn docker_summary(info: &DockerInfo) -> DockerInfo {
     }
 }
 
+/// 采一次 state，并填充 Agent 自监控字段。
+///
+/// 抽成函数是为了让两条上报路径（首次 + 定时）用同一套逻辑：
+/// 采集耗时、队列积压、丢弃数、自身 RSS/CPU 都要一致，否则面板上
+/// 「首次那条」永远是 0，看着像没数据。
+async fn sample_state_with_self_metrics(
+    collector: &tokio::sync::Mutex<Collector>,
+    outbound: &OutboundQueues,
+) -> State {
+    let started = Instant::now();
+    let mut state = collector.lock().await.collect_state();
+    let elapsed = started.elapsed();
+
+    let source = outbound.self_metrics();
+    source.record_collect_state(elapsed);
+    let snapshot = source.snapshot();
+
+    state.self_metrics = Some(AgentSelfMetrics {
+        dropped_low: source.dropped_low(),
+        reconnect_count: source.reconnect_count(),
+        collect_state_us: source.collect_state_us(),
+        outbound_backlog: outbound.backlog(),
+        rss_bytes: snapshot.rss_bytes,
+        cpu_percent: snapshot.cpu_percent,
+    });
+    state
+}
+
 #[derive(Clone)]
 struct OutboundQueues {
     high: mpsc::Sender<String>,
     normal: mpsc::Sender<String>,
     low: mpsc::Sender<String>,
     latest_normal: Arc<Mutex<Option<String>>>,
-    dropped_low: Arc<AtomicU64>,
+    /// 丢弃计数与其它自监控指标共用一份 source，避免两处各记一份对不上。
+    self_metrics: SelfMetricsSource,
 }
 
 impl OutboundQueues {
-    fn new() -> (
+    /// `self_metrics` 由 main 创建并跨连接复用 —— 重连计数、丢弃计数必须累计，
+    /// 若每次连接都新建，面板上"重连次数"永远显示 0。
+    fn new(self_metrics: SelfMetricsSource) -> (
         Self,
         mpsc::Receiver<String>,
         mpsc::Receiver<String>,
@@ -189,12 +221,27 @@ impl OutboundQueues {
                 normal: normal_tx,
                 low: low_tx,
                 latest_normal: Arc::new(Mutex::new(None)),
-                dropped_low: Arc::new(AtomicU64::new(0)),
+                self_metrics,
             },
             high_rx,
             normal_rx,
             low_rx,
         )
+    }
+
+    /// 自监控数据源（与丢弃计数共享同一实例）。
+    fn self_metrics(&self) -> &SelfMetricsSource {
+        &self.self_metrics
+    }
+
+    /// 出站队列积压总量（三条通道已排队但未写出的消息数）。
+    ///
+    /// `capacity()` 返回的是**剩余可用**槽位，所以要 `max_capacity - capacity`。
+    fn backlog(&self) -> u64 {
+        let pending = |sender: &mpsc::Sender<String>| {
+            sender.max_capacity().saturating_sub(sender.capacity()) as u64
+        };
+        pending(&self.high) + pending(&self.normal) + pending(&self.low)
     }
 
     async fn send_high(&self, msg: String) -> Result<(), mpsc::error::SendError<String>> {
@@ -219,7 +266,9 @@ impl OutboundQueues {
         match self.low.try_send(msg) {
             Ok(()) => {}
             Err(mpsc::error::TrySendError::Full(_)) => {
-                self.dropped_low.fetch_add(1, Ordering::Relaxed);
+                // 丢弃必须计入自监控：否则"加了低优先级补发却悄悄丢"这类问题
+                // 只能靠外部抓包发现。
+                self.self_metrics.record_dropped_low();
             }
             Err(mpsc::error::TrySendError::Closed(_)) => {}
         }
@@ -296,6 +345,9 @@ async fn main() {
     let pty_sessions = Arc::new(Mutex::new(HashMap::<String, Arc<PtySession>>::new()));
     let task_progress = Arc::new(Mutex::new(HashMap::<String, TaskProgress>::new()));
     let remote_desktop = Arc::new(RemoteDesktopManager::new());
+    // 自监控计数器跨连接存活：重连次数/丢弃计数若每次连接都清零，
+    // 面板上永远看不到"这台主机在反复掉线"。
+    let self_metrics = SelfMetricsSource::new();
 
     #[cfg(unix)]
     tokio::spawn(proxy_traffic::run(config.clone()));
@@ -320,6 +372,7 @@ async fn main() {
             pty_sessions.clone(),
             task_progress.clone(),
             remote_desktop.clone(),
+            self_metrics.clone(),
         )
         .await
         {
@@ -333,6 +386,7 @@ async fn main() {
         if connected_since.elapsed() >= Duration::from_secs(60) {
             next_reconnect_delay = base_reconnect_delay;
         }
+        self_metrics.record_reconnect();
         println!(
             "[Agent] 将在 {}ms 后重连...",
             next_reconnect_delay.as_millis()
@@ -387,6 +441,7 @@ async fn run_client(
     pty_sessions: Arc<Mutex<HashMap<String, Arc<PtySession>>>>,
     task_progress: Arc<Mutex<HashMap<String, TaskProgress>>>,
     remote_desktop: Arc<RemoteDesktopManager>,
+    self_metrics: SelfMetricsSource,
 ) -> Result<(), String> {
     // 直接 WebSocket 连接（无需 polling handshake）
     let mut ws_url = if config.server_url.starts_with("https://") {
@@ -451,7 +506,7 @@ async fn run_client(
     let (mut ws_writer, mut ws_reader) = ws_stream.split();
 
     // Priority queues for multiplexing outbound messages.
-    let (outbound, mut high_rx, mut normal_rx, mut low_rx) = OutboundQueues::new();
+    let (outbound, mut high_rx, mut normal_rx, mut low_rx) = OutboundQueues::new(self_metrics.clone());
     let outbound_writer = outbound.clone();
 
     // Task to write outgoing messages to websocket
@@ -642,7 +697,11 @@ async fn run_client(
                                 .send_normal(format_event(EVENT_AGENT_HOST_INFO, &host_info))
                                 .await;
 
-                            let mut state = collector_loop.lock().await.collect_state();
+                            let mut state = sample_state_with_self_metrics(
+                                &collector_loop,
+                                &auth_tx,
+                            )
+                            .await;
                             stamp_state(&mut state, state_sequence, cfg.report_interval);
                             state_sequence = state_sequence.wrapping_add(1);
                             state.docker = {
@@ -676,7 +735,11 @@ async fn run_client(
                                         if auth_tx.is_closed() {
                                             break;
                                         }
-                                        let mut state = collector_loop.lock().await.collect_state();
+                                        let mut state = sample_state_with_self_metrics(
+                                            &collector_loop,
+                                            &auth_tx,
+                                        )
+                                        .await;
                                         stamp_state(&mut state, state_sequence, cfg.report_interval);
                                         state_sequence = state_sequence.wrapping_add(1);
                                         state.docker = {
@@ -3245,7 +3308,19 @@ async fn send_task_error(task_id: &str, err_msg: &str, tx: OutboundQueues) {
 fn handle_action(action: &str, cli: &CliArgs) -> Result<(), String> {
     if action == "sample" || action == "probe" {
         let mut collector = Collector::new();
-        let state = collector.collect_state();
+        let mut state = collector.collect_state();
+        // 一次性采样也带自监控：运维用 `sample` 排查时，能同时看到
+        // 「主机指标」和「Agent 自身开销」，不用另跑 perf。
+        let source = SelfMetricsSource::new();
+        let snapshot = source.snapshot();
+        state.self_metrics = Some(AgentSelfMetrics {
+            dropped_low: 0,
+            reconnect_count: 0,
+            collect_state_us: 0,
+            outbound_backlog: 0,
+            rss_bytes: snapshot.rss_bytes,
+            cpu_percent: snapshot.cpu_percent,
+        });
         let json = serde_json::to_string_pretty(&state)
             .map_err(|e| format!("serialize sample state failed: {}", e))?;
         println!("{}", json);

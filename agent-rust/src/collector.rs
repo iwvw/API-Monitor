@@ -114,8 +114,7 @@ pub struct State {
     pub timestamp_ms: u64,
     pub sequence: u64,
     pub sample_interval_ms: u64,
-    pub cpu: f64,
-    pub cpu_temp: f64,
+    pub cpu: f64,    pub cpu_temp: f64,
     pub cpu_power: f64,
     pub gpu_temp: f64,
     pub mem_used: u64,
@@ -140,6 +139,32 @@ pub struct State {
     pub docker: DockerInfo,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub network_quality: Option<NetworkQualityProbeResponse>,
+    /// Agent 自监控指标。面板排障时先看自己再怀疑被监控对象。
+    ///
+    /// 与 `State` 的其它字段不同，这些数不是"被监控主机"的状态，而是
+    /// **Agent 自己的运行时状态**；它们只能由 Agent 内部填，采集器留空。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub self_metrics: Option<AgentSelfMetrics>,
+}
+
+/// Agent 自身运行时指标。
+///
+/// 为什么需要：本项目曾靠外部 perf/strace 才定位到采集热点在
+/// `/proc/net/tcp`；若 Agent 自己上报这些数，排障时不必先怀疑"是不是面板/网络"。
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+pub struct AgentSelfMetrics {
+    /// 低优先级队列因拥塞丢弃的消息数（累计）。
+    pub dropped_low: u64,
+    /// WebSocket 重连次数（累计）。
+    pub reconnect_count: u64,
+    /// 最近一次 collect_state() 的耗时（微秒）。
+    pub collect_state_us: u64,
+    /// 当前出站队列积压（high/normal/low 三档之和的近似值）。
+    pub outbound_backlog: u64,
+    /// Agent 自身常驻内存（字节；Linux 取 VmRSS）。
+    pub rss_bytes: u64,
+    /// Agent 自身 CPU 使用率（%，单核口径，两次采样之间的增量）。
+    pub cpu_percent: f64,
 }
 
 pub struct Collector {
@@ -464,6 +489,8 @@ impl Collector {
             gpu_power,
             docker: DockerInfo::default(), // Will be populated in main loop asynchronously
             network_quality: None,
+            // 自监控指标由上报循环填充（需要队列/重连计数，采集器看不到）。
+            self_metrics: None,
         }
     }
 
