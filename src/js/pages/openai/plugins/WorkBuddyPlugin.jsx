@@ -923,10 +923,10 @@ export function WorkBuddyPlugin() {
           <FieldRow title={<span title="转发给上游前把请求体 gzip 压缩（超过 4KB 才压）。长上下文对话的代码/日志/JSON 实测可压缩 10~37 倍，能大幅降低本机上行流量；上游会自动解压，对回答无影响。若上游日后改校验口径导致异常，可关掉此开关回退">上游请求压缩</span>}>
             <Switch checked={settings?.compressUpstream !== false} onCheckedChange={v => update({ compressUpstream: v })} />
           </FieldRow>
-          <FieldRow title={<span title="站点时区 9 点与 21 点自动签到（含连登档位兑换与抽奖）。仅国内版账号参与，国际版无签到体系。账号级签到开关独立于转发开关：转发停用的账号只要签到开关开启就照常签到，token 过期会自动刷新。">每日自动签到</span>}>
+          <FieldRow title={<span title="站点时区 9 点与 21 点自动签到（含连登档位兑换与抽奖）。仅国内版参与：国际版没有签到接口，其每日积分改为「每日活跃奖励」，由下面的「每日活跃上报」负责。账号级签到开关独立于转发开关：转发停用的账号只要签到开关开启就照常签到，token 过期会自动刷新。">每日自动签到</span>}>
             <Switch checked={settings?.autoCheckin !== false} onCheckedChange={v => update({ autoCheckin: v })} />
           </FieldRow>
-          <FieldRow title={<span title="站点时区 10 点自动上报一次对话活跃（点亮连登并解锁 first_buddy 任务）。仅国内版账号参与。">每日活跃上报</span>}>
+          <FieldRow title={<span title="站点时区 10 点自动上报一次对话活跃。国内版：点亮连登并解锁 first_buddy 任务。国际版：官方无签到接口，每日积分依赖「当日活跃」判定（Free 30 / Pro 50 积分，系统次日自动发放），因此这条上报就是国际版获取每日积分的途径。办公版企业账号不参与。">每日活跃上报</span>}>
             <Switch checked={settings?.autoActivity !== false} onCheckedChange={v => update({ autoActivity: v })} />
           </FieldRow>
           <FieldRow title={<span title="多账号时的选号策略。按今日消耗（默认）：优先用站点时区今天已消耗 credit 最少的账号，按实际计费额度拉平消耗。固定首个：始终用列表第一个可用账号，其余作主备，行为最可预期。轮询：依次轮流，请求均匀分摊。三种都自动跳过已停用、token 过期、该模型限流中，以及该模型不提供的区域账号">选号策略</span>}>
@@ -1145,9 +1145,15 @@ export function WorkBuddyPlugin() {
                                           size="sm"
                                           variant="ghost"
                                           className="font-mono text-xs focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0"
-                                          title="点击查看连续登录天数与档位解锁状态"
+                                          title={
+                                            a.region === 'intl'
+                                              ? '国际版无签到接口，积分靠每日活跃；此处显示最近一次活跃上报时刻'
+                                              : '点击查看连续登录天数与档位解锁状态'
+                                          }
                                         >
-                                          {a.lastCheckinAt ? fmtStamp(a.lastCheckinAt) : '未签到'}
+                                          {a.region === 'intl'
+                                            ? (a.lastActivityAt ? fmtStamp(a.lastActivityAt) : '未活跃')
+                                            : (a.lastCheckinAt ? fmtStamp(a.lastCheckinAt) : '未签到')}
                                         </Button>
                                       }
                                     />
@@ -1332,6 +1338,21 @@ export function WorkBuddyPlugin() {
                                 {(a.limitedModels?.length ?? 0) === 0 && a.tokenState === 'valid' && (
                                   <Badge variant={meta.variant} className="text-xs" title={a.lastError || undefined}>
                                     {meta.label}
+                                  </Badge>
+                                )}
+                                {/* refresh token 已失效：access token 可能仍有效（转发暂时正常），
+                                    但已无法续期，过期即不可用 —— 必须提前预警而非显示「正常」。 */}
+                                {a.refreshBroken && (
+                                  <Badge
+                                    variant="danger"
+                                    className="text-xs"
+                                    title={
+                                      'refresh token 已被上游判定失效，无法自动续期；' +
+                                      '当前 access token 到期后将直接不可用，请重新扫码登录。' +
+                                      (a.lastError ? `上游原文：${a.lastError}` : '')
+                                    }
+                                  >
+                                    需重新登录
                                   </Badge>
                                 )}
                               </div>
