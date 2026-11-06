@@ -46,6 +46,7 @@ import (
 	"github.com/iwvw/api-monitor/backend-go/internal/proxypool"
 	"github.com/iwvw/api-monitor/backend-go/internal/publicpageicon"
 	"github.com/iwvw/api-monitor/backend-go/internal/qoder"
+	"github.com/iwvw/api-monitor/backend-go/internal/raccoon"
 	"github.com/iwvw/api-monitor/backend-go/internal/response"
 	"github.com/iwvw/api-monitor/backend-go/internal/serveragent"
 	"github.com/iwvw/api-monitor/backend-go/internal/settings"
@@ -87,6 +88,7 @@ type Server struct {
 	emailcode   *emailcode.Service
 	posthogcode *posthogcode.Service
 	qoder       *qoder.Service
+	raccoon     *raccoon.Service
 	proxypool   *proxypool.Service
 	server      *serveragent.Service
 	backup      *backup.Service
@@ -226,6 +228,7 @@ func newServer(cfg config.Config) (*Server, error) {
 		emailcode:   emailcode.New(cfg),
 		posthogcode: posthogcode.New(cfg),
 		qoder:       qoder.New(cfg),
+		raccoon:     raccoon.New(cfg),
 		proxypool:   proxypool.New(cfg),
 		server:      serverAgentService,
 		backup:      backupService,
@@ -273,6 +276,8 @@ func newServer(cfg config.Config) (*Server, error) {
 	server.posthogcode.SetProxyPoolSelector(server.proxypool)
 	// Qoder 插件可引用独立代理池作为出网出口。
 	server.qoder.SetProxyPoolSelector(server.proxypool)
+	// 小浣熊插件可引用独立代理池作为出网出口。
+	server.raccoon.SetProxyPoolSelector(server.proxypool)
 	server.openai.StartWarmup(warmupCtx)
 	// 启动网关健康告警监测（错误率过高/恢复触发通知）。
 	server.openai.StartAlertMonitor(warmupCtx)
@@ -316,6 +321,13 @@ func newServer(cfg config.Config) (*Server, error) {
 	// 启动时对账已接入端点的 models 列：旧行停在接入时的旧目录，需按当前
 	// 启用名单收敛，否则端点模型列表长期显示过期内容。
 	server.qoder.ReconcileLinkedEndpoint(warmupCtx)
+	// 小浣熊插件：调用次数与用量定期落盘、access token 自动刷新、模型目录动态发现、
+	// 启动时对账已接入端点的 models 列。
+	server.raccoon.StartCallStatsFlush(warmupCtx)
+	server.raccoon.StartAutoRefresh(warmupCtx)
+	server.raccoon.StartModelRefresh(warmupCtx)
+	server.raccoon.StartLoginSweep(warmupCtx)
+	server.raccoon.ReconcileLinkedEndpoint(warmupCtx)
 	return server, nil
 }
 
@@ -581,6 +593,8 @@ func apiKeyRequiresSession(path string) bool {
 		"/api/lobsterai/accounts/import",
 		"/api/qoder/accounts/export",
 		"/api/qoder/accounts/import",
+		"/api/raccoon/accounts/export",
+		"/api/raccoon/accounts/import",
 		"/api/antigravity/accounts/export",
 	}
 	for _, prefix := range protectedPrefixes {
