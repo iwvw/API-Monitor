@@ -1370,9 +1370,12 @@ fn should_count_network_interface(name: &str) -> bool {
 mod tests {
     use super::{
         aggregate_network_totals, format_cpu_model, parse_ipcheck_geo,
-        should_count_network_interface, Collector, CONN_COUNT_REFRESH_INTERVAL,
-        DISK_REFRESH_INTERVAL,
+        should_count_network_interface, Collector, DISK_REFRESH_INTERVAL,
     };
+    // CONN_COUNT_REFRESH_INTERVAL 只被下方的 Linux 专用用例使用；
+    // 这里单独 if-import，否则 Windows 构建（CI 带 -D warnings）会报 unused import。
+    #[cfg(target_os = "linux")]
+    use super::CONN_COUNT_REFRESH_INTERVAL;
     use std::time::Instant;
 
     #[test]

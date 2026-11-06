@@ -2748,15 +2748,6 @@ fn schedule_self_update_unix(
 }
 
 #[cfg(target_os = "windows")]
-fn render_self_update_unix_script(
-    _exe_path: &std::path::Path,
-    _download_url: &str,
-    _expected_sha256: &str,
-) -> String {
-    String::new()
-}
-
-#[cfg(target_os = "windows")]
 fn schedule_self_update_unix(
     _exe_path: &std::path::Path,
     _download_url: &str,
