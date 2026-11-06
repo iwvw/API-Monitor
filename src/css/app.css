@@ -2418,6 +2418,26 @@ th > button[aria-label='Resize column'] > span {
   border-top: 1px solid var(--color-kumo-line);
 }
 
+/* 卡片内嵌的 Markdown 预览：去掉自带边框/底色/内边距，交给外层卡片统一包裹 */
+.app-markdown-rendered--flush {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  padding: 12px 14px;
+  font-size: 13px;
+  line-height: 1.65;
+}
+
+.app-markdown-rendered--flush h1 {
+  font-size: 1.25em;
+}
+.app-markdown-rendered--flush h2 {
+  font-size: 1.12em;
+}
+.app-markdown-rendered--flush h3 {
+  font-size: 1em;
+}
+
 .public-share-source {
   height: 100%;
   min-height: 0;

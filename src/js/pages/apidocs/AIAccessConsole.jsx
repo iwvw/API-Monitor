@@ -216,7 +216,7 @@ export default function AIAccessConsole({
               </div>
             ))}
           </div>
-          <SnippetBox label="复制指南" value={guide} onCopy={onCopy} />
+          <SnippetBox label="AI 接入指南" value={guide} markdown />
         </SectionCard>
       </div>
     </div>
