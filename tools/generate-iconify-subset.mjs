@@ -63,7 +63,11 @@ function collectSourceFiles(dir) {
       result.push(...collectSourceFiles(fullPath));
       continue;
     }
-    if (sourceExtensions.has(path.extname(entry.name))) result.push(fullPath);
+    if (!sourceExtensions.has(path.extname(entry.name))) continue;
+    // 跳过测试：测试里常写「不存在的图标名」来断言兜底行为，
+    // 把它们当引用会产出无意义的「未找到」告警，也可能被误加进子集。
+    if (/\.test\.(js|jsx)$/.test(entry.name)) continue;
+    result.push(fullPath);
   }
   return result;
 }

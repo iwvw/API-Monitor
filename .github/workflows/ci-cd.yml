@@ -82,6 +82,15 @@ jobs:
       - name: Install dependencies
         run: npm ci --legacy-peer-deps
 
+      # SimpleIcons 字体子集化依赖 fontTools。没有它时
+      # tools/generate-simple-icons-css.mjs 会在 CI 严格模式下直接失败 —— 这正是
+      # 想要的行为：历史上缺这个依赖导致子集化静默退回 800KB 全量字体，
+      # 谁都没发现。apt 版只有 Python 模块（无 pyftsubset 命令），脚本已兼容。
+      - name: Install font subset tooling
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends python3-fonttools python3-brotli
+
       - name: Run ESLint
         run: npm run lint
 

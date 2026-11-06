@@ -8,9 +8,13 @@ FROM --platform=$BUILDPLATFORM node:20-slim AS frontend-builder
 # CI 中复用 ci-frontend 构建好的 dist，跳过依赖安装与构建（本地构建保持原流程）
 ARG USE_PREBUILT_FRONTEND=false
 # 安装构建工具
+# python3-fonttools / python3-brotli：字体子集化（tools/generate-simple-icons-css.mjs）
+# 需要 fontTools；缺了它脚本会拒绝回退到 800KB 全量字体并直接失败（见该脚本说明）。
 RUN if [ "$USE_PREBUILT_FRONTEND" != "true" ]; then \
         apt-get update && apt-get install -y --no-install-recommends \
             python3 \
+            python3-fonttools \
+            python3-brotli \
             make \
             g++ \
         && rm -rf /var/lib/apt/lists/*; \

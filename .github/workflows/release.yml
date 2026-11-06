@@ -220,6 +220,12 @@ jobs:
       - name: Install dependencies
         run: npm ci --legacy-peer-deps
 
+      # 同 ci-cd.yml：字体子集化需要 fontTools，缺失时构建会直接失败。
+      - name: Install font subset tooling
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends python3-fonttools python3-brotli
+
       - name: Run ESLint
         run: npm run lint
 
