@@ -43,6 +43,7 @@
     "refactor:snapshot": "node tools/refactor-snapshot.mjs",
     "refactor:snapshot-diff": "node tools/refactor-snapshot-diff.mjs",
     "backend:perf-baseline": "node tools/backend-performance-baseline.mjs",
+    "perf:proc": "node tools/perf-baseline.mjs",
     "audit:fast": "npm run icons:generate && npm run governance:check && npm run ui:governance && npm run kumo:registry:check && npm run docs:check && npm run onepanel:check && npm run openapi:drift && npm run lint && npm test",
     "audit:full": "npm run audit:fast && npm run backend-go:test && node tools/backend-route-inventory.mjs && npm run backend-go:smoke",
     "clean:check": "node tools/workspace-cleanup.mjs --check",
