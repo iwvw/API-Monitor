@@ -130,6 +130,14 @@ func sanitizeBroadcastPayload(value interface{}) interface{} {
 //
 // serverIDs 为空切片时表示「明确不关心任何主机」，与「从未订阅」（nil，
 // 按全量推送）语义不同：前者一条都不推，后者为兼容旧前端全量推。
+// maxSubscriptionSize 限制单个客户端的订阅集合大小。
+//
+// 这是匿名可达端点（/metrics 命名空间不需要 agent key），没有上限时
+// 一个客户端可以塞几十万个 id 让服务端长期持有大 map。正常前端只会订阅
+// 当前看板上的主机，几百台已远超实际；超限时截断而不是整体拒绝，
+// 保证「主机多到超出上限」的用户仍然能看到前 N 台。
+const maxSubscriptionSize = 2000
+
 func (h *MetricsHub) Subscribe(sessionID string, serverIDs []string) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -139,6 +147,9 @@ func (h *MetricsHub) Subscribe(sessionID string, serverIDs []string) {
 	}
 	next := make(map[string]struct{}, len(serverIDs))
 	for _, id := range serverIDs {
+		if len(next) >= maxSubscriptionSize {
+			break
+		}
 		if id = strings.TrimSpace(id); id != "" {
 			next[id] = struct{}{}
 		}

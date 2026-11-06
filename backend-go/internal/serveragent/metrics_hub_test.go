@@ -1,6 +1,7 @@
 package serveragent
 
 import (
+	"fmt"
 	"testing"
 	"time"
 )
@@ -132,5 +133,22 @@ func TestMetricsHubSubscribeReplacesPrevious(t *testing.T) {
 	}
 	if !client.wants("srv-c") {
 		t.Fatal("覆盖后应关心新主机")
+	}
+}
+
+// 订阅集合要有上限：/metrics 命名空间匿名可达，无上限会被塞入巨量 id。
+func TestMetricsHubSubscribeCapsSize(t *testing.T) {
+	hub := NewMetricsHub()
+	client := newTestHubClient("c-cap")
+	hub.clients["c-cap"] = client
+
+	ids := make([]string, maxSubscriptionSize+500)
+	for i := range ids {
+		ids[i] = fmt.Sprintf("srv-%d", i)
+	}
+	hub.Subscribe("c-cap", ids)
+
+	if got := len(client.subscription); got != maxSubscriptionSize {
+		t.Fatalf("订阅大小 = %d, want %d（超限应截断）", got, maxSubscriptionSize)
 	}
 }
