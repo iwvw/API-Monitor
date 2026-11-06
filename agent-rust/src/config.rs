@@ -41,6 +41,12 @@ pub struct CliArgs {
     )]
     pub daemon: bool,
 
+    #[arg(
+        long = "sha256",
+        help = "Expected SHA-256 of the agent binary (required for `upgrade`; the .sha256 sidecar next to the download carries it)"
+    )]
+    pub sha256: Option<String>,
+
     // ---------- relay 子命令（`api-monitor-agent relay ...`）----------
     // relay 已合并进本二进制，不再单独分发 api-monitor-relay。
     //

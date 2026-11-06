@@ -371,9 +371,9 @@ func (s *Service) runAgentBatchItem(batch *AgentBatch, item *AgentBatchItem, ori
 	if agentOnline && !forceSSH {
 		item.appendLog("Agent 在线，发送自升级任务")
 		oldVersion := fmt.Sprint(conn.GetMetadata()["version"])
-		downloadURL := s.agentUpgradeDownloadURL(context.Background(), db, conn, origin)
+		downloadURL, sha256 := s.agentUpgradeDownloadURL(context.Background(), db, conn, origin)
 		task := s.taskRegistry.Create(item.ServerID, "agent_upgrade", downloadURL)
-		if !s.sendUpgradeTaskWithID(conn, downloadURL, task.ID) {
+		if !s.sendUpgradeTaskWithID(conn, downloadURL, sha256, task.ID) {
 			item.fail("发送升级任务失败")
 			return
 		}

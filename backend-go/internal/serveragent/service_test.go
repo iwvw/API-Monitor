@@ -2938,7 +2938,24 @@ func TestAgentQuickInstallCreatesHostFromName(t *testing.T) {
 
 func TestAgentUpgradeTaskUsesSelfUpdateDownloadURL(t *testing.T) {
 	service, db := testService(t)
-	_, err := db.ExecContext(context.Background(), `UPDATE user_settings SET agent_download_url = 'https://cdn.example.com/agent' WHERE id = 1`)
+
+	// 面板会同时下发 sha256：Agent 执行前校验，缺失即拒绝升级。
+	// 这里用本地 httptest 提供二进制地址旁的 .sha256 sidecar。
+	const digest = "9f2c1e0b7a4d3c5e6f8091a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6"
+	checksumHits := 0
+	cdn := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, ".sha256") {
+			checksumHits++
+			// 与发布产物同格式：「<hex>  <filename>」
+			_, _ = w.Write([]byte(digest + "  agent-linux-arm64\n"))
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer cdn.Close()
+
+	_, err := db.ExecContext(context.Background(),
+		`UPDATE user_settings SET agent_download_url = ? WHERE id = 1`, cdn.URL+"/agent")
 	if err != nil {
 		t.Fatalf("set custom agent download url: %v", err)
 	}
@@ -2948,11 +2965,19 @@ func TestAgentUpgradeTaskUsesSelfUpdateDownloadURL(t *testing.T) {
 	conn.SetMetadata("platform", "linux")
 	conn.SetMetadata("arch", "arm64")
 
-	downloadURL := service.agentUpgradeDownloadURL(context.Background(), db, conn, agentInstallOrigin{Proto: "https", Host: "panel.example.com"})
-	if downloadURL != "https://cdn.example.com/agent/agent-linux-arm64" {
-		t.Fatalf("downloadURL = %q", downloadURL)
+	downloadURL, sha256 := service.agentUpgradeDownloadURL(context.Background(), db, conn, agentInstallOrigin{Proto: "https", Host: "panel.example.com"})
+	wantURL := cdn.URL + "/agent/agent-linux-arm64"
+	if downloadURL != wantURL {
+		t.Fatalf("downloadURL = %q, want %q", downloadURL, wantURL)
 	}
-	if !service.sendUpgradeTask(conn, downloadURL) {
+	if sha256 != digest {
+		t.Fatalf("sha256 = %q, want %q", sha256, digest)
+	}
+	if checksumHits != 1 {
+		t.Fatalf("checksum sidecar hit %d times, want 1", checksumHits)
+	}
+
+	if !service.sendUpgradeTask(conn, downloadURL, sha256) {
 		t.Fatal("sendUpgradeTask failed")
 	}
 
@@ -2970,6 +2995,67 @@ func TestAgentUpgradeTaskUsesSelfUpdateDownloadURL(t *testing.T) {
 	}
 	if data["download_url"] != downloadURL {
 		t.Fatalf("upgrade task download_url = %#v, want %q", data, downloadURL)
+	}
+	if data["sha256"] != digest {
+		t.Fatalf("upgrade task sha256 = %#v, want %q", data, digest)
+	}
+}
+
+// 取不到 sidecar 时不能悄悄退化成「不校验」：必须下发空串，
+// Agent 侧会明确拒绝升级（而不是安装未校验的二进制）。
+func TestAgentUpgradeTaskOmitsSha256WhenSidecarMissing(t *testing.T) {
+	service, db := testService(t)
+
+	cdn := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.NotFound(w, r)
+	}))
+	defer cdn.Close()
+
+	_, err := db.ExecContext(context.Background(),
+		`UPDATE user_settings SET agent_download_url = ? WHERE id = 1`, cdn.URL+"/agent")
+	if err != nil {
+		t.Fatalf("set custom agent download url: %v", err)
+	}
+
+	conn := service.registry.Register("no-checksum-agent", &terminalCaptureSocket{t: t, service: service})
+	conn.SetMetadata("platform", "linux")
+	conn.SetMetadata("arch", "amd64")
+
+	downloadURL, sha256 := service.agentUpgradeDownloadURL(context.Background(), db, conn, agentInstallOrigin{Proto: "https", Host: "panel.example.com"})
+	if downloadURL == "" {
+		t.Fatal("downloadURL should still be produced")
+	}
+	if sha256 != "" {
+		t.Fatalf("sha256 = %q, want empty when sidecar is unavailable", sha256)
+	}
+}
+
+// sidecar 内容非法（不是 64 位 hex）时同样不下发，避免把垃圾当校验和。
+func TestAgentUpgradeTaskIgnoresMalformedChecksum(t *testing.T) {
+	service, db := testService(t)
+
+	cdn := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, ".sha256") {
+			_, _ = w.Write([]byte("not-a-digest\n"))
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer cdn.Close()
+
+	_, err := db.ExecContext(context.Background(),
+		`UPDATE user_settings SET agent_download_url = ? WHERE id = 1`, cdn.URL+"/agent")
+	if err != nil {
+		t.Fatalf("set custom agent download url: %v", err)
+	}
+
+	conn := service.registry.Register("bad-checksum-agent", &terminalCaptureSocket{t: t, service: service})
+	conn.SetMetadata("platform", "linux")
+	conn.SetMetadata("arch", "amd64")
+
+	_, sha256 := service.agentUpgradeDownloadURL(context.Background(), db, conn, agentInstallOrigin{Proto: "https", Host: "panel.example.com"})
+	if sha256 != "" {
+		t.Fatalf("sha256 = %q, want empty for malformed sidecar", sha256)
 	}
 }
 

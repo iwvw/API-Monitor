@@ -87,6 +87,67 @@ fn agent_capabilities() -> Vec<String> {
 struct UpgradePayload {
     download_url: Option<String>,
     download_base_url: Option<String>,
+    /// 目标二进制的 SHA-256（小写 hex）。
+    ///
+    /// 自更新链路的安全根：没有这个校验，拿到面板控制权的一方只要把
+    /// download_url 指向自己的地址，就能让所有主机执行任意二进制。
+    /// 面板侧从 release 资产的 `.sha256` sidecar 取；缺失时 Agent 拒绝升级，
+    /// 而不是「跳过校验继续装」。
+    sha256: Option<String>,
+}
+
+/// 校验并规整 SHA-256 摘要：必须是 64 位 hex。
+fn normalize_sha256(raw: Option<&str>) -> Result<String, String> {
+    let value = raw.unwrap_or("").trim().to_ascii_lowercase();
+    if value.is_empty() {
+        return Err(
+            "升级任务缺少 sha256 校验和，已拒绝执行。请把面板升级到支持校验的版本，\
+             或在下载目录提供 <文件名>.sha256。"
+                .to_string(),
+        );
+    }
+    if value.len() != 64 || !value.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return Err(format!("sha256 校验和格式无效: {value}"));
+    }
+    Ok(value)
+}
+
+/// 从 `<download_url>.sha256` 读取校验和。
+///
+/// 只在手动 `api-monitor-agent upgrade`（没有面板下发 payload）时用到。
+/// 兼容「<hex>  <filename>」与纯 hex 两种写法 —— 与面板侧
+/// `fetchReleaseAssetSHA256` 的解析规则一致。
+///
+/// 注意：这里是 async，调用方（`handle_action`）是同步函数，必须用
+/// `block_in_place` 包一层。不能用 `reqwest::blocking` —— 它在已有
+/// tokio 运行时里会直接 panic。
+async fn fetch_remote_sha256(download_url: &str) -> Result<String, String> {
+    let checksum_url = format!("{download_url}.sha256");
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(30))
+        .build()
+        .map_err(|e| format!("创建下载客户端失败: {e}"))?;
+    let response = client
+        .get(&checksum_url)
+        .header("User-Agent", "api-monitor-agent")
+        .send()
+        .await
+        .map_err(|e| format!("获取校验和失败（{checksum_url}）: {e}"))?;
+    if !response.status().is_success() {
+        return Err(format!(
+            "获取校验和失败（{checksum_url}）: HTTP {}。可改用 --sha256 手动指定。",
+            response.status()
+        ));
+    }
+    let body = response
+        .text()
+        .await
+        .map_err(|e| format!("读取校验和失败: {e}"))?;
+    let digest = body
+        .split_whitespace()
+        .find(|token| token.len() == 64 && token.bytes().all(|b| b.is_ascii_hexdigit()))
+        .ok_or_else(|| format!("校验和文件内容无效: {}", body.trim()))?;
+    normalize_sha256(Some(digest))
 }
 
 fn stamp_state(state: &mut State, sequence: u64, sample_interval_ms: u64) {
@@ -1978,9 +2039,14 @@ async fn handle_upgrade(_task_id: &str, data: &str, config: &Config) -> Result<S
 
     let payload = serde_json::from_str::<UpgradePayload>(data).unwrap_or_default();
     let download_url = resolve_upgrade_download_url(config, &payload)?;
-    schedule_self_update(&download_url)?;
+    let expected_sha256 = normalize_sha256(payload.sha256.as_deref())?;
+    schedule_self_update(&download_url, &expected_sha256)?;
 
-    Ok(format!("自更新已在后台安排，下载地址: {}", download_url))
+    Ok(format!(
+        "自更新已在后台安排，下载地址: {}（sha256 {}…）",
+        download_url,
+        &expected_sha256[..12]
+    ))
 }
 
 fn resolve_upgrade_download_url(
@@ -2049,7 +2115,7 @@ fn take_upgrade_status_file() -> Option<serde_json::Value> {
     Some(value)
 }
 
-fn schedule_self_update(download_url: &str) -> Result<(), String> {
+fn schedule_self_update(download_url: &str, expected_sha256: &str) -> Result<(), String> {
     let exe_path =
         std::env::current_exe().map_err(|e| format!("获取当前 Agent 路径失败: {}", e))?;
     let timestamp_ms = SystemTime::now()
@@ -2058,9 +2124,14 @@ fn schedule_self_update(download_url: &str) -> Result<(), String> {
         .as_millis();
 
     if cfg!(target_os = "windows") {
-        schedule_self_update_windows(&exe_path, download_url, timestamp_ms)
+        schedule_self_update_windows(
+            &exe_path,
+            download_url,
+            expected_sha256,
+            timestamp_ms,
+        )
     } else {
-        schedule_self_update_unix(&exe_path, download_url, timestamp_ms)
+        schedule_self_update_unix(&exe_path, download_url, expected_sha256, timestamp_ms)
     }
 }
 
@@ -2216,6 +2287,7 @@ fn schedule_self_uninstall() -> Result<(), String> {
 fn schedule_self_update_windows(
     exe_path: &std::path::Path,
     download_url: &str,
+    expected_sha256: &str,
     timestamp_ms: u128,
 ) -> Result<(), String> {
     let install_dir = exe_path
@@ -2238,6 +2310,7 @@ Write-Host "API Monitor Agent self-update started at $(Get-Date -Format o)"
 $AgentPath = {agent_path}
 $TempAgentPath = {temp_agent}
 $DownloadUrl = {download_url}
+$ExpectedSha256 = {expected_sha256}
 $LaunchVbs = {launch_vbs}
 $AgentPid = {agent_pid}
 $ResultPath = Join-Path $env:TEMP "api-monitor-agent-upgrade-result.json"
@@ -2258,6 +2331,15 @@ try {{
         Remove-Item -Path $TempAgentPath -Force -ErrorAction SilentlyContinue
     }}
     Invoke-WebRequest -Uri $DownloadUrl -OutFile $TempAgentPath -UseBasicParsing
+
+    # 完整性校验必须在执行之前：没有它，拿到面板控制权的一方只要把
+    # DownloadUrl 指向自己的地址，就能让所有主机执行任意二进制。
+    $actualSha256 = (Get-FileHash -Path $TempAgentPath -Algorithm SHA256).Hash.ToLower()
+    if ($actualSha256 -ne $ExpectedSha256) {{
+        Write-UpgradeResult "failed" "Agent 二进制校验失败：期望 $ExpectedSha256，实际 $actualSha256"
+        exit 1
+    }}
+
     $newVersion = (& $TempAgentPath --version 2>&1 | Select-Object -Last 1)
 
     Start-Sleep -Seconds 2
@@ -2310,6 +2392,7 @@ try {{
         agent_path = ps_quote(&exe_path.to_string_lossy()),
         temp_agent = ps_quote(&temp_agent.to_string_lossy()),
         download_url = ps_quote(download_url),
+        expected_sha256 = ps_quote(expected_sha256),
         launch_vbs = ps_quote(&launch_vbs.to_string_lossy()),
         agent_pid = agent_pid,
     );
@@ -2333,22 +2416,20 @@ try {{
 fn schedule_self_update_windows(
     _exe_path: &std::path::Path,
     _download_url: &str,
+    _expected_sha256: &str,
     _timestamp_ms: u128,
 ) -> Result<(), String> {
     Err("Windows self-update is not available on this platform".to_string())
 }
 
 #[cfg(not(target_os = "windows"))]
-fn schedule_self_update_unix(
+fn render_self_update_unix_script(
     exe_path: &std::path::Path,
     download_url: &str,
-    timestamp_ms: u128,
-) -> Result<(), String> {
-    let script_path =
-        std::env::temp_dir().join(format!("api-monitor-agent-upgrade-{}.sh", timestamp_ms));
-    let unit_name = format!("api-monitor-agent-upgrade-{}", timestamp_ms);
+    expected_sha256: &str,
+) -> String {
     let agent_pid = std::process::id();
-    let script = format!(
+    format!(
         r#"#!/bin/sh
 set -eu
 LOG="/tmp/api-monitor-agent-upgrade.log"
@@ -2357,6 +2438,7 @@ exec >>"$LOG" 2>&1
 echo "API Monitor Agent self-update started at $(date -Is)"
 AGENT_PATH={agent_path}
 DOWNLOAD_URL={download_url}
+EXPECTED_SHA256={expected_sha256}
 AGENT_PID={agent_pid}
 TMP_AGENT="$(mktemp /tmp/api-monitor-agent.XXXXXX)"
 cleanup() {{
@@ -2375,6 +2457,23 @@ elif command -v wget >/dev/null 2>&1; then
     wget -O "$TMP_AGENT" "$DOWNLOAD_URL" || {{ write_result_failed "下载 Agent 二进制失败，请检查面板下载地址与网络连通性"; exit 1; }}
 else
     write_result_failed "curl 与 wget 均不可用"
+    exit 1
+fi
+
+# 完整性校验必须在 chmod/执行之前。没有校验，拿到面板控制权的一方只要把
+# DOWNLOAD_URL 指向自己的地址，就能让所有主机执行任意二进制 —— 那是全机 RCE。
+# sha256sum / shasum 都不可用时按失败处理，绝不"跳过校验继续装"。
+if command -v sha256sum >/dev/null 2>&1; then
+    ACTUAL_SHA256="$(sha256sum "$TMP_AGENT" | awk '{{print $1}}')"
+elif command -v shasum >/dev/null 2>&1; then
+    ACTUAL_SHA256="$(shasum -a 256 "$TMP_AGENT" | awk '{{print $1}}')"
+else
+    write_result_failed "缺少 sha256sum/shasum，无法校验下载的 Agent 二进制"
+    exit 1
+fi
+
+if [ "$ACTUAL_SHA256" != "$EXPECTED_SHA256" ]; then
+    write_result_failed "Agent 二进制校验失败：期望 $EXPECTED_SHA256，实际 $ACTUAL_SHA256"
     exit 1
 fi
 
@@ -2415,8 +2514,23 @@ echo "API Monitor Agent self-update completed at $(date -Is)"
 "#,
         agent_path = sh_quote(&exe_path.to_string_lossy()),
         download_url = sh_quote(download_url),
+        expected_sha256 = sh_quote(expected_sha256),
         agent_pid = agent_pid,
-    );
+    )
+}
+
+/// 写好并拉起升级脚本（systemd-run 优先，退化为 nohup）。
+#[cfg(not(target_os = "windows"))]
+fn schedule_self_update_unix(
+    exe_path: &std::path::Path,
+    download_url: &str,
+    expected_sha256: &str,
+    timestamp_ms: u128,
+) -> Result<(), String> {
+    let script_path =
+        std::env::temp_dir().join(format!("api-monitor-agent-upgrade-{}.sh", timestamp_ms));
+    let unit_name = format!("api-monitor-agent-upgrade-{}", timestamp_ms);
+    let script = render_self_update_unix_script(exe_path, download_url, expected_sha256);
     fs::write(&script_path, script).map_err(|e| format!("写入升级脚本失败: {}", e))?;
 
     if let Ok(status) = Command::new("systemd-run")
@@ -2449,9 +2563,19 @@ echo "API Monitor Agent self-update completed at $(date -Is)"
 }
 
 #[cfg(target_os = "windows")]
+fn render_self_update_unix_script(
+    _exe_path: &std::path::Path,
+    _download_url: &str,
+    _expected_sha256: &str,
+) -> String {
+    String::new()
+}
+
+#[cfg(target_os = "windows")]
 fn schedule_self_update_unix(
     _exe_path: &std::path::Path,
     _download_url: &str,
+    _expected_sha256: &str,
     _timestamp_ms: u128,
 ) -> Result<(), String> {
     Err("Unix self-update is not available on this platform".to_string())
@@ -3131,10 +3255,32 @@ fn handle_action(action: &str, cli: &CliArgs) -> Result<(), String> {
     match action {
         "upgrade" | "self-update" => {
             let config = Config::load(cli)?;
-            let download_url = resolve_upgrade_download_url(&config, &UpgradePayload::default())?;
-            schedule_self_update(&download_url)?;
+            let payload = UpgradePayload::default();
+            let download_url = resolve_upgrade_download_url(&config, &payload)?;
+            // 手动触发（CLI）没有面板给的 sha256，就去下载地址旁边取 .sha256 sidecar，
+            // 与首次安装脚本（agent.go 的 install 脚本）用的是同一份校验和。
+            let expected_sha256 = match cli.sha256.clone() {
+                Some(value) => normalize_sha256(Some(&value))?,
+                // handle_action 是同步函数，而 main 本身是 #[tokio::main]：
+                // 直接 block_on 会 panic（不能在运行时里嵌套 block_on），
+                // 也不能用 reqwest::blocking。与 relay 分支同样处理——另起线程。
+                None => {
+                    let url = download_url.clone();
+                    std::thread::spawn(move || {
+                        let rt = tokio::runtime::Builder::new_current_thread()
+                            .enable_all()
+                            .build()
+                            .map_err(|e| format!("build runtime: {e}"))?;
+                        rt.block_on(fetch_remote_sha256(&url))
+                    })
+                    .join()
+                    .map_err(|_| "获取校验和的线程异常退出".to_string())??
+                }
+            };
+            schedule_self_update(&download_url, &expected_sha256)?;
             println!("✅ Agent 自更新已在后台安排");
             println!("   下载地址: {}", download_url);
+            println!("   校验和:   {}", expected_sha256);
             println!(
                 "   日志: {}",
                 if cfg!(target_os = "windows") {
@@ -3362,6 +3508,91 @@ mod tests {
 
         assert!(addrs[0].is_ipv4());
         assert!(addrs[1].is_ipv6());
+    }
+
+    // ---- 自更新完整性校验（issue #74）----
+    //
+    // 这里守的是「下载内容与预期不符时绝不执行」这条安全边界。
+    // 升级脚本是以字符串模板拼出来的，无法在单测里真跑一遍 install，
+    // 所以直接断言脚本内容包含校验步骤与失败退出路径。
+
+    #[cfg(not(target_os = "windows"))]
+    #[test]
+    fn unix_upgrade_script_verifies_sha256_before_executing() {
+        let script = render_self_update_unix_script(
+            std::path::Path::new("/opt/api-monitor-agent/api-monitor-agent"),
+            "https://panel.example.com/agent/agent-linux-arm64",
+            "9f2c1e0b7a4d3c5e6f8091a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6",
+        );
+
+        // 校验和必须写进脚本
+        assert!(script.contains(
+            "EXPECTED_SHA256='9f2c1e0b7a4d3c5e6f8091a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6'"
+        ));
+        // 必须有实际比对
+        assert!(script.contains("sha256sum") && script.contains("ACTUAL_SHA256"));
+        assert!(
+            script.contains(r#"[ "$ACTUAL_SHA256" != "$EXPECTED_SHA256" ]"#),
+            "脚本必须比对实际与期望的校验和"
+        );
+        // 不匹配要写失败结果并退出，不能继续 install
+        assert!(script.contains("Agent 二进制校验失败"));
+        // chmod/执行必须在校验之后：定位两个位置比较先后
+        let verify_at = script.find("ACTUAL_SHA256").expect("有校验步骤");
+        let chmod_at = script.find("chmod +x").expect("有 chmod");
+        assert!(
+            verify_at < chmod_at,
+            "校验必须发生在 chmod 之前，否则已经执行过未校验的二进制"
+        );
+    }
+
+    /// 缺少 sha256sum/shasum 时必须失败，而不是跳过校验。
+    #[cfg(not(target_os = "windows"))]
+    #[test]
+    fn unix_upgrade_script_fails_when_no_checksum_tool_available() {
+        let script = render_self_update_unix_script(
+            std::path::Path::new("/opt/api-monitor-agent/api-monitor-agent"),
+            "https://panel.example.com/agent/agent-linux-arm64",
+            "9f2c1e0b7a4d3c5e6f8091a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6",
+        );
+        assert!(script.contains("缺少 sha256sum/shasum"));
+    }
+
+    #[test]
+    fn normalize_sha256_accepts_lowercase_and_normalizes_case() {
+        let digest = "9F2C1E0B7A4D3C5E6F8091A2B3C4D5E6F708192A3B4C5D6E7F8091A2B3C4D5E6";
+        assert_eq!(
+            normalize_sha256(Some(digest)).unwrap(),
+            digest.to_ascii_lowercase()
+        );
+        // 前后空白要容忍（sidecar 文件常带换行）
+        assert!(normalize_sha256(Some(&format!("  {digest}  \n"))).is_ok());
+    }
+
+    #[test]
+    fn normalize_sha256_rejects_missing_or_malformed() {
+        // 缺失必须报错，绝不能返回 Ok("") 从而跳过校验
+        assert!(normalize_sha256(None).is_err());
+        assert!(normalize_sha256(Some("")).is_err());
+        assert!(normalize_sha256(Some("   ")).is_err());
+        // 长度不对
+        assert!(normalize_sha256(Some("abc")).is_err());
+        // 64 位但含非 hex 字符
+        let bad = "z".repeat(64);
+        assert!(normalize_sha256(Some(&bad)).is_err());
+    }
+
+    /// 升级 payload 里的 sha256 字段要能被反序列化出来。
+    #[test]
+    fn upgrade_payload_deserializes_sha256() {
+        let payload: UpgradePayload = serde_json::from_str(
+            r#"{"download_url":"https://x/agent","sha256":"9f2c1e0b7a4d3c5e6f8091a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6"}"#,
+        )
+        .expect("decode payload");
+        assert_eq!(
+            payload.sha256.as_deref(),
+            Some("9f2c1e0b7a4d3c5e6f8091a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6")
+        );
     }
 
     #[cfg(target_os = "linux")]
