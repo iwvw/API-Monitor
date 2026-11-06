@@ -1017,6 +1017,9 @@ func (s *Service) buildCachedInfo(state map[string]interface{}, hostInfo map[str
 	// Uptime
 	uptime := getFloatValue(state, "uptime")
 	cached["uptime"] = formatUptime(int64(uptime))
+	// 同时保留原始秒数：`uptime` 是给人看的格式化字符串（"5d 3h"），
+	// 任何需要参与计算的消费方（Prometheus exposition、告警阈值）都要能拿到数值。
+	cached["uptime_seconds"] = uptime
 
 	// Docker
 	if docker, ok := state["docker"].(map[string]interface{}); ok {

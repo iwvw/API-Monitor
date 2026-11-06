@@ -201,3 +201,56 @@ func TestFormatPromFloat(t *testing.T) {
 		t.Fatalf("极小值应为 0, got %q", got)
 	}
 }
+
+// uptime 必须真的出现，且是秒数而不是 "5d 3h" 这种字符串。
+//
+// 回归背景：buildCachedInfo 会把 uptime 格式化成人类可读串，
+// 直接按数值取会导致整条 api_monitor_uptime_seconds 静默消失。
+func TestMetricsExpositionEmitsUptimeSeconds(t *testing.T) {
+	service, _ := testService(t)
+	seedExpositionConfig(t, service, "1", "")
+
+	// 形态一：新版缓存带数值字段
+	registerExpositionHost(service, "srv-new", map[string]interface{}{
+		"cpu_usage":      1.0,
+		"uptime":         "5d 3h",
+		"uptime_seconds": float64(5*86400 + 3*3600),
+	})
+	rec := httptest.NewRecorder()
+	service.MetricsExposition(rec, httptest.NewRequest(http.MethodGet, "/metrics", nil))
+	if !strings.Contains(rec.Body.String(), `api_monitor_uptime_seconds{server_id="srv-new"} 442800`) {
+		t.Fatalf("uptime_seconds 缺失或数值错误:\n%s", rec.Body.String())
+	}
+}
+
+// 旧缓存只有格式化字符串时也要能反解出秒数。
+func TestMetricsExpositionParsesLegacyUptimeString(t *testing.T) {
+	service, _ := testService(t)
+	seedExpositionConfig(t, service, "1", "")
+	registerExpositionHost(service, "srv-old", map[string]interface{}{
+		"cpu_usage": 1.0,
+		"uptime":    "3h 12m",
+	})
+
+	rec := httptest.NewRecorder()
+	service.MetricsExposition(rec, httptest.NewRequest(http.MethodGet, "/metrics", nil))
+	if !strings.Contains(rec.Body.String(), `api_monitor_uptime_seconds{server_id="srv-old"} 11520`) {
+		t.Fatalf("旧缓存 uptime 未能反解:\n%s", rec.Body.String())
+	}
+}
+
+// 无法解析时指标应缺席，而不是报 0（0 会被误读成"刚重启"）。
+func TestMetricsExpositionSkipsUnparsableUptime(t *testing.T) {
+	service, _ := testService(t)
+	seedExpositionConfig(t, service, "1", "")
+	registerExpositionHost(service, "srv-bad", map[string]interface{}{
+		"cpu_usage": 1.0,
+		"uptime":    "unknown",
+	})
+
+	rec := httptest.NewRecorder()
+	service.MetricsExposition(rec, httptest.NewRequest(http.MethodGet, "/metrics", nil))
+	if strings.Contains(rec.Body.String(), "api_monitor_uptime_seconds") {
+		t.Fatalf("不可解析的 uptime 不应产生样本:\n%s", rec.Body.String())
+	}
+}

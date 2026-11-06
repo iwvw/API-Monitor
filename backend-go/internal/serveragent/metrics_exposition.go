@@ -117,8 +117,14 @@ func (s *Service) MetricsExposition(w http.ResponseWriter, r *http.Request) {
 	writeGauge("gpu_usage_percent", "GPU usage in percent.", func(m map[string]interface{}) (float64, bool) {
 		return firstMetricValue(m, "gpu_usage")
 	})
+	// uptime 不能直接取 `uptime`：buildCachedInfo 会把它格式化成 "5d 3h"
+	// 这种人类可读字符串，解析失败会让整条指标消失。优先取数值字段
+	// `uptime_seconds`（同一处写入），再退到字符串解析，兼容旧缓存。
 	writeGauge("uptime_seconds", "Host uptime in seconds.", func(m map[string]interface{}) (float64, bool) {
-		return firstMetricValue(m, "uptime")
+		if v, ok := firstMetricValue(m, "uptime_seconds"); ok {
+			return v, true
+		}
+		return parseUptimeString(m)
 	})
 
 	// Agent 自监控：让外部监控同时能看「Agent 自己是否健康」。
@@ -255,6 +261,50 @@ func (s *Service) metricsExpositionEnabled(r *http.Request) bool {
 		[]byte(strings.TrimSpace(strings.TrimPrefix(auth, "Bearer "))),
 		[]byte(token),
 	) == 1
+}
+
+// parseUptimeString 解析 buildCachedInfo 产出的格式化 uptime。
+//
+// 支持 "5d 3h" / "3h 12m" / "42m" 三种形态（见 formatUptime）。
+// 旧缓存里只有这个字符串、没有数值字段，所以必须能反解；
+// 解析不出来时返回 ok=false，让指标整体缺席而不是报 0（0 会被误读成刚重启）。
+func parseUptimeString(metrics map[string]interface{}) (float64, bool) {
+	raw, ok := metrics["uptime"].(string)
+	if !ok {
+		return 0, false
+	}
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return 0, false
+	}
+
+	var total float64
+	var matched bool
+	for _, field := range strings.Fields(raw) {
+		if len(field) < 2 {
+			continue
+		}
+		unit := field[len(field)-1]
+		value, err := strconv.ParseFloat(field[:len(field)-1], 64)
+		if err != nil || value < 0 {
+			continue
+		}
+		switch unit {
+		case 'd':
+			total += value * 86400
+		case 'h':
+			total += value * 3600
+		case 'm':
+			total += value * 60
+		default:
+			continue
+		}
+		matched = true
+	}
+	if !matched {
+		return 0, false
+	}
+	return total, true
 }
 
 // firstMetricValue 依次尝试多个键名，返回第一个可解析为数字的值。
