@@ -307,7 +307,7 @@ func (s *Service) proxyStream(ctx context.Context, w http.ResponseWriter, model 
 		s.recordCall(acc.ID)
 		usage, envErr := s.pipeStreamCounted(ctx, w, rc, replay, acc.ID, model)
 		if usage != nil {
-			s.recordUsageFromOpenAI(acc.ID, model, usage)
+			s.recordUsageMap(acc.ID, model, usage)
 		}
 		if envErr != nil {
 			// 首事件之后才出现的错误（流中途）：此时 200 与部分数据已写出，
@@ -413,10 +413,22 @@ func (s *Service) pipeStreamCounted(ctx context.Context, w http.ResponseWriter, 
 	return lastUsage, nil
 }
 
-// recordUsageFromOpenAI 从聚合后的 OpenAI 响应里取 usage 记账。
+// recordUsageFromOpenAI 从聚合后的 OpenAI 响应里取 usage 记账（非流式路径）。
 func (s *Service) recordUsageFromOpenAI(accountID, model string, resp map[string]interface{}) {
 	usage, ok := resp["usage"].(map[string]interface{})
 	if !ok {
+		return
+	}
+	s.recordUsageMap(accountID, model, usage)
+}
+
+// recordUsageMap 直接用 usage 对象记账（流式路径）。
+//
+// pipeStreamCounted 返回的就是 usage 本身（不是包着 usage 的响应），
+// 因此不能复用 recordUsageFromOpenAI —— 否则 resp["usage"] 恒为 nil，
+// 流式调用（网关的正常路径）永远不会落用量，表现为「用量一直是空的」。
+func (s *Service) recordUsageMap(accountID, model string, usage map[string]interface{}) {
+	if usage == nil {
 		return
 	}
 	prompt := jsonInt(usage["prompt_tokens"])
