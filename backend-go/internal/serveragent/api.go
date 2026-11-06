@@ -405,11 +405,17 @@ func (s *Service) HandleGetServerHistory(w http.ResponseWriter, r *http.Request)
 	// 解析查询参数
 	query := r.URL.Query()
 	hoursStr := query.Get("hours")
+	maxHours := 90
 	hours := 12 // 默认 12 小时
 	if hoursStr != "" {
 		if h, err := strconv.Atoi(hoursStr); err == nil && h > 0 {
 			hours = h
 		}
+	}
+	// 上限 90 天：与 metrics_retention_days 的最大值一致，也防止
+	// 有人传 hours=100000 让 SQLite 扫全表。
+	if hours > maxHours*24 {
+		hours = maxHours * 24
 	}
 
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
@@ -422,69 +428,44 @@ func (s *Service) HandleGetServerHistory(w http.ResponseWriter, r *http.Request)
 	}
 	defer db.Close()
 
-	// 查询历史指标
-	historyQuery := `
-		SELECT
-			recorded_at, cpu_usage, mem_used, mem_total, disk_used, disk_total,
-			net_rx, net_tx, gpu_usage, cpu_temp, gpu_temp
-		FROM server_metrics_history
-		WHERE server_id = ? AND recorded_at >= datetime('now', '-' || ? || ' hours')
-		ORDER BY recorded_at ASC
-	`
-
-	rows, err := db.QueryContext(ctx, historyQuery, serverID, hours)
+	// 长跨度走小时级 rollup（1 个点/小时），短跨度仍用原始行。
+	// 以前这里是无条件全量取原始行：单台主机 30 天就有上百万条，
+	// 前端「最近 30 天」会直接把几百万个点丢给浏览器画图。
+	points, err := s.queryHistoryPoints(ctx, db, serverID, hours)
 	if err != nil {
 		response.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	defer rows.Close()
 
-	history := make([]MetricsHistory, 0)
-
-	for rows.Next() {
-		var record MetricsHistory
-		var cpuUsage, netRx, netTx, gpuUsage, cpuTemp, gpuTemp sql.NullFloat64
-		var memUsed, memTotal, diskUsed, diskTotal sql.NullInt64
-
-		err := rows.Scan(
-			&record.Time, &cpuUsage, &memUsed, &memTotal, &diskUsed, &diskTotal,
-			&netRx, &netTx, &gpuUsage, &cpuTemp, &gpuTemp,
-		)
-		if err != nil {
-			continue
+	history := make([]MetricsHistory, 0, len(points))
+	for _, point := range points {
+		record := MetricsHistory{
+			CPU:       point.CPU,
+			Memory:    point.Memory,
+			Disk:      point.Disk,
+			NetworkRx: point.NetRx,
+			NetworkTx: point.NetTx,
+			GPUTemp:   point.GPUTemp,
 		}
-
-		if cpuUsage.Valid {
-			record.CPU = cpuUsage.Float64
+		// rollup 桶的时间由 SQLite 的 strftime('now') 生成，是 UTC 的
+		// "YYYY-MM-DD HH:MM:SS"。这里按 UTC 解析，与原始表路径（DATETIME 列
+		// 由驱动按 UTC 解析）保持一致，时区转换交给前端按站点时区显示。
+		// 不用 time.Local：那会把 UTC 时间当成东八区本地时间来解读，
+		// 曲线整体偏移 8 小时。
+		if parsed, err := time.ParseInLocation("2006-01-02 15:04:05", point.Time, time.UTC); err == nil {
+			record.Time = parsed
+		} else if parsed, err := time.Parse(time.RFC3339, point.Time); err == nil {
+			record.Time = parsed
 		}
-		if memUsed.Valid && memTotal.Valid && memTotal.Int64 > 0 {
-			record.Memory = float64(memUsed.Int64) / float64(memTotal.Int64) * 100
-		}
-		if diskUsed.Valid && diskTotal.Valid && diskTotal.Int64 > 0 {
-			record.Disk = float64(diskUsed.Int64) / float64(diskTotal.Int64) * 100
-		}
-		if netRx.Valid {
-			record.NetworkRx = netRx.Float64
-		}
-		if netTx.Valid {
-			record.NetworkTx = netTx.Float64
-		}
-		if gpuUsage.Valid {
-			record.GPUUsage = gpuUsage.Float64
-		}
-		if cpuTemp.Valid {
-			record.CPUTemp = cpuTemp.Float64
-		}
-		if gpuTemp.Valid {
-			record.GPUTemp = gpuTemp.Float64
-		}
-
 		history = append(history, record)
 	}
 
 	response.JSON(w, http.StatusOK, map[string]interface{}{
 		"success": true,
 		"data":    history,
+		// 让前端能区分「原始点」与「小时聚合点」，避免把 1 小时粒度的
+		// 曲线误读成瞬时抖动。
+		"aggregated": hours > rollupThresholdHours,
 	})
 }
 

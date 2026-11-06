@@ -2167,6 +2167,7 @@ func listLogTables(ctx context.Context, db *sql.DB) ([]string, error) {
 			name LIKE '%_logs'
 			OR name LIKE '%_history'
 			OR name LIKE '%_audit'
+			OR name LIKE 'admin_ai_%'
 			OR name IN (
 				'uptime_heartbeats', 'server_network_quality_samples',
 				'github_action_runs', 'github_events', 'github_webhook_deliveries'
@@ -2188,12 +2189,28 @@ func listLogTables(ctx context.Context, db *sql.DB) ([]string, error) {
 		if statisticsTables[name] {
 			continue
 		}
+		// admin_ai_* 里只有逐条流水该按日志清理；记忆/设置类表不能删。
+		if strings.HasPrefix(name, "admin_ai_") && !adminAILogTables[name] {
+			continue
+		}
 		tables = append(tables, name)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("iterate log tables: %w", err)
 	}
 	return tables, nil
+}
+
+// adminAILogTables 是管理端 AI 的「逐条流水」表白名单。
+//
+// 背景：`admin_ai_messages`（对话消息，实测 9.94MB）与
+// `admin_ai_tool_calls`（工具调用明细，7.94MB）此前完全不在清理范围内 ——
+// 既不以 `_logs` 结尾、也不在显式列表里，于是随使用无界增长，最终成为
+// 库内最大的两张表。`admin_ai_memories` 是用户显式保存的长期记忆、
+// `admin_ai_settings` 是配置，都不该按日志策略删除，所以用白名单而非通配。
+var adminAILogTables = map[string]bool{
+	"admin_ai_messages":   true,
+	"admin_ai_tool_calls": true,
 }
 
 func clearLogTables(ctx context.Context, db *sql.DB) (int64, error) {
@@ -2531,7 +2548,7 @@ func logTimeColumn(ctx context.Context, db *sql.DB, table string) (string, error
 	if err != nil {
 		return "", err
 	}
-	for _, column := range []string{"created_at", "checked_at", "timestamp", "recorded_at", "start_time", "collected_at", "date"} {
+	for _, column := range []string{"created_at", "checked_at", "timestamp", "recorded_at", "start_time", "started_at", "collected_at", "date"} {
 		if columns[column] {
 			return column, nil
 		}
