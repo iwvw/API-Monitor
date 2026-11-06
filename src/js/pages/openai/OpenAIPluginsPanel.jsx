@@ -1,12 +1,13 @@
 import { useState } from 'react';
 import { EmptyState, cx } from '../../components/ui/AppPrimitives.jsx';
-import { Globe, AntigravityBrand, CodeBuddyBrand, PostHogBrand, QoderBrand } from '../../components/Icons.jsx';
+import { Globe, AntigravityBrand, CodeBuddyBrand, PostHogBrand, QoderBrand, RaccoonBrand } from '../../components/Icons.jsx';
 import { ProxyPoolPlugin } from './plugins/ProxyPoolPlugin.jsx';
 import { AntigravityPlugin } from './plugins/AntigravityPlugin.jsx';
 import { WorkBuddyPlugin } from './plugins/WorkBuddyPlugin.jsx';
 import { LobsterAIPlugin, LobsterAIBrand } from './plugins/LobsterAIPlugin.jsx';
 import { PostHogCodePlugin } from './plugins/PostHogCodePlugin.jsx';
 import { QoderPlugin } from './plugins/QoderPlugin.jsx';
+import { RaccoonPlugin } from './plugins/RaccoonPlugin.jsx';
 
 // 插件注册表：后续新增插件只需向 PLUGINS 追加一项（id 唯一、提供详情组件）。
 // 插件中心是列表式容器，本身不承载具体模块逻辑。
@@ -54,6 +55,13 @@ const PLUGINS = [
     description: 'Qoder（qoder.cn / qoder.com）账号转 API。',
     icon: QoderBrand,
     detail: QoderPlugin,
+  },
+  {
+    id: 'raccoon',
+    name: '小浣熊',
+    description: '商汤小浣熊（xiaohuanxiong.com）账号转 API。',
+    icon: RaccoonBrand,
+    detail: RaccoonPlugin,
   },
 ];
 

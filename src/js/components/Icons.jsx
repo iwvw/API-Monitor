@@ -159,6 +159,9 @@ import postHogIcon from '../../assets/brand-icons/posthog.svg';
 // Qoder 官方图标（阿里 CDN 的黑色线条 PNG，透明底）。同样走 createAssetIcon 的
 // currentColor 遮罩路径：PNG 作为 mask 源，随主题黑白自适应。
 import qoderIcon from '../../assets/brand-icons/qoder.png';
+// 小浣熊（商汤 Raccoon）品牌图标：用 SenseNova（商汤模型品牌）单色 SVG，
+// 同样走 createAssetIcon 的 currentColor 遮罩路径，随主题黑白自适应。
+import raccoonIcon from '../../assets/brand-icons/raccoon.svg';
 
 const createAssetIcon = (asset, label) => {
   const AssetIcon = ({ className = '', style, ...props }) => (
@@ -288,6 +291,7 @@ export const CodeBuddyBrand = createAssetIcon(codeBuddyIcon, 'CodeBuddy');
 export const AntigravityBrand = createAssetIcon(antigravityIcon, 'Antigravity');
 export const PostHogBrand = createAssetIcon(postHogIcon, 'PostHog');
 export const QoderBrand = createAssetIcon(qoderIcon, 'Qoder');
+export const RaccoonBrand = createAssetIcon(raccoonIcon, 'Raccoon');
 export const KoyebBrand = createFontIcon('si si-koyeb', 'Koyeb');
 export const FlyIoBrand = createFontIcon('si si-flydotio', 'Fly.io');
 
