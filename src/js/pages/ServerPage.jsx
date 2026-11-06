@@ -1646,8 +1646,23 @@ function ServerPage() {
   // 供 socket 回调读取「当前最新的主机列表」：socket 的 connect 回调只建立一次，
   // 闭包里的 serverList 会一直是空数组，导致订阅集合永远为空。
   const serverListRef = useRef([]);
+  // 订阅集合的指纹：主机增删后要重新下发，否则新加的主机永远收不到实时指标，
+  // 删掉的主机则会让服务端一直为它做过滤。用逗号拼接的 id 列表当指纹，
+  // 主机自身指标变化（每次上报都变）不会影响它，避免每 1.5 秒重发一次订阅。
+  const subscriptionKeyRef = useRef('');
   useEffect(() => {
     serverListRef.current = serverList;
+    const key = serverList
+      .map(server => String(server?.id || ''))
+      .filter(Boolean)
+      .sort()
+      .join(',');
+    if (key === subscriptionKeyRef.current) return;
+    subscriptionKeyRef.current = key;
+    const socket = socketRef.current;
+    if (socket && socket.connected) {
+      socket.emit('metrics:subscribe', { serverIds: key ? key.split(',') : [] });
+    }
   }, [serverList]);
   const [serverLoading, setServerLoading] = useState(false);
   const [serverStatusPages, setServerStatusPages] = useState([]);
@@ -2591,6 +2606,8 @@ function ServerPage() {
         const ids = (serverListRef.current || [])
           .map(server => String(server?.id || ''))
           .filter(Boolean);
+        // 同步指纹，避免紧接着的 serverList effect 又重复发一次同样的订阅。
+        subscriptionKeyRef.current = [...ids].sort().join(',');
         socket.emit('metrics:subscribe', { serverIds: ids });
       };
       socket.on('connect', sendSubscription);
