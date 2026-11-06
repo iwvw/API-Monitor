@@ -141,6 +141,40 @@ export function RuleDialog({
             </div>
           </div>
 
+          {/* 告警聚合：同一分组的重复告警只发首条，其余在窗口结束时汇总成一条。
+              典型场景：一台宿主机宕机时带出 20 个容器离线，不该刷 20 条通知。
+              留空 = 不聚合（保持原有逐条发送行为）。 */}
+          <div className="space-y-1.5">
+            <label className="text-xs font-semibold text-kumo-subtle">
+              聚合分组（可选）
+            </label>
+            <Input size="sm"
+              aria-label="告警聚合分组字段"
+              placeholder="例如 server_id（留空表示不聚合）"
+              value={ruleForm.suppression.group_by ?? ''}
+              onChange={(e) => {
+                const raw = e.target.value;
+                setRuleForm(prev => {
+                  const next = { ...prev.suppression };
+                  // 逗号分隔的字段路径写成数组；清空则删除该键，避免
+                  // 传空数组进去让后端误以为要按空分组聚合。
+                  const fields = raw.split(',').map(s => s.trim()).filter(Boolean);
+                  if (fields.length > 0) {
+                    next.group_by = fields;
+                  } else {
+                    delete next.group_by;
+                  }
+                  return { ...prev, suppression: next };
+                });
+              }}
+              className="w-full font-mono"
+            />
+            <p className="text-[11px] text-kumo-subtle">
+              按事件字段聚合（多个用逗号分隔）。同一分组在 30 秒窗口内只发首条，
+              其余合并为一条汇总；更高级别的告警仍会立即发送。
+            </p>
+          </div>
+
           {/* Backup Notification Channels Checkboxes */}
           <div className="space-y-1.5">
             <label className="text-xs font-semibold text-kumo-subtle">失败时备用渠道</label>

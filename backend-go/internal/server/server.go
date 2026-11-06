@@ -152,6 +152,8 @@ func newServer(cfg config.Config) (*Server, error) {
 	}
 	authService := auth.New(cfg)
 	notifyService := notification.New(cfg)
+	// 告警聚合的后台汇总循环：窗口结束时把被合并的告警补发成一条汇总。
+	go notifyService.RunAggregationFlusher(context.Background())
 	serverAgentService := serveragent.New(cfg)
 	if err := serverAgentService.StartupError(); err != nil {
 		serverAgentService.Stop()

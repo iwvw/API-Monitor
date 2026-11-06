@@ -3,6 +3,7 @@ package notification
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -94,6 +95,18 @@ func (s *Service) Trigger(ctx context.Context, sourceModule, eventType string, e
 		if quietUntilActive(rule.QuietUntil, time.Now()) {
 			continue
 		}
+		// 聚合：配置了 group_by 的规则，同一分组在窗口期内只发首条（或升级条）。
+		// 恢复事件永不聚合 —— 漏掉恢复通知会让告警永远悬着。
+		if !(hasLifecycle && lifecycle.Phase == "resolve") {
+			if groupBy := ruleGroupBy(rule); len(groupBy) > 0 {
+				if key := groupKeyOf(groupBy, eventData); key != "" {
+					decision := s.decisionForGroup(rule, key, eventData, time.Now())
+					if !decision {
+						continue
+					}
+				}
+			}
+		}
 		// 恢复（resolve）阶段跳过重复抑制，避免恢复通知被吞导致告警永远悬着
 		trackSuppression := !(hasLifecycle && lifecycle.Phase == "resolve")
 		var fingerprint string
@@ -163,6 +176,90 @@ func (s *Service) Trigger(ctx context.Context, sourceModule, eventType string, e
 		_ = s.deleteTelegramMessageStates(ctx, sourceModule, lifecycle.ResourceKey, lifecycle.Kind)
 	}
 	return nil
+}
+
+// FlushGroupSummaries 把窗口期结束、且合并过内容的告警补发一条汇总。
+//
+// 由后台定时器调用（见 RunAggregationFlusher）。只处理「合并过至少一条」的
+// 窗口：没有合并就没有汇总，避免给正常单条告警补发无意义的消息。
+func (s *Service) FlushGroupSummaries(ctx context.Context, now time.Time) {
+	if s.aggregator == nil {
+		return
+	}
+	summaries := s.aggregator.Flush(now)
+	if len(summaries) == 0 {
+		return
+	}
+	cfg, err := s.LoadConfig(ctx)
+	if err != nil {
+		cfg = GlobalConfig{MaxRetryTimes: 3, RetryIntervalSeconds: 60, GlobalRateLimitPerHr: 100}
+	}
+	for _, summary := range summaries {
+		rule, ok, err := s.loadRuleByID(ctx, summary.RuleID)
+		if err != nil || !ok {
+			continue
+		}
+		for _, channelID := range rule.Channels {
+			channel, found, err := s.loadStoredChannel(ctx, channelID)
+			if err != nil || !found || channel.Enabled == 0 {
+				continue
+			}
+			if allowed, _ := s.rateLimiter.Allow(time.Now(), cfg.GlobalRateLimitPerHr); !allowed {
+				continue
+			}
+			channelConfig := decryptConfig(channel.ConfigRaw)
+			send := func() (deliveryResult, error) {
+				return s.sendToChannel(ctx, channel, channelConfig, summary.Title, summary.Body)
+			}
+			// 汇总通知失败不重试到影响后续窗口：它是补充信息，不是关键告警。
+			_, _, _ = s.sendWithRetry(ctx, send, cfg.MaxRetryTimes, cfg.RetryIntervalSeconds)
+		}
+	}
+}
+
+// RunAggregationFlusher 启动后台汇总循环。ctx 取消即退出。
+//
+// 间隔取窗口的一半：既不至于让汇总迟到太久，也不会空转太频繁。
+func (s *Service) RunAggregationFlusher(ctx context.Context) {
+	if s.aggregator == nil {
+		return
+	}
+	interval := s.aggregator.window / 2
+	if interval < time.Second {
+		interval = time.Second
+	}
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case now := <-ticker.C:
+			s.FlushGroupSummaries(ctx, now)
+		}
+	}
+}
+
+func (s *Service) loadRuleByID(ctx context.Context, ruleID string) (Rule, bool, error) {
+	db, err := s.open(ctx)
+	if err != nil {
+		return Rule{}, false, err
+	}
+	defer db.Close()
+	row := db.QueryRowContext(ctx, `
+		SELECT id, name, source_module, event_type, severity, enabled, channels,
+			conditions, suppression, time_window, description, title_template,
+			message_template, backup_channels, quiet_until, created_at, updated_at
+		FROM alert_rules WHERE id = ?
+	`, ruleID)
+	rule, err := scanRule(row)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return Rule{}, false, nil
+		}
+		return Rule{}, false, err
+	}
+	return rule, true, nil
 }
 
 // RefreshLifecycle updates an active Telegram lifecycle message without re-sending other channels.
@@ -409,6 +506,51 @@ func (s *Service) recordLifecycleRefreshHistory(ctx context.Context, rule Rule, 
 	}
 	formatted := now.Format(time.RFC3339)
 	return s.updateHistoryStatus(ctx, logID, "sent", &formatted, nil)
+}
+
+// ruleGroupBy 从规则配置里读 group_by（字符串数组）；未配置返回 nil。
+//
+// 放在 suppression 字段里而不是新增列：`suppression` 本就是自由结构的
+// JSON（前端已经在往里写 repeat_count/silence_minutes），新增键不需要
+// 数据库迁移，老数据读出来自然为空 —— 也就自然保持「不聚合」的旧行为。
+func ruleGroupBy(rule Rule) []string {
+	if rule.Suppression == nil {
+		return nil
+	}
+	raw, ok := rule.Suppression["group_by"]
+	if !ok {
+		return nil
+	}
+	switch typed := raw.(type) {
+	case []string:
+		return typed
+	case []interface{}:
+		out := make([]string, 0, len(typed))
+		for _, item := range typed {
+			if text, ok := item.(string); ok && strings.TrimSpace(text) != "" {
+				out = append(out, text)
+			}
+		}
+		return out
+	case string:
+		if strings.TrimSpace(typed) == "" {
+			return nil
+		}
+		return []string{typed}
+	default:
+		return nil
+	}
+}
+
+// decisionForGroup 交给聚合器判定这条是否要发。
+//
+// 聚合器为 nil（测试里直接构造 Service 的场景）时一律放行，保持向后兼容。
+func (s *Service) decisionForGroup(rule Rule, key string, eventData map[string]interface{}, now time.Time) bool {
+	if s.aggregator == nil {
+		return true
+	}
+	title := formatTitle(rule, eventData)
+	return s.aggregator.Offer(rule.ID, key, rule.Severity, title, now).Send
 }
 
 func (s *Service) loadEnabledRulesByEvent(ctx context.Context, sourceModule, eventType string) ([]Rule, error) {

@@ -30,6 +30,8 @@ type Service struct {
 	schemaOnce  sync.Once
 	schemaErr   error
 	rateLimiter *hourlyRateLimiter
+	// aggregator 做「同一分组重复告警合并」。未配置 group_by 的规则不经过它。
+	aggregator *Aggregator
 }
 
 type Channel struct {
@@ -135,6 +137,7 @@ func New(cfg config.Config) *Service {
 		store:       database.New(cfg),
 		client:      &http.Client{Timeout: requestTimeout},
 		rateLimiter: &hourlyRateLimiter{},
+		aggregator:  NewAggregator(DefaultGroupWindow),
 	}
 }
 
