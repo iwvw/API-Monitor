@@ -3,6 +3,7 @@ package serveragent
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -14,6 +15,23 @@ type MetricsHubClient struct {
 	sessionID string
 	session   *EngineIOSession
 	connAt    time.Time
+	// subscription 是该客户端关心的 serverId 集合。
+	//
+	// nil 表示「未订阅」—— 按全量推送处理，保持对旧前端（不认识
+	// metrics:subscribe 的版本）的向后兼容。空集合表示「明确不关心任何主机」
+	// （例如用户把所有主机都从看板移除了），此时一条都不推。
+	subscription map[string]struct{}
+}
+
+// wants 判断该客户端是否需要 serverID 的指标。
+//
+// 未订阅（nil）→ true（兼容旧前端）；已订阅 → 只推集合内的。
+func (c *MetricsHubClient) wants(serverID string) bool {
+	if c.subscription == nil {
+		return true
+	}
+	_, ok := c.subscription[serverID]
+	return ok
 }
 
 // MetricsHub 管理所有前端 /metrics 命名空间的 WebSocket 连接
@@ -108,13 +126,39 @@ func sanitizeBroadcastPayload(value interface{}) interface{} {
 	}
 }
 
-// BroadcastMetrics 向所有前端客户端广播 metrics:update 事件
+// Subscribe 更新某个 /metrics 客户端的订阅集合。
+//
+// serverIDs 为空切片时表示「明确不关心任何主机」，与「从未订阅」（nil，
+// 按全量推送）语义不同：前者一条都不推，后者为兼容旧前端全量推。
+func (h *MetricsHub) Subscribe(sessionID string, serverIDs []string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	client, ok := h.clients[sessionID]
+	if !ok {
+		return
+	}
+	next := make(map[string]struct{}, len(serverIDs))
+	for _, id := range serverIDs {
+		if id = strings.TrimSpace(id); id != "" {
+			next[id] = struct{}{}
+		}
+	}
+	client.subscription = next
+}
+
+// BroadcastMetrics 向关心该主机的客户端广播 metrics:update 事件
 // data 格式: { serverId: string, metrics: {...}, timestamp: number }
+//
+// 以前是「推给所有客户端」：100 台主机 × N 个标签页时，服务端每秒要
+// 序列化 N×100 次，且每个浏览器都收到与自己无关的流量。现在只发给
+// 订阅了该 serverId 的客户端（未订阅的旧前端仍全量接收）。
 func (h *MetricsHub) BroadcastMetrics(serverID string, metrics map[string]interface{}) {
 	h.mu.RLock()
 	clients := make([]*MetricsHubClient, 0, len(h.clients))
 	for _, c := range h.clients {
-		clients = append(clients, c)
+		if c.wants(serverID) {
+			clients = append(clients, c)
+		}
 	}
 	h.mu.RUnlock()
 

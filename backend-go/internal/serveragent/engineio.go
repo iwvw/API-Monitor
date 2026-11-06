@@ -704,6 +704,26 @@ func (s *EngineIOServer) handleSocketIOMessage(session *EngineIOSession, payload
 			eventPayload = eventData[1]
 		}
 
+		// 浏览器订阅事件：只作用于 /metrics 命名空间的匿名客户端，
+		// 必须在下面的 Agent 认证门禁**之前**处理 —— 浏览器不是 Agent，
+		// 没有也不需要 agent key。作用范围严格限定在 /metrics 会话，
+		// 避免它成为绕过认证影响 root 命名空间的入口。
+		if eventName == "metrics:subscribe" {
+			session.mu.RLock()
+			namespace := session.Namespace
+			sid := session.ID
+			session.mu.RUnlock()
+			if namespace == "/metrics" && s.metricsHub != nil {
+				var payload struct {
+					ServerIDs []string `json:"serverIds"`
+				}
+				if err := json.Unmarshal(eventPayload, &payload); err == nil {
+					s.metricsHub.Subscribe(sid, payload.ServerIDs)
+				}
+			}
+			return
+		}
+
 		// 会话认证门禁：只有经过 agent:connect/authenticate 密钥校验的会话
 		// 才能处理 Agent 上行事件；未认证会话的任何业务事件一律忽略，
 		// 防止匿名连接伪造 agent:state/agent:heartbeat 等状态与指标。

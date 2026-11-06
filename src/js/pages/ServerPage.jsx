@@ -1643,6 +1643,12 @@ function ServerPage() {
 
   // 主机列表状态
   const [serverList, setServerList] = useState([]);
+  // 供 socket 回调读取「当前最新的主机列表」：socket 的 connect 回调只建立一次，
+  // 闭包里的 serverList 会一直是空数组，导致订阅集合永远为空。
+  const serverListRef = useRef([]);
+  useEffect(() => {
+    serverListRef.current = serverList;
+  }, [serverList]);
   const [serverLoading, setServerLoading] = useState(false);
   const [serverStatusPages, setServerStatusPages] = useState([]);
   const [serverStatusPagesLoading, setServerStatusPagesLoading] = useState(false);
@@ -2572,6 +2578,22 @@ function ServerPage() {
         reconnectionAttempts: Infinity,
         transports: ['websocket', 'polling'],
       });
+
+      // 订阅当前看板上的主机。
+      //
+      // 服务端以前把每台主机的指标推给所有客户端：100 台 × N 个标签页时，
+      // 后端每秒要序列化 N×100 次，每个浏览器还都在收与自己无关的流量。
+      // 订阅后只推关心的那几台。连接（含重连）成功后都要重新订阅 ——
+      // 服务端不保存订阅状态，断线即丢。
+      const sendSubscription = () => {
+        // 直接读最新的 serverList（不是 effect 闭包里的旧值），
+        // 否则主机列表异步加载完成后订阅集合仍是空的。
+        const ids = (serverListRef.current || [])
+          .map(server => String(server?.id || ''))
+          .filter(Boolean);
+        socket.emit('metrics:subscribe', { serverIds: ids });
+      };
+      socket.on('connect', sendSubscription);
 
       socket.on('metrics:update', data => {
         if (data && data.serverId && data.metrics) {
