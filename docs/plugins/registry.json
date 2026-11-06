@@ -327,6 +327,62 @@
         "OpenAIPluginsPanel.jsx：移除 qoder 注册条目（含 QoderBrand 图标 import 与组件 import）",
         "删除 docs/standards/模型网关插件-qoder方案.md"
       ]
+    },
+    "raccoon": {
+      "name": "小浣熊",
+      "version": "1",
+      "status": "installed",
+      "kind": "engine-plugin",
+      "summary": "商汤小浣熊（xiaohuanxiong.com）转 OpenAI 兼容 API：支持网页登录（官方授权页 + office-raccoon 回调授权码，POST /api/web/auth/v1/login_with_authorization_code 换凭证，state 一次性校验）或手动粘贴 token；账号 token（access_token ~2h + refresh_token ~30d，刷新会轮换）自动续期、标准 OpenAI 兼容对话转发（流式/非流式、多模态、function calling 原样透传，转发前剥离 reasoning_effort）、模型目录动态发现（GET /api/web/llm/v2/model_catalog，未知模型本地白名单拦截，避免上游静默回落默认模型）、积分余额查询（/api/web/points/v1/balance）、账号失败冷却与多账号选号策略（固定首个（默认）/ 轮询，复用 internal/accountpick）、用量统计、网关端点一键接入。协议参考开源反代 xhx2api（haoxinyu1/xiaohuanxiong2api）与 raccoon2api（xxhhlk/raccoon2api）。",
+      "backendDirs": ["backend-go/internal/raccoon/"],
+      "manifest": {
+        "file": "backend-go/internal/manifest/manifest.go",
+        "lines": [
+          "\t\t{Prefix: \"/api/raccoon\", Module: \"raccoon\", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: \"小浣熊插件（商汤 xiaohuanxiong.com 转 OpenAI 兼容 API）管理\"},",
+          "\t\t{Prefix: \"/api/raccoon/v1\", Module: \"raccoon-compatible\", Owner: OwnerGo, Auth: AuthInternal, ResponseMode: ResponseStream, Description: \"小浣熊插件 OpenAI 兼容中继（仅本机内部网关调用）\"},"
+        ]
+      },
+      "serverWiring": {
+        "file": "backend-go/internal/server/server.go",
+        "imports": ["\"github.com/iwvw/api-monitor/backend-go/internal/raccoon\""],
+        "structField": "raccoon     *raccoon.Service",
+        "constructor": "raccoon:     raccoon.New(cfg),",
+        "injections": [
+          "server.raccoon.SetProxyPoolSelector(server.proxypool)",
+          "server.raccoon.StartCallStatsFlush(warmupCtx)",
+          "server.raccoon.StartAutoRefresh(warmupCtx)",
+          "server.raccoon.StartModelRefresh(warmupCtx)",
+          "server.raccoon.ReconcileLinkedEndpoint(warmupCtx)"
+        ],
+        "serveCases": ["case \"/api/raccoon\", \"/api/raccoon/v1\":"],
+        "authModules": ["apiKeyRequiresSession: /api/raccoon/accounts/export, /api/raccoon/accounts/import"]
+      },
+      "dbTables": ["raccoon_settings", "raccoon_call_stats", "raccoon_usage_daily"],
+      "dbColumnAdds": [],
+      "frontend": {
+        "files": ["src/js/pages/openai/plugins/RaccoonPlugin.jsx", "src/assets/brand-icons/raccoon.svg"],
+        "registrations": [
+          { "file": "src/js/pages/openai/OpenAIPluginsPanel.jsx", "kind": "PLUGINS registry entry", "id": "raccoon" },
+          { "file": "src/js/components/Icons.jsx", "kind": "brand icon export", "id": "RaccoonBrand" }
+        ],
+        "hostIntegration": ""
+      },
+      "goDeps": [],
+      "systemContracts": [
+        "上游协议事实见开源反代 xhx2api（haoxinyu1/xiaohuanxiong2api）与 raccoon2api（xxhhlk/raccoon2api）；协议层集中在 backend-go/internal/raccoon/upstream.go，模型目录解析在 catalog.go，网页登录（授权页 + office-raccoon 回调换码）在 login.go"
+      ],
+      "docs": ["docs/standards/模型网关插件开发指南.md"],
+      "uninstallSteps": [
+        "rm backend-go/internal/raccoon/",
+        "manifest.go：删除 /api/raccoon 与 /api/raccoon/v1 前缀行",
+        "route_handlers.go：删除 raccoon / raccoon-compatible 两行",
+        "server.go：删除 import、raccoon 字段、raccoon.New(cfg)、SetProxyPoolSelector / StartCallStatsFlush / StartAutoRefresh / StartModelRefresh / ReconcileLinkedEndpoint 注入，以及 apiKeyRequiresSession 的 /api/raccoon/accounts 前缀",
+        "DB：DROP TABLE raccoon_usage_daily; DROP TABLE raccoon_call_stats; DROP TABLE raccoon_settings;",
+        "DB：DELETE FROM openai_endpoints WHERE id = 'raccoon-internal';",
+        "删除 src/js/pages/openai/plugins/RaccoonPlugin.jsx 与 src/assets/brand-icons/raccoon.svg",
+        "OpenAIPluginsPanel.jsx：移除 raccoon 注册条目（含 RaccoonBrand 图标 import 与组件 import）",
+        "Icons.jsx：移除 raccoonIcon import 与 RaccoonBrand 导出"
+      ]
     }
   }
 }
