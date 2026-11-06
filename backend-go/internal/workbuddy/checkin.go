@@ -46,10 +46,35 @@ type CheckinResult struct {
 }
 
 // checkinSupported 报告账号是否属于签到体系（仅国内版）。
-// 国际版同接口返回 10001「签到活动未开启或已过期」，且连登接口 500，
-// 因此对国际版账号直接跳过，避免每天两次无效请求与错误日志。
+// 国际版同接口返回 10001「签到活动未开启或已过期」，办公版返回
+// 10001「企业账号不支持该操作」，因此除国内版外一律跳过，避免无效请求与错误日志。
 func checkinSupported(acc Account) bool {
 	return normalizeRegion(acc.Region) == regionCN
+}
+
+// activitySupported 报告账号所在区域是否支持「每日活跃」上报。
+//
+// 国际版没有签到接口，改为「每日活跃奖励」：官方文档《订阅政策》的
+// 「限时每日活跃奖励说明」写明——当日通过客户端发起至少一次有效 AI 对话/任务
+// 即视为活跃，Free 30 积分/天、Pro 50 积分/天，系统次日自动发放，无需手动领取。
+// 这里用与国内版相同的 /v2/report 事件上报（chat_request_send）尽力达成活跃条件。
+//
+// 办公版（wb）是企业账号，同样不参与该活动。
+func activitySupported(acc Account) bool {
+	region := normalizeRegion(acc.Region)
+	return region == regionCN || region == regionIntl
+}
+
+// activityModelFor 返回活跃上报里应申报的模型 id/名称。
+//
+// 必须用**该区域真实存在**的模型：国际版目录里没有国内的 deepseek-v4-flash，
+// 申报一个不存在的模型会让上游判定为无效请求，从而不计入活跃。
+// 国际版取 deepseek-v4.1-flash-sg（来自 /v3/config 的 models 列表）。
+func activityModelFor(region string) (id, name string) {
+	if normalizeRegion(region) == regionIntl {
+		return "deepseek-v4.1-flash-sg", "DeepSeek V4.1 Flash"
+	}
+	return "deepseek-v4-flash", "DeepSeek V4 Flash"
 }
 
 // isAlreadyCheckinError 判定错误是否为「今天已签到」的幂等拒绝。
@@ -290,6 +315,7 @@ func (s *Service) reportChatActivity(ctx context.Context, acc Account) error {
 	region := normalizeRegion(acc.Region)
 	now := time.Now().UnixMilli()
 	cid := fmt.Sprintf("wb-%d", now)
+	modelID, modelName := activityModelFor(region)
 	ev := chatRequestEvent{
 		EventCode:            "chat_request_send",
 		Timestamp:            now,
@@ -297,8 +323,8 @@ func (s *Service) reportChatActivity(ctx context.Context, acc Account) error {
 		ConversationID:       cid,
 		RequestID:            cid,
 		InputLength:          12,
-		RequestModelID:       "deepseek-v4-flash",
-		RequestModelName:     "DeepSeek V4 Flash",
+		RequestModelID:       modelID,
+		RequestModelName:     modelName,
 		MentionContexts:      []any{},
 		KnowledgeID:          []any{},
 		KnowledgeName:        []any{},

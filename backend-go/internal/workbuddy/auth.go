@@ -12,6 +12,34 @@ import (
 // tokenExpiringWindow 是判定 access token「即将过期」的阈值。
 const tokenExpiringWindow = 30 * time.Minute
 
+// keepAliveRefreshInterval 是「定期续期」间隔。
+//
+// 为什么需要它：国内版（copilot.tencent.com）的上游是 Keycloak，其 refresh token
+// 属 offline session，除绝对寿命（约 60 天）外还有 **idle timeout**（实测约 30 天，
+// Keycloak 默认值）。只要超过该空闲期没有走过刷新，session 就被回收，refresh 时
+// 返回 `invalid_grant: Offline user session not found`，只能重新扫码。
+//
+// 而 access token 寿命约 55 天，若只按「剩余 < 30 分钟才刷新」，账号会在数周内
+// 完全不碰 refresh token，从而踩中 idle 超时。这里按「距上次刷新超过本间隔即主动
+// 续期一次」兜底，把一次刷新分摊到远小于空闲阈值的周期上。
+const keepAliveRefreshInterval = 7 * 24 * time.Hour
+
+// shouldKeepAlive 判断账号是否需要「定期续期」：距上次刷新已超过
+// keepAliveRefreshInterval，或从未记录过刷新时间。
+//
+// 仅在账号有 refresh token 时调用；返回值只表示「该刷一次」，不代表 token 有问题。
+func shouldKeepAlive(a Account, now time.Time) bool {
+	last := strings.TrimSpace(a.LastRefreshAt)
+	if last == "" {
+		return true
+	}
+	t, err := time.Parse(time.RFC3339, last)
+	if err != nil {
+		return true
+	}
+	return now.Sub(t) >= keepAliveRefreshInterval
+}
+
 // maskNickname 把昵称打码为「首字符 + *」，避免真实姓名下发前端。
 // 空昵称保持空（前端会退回 uid/id 展示）。
 func maskNickname(name string) string {
@@ -43,9 +71,12 @@ func (s *Service) toAccountView(a Account) AccountView {
 		Available:       accountAvailable(a),
 		CallCount:       s.callDisplay(a.ID),
 		LastError:       a.LastError,
+		RefreshBroken:   refreshBroken(a.LastError),
+		LastRefreshAt:   a.LastRefreshAt,
 		// 签到与余额状态：国际版账号无签到体系，LastCheckinAt 恒为空。
-		LastCheckinAt: a.LastCheckinAt,
-		Credits:       a.Credits,
+		LastCheckinAt:  a.LastCheckinAt,
+		LastActivityAt: a.LastActivityAt,
+		Credits:        a.Credits,
 		// 模型级限流（ratelimit.go）：只是这些模型暂时不可用，账号本身仍可用。
 		LimitedModels: s.accountModelLimits(a.ID),
 	}
@@ -83,6 +114,17 @@ func accountAvailable(a Account) bool {
 		return false
 	}
 	return tokenState(a) != "expired"
+}
+
+// refreshBroken 依据最近一次失败原因判断 refresh token 是否已被上游拒绝。
+// access token 仍可能有效，但已无法续期：前端需要单独预警，而不是显示「正常」。
+func refreshBroken(lastError string) bool {
+	e := lastError
+	if e == "" {
+		return false
+	}
+	return strings.Contains(e, "refresh token") &&
+		(strings.Contains(e, "可能已失效") || strings.Contains(e, "已失效"))
 }
 
 // -----------------------------------------------------------------------------

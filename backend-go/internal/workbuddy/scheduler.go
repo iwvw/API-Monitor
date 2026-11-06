@@ -182,7 +182,11 @@ func (s *Service) CheckinAll(ctx context.Context) []map[string]interface{} {
 		if !checkinSupported(a) {
 			item["success"] = true
 			item["status"] = "skipped"
-			item["message"] = "国际版无签到体系"
+			if normalizeRegion(a.Region) == regionIntl {
+				item["message"] = "国际版无签到接口，积分走「每日活跃奖励」（每次活跃自动发放）"
+			} else {
+				item["message"] = regionLabel(a.Region) + "账号不参与签到活动"
+			}
 			results = append(results, item)
 			continue
 		}
@@ -208,13 +212,17 @@ func (s *Service) CheckinAll(ctx context.Context) []map[string]interface{} {
 	return results
 }
 
-// ReportActivityAll 对全部「签到未停用」的国内版账号执行一次对话活跃上报。
-// 转发停用（Disabled）的账号同样参与；账号间限速，避免同秒集中打上游。
+// ReportActivityAll 对全部「签到未停用」且支持活跃上报的账号执行一次活跃上报
+// （国内版 + 国际版；办公版企业账号不参与）。转发停用（Disabled）的账号同样参与；
+// 账号间限速，避免同秒集中打上游。
+//
+// 国际版没有签到接口，其每日积分完全依赖「每日活跃」判定（见 activitySupported），
+// 因此这里的上报就是国际版账号获取积分的手段。
 func (s *Service) ReportActivityAll(ctx context.Context) []map[string]interface{} {
 	results := make([]map[string]interface{}, 0)
 	first := true
 	for _, a := range s.Settings().Accounts {
-		if !checkinEligible(a) || !checkinSupported(a) {
+		if !checkinEligible(a) || !activitySupported(a) {
 			continue
 		}
 		if !first {
@@ -222,13 +230,16 @@ func (s *Service) ReportActivityAll(ctx context.Context) []map[string]interface{
 		}
 		first = false
 		a = s.ensureCheckinToken(ctx, a)
-		item := map[string]interface{}{"accountId": a.ID, "nickname": a.Nickname}
+		item := map[string]interface{}{"accountId": a.ID, "nickname": a.Nickname, "region": normalizeRegion(a.Region)}
 		if err := s.reportChatActivity(ctx, a); err != nil {
 			item["success"] = false
 			item["error"] = err.Error()
 		} else {
 			item["success"] = true
 			item["message"] = "活跃已上报"
+			// 记录最近一次成功活跃的时刻，供前端展示国际版是否已参与当日活跃。
+			a.LastActivityAt = time.Now().UTC().Format(time.RFC3339)
+			_ = s.upsertAccount(ctx, a)
 		}
 		results = append(results, item)
 	}

@@ -254,6 +254,9 @@ type Account struct {
 	LastRefreshAt string `json:"lastRefreshAt,omitempty"`
 	// LastCheckinAt 是最近一次签到成功的时刻（RFC3339，UTC）。
 	LastCheckinAt string `json:"lastCheckinAt,omitempty"`
+	// LastActivityAt 是最近一次成功「活跃上报」的时刻（RFC3339，UTC）。
+	// 国际版无签到接口，其每日积分依赖主动达成活跃（见 activitySupported）。
+	LastActivityAt string `json:"lastActivityAt,omitempty"`
 	// Credits 是最近一次余额查询得到的剩余额度（签到/余额查询时回写，供账号表展示）。
 	Credits int64 `json:"credits,omitempty"`
 	// LastError 记录最近一次上游失败原因，便于排障。
@@ -278,8 +281,17 @@ type AccountView struct {
 	Available        bool   `json:"available"`
 	CallCount        int64  `json:"callCount"`
 	LastError        string `json:"lastError,omitempty"`
+	// RefreshBroken 表示 refresh token 已被上游判定失效（需重新扫码登录）。
+	// 与 tokenState 独立：access token 可能仍在有效期内（转发暂时正常），
+	// 但已无法续期，一旦过期就直接不可用，前端应提前预警。
+	RefreshBroken bool `json:"refreshBroken,omitempty"`
+	// LastRefreshAt 是最近一次成功刷新的时刻（RFC3339，UTC），供前端展示续期新鲜度。
+	LastRefreshAt string `json:"lastRefreshAt,omitempty"`
 	// LastCheckinAt 是最近一次签到成功的时刻（RFC3339，UTC）；国际版账号恒为空。
 	LastCheckinAt string `json:"lastCheckinAt,omitempty"`
+	// LastActivityAt 是最近一次成功活跃上报的时刻（RFC3339，UTC）。
+	// 国际版无签到接口，改用「每日活跃奖励」，前端据此展示其活跃状态。
+	LastActivityAt string `json:"lastActivityAt,omitempty"`
 	// Credits 是最近一次查询得到的剩余额度；0 表示尚未查询过。
 	Credits int64 `json:"credits,omitempty"`
 	// LimitedModels 是该账号当前被上游**模型级限流**的模型（含恢复时刻）。
