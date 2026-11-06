@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Icon } from '@iconify/react';
+import { hasIcon } from '../../../assets/iconify/index.js';
 import { cx } from '../../components/ui/AppPrimitives.jsx';
 
 // 搜索引擎图标。
@@ -30,8 +31,12 @@ export default function EngineIconPreview({ icon, label = '', color = '', size =
     );
   }
 
-  // Iconify 图标：名称形如 "集合:图标"，否则当作无效（例如用户随手填的文字）
-  if (raw && !isImage && raw.includes(':')) {
+  // Iconify 图标：名称形如 "集合:图标"，否则当作无效（例如用户随手填的文字）。
+  // 必须先用 hasIcon() 判断是否已随构建产物打包：图标集是裁剪过的（见
+  // tools/generate-iconify-subset.mjs），名字不在子集里时 @iconify/react 会去请求
+  // api.iconify.design；内网/离线环境下那是一次静默失败，留下空白方块。
+  // 这种情况直接走下面的文字兜底，视觉上始终能看出是哪个引擎。
+  if (raw && !isImage && raw.includes(':') && hasIcon(raw)) {
     return <Icon icon={raw} className={cx('shrink-0', size)} aria-hidden="true" />;
   }
 
