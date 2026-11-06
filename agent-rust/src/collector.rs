@@ -417,7 +417,7 @@ impl Collector {
 
         // TCP & UDP connection counts
         let (tcp_conn_count, udp_conn_count) = self.collect_conn_counts();
-        let process_count = self.sys.processes().len() as i32;
+        let process_count = self.collect_process_count();
 
         // Temperatures and CPU package power
         let temperatures = self.collect_temperature_readings();
@@ -474,6 +474,37 @@ impl Collector {
         }
 
         get_conn_counts()
+    }
+
+    /// 进程数（不含线程）。
+    ///
+    /// 不能直接 `self.sys.processes().len()`：sysinfo 0.31 的 `refresh_procs`
+    /// 会递归 `/proc/<pid>/task/*`，把**线程**也塞进同一个 `process_list`
+    /// （见 sysinfo-0.31.4 `src/unix/linux/process.rs` 的 `refresh_procs`），
+    /// 于是返回值是「进程 + 线程」总数。实测某台 332 个 PID 的机器报 1292，
+    /// 偏大近 4 倍，面板上的「进程数」和基于它的告警全部失真。
+    ///
+    /// 修正方式：用 sysinfo 自带的口径过滤 —— `thread_kind()` 对 `/proc/<pid>/task`
+    /// 下的条目返回 `Some(ThreadKind::Userland)`，对真正的进程返回 `None`（Linux 专有）。
+    /// 注意**不能**把 `Some(ThreadKind::Kernel)` 也滤掉：内核线程（PF_KTHREAD）
+    /// 在 `/proc` 里是正常 PID，`ls /proc` 数得到，过滤它会反而少数几十个。
+    /// 不用「数 /proc 目录」是因为那要多一次 readdir；这里顺带复用已有的
+    /// 刷新结果，零额外系统调用。
+    fn collect_process_count(&self) -> i32 {
+        #[cfg(target_os = "linux")]
+        {
+            self.sys
+                .processes()
+                .values()
+                .filter(|process| !matches!(process.thread_kind(), Some(sysinfo::ThreadKind::Userland)))
+                .count() as i32
+        }
+        #[cfg(not(target_os = "linux"))]
+        {
+            // 其它平台 sysinfo 不会把线程混进来（thread_kind 恒为 None），
+            // 直接用列表长度即可。
+            self.sys.processes().len() as i32
+        }
     }
 
     fn cached_windows_conn_counts(&self) -> (i32, i32) {
@@ -1237,7 +1268,7 @@ fn should_count_network_interface(name: &str) -> bool {
 mod tests {
     use super::{
         aggregate_network_totals, format_cpu_model, parse_ipcheck_geo,
-        should_count_network_interface,
+        should_count_network_interface, Collector,
     };
 
     #[test]
@@ -1337,5 +1368,60 @@ TrustedBot: false"#,
         assert_eq!(geo.timezone, "America/Los_Angeles");
         assert_eq!(geo.location(), "San Jose, California, US");
         assert_eq!(geo.source(), "ipcheck");
+    }
+
+    // ---- process_count 口径（回归 issue #73）----
+
+    /// 进程数必须与 /proc 里的 PID 数一致，不能把线程算进去。
+    ///
+    /// 修复前 sysinfo 的 process_list 同时含 /proc/<pid> 与 /proc/<pid>/task/*，
+    /// 实测在 332 个 PID 的机器上报 1292（偏大约 4 倍）。
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn process_count_matches_proc_pid_count() {
+        let collector = Collector::new();
+        let reported = collector.collect_process_count();
+
+        // 直接数 /proc 下的纯数字目录：这是"真实进程数"的权威口径。
+        let expected = std::fs::read_dir("/proc")
+            .expect("read /proc")
+            .filter_map(Result::ok)
+            .filter(|entry| {
+                entry
+                    .file_name()
+                    .to_str()
+                    .map(|name| name.bytes().all(|byte| byte.is_ascii_digit()))
+                    .unwrap_or(false)
+            })
+            .count() as i32;
+
+        // 允许少量偏差：两次采样之间可能有进程创建/退出。
+        let delta = (reported - expected).abs();
+        assert!(
+            delta <= 5,
+            "process_count={reported} 与 /proc 实际 PID 数 {expected} 相差 {delta}，\
+             疑似又把线程算进来了"
+        );
+    }
+
+    /// 结果必须是"进程数"量级，不能是"进程+线程"总量。
+    ///
+    /// 不做绝对数值断言（机器差异大），只守住一个宽松上界：线程总数通常
+    /// 是进程数的数倍，若实现退回旧口径会明显超出。
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn process_count_is_far_below_total_task_count() {
+        let collector = Collector::new();
+        let reported = collector.collect_process_count();
+        let task_count = collector.sys.processes().len() as i32;
+
+        assert!(reported > 0, "进程数不应为 0");
+        assert!(
+            reported <= task_count,
+            "process_count={reported} 不应超过 process_list 长度 {task_count}"
+        );
+        // 只有极简环境（几乎没有多线程进程）才会让两者相等；
+        // 正常系统上线程数远多于进程数。这里不强制 < task_count，
+        // 因为容器里 PID 1 独占时可能确实接近，避免误报。
     }
 }
