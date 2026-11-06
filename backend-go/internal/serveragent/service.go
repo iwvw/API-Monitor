@@ -360,6 +360,52 @@ func New(cfg config.Config) *Service {
 						}()
 					}
 				}
+			case "agent:offline_state":
+				// 断线期间缓存、重连后补发的历史采样。
+				//
+				// 与 agent:state 的区别：payload 多带 recorded_at，落库要用**原始
+				// 采集时刻**，否则整段离线数据会被压到重连那一刻，曲线出现一根
+				// 尖刺而不是补回原本的时间段。也正因如此不能复用 agent:state
+				// —— 那条路径会把 state 当成"现在"来写 cached_info / 广播。
+				var offline struct {
+					Sequence   uint64                 `json:"sequence"`
+					RecordedAt string                 `json:"recorded_at"`
+					State      map[string]interface{} `json:"state"`
+				}
+				if err := json.Unmarshal(data, &offline); err != nil || len(offline.State) == 0 {
+					applog.Warn(s.backgroundCtx, "serveragent", "invalid offline state payload",
+						"server_id", serverID, "error", fmt.Sprint(err))
+					break
+				}
+				if serverID == "" {
+					break
+				}
+				stateCopy := offline.State
+				recordedAt := strings.TrimSpace(offline.RecordedAt)
+				// 与实时路径一致：带上主机静态信息（总内存/磁盘容量/核心数），
+				// 否则 buildCachedInfo 拿不到分母，算出来的百分比全是 0。
+				var hostInfo map[string]interface{}
+				if conn, exists := registry.Get(serverID); exists {
+					hostInfo = conn.GetMetadata()
+				}
+				go func() {
+					ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+					defer cancel()
+					db, err := s.open(ctx)
+					if err != nil {
+						applog.Warn(ctx, "serveragent", "open db for offline metrics failed",
+							"server_id", serverID, "error", err.Error())
+						return
+					}
+					defer db.Close()
+					// 转成与实时路径同构的 map，复用 buildCachedInfo 的字段归一化
+					// （否则离线数据会缺 cpu_usage/mem 之类的派生字段）。
+					cached := s.buildCachedInfo(stateCopy, hostInfo)
+					if err := s.persistMetricsAt(ctx, db, serverID, cached, recordedAt); err != nil {
+						applog.Warn(ctx, "serveragent", "persist offline metrics failed",
+							"server_id", serverID, "recorded_at", recordedAt, "error", err.Error())
+					}
+				}()
 			case "agent:upgrade_status":
 				// Agent 自更新结果上报（后台 updater 下载/替换成功或失败）。
 				// 写入连接元数据，供批量升级等流程中的重连检测提前判定成败，

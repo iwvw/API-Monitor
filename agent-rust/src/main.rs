@@ -19,6 +19,7 @@ mod relay_http;
 mod relay_server;
 #[cfg(test)]
 mod relay_server_test;
+mod offline_buffer;
 mod selfmetrics;
 mod tcp_forwarder;
 mod remote_desktop;
@@ -28,6 +29,7 @@ use futures_util::{SinkExt, StreamExt};
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::net::SocketAddr;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tokio::net::TcpStream;
@@ -41,6 +43,7 @@ use crate::collector::{AgentSelfMetrics, Collector, DockerInfo, State};
 use crate::config::{CliArgs, Config};
 use crate::docker::DockerBridge;
 use crate::file_manager::FileManager;
+use crate::offline_buffer::OfflineBuffer;
 use crate::protocol::*;
 use crate::selfmetrics::SelfMetricsSource;
 use crate::pty::PtySession;
@@ -156,6 +159,99 @@ fn stamp_state(state: &mut State, sequence: u64, sample_interval_ms: u64) {
     state.sample_interval_ms = sample_interval_ms;
 }
 
+/// 断线期间的离线采样器。
+///
+/// 为什么存在：采集循环原先跑在「已认证连接」内部（见 run_client），连接一断
+/// 整条链路就停 —— 断网 5 分钟，面板上就是 5 分钟空洞，而 CPU/内存/磁盘本来
+/// 都不依赖网络。这个任务与连接解耦，**只在断开期间**采样并写入缓冲：
+///  - 连着时什么都不做（一次 collect 都不跑），不增加任何常态开销；
+///  - 断开时按 report_interval 采样，重连后由 `replay_offline_buffer` 补发。
+///
+/// 不重构主采样路径是刻意的：那条路径承担实时上报 + 自监控 + docker 摘要，
+/// 改动面大、回归风险高；离线场景单独一条轻量旁路更安全。
+async fn run_offline_sampler(
+    store: Arc<OfflineStateStore>,
+    collector: Arc<tokio::sync::Mutex<Collector>>,
+    report_interval_ms: u64,
+) {
+    let mut timer = tokio::time::interval(Duration::from_millis(report_interval_ms.max(500)));
+    timer.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    let mut sequence = 0u64;
+    loop {
+        timer.tick().await;
+        if store.is_connected() {
+            continue;
+        }
+        let state = {
+            let mut guard = collector.lock().await;
+            guard.collect_state()
+        };
+        sequence = sequence.wrapping_add(1);
+        store.buffer_sample(sequence, state);
+    }
+}
+
+/// 连接状态 + 离线缓冲的共享句柄。
+struct OfflineStateStore {
+    buffer: OfflineBuffer,
+    connected: AtomicBool,
+}
+
+impl OfflineStateStore {
+    fn new(buffer: OfflineBuffer) -> Self {
+        Self {
+            buffer,
+            connected: AtomicBool::new(false),
+        }
+    }
+
+    fn set_connected(&self, connected: bool) {
+        self.connected.store(connected, Ordering::Relaxed);
+    }
+
+    fn is_connected(&self) -> bool {
+        self.connected.load(Ordering::Relaxed)
+    }
+
+    /// 把一次采样写进缓冲。只保留回放需要的字段，不存整个 State 的旁支数据。
+    fn buffer_sample(&self, sequence: u64, mut state: State) {
+        // 与实时路径保持一致：docker 摘要在离线采样里不查（代价高、价值低）。
+        state.docker = DockerInfo::default();
+        state.network_quality = None;
+
+        let timestamp_ms = state.timestamp_ms;
+        // 回放时后端需要原始采集时刻，否则整段离线数据会被压到重连那一刻。
+        let recorded_at = chrono::DateTime::<chrono::Utc>::from_timestamp_millis(
+            timestamp_ms as i64,
+        )
+        .map(|dt| dt.to_rfc3339())
+        .unwrap_or_default();
+
+        self.buffer.push(sequence, recorded_at, state);
+    }
+}
+
+/// 重连后补发离线缓冲。
+///
+/// 走 `normal` 通道：补发量大但不是「必须立刻到」的数据，挤占高优先级
+/// （ping/任务结果）会导致实时控制面变慢。补发条数在自监控里可观测。
+async fn replay_offline_buffer(store: &OfflineStateStore, outbound: &OutboundQueues) {
+    let entries = store.buffer.drain();
+    if entries.is_empty() {
+        return;
+    }
+    println!("[Agent] 补发 {} 条离线采样", entries.len());
+    for entry in entries {
+        // 与服务端约定的事件：agent:offline_state，payload 形如
+        // { sequence, recorded_at, state }，服务端按 recorded_at 落库。
+        let msg = format_event(EVENT_AGENT_OFFLINE_STATE, &entry);
+        if outbound.send_normal(msg).await.is_err() {
+            // 通道已关（连接又断了）：剩下的丢掉，不让缓冲无限增长。
+            break;
+        }
+    }
+}
+
 fn docker_summary(info: &DockerInfo) -> DockerInfo {
     DockerInfo {
         installed: info.installed,
@@ -173,6 +269,7 @@ fn docker_summary(info: &DockerInfo) -> DockerInfo {
 async fn sample_state_with_self_metrics(
     collector: &tokio::sync::Mutex<Collector>,
     outbound: &OutboundQueues,
+    offline: &OfflineStateStore,
 ) -> State {
     let started = Instant::now();
     let mut state = collector.lock().await.collect_state();
@@ -189,6 +286,8 @@ async fn sample_state_with_self_metrics(
         outbound_backlog: outbound.backlog(),
         rss_bytes: snapshot.rss_bytes,
         cpu_percent: snapshot.cpu_percent,
+        offline_buffered: offline.buffer.len() as u64,
+        offline_dropped: offline.buffer.dropped(),
     });
     state
 }
@@ -348,6 +447,14 @@ async fn main() {
     // 自监控计数器跨连接存活：重连次数/丢弃计数若每次连接都清零，
     // 面板上永远看不到"这台主机在反复掉线"。
     let self_metrics = SelfMetricsSource::new();
+    // 离线缓冲 + 采样器：与连接解耦，断网期间继续采样，重连后补发。
+    let offline_store = Arc::new(OfflineStateStore::new(OfflineBuffer::default()));
+    {
+        let store = offline_store.clone();
+        let collector_clone = collector.clone();
+        let interval = config.report_interval;
+        tokio::spawn(run_offline_sampler(store, collector_clone, interval));
+    }
 
     #[cfg(unix)]
     tokio::spawn(proxy_traffic::run(config.clone()));
@@ -373,6 +480,7 @@ async fn main() {
             task_progress.clone(),
             remote_desktop.clone(),
             self_metrics.clone(),
+            offline_store.clone(),
         )
         .await
         {
@@ -383,6 +491,9 @@ async fn main() {
                 eprintln!("[Agent] 运行错误: {}", e);
             }
         }
+        // 断开后立刻标记，让离线采样器开始补采。放在这里而不是 run_client
+        // 内部，是因为任何返回路径（正常关闭/错误/panic 前的 unwind）都要覆盖。
+        offline_store.set_connected(false);
         if connected_since.elapsed() >= Duration::from_secs(60) {
             next_reconnect_delay = base_reconnect_delay;
         }
@@ -442,6 +553,7 @@ async fn run_client(
     task_progress: Arc<Mutex<HashMap<String, TaskProgress>>>,
     remote_desktop: Arc<RemoteDesktopManager>,
     self_metrics: SelfMetricsSource,
+    offline_store: Arc<OfflineStateStore>,
 ) -> Result<(), String> {
     // 直接 WebSocket 连接（无需 polling handshake）
     let mut ws_url = if config.server_url.starts_with("https://") {
@@ -558,6 +670,7 @@ async fn run_client(
     let network_targets_clone = network_targets.clone();
     let latest_network_quality_clone = latest_network_quality.clone();
     let remote_desktop_clone = remote_desktop.clone();
+    let offline_store_clone = offline_store.clone();
 
     let mut read_task = tokio::spawn(async move {
         while let Some(res) = ws_reader.next().await {
@@ -599,6 +712,12 @@ async fn run_client(
                         println!("[Agent] ✅ 认证成功");
                         *authenticated_clone.lock().await = true;
 
+                        // 认证成功后：先标记「已连接」（离线采样器随即停采），
+                        // 再把断线期间攒的样本补发出去。顺序不能反 —— 反了会
+                        // 一边回放一边继续往缓冲里塞新样本。
+                        offline_store_clone.set_connected(true);
+                        replay_offline_buffer(&offline_store_clone, &tx_clone).await;
+
                         // Parse network_targets from auth payload if present
                         if let Some(targets_val) = data.get("network_targets") {
                             if let Ok(targets) = serde_json::from_value::<Vec<NetworkQualityTarget>>(
@@ -615,6 +734,7 @@ async fn run_client(
                         let cfg = config_clone.clone();
                         let network_targets_probe = network_targets_clone.clone();
                         let latest_network_quality_probe = latest_network_quality_clone.clone();
+                        let offline_store_task = offline_store_clone.clone();
 
                         tokio::spawn(async move {
                             let docker_cache =
@@ -700,6 +820,7 @@ async fn run_client(
                             let mut state = sample_state_with_self_metrics(
                                 &collector_loop,
                                 &auth_tx,
+                                &offline_store_task,
                             )
                             .await;
                             stamp_state(&mut state, state_sequence, cfg.report_interval);
@@ -738,6 +859,7 @@ async fn run_client(
                                         let mut state = sample_state_with_self_metrics(
                                             &collector_loop,
                                             &auth_tx,
+                                            &offline_store_task,
                                         )
                                         .await;
                                         stamp_state(&mut state, state_sequence, cfg.report_interval);
@@ -3314,12 +3436,9 @@ fn handle_action(action: &str, cli: &CliArgs) -> Result<(), String> {
         let source = SelfMetricsSource::new();
         let snapshot = source.snapshot();
         state.self_metrics = Some(AgentSelfMetrics {
-            dropped_low: 0,
-            reconnect_count: 0,
-            collect_state_us: 0,
-            outbound_backlog: 0,
             rss_bytes: snapshot.rss_bytes,
             cpu_percent: snapshot.cpu_percent,
+            ..AgentSelfMetrics::default()
         });
         let json = serde_json::to_string_pretty(&state)
             .map_err(|e| format!("serialize sample state failed: {}", e))?;

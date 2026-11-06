@@ -165,6 +165,12 @@ pub struct AgentSelfMetrics {
     pub rss_bytes: u64,
     /// Agent 自身 CPU 使用率（%，单核口径，两次采样之间的增量）。
     pub cpu_percent: f64,
+    /// 离线缓冲里当前待补发的条数。
+    #[serde(default)]
+    pub offline_buffered: u64,
+    /// 离线缓冲因容量上限挤掉的条数（累计）。
+    #[serde(default)]
+    pub offline_dropped: u64,
 }
 
 pub struct Collector {

@@ -4160,3 +4160,72 @@ func TestBuildInfoStructOmitsAgentSelfWhenAbsent(t *testing.T) {
 		t.Fatal("缺少 self_metrics 时不应生成 agentSelf")
 	}
 }
+
+// ---- 离线补发（issue #76）----
+
+// 补发必须按原始采集时刻落库，否则整段离线数据会被压到重连那一刻。
+func TestPersistMetricsAtUsesProvidedTimestamp(t *testing.T) {
+	service, db := testService(t)
+	ctx := context.Background()
+
+	_, err := db.ExecContext(ctx, `INSERT INTO server_accounts (id, name, host, port, username, auth_type)
+		VALUES ('offline-ts', 'offline', '127.0.0.1', 22, 'root', 'password')`)
+	if err != nil {
+		t.Fatalf("insert account: %v", err)
+	}
+
+	recordedAt := "2026-11-06T01:02:03Z"
+	if err := service.persistMetricsAt(ctx, db, "offline-ts",
+		map[string]interface{}{"cpu": 42.0}, recordedAt); err != nil {
+		t.Fatalf("persistMetricsAt: %v", err)
+	}
+
+	var got string
+	if err := db.QueryRow(`SELECT recorded_at FROM server_metrics_history WHERE server_id = 'offline-ts'`).Scan(&got); err != nil {
+		t.Fatalf("query recorded_at: %v", err)
+	}
+	if got != recordedAt {
+		t.Fatalf("recorded_at = %q, want %q", got, recordedAt)
+	}
+}
+
+// 不带时间戳时退回当前时间（老 Agent / 实时路径不受影响）。
+func TestPersistMetricsAtFallsBackToNow(t *testing.T) {
+	service, db := testService(t)
+	ctx := context.Background()
+
+	_, err := db.ExecContext(ctx, `INSERT INTO server_accounts (id, name, host, port, username, auth_type)
+		VALUES ('offline-now', 'offline', '127.0.0.1', 22, 'root', 'password')`)
+	if err != nil {
+		t.Fatalf("insert account: %v", err)
+	}
+
+	// 非法时间戳也必须退回当前时间，而不是把垃圾写进 DATETIME 列
+	if err := service.persistMetricsAt(ctx, db, "offline-now",
+		map[string]interface{}{"cpu": 1.0}, "not-a-timestamp"); err != nil {
+		t.Fatalf("persistMetricsAt: %v", err)
+	}
+
+	var got string
+	if err := db.QueryRow(`SELECT recorded_at FROM server_metrics_history WHERE server_id = 'offline-now'`).Scan(&got); err != nil {
+		t.Fatalf("query recorded_at: %v", err)
+	}
+	if got == "not-a-timestamp" {
+		t.Fatal("非法时间戳不应被写入 recorded_at")
+	}
+	if got == "" {
+		t.Fatal("recorded_at 不应为空")
+	}
+}
+
+func TestNormalizeRecordedAtRejectsGarbage(t *testing.T) {
+	if v := normalizeRecordedAt(""); v != nil {
+		t.Fatalf("空串应返回 nil, got %#v", v)
+	}
+	if v := normalizeRecordedAt("2026-13-45"); v != nil {
+		t.Fatalf("非法日期应返回 nil, got %#v", v)
+	}
+	if v := normalizeRecordedAt("2026-11-06T01:02:03Z"); v != "2026-11-06T01:02:03Z" {
+		t.Fatalf("合法 RFC3339 应原样返回, got %#v", v)
+	}
+}

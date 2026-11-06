@@ -4,6 +4,12 @@ use serde::{Deserialize, Serialize};
 pub const EVENT_AGENT_CONNECT: &str = "agent:connect";
 pub const EVENT_AGENT_HOST_INFO: &str = "agent:host_info";
 pub const EVENT_AGENT_STATE: &str = "agent:state";
+/// 断线期间缓存、重连后补发的历史采样。
+///
+/// 用独立事件而不是复用 agent:state：补发的 payload 多带 `recorded_at`
+/// 与 `sequence`，服务端要按原始时间落库而不是「现在」，两者语义不同；
+/// 混在一个事件里会让服务端不得不靠字段存在性猜意图。
+pub const EVENT_AGENT_OFFLINE_STATE: &str = "agent:offline_state";
 pub const EVENT_AGENT_UPGRADE_STATUS: &str = "agent:upgrade_status";
 pub const EVENT_AGENT_TASK_RESULT: &str = "agent:task_result";
 pub const EVENT_DASHBOARD_AUTH_OK: &str = "dashboard:auth_ok";
