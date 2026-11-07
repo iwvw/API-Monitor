@@ -51,6 +51,8 @@ type Settings struct {
 	DisabledModels []string `json:"disabledModels"`
 	// AccountStrategy 是多账号选号策略：first（默认）/ round-robin / least-used。
 	AccountStrategy string `json:"accountStrategy"`
+	// AutoCheckin 是每日自动签到开关（站点时区 9 点与 21 点各一次）。
+	AutoCheckin bool `json:"autoCheckin"`
 	// Accounts 账号凭据。含 token 与 refresh token，仅服务端可见，
 	// 下发前端前必须经 toAccountView() 脱敏。
 	Accounts []Account `json:"accounts"`
@@ -61,6 +63,7 @@ func defaultSettings() Settings {
 		Enabled:         false,
 		DisabledModels:  []string{},
 		AccountStrategy: accountpick.First,
+		AutoCheckin:     true,
 		Accounts:        []Account{},
 	}
 }
@@ -123,6 +126,9 @@ type Service struct {
 	// pointsCache 是账号积分快照（短 TTL），供列表秒显、避免每次进页面都打上游。
 	pointsMu    sync.Mutex
 	pointsCache map[string]pointsSnapshot
+
+	// checkinOnce 保证签到调度器只启动一次。
+	checkinOnce sync.Once
 
 	externalPool ProxyPoolSelector
 }
@@ -515,6 +521,8 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.handleTest(w, r)
 	case path == "/api/raccoon/usage":
 		s.handleUsage(w, r)
+	case path == "/api/raccoon/checkin":
+		s.handleCheckin(w, r)
 	case path == "/api/raccoon/models":
 		s.handleModels(w, r)
 	case path == "/api/raccoon/models/toggle":
@@ -601,6 +609,7 @@ func (s *Service) publicSettings() map[string]interface{} {
 		"proxyPoolId":     st.ProxyPoolID,
 		"disabledModels":  st.DisabledModels,
 		"accountStrategy": normalizeStrategy(st.AccountStrategy),
+		"autoCheckin":     st.AutoCheckin,
 		"accounts":        views,
 	}
 }

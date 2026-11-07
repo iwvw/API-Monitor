@@ -51,7 +51,11 @@ type Account struct {
 	CreatedAt   string `json:"createdAt,omitempty"`
 	// LastRefreshAt 为 RFC3339（UTC）。
 	LastRefreshAt string `json:"lastRefreshAt,omitempty"`
-	LastError     string `json:"lastError,omitempty"`
+	// LastCheckinAt 是最近一次签到成功的时刻（RFC3339，UTC）。
+	LastCheckinAt string `json:"lastCheckinAt,omitempty"`
+	// CheckinDisabled 是签到停用：与转发停用相互独立。
+	CheckinDisabled bool   `json:"checkinDisabled,omitempty"`
+	LastError       string `json:"lastError,omitempty"`
 }
 
 // AccountView 是下发前端的账号视图：不含任何 token。
@@ -69,6 +73,8 @@ type AccountView struct {
 	CooldownSeconds  int64  `json:"cooldownSeconds,omitempty"`
 	CallCount        int64  `json:"callCount"`
 	LastRefreshAt    string `json:"lastRefreshAt,omitempty"`
+	LastCheckinAt    string `json:"lastCheckinAt,omitempty"`
+	CheckinDisabled  bool   `json:"checkinDisabled"`
 	LastError        string `json:"lastError,omitempty"`
 }
 
@@ -85,8 +91,10 @@ func (s *Service) toAccountView(a Account) AccountView {
 		Cooling:       s.inCooldown(a.ID, time.Now()),
 		CallCount:     s.callDisplay(a.ID),
 		LastRefreshAt: a.LastRefreshAt,
+		LastCheckinAt: a.LastCheckinAt,
 		LastError:     a.LastError,
 	}
+	view.CheckinDisabled = a.CheckinDisabled
 	if until, cooled := s.cooldownUntilOf(a.ID, time.Now()); cooled {
 		if left := int64(time.Until(until).Seconds()); left > 0 {
 			view.CooldownSeconds = left
@@ -262,7 +270,8 @@ func (s *Service) handleToggleAccount(w http.ResponseWriter, r *http.Request, id
 		return
 	}
 	var body struct {
-		Disabled bool `json:"disabled"`
+		Disabled        *bool `json:"disabled"`
+		CheckinDisabled *bool `json:"checkinDisabled"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		responseJSON(w, http.StatusBadRequest, map[string]interface{}{"success": false, "error": "请求体解析失败"})
@@ -273,9 +282,19 @@ func (s *Service) handleToggleAccount(w http.ResponseWriter, r *http.Request, id
 		responseJSON(w, http.StatusNotFound, map[string]interface{}{"success": false, "error": "账号不存在"})
 		return
 	}
-	acc.Disabled = body.Disabled
-	if !body.Disabled {
-		acc.LastError = ""
+	// 两个开关互相独立：只传哪个就改哪个，都不传视为无效请求。
+	if body.Disabled == nil && body.CheckinDisabled == nil {
+		responseJSON(w, http.StatusBadRequest, map[string]interface{}{"success": false, "error": "缺少 disabled 或 checkinDisabled"})
+		return
+	}
+	if body.Disabled != nil {
+		acc.Disabled = *body.Disabled
+		if !*body.Disabled {
+			acc.LastError = ""
+		}
+	}
+	if body.CheckinDisabled != nil {
+		acc.CheckinDisabled = *body.CheckinDisabled
 	}
 	if err := s.upsertAccount(r.Context(), acc); err != nil {
 		responseJSON(w, http.StatusInternalServerError, map[string]interface{}{"success": false, "error": err.Error()})
