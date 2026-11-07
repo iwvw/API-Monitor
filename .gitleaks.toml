@@ -128,6 +128,25 @@ paths = [
 ]
 
 # ---------------------------------------------------------------------------
+# AutoClaw client fingerprint (X-Auth-Sign appId / appKey).
+#
+# `X-Auth-Sign = MD5(appId & ts & appKey)` is the desktop client's request
+# fingerprint, and both constants ship identically inside every official
+# AutoClaw build (verified against the app.asar of both the CN and INTL
+# builds). They identify *the client application*, not a user: knowing them
+# grants no account access, and they are required for the signature to verify
+# at all -- which is why they are hard-coded rather than configured.
+#
+# Same class as the Antigravity OAuth application credentials above. Scoped to
+# the single file that holds them: the same value anywhere else still fires.
+# ---------------------------------------------------------------------------
+[[allowlists]]
+description = "AutoClaw desktop client fingerprint appId/appKey (upstream.go)."
+paths = [
+  '''^backend-go/internal/autoclaw/upstream\.go$''',
+]
+
+# ---------------------------------------------------------------------------
 # Documentation, UI examples and test fixtures.
 #
 # These locations legitimately contain placeholder credentials, dummy values
