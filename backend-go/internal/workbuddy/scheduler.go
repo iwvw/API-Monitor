@@ -178,15 +178,11 @@ func (s *Service) CheckinAll(ctx context.Context) []map[string]interface{} {
 		if !checkinEligible(a) {
 			continue
 		}
-		item := map[string]interface{}{"accountId": a.ID, "nickname": a.Nickname}
-		if !checkinSupported(a) {
+		item := map[string]interface{}{"accountId": a.ID, "nickname": a.Nickname, "region": normalizeRegion(a.Region)}
+		if !activityRewardSupported(a) {
 			item["success"] = true
 			item["status"] = "skipped"
-			if normalizeRegion(a.Region) == regionIntl {
-				item["message"] = "国际版无签到接口，积分走「每日活跃奖励」（每次活跃自动发放）"
-			} else {
-				item["message"] = regionLabel(a.Region) + "账号不参与签到活动"
-			}
+			item["message"] = regionLabel(a.Region) + "账号不参与签到活动"
 			results = append(results, item)
 			continue
 		}

@@ -45,34 +45,26 @@ type CheckinResult struct {
 	StreakDays int64 `json:"streakDays,omitempty"`
 }
 
-// checkinSupported 报告账号是否属于签到体系（仅国内版）。
-// 国际版同接口返回 10001「签到活动未开启或已过期」，办公版返回
-// 10001「企业账号不支持该操作」，因此除国内版外一律跳过，避免无效请求与错误日志。
-func checkinSupported(acc Account) bool {
-	return normalizeRegion(acc.Region) == regionCN
-}
-
 // activitySupported 报告账号所在区域是否支持「每日活跃」上报。
 //
-// 国际版没有签到接口，改为「每日活跃奖励」：官方文档《订阅政策》的
+// 国际版没有独立签到活动档期，改为「每日活跃奖励」：官方文档《订阅政策》的
 // 「限时每日活跃奖励说明」写明——当日通过客户端发起至少一次有效 AI 对话/任务
 // 即视为活跃，Free 30 积分/天、Pro 50 积分/天，系统次日自动发放，无需手动领取。
 // 这里用与国内版相同的 /v2/report 事件上报（chat_request_send）尽力达成活跃条件。
 //
 // 办公版（wb）是企业账号，同样不参与该活动。
 func activitySupported(acc Account) bool {
-	region := normalizeRegion(acc.Region)
-	return region == regionCN || region == regionIntl
+	return activityRewardSupported(acc)
 }
 
 // activityModelFor 返回活跃上报里应申报的模型 id/名称。
 //
-// 必须用**该区域真实存在**的模型：国际版目录里没有国内的 deepseek-v4-flash，
-// 申报一个不存在的模型会让上游判定为无效请求，从而不计入活跃。
-// 国际版取 deepseek-v4.1-flash-sg（来自 /v3/config 的 models 列表）。
+// 必须用**该区域真实存在**的模型：申报一个不存在的模型会让上游判定为无效请求，
+// 从而不计入活跃。国际版取 deepseek-v4.1-flash（实测可用且 credit=0，
+// 参考实现 Agent2Providers 的缺省首选）。
 func activityModelFor(region string) (id, name string) {
 	if normalizeRegion(region) == regionIntl {
-		return "deepseek-v4.1-flash-sg", "DeepSeek V4.1 Flash"
+		return "deepseek-v4.1-flash", "DeepSeek V4.1 Flash"
 	}
 	return "deepseek-v4-flash", "DeepSeek V4 Flash"
 }
@@ -234,12 +226,18 @@ func webHeaders(acc *Account) func(*http.Request) {
 }
 
 // dailyCheckin 执行一次签到。重复签到返回 already 状态而非错误。
+//
+// 国内版走独立的签到接口；国际版走「探测活动 → 条件领取 → 活跃保活」
+// （见 checkin_activity.go）；办公版企业账号不参与。
 func (s *Service) dailyCheckin(ctx context.Context, acc Account) (CheckinResult, error) {
 	if strings.TrimSpace(acc.AccessToken) == "" {
 		return CheckinResult{}, fmt.Errorf("账号缺少 access token")
 	}
-	if !checkinSupported(acc) {
-		return CheckinResult{Status: "skipped", Message: regionLabel(acc.Region) + "无签到体系，已跳过"}, nil
+	if !activityRewardSupported(acc) {
+		return CheckinResult{Status: "skipped", Message: regionLabel(acc.Region) + "账号不参与签到活动"}, nil
+	}
+	if normalizeRegion(acc.Region) == regionIntl {
+		return s.dailyCheckinActivity(ctx, acc)
 	}
 	region := normalizeRegion(acc.Region)
 	ctx, cancel := context.WithTimeout(ctx, checkinQueryTimeout)

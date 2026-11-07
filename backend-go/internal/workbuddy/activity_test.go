@@ -28,7 +28,7 @@ func TestActivitySupported(t *testing.T) {
 // TestActivityModelFor 验证活跃上报申报的模型必须是该区域真实存在的模型，
 // 否则上游会判为无效请求而不计入活跃。
 func TestActivityModelFor(t *testing.T) {
-	if id, name := activityModelFor(regionIntl); id != "deepseek-v4.1-flash-sg" || name == "" {
+	if id, name := activityModelFor(regionIntl); id != "deepseek-v4.1-flash" || name == "" {
 		t.Errorf("intl model = (%q,%q)，应为国际版真实模型", id, name)
 	}
 	if id, name := activityModelFor(regionCN); id != "deepseek-v4-flash" || name == "" {

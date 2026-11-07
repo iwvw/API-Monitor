@@ -195,6 +195,11 @@ type Service struct {
 	// rr 是 round-robin 策略的轮询游标（按原始列表下标锚定）。
 	rr accountpick.Cursor
 
+	// intlSessions 是国际版网页 session Cookie 的进程内缓存（按账号 ID）。
+	// 只放内存、不落盘：Cookie 绑定账号身份，落盘会让备份/导出带上额外凭据。
+	intlSessionMu sync.Mutex
+	intlSessions  map[string]intlWebSession
+
 	externalPool ProxyPoolSelector
 }
 
@@ -217,6 +222,7 @@ func New(cfg config.Config) *Service {
 		callBase:      map[string]int64{},
 		callPending:   map[string]int64{},
 		creditDayUsed: map[string]float64{},
+		intlSessions:  map[string]intlWebSession{},
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
