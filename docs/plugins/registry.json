@@ -8,23 +8,38 @@
       "status": "installed",
       "kind": "builtin-plugin",
       "summary": "独立出口代理池管理：CRUD、批量添加、文件/订阅导入、批量测试探活、一键解封；可被其他插件或网关端点复用。",
-      "backendDirs": ["backend-go/internal/proxypool/"],
+      "backendDirs": [
+        "backend-go/internal/proxypool/"
+      ],
       "manifest": {
         "file": "backend-go/internal/manifest/manifest.go",
-        "lines": ["\t\t{Prefix: \"/api/proxypool\", Module: \"proxypool\", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: \"独立出口代理池管理（端点与插件可复用）\"},"]
+        "lines": [
+          "\t\t{Prefix: \"/api/proxypool\", Module: \"proxypool\", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: \"独立出口代理池管理（端点与插件可复用）\"},"
+        ]
       },
       "serverWiring": {
         "file": "backend-go/internal/server/server.go",
-        "imports": ["\"github.com/iwvw/api-monitor/backend-go/internal/proxypool\""],
+        "imports": [
+          "\"github.com/iwvw/api-monitor/backend-go/internal/proxypool\""
+        ],
         "structField": "proxypool *proxypool.Service",
         "constructor": "proxypool: proxypool.New(cfg),",
-        "injections": ["server.openai.SetProxyPoolSelector(server.proxypool)"],
-        "serveCases": ["case \"/api/proxypool\":"]
+        "injections": [
+          "server.openai.SetProxyPoolSelector(server.proxypool)"
+        ],
+        "serveCases": [
+          "case \"/api/proxypool\":"
+        ]
       },
-      "dbTables": ["proxy_pools", "proxypool_state"],
+      "dbTables": [
+        "proxy_pools",
+        "proxypool_state"
+      ],
       "dbColumnAdds": [],
       "frontend": {
-        "files": ["src/js/pages/openai/plugins/ProxyPoolPlugin.jsx"],
+        "files": [
+          "src/js/pages/openai/plugins/ProxyPoolPlugin.jsx"
+        ],
         "registrations": [
           {
             "file": "src/js/pages/openai/OpenAIPluginsPanel.jsx",
@@ -36,7 +51,9 @@
       },
       "goDeps": [],
       "systemContracts": [],
-      "docs": ["docs/standards/模型网关插件开发指南.md"],
+      "docs": [
+        "docs/standards/模型网关插件开发指南.md"
+      ],
       "uninstallSteps": [
         "rm backend-go/internal/proxypool/",
         "manifest.go：删除 /api/proxypool 前缀行",
@@ -53,7 +70,9 @@
       "status": "installed",
       "kind": "engine-plugin",
       "summary": "Claude 订阅账号（Google OAuth）转 Anthropic 兼容 API：OAuth 授权、token 管理、Claude→Gemini→v1internal 协议转换、SSE 回转。多账号选号策略（固定首个 / 轮询 / 按剩余额度，默认固定首个），带账号失败冷却、失效过滤与换号重试（最多 3 个账号），额度快照带 2 小时 TTL 与后台刷新；选号原语复用 internal/accountpick。设置面 GET 已脱敏，不再下发 token。客户端指纹对齐 CLIProxyAPI：Hub 版本由后台从官方 auto-updater manifest 动态刷新（兜底 2.24.0，含 release changelist，Cloud Code 拒绝 2.23.0 以下客户端）；生成/项目发现/模型列表统一走 daily 端点；工具调用 ID 按 Claude 上游规则清洗并去重；contents 首尾按上游要求归一化（丢弃尾部纯 thought turn、Gemini 补空 user turn）。",
-      "backendDirs": ["backend-go/internal/antigravity/"],
+      "backendDirs": [
+        "backend-go/internal/antigravity/"
+      ],
       "manifest": {
         "file": "backend-go/internal/manifest/manifest.go",
         "lines": [
@@ -63,25 +82,46 @@
       },
       "serverWiring": {
         "file": "backend-go/internal/server/server.go",
-        "imports": ["\"github.com/iwvw/api-monitor/backend-go/internal/antigravity\""],
+        "imports": [
+          "\"github.com/iwvw/api-monitor/backend-go/internal/antigravity\""
+        ],
         "structField": "antigravity *antigravity.Service",
         "constructor": "antigravity: antigravity.New(cfg),",
-        "injections": ["server.antigravity.SetProxyPoolSelector(server.proxypool)"],
-        "serveCases": ["case \"/api/antigravity\", \"/api/antigravity/v1\":"],
-        "authModules": ["antigravity-compatible"]
+        "injections": [
+          "server.antigravity.SetProxyPoolSelector(server.proxypool)"
+        ],
+        "serveCases": [
+          "case \"/api/antigravity\", \"/api/antigravity/v1\":"
+        ],
+        "authModules": [
+          "antigravity-compatible"
+        ]
       },
-      "dbTables": ["antigravity_settings", "antigravity_call_stats", "antigravity_usage_daily"],
+      "dbTables": [
+        "antigravity_settings",
+        "antigravity_call_stats",
+        "antigravity_usage_daily"
+      ],
       "dbColumnAdds": [],
       "frontend": {
-        "files": ["src/js/pages/openai/plugins/AntigravityPlugin.jsx"],
+        "files": [
+          "src/js/pages/openai/plugins/AntigravityPlugin.jsx"
+        ],
         "registrations": [
-          { "file": "src/js/pages/openai/OpenAIPluginsPanel.jsx", "kind": "PLUGINS registry entry", "id": "antigravity" }
+          {
+            "file": "src/js/pages/openai/OpenAIPluginsPanel.jsx",
+            "kind": "PLUGINS registry entry",
+            "id": "antigravity"
+          }
         ],
         "hostIntegration": ""
       },
       "goDeps": [],
       "systemContracts": [],
-      "docs": ["docs/standards/模型网关插件开发指南.md", "docs/standards/模型网关插件-antigravity方案.md"],
+      "docs": [
+        "docs/standards/模型网关插件开发指南.md",
+        "docs/standards/模型网关插件-antigravity方案.md"
+      ],
       "uninstallSteps": [
         "rm backend-go/internal/antigravity/",
         "manifest.go：删除 /api/antigravity 与 /api/antigravity/v1 前缀行",
@@ -99,7 +139,9 @@
       "status": "installed",
       "kind": "engine-plugin",
       "summary": "腾讯 CodeBuddy（copilot.tencent.com）扫码登录转 OpenAI 兼容 API：扫码登录 + token 自动刷新、上游动态模型目录（/v3/config）、对话转发（强制流式）、网关端点一键接入，以及国内版账号的每日自动签到（含连登档位兑换与抽奖）与对话活跃上报。多账号选号策略（按今日消耗（默认）/ 固定首个 / 轮询），默认「站点时区今天已消耗 credit 最少」；轮询游标复用 internal/accountpick 的原始下标锚定实现。参照 CLIProxyAPI 插件 workbuddy-cliproxy 原生实现。",
-      "backendDirs": ["backend-go/internal/workbuddy/"],
+      "backendDirs": [
+        "backend-go/internal/workbuddy/"
+      ],
       "manifest": {
         "file": "backend-go/internal/manifest/manifest.go",
         "lines": [
@@ -109,7 +151,9 @@
       },
       "serverWiring": {
         "file": "backend-go/internal/server/server.go",
-        "imports": ["\"github.com/iwvw/api-monitor/backend-go/internal/workbuddy\""],
+        "imports": [
+          "\"github.com/iwvw/api-monitor/backend-go/internal/workbuddy\""
+        ],
         "structField": "workbuddy *workbuddy.Service",
         "constructor": "workbuddy: workbuddy.New(cfg),",
         "injections": [
@@ -118,15 +162,30 @@
           "server.workbuddy.StartAutoRefresh(warmupCtx)",
           "server.workbuddy.StartCheckinScheduler(warmupCtx)"
         ],
-        "serveCases": ["case \"/api/workbuddy\", \"/api/workbuddy/v1\":"],
-        "authModules": ["workbuddy-compatible"]
+        "serveCases": [
+          "case \"/api/workbuddy\", \"/api/workbuddy/v1\":"
+        ],
+        "authModules": [
+          "workbuddy-compatible"
+        ]
       },
-      "dbTables": ["workbuddy_settings", "workbuddy_call_stats", "workbuddy_usage_daily", "workbuddy_diagnostics"],
+      "dbTables": [
+        "workbuddy_settings",
+        "workbuddy_call_stats",
+        "workbuddy_usage_daily",
+        "workbuddy_diagnostics"
+      ],
       "dbColumnAdds": [],
       "frontend": {
-        "files": ["src/js/pages/openai/plugins/WorkBuddyPlugin.jsx"],
+        "files": [
+          "src/js/pages/openai/plugins/WorkBuddyPlugin.jsx"
+        ],
         "registrations": [
-          { "file": "src/js/pages/openai/OpenAIPluginsPanel.jsx", "kind": "PLUGINS registry entry", "id": "workbuddy" }
+          {
+            "file": "src/js/pages/openai/OpenAIPluginsPanel.jsx",
+            "kind": "PLUGINS registry entry",
+            "id": "workbuddy"
+          }
         ],
         "hostIntegration": ""
       },
@@ -136,7 +195,10 @@
         "签到/活跃/连登协议见 docs/standards/模型网关插件-workbuddy方案.md 第 9 节；实现在 backend-go/internal/workbuddy/checkin.go，调度在 scheduler.go（站点时区 cron + TZ watcher，见 CONTEXT.md 时区硬规则）",
         "签到与连登类上游调用只对国内版（cn）账号发起：国际版同接口返回 code 10001「签到活动未开启或已过期」且连登接口 500，见 checkinSupported"
       ],
-      "docs": ["docs/standards/模型网关插件-workbuddy方案.md", "docs/standards/模型网关插件开发指南.md"],
+      "docs": [
+        "docs/standards/模型网关插件-workbuddy方案.md",
+        "docs/standards/模型网关插件开发指南.md"
+      ],
       "uninstallSteps": [
         "rm backend-go/internal/workbuddy/",
         "manifest.go：删除 /api/workbuddy 与 /api/workbuddy/v1 前缀行",
@@ -226,7 +288,9 @@
       "status": "installed",
       "kind": "engine-plugin",
       "summary": "网易有道 LobsterAI（龙虾）转 OpenAI 兼容 API：OAuth 本地回环/粘贴回调登录、token 自动刷新、动态模型目录（/api/models/available）、强制流式对话转发（/api/proxy/v1/chat/completions）、额度批次与到期明细（/api/user/profile-summary）、每日自动签到（/api/client-activities，+100 积分/号/天）、账号失败冷却与多账号选号策略（固定首个（默认）/ 轮询 / 按剩余额度，额度取 Account.Credits）、用量统计、网关端点一键接入。least-used 额度快照带 2 小时 TTL、转发后节流刷新与后台周期刷新；选号原语复用 internal/accountpick。协议参考开源反代 lobsterai2api 原生实现。",
-      "backendDirs": ["backend-go/internal/lobsterai/"],
+      "backendDirs": [
+        "backend-go/internal/lobsterai/"
+      ],
       "manifest": {
         "file": "backend-go/internal/manifest/manifest.go",
         "lines": [
@@ -236,7 +300,9 @@
       },
       "serverWiring": {
         "file": "backend-go/internal/server/server.go",
-        "imports": ["\"github.com/iwvw/api-monitor/backend-go/internal/lobsterai\""],
+        "imports": [
+          "\"github.com/iwvw/api-monitor/backend-go/internal/lobsterai\""
+        ],
         "structField": "lobsterai   *lobsterai.Service",
         "constructor": "lobsterai:   lobsterai.New(cfg),",
         "injections": [
@@ -244,23 +310,40 @@
           "server.lobsterai.StartCallStatsFlush(warmupCtx)",
           "server.lobsterai.StartCheckinScheduler(warmupCtx)"
         ],
-        "serveCases": ["case \"/api/lobsterai\", \"/api/lobsterai/v1\":"],
+        "serveCases": [
+          "case \"/api/lobsterai\", \"/api/lobsterai/v1\":"
+        ],
         "authModules": []
       },
-      "dbTables": ["lobsterai_settings", "lobsterai_call_stats", "lobsterai_usage_daily"],
+      "dbTables": [
+        "lobsterai_settings",
+        "lobsterai_call_stats",
+        "lobsterai_usage_daily"
+      ],
       "dbColumnAdds": [],
       "frontend": {
-        "files": ["src/js/pages/openai/plugins/LobsterAIPlugin.jsx"],
+        "files": [
+          "src/js/pages/openai/plugins/LobsterAIPlugin.jsx"
+        ],
         "registrations": [
-          { "file": "src/js/pages/openai/OpenAIPluginsPanel.jsx", "kind": "PLUGINS registry entry", "id": "lobsterai" }
+          {
+            "file": "src/js/pages/openai/OpenAIPluginsPanel.jsx",
+            "kind": "PLUGINS registry entry",
+            "id": "lobsterai"
+          }
         ],
         "hostIntegration": ""
       },
-      "goDeps": ["github.com/robfig/cron/v3"],
+      "goDeps": [
+        "github.com/robfig/cron/v3"
+      ],
       "systemContracts": [
         "上游协议事实见 docs/standards/模型网关插件-lobsterai方案.md 第 3 节；协议层集中在 backend-go/internal/lobsterai/upstream.go"
       ],
-      "docs": ["docs/standards/模型网关插件-lobsterai方案.md", "docs/standards/模型网关插件开发指南.md"],
+      "docs": [
+        "docs/standards/模型网关插件-lobsterai方案.md",
+        "docs/standards/模型网关插件开发指南.md"
+      ],
       "uninstallSteps": [
         "rm backend-go/internal/lobsterai/",
         "manifest.go：删除 /api/lobsterai 与 /api/lobsterai/v1 前缀行",
@@ -279,7 +362,9 @@
       "status": "installed",
       "kind": "engine-plugin",
       "summary": "Qoder（qoder.com）转 OpenAI 兼容 API：设备登录（nonce + PKCE 轮询换取 device token）、token 自动刷新（/api/v1/deviceToken/refresh）、加密 SSE 对话转发（身份 AES-CBC + RSA 包裹 + MD5 签名，POST api3.qoder.sh agent_chat_generation）、余额检测（/api/v2/quota/usage）、每日自动签到（/sash/api/v1/me/campaigns 列出并领取 CLAIM_BENEFIT，每日 100 Credits）、账号失败冷却与多账号选号策略（固定首个（默认）/ 轮询，选号原语复用 internal/accountpick）、用量统计、网关端点一键接入。协议参考开源反代 qoder2api（jyao0708/qoder2api）原生实现。",
-      "backendDirs": ["backend-go/internal/qoder/"],
+      "backendDirs": [
+        "backend-go/internal/qoder/"
+      ],
       "manifest": {
         "file": "backend-go/internal/manifest/manifest.go",
         "lines": [
@@ -289,7 +374,9 @@
       },
       "serverWiring": {
         "file": "backend-go/internal/server/server.go",
-        "imports": ["\"github.com/iwvw/api-monitor/backend-go/internal/qoder\""],
+        "imports": [
+          "\"github.com/iwvw/api-monitor/backend-go/internal/qoder\""
+        ],
         "structField": "qoder       *qoder.Service",
         "constructor": "qoder:       qoder.New(cfg),",
         "injections": [
@@ -298,24 +385,46 @@
           "server.qoder.StartAutoRefresh(warmupCtx)",
           "server.qoder.StartCheckinScheduler(warmupCtx)"
         ],
-        "serveCases": ["case \"/api/qoder\", \"/api/qoder/v1\":"],
+        "serveCases": [
+          "case \"/api/qoder\", \"/api/qoder/v1\":"
+        ],
         "authModules": []
       },
-      "dbTables": ["qoder_settings", "qoder_call_stats", "qoder_usage_daily"],
+      "dbTables": [
+        "qoder_settings",
+        "qoder_call_stats",
+        "qoder_usage_daily"
+      ],
       "dbColumnAdds": [],
       "frontend": {
-        "files": ["src/js/pages/openai/plugins/QoderPlugin.jsx", "src/assets/brand-icons/qoder.png"],
+        "files": [
+          "src/js/pages/openai/plugins/QoderPlugin.jsx",
+          "src/assets/brand-icons/qoder.png"
+        ],
         "registrations": [
-          { "file": "src/js/pages/openai/OpenAIPluginsPanel.jsx", "kind": "PLUGINS registry entry", "id": "qoder" },
-          { "file": "src/js/components/Icons.jsx", "kind": "brand icon export", "id": "QoderBrand" }
+          {
+            "file": "src/js/pages/openai/OpenAIPluginsPanel.jsx",
+            "kind": "PLUGINS registry entry",
+            "id": "qoder"
+          },
+          {
+            "file": "src/js/components/Icons.jsx",
+            "kind": "brand icon export",
+            "id": "QoderBrand"
+          }
         ],
         "hostIntegration": ""
       },
-      "goDeps": ["github.com/robfig/cron/v3"],
+      "goDeps": [
+        "github.com/robfig/cron/v3"
+      ],
       "systemContracts": [
         "上游协议事实见 docs/standards/模型网关插件-qoder方案.md；协议层集中在 backend-go/internal/qoder/upstream.go，签到与余额在 billing.go"
       ],
-      "docs": ["docs/standards/模型网关插件-qoder方案.md", "docs/standards/模型网关插件开发指南.md"],
+      "docs": [
+        "docs/standards/模型网关插件-qoder方案.md",
+        "docs/standards/模型网关插件开发指南.md"
+      ],
       "uninstallSteps": [
         "rm backend-go/internal/qoder/",
         "manifest.go：删除 /api/qoder 与 /api/qoder/v1 前缀行",
@@ -333,8 +442,10 @@
       "version": "1",
       "status": "installed",
       "kind": "engine-plugin",
-      "summary": "商汤小浣熊（xiaohuanxiong.com）转 OpenAI 兼容 API：支持网页登录（官方授权页 + office-raccoon 回调授权码，POST /api/web/auth/v1/login_with_authorization_code 换凭证，state 一次性校验）或手动粘贴 token；账号 token（access_token ~2h + refresh_token ~30d，刷新会轮换）自动续期、标准 OpenAI 兼容对话转发（流式/非流式、多模态、function calling 原样透传，转发前剥离 reasoning_effort）、模型目录动态发现（GET /api/web/llm/v2/model_catalog，未知模型本地白名单拦截，避免上游静默回落默认模型）、积分余额查询（/api/web/points/v1/balance）、账号失败冷却与多账号选号策略（固定首个（默认）/ 轮询，复用 internal/accountpick）、用量统计、网关端点一键接入。协议参考开源反代 xhx2api（haoxinyu1/xiaohuanxiong2api）与 raccoon2api（xxhhlk/raccoon2api）。",
-      "backendDirs": ["backend-go/internal/raccoon/"],
+      "summary": "商汤小浣熊（xiaohuanxiong.com）转 OpenAI 兼容 API：支持网页登录（官方授权页 + office-raccoon 回调授权码，POST /api/web/auth/v1/login_with_authorization_code 换凭证，state 一次性校验）或手动粘贴 token；账号 token（access_token ~2h + refresh_token ~30d，刷新会轮换）自动续期、标准 OpenAI 兼容对话转发（流式/非流式、多模态、function calling 原样透传，转发前剥离 reasoning_effort）、模型目录动态发现（GET /api/web/llm/v2/model_catalog，未知模型本地白名单拦截，避免上游静默回落默认模型）、积分余额查询（/api/web/points/v1/balance）、每日签到（/api/web/office/v3/setting_info 触发每日积分发放 + /api/web/points/v2/bills 核对今日入账，站点时区外按上游 UTC+8 自然日判定）、账号失败冷却与多账号选号策略（固定首个（默认）/ 轮询，复用 internal/accountpick）、用量统计、网关端点一键接入。协议参考开源反代 xhx2api（haoxinyu1/xiaohuanxiong2api）与 raccoon2api（xxhhlk/raccoon2api）。",
+      "backendDirs": [
+        "backend-go/internal/raccoon/"
+      ],
       "manifest": {
         "file": "backend-go/internal/manifest/manifest.go",
         "lines": [
@@ -344,7 +455,9 @@
       },
       "serverWiring": {
         "file": "backend-go/internal/server/server.go",
-        "imports": ["\"github.com/iwvw/api-monitor/backend-go/internal/raccoon\""],
+        "imports": [
+          "\"github.com/iwvw/api-monitor/backend-go/internal/raccoon\""
+        ],
         "structField": "raccoon     *raccoon.Service",
         "constructor": "raccoon:     raccoon.New(cfg),",
         "injections": [
@@ -352,18 +465,38 @@
           "server.raccoon.StartCallStatsFlush(warmupCtx)",
           "server.raccoon.StartAutoRefresh(warmupCtx)",
           "server.raccoon.StartModelRefresh(warmupCtx)",
-          "server.raccoon.ReconcileLinkedEndpoint(warmupCtx)"
+          "server.raccoon.ReconcileLinkedEndpoint(warmupCtx)",
+          "server.raccoon.StartCheckinScheduler(warmupCtx)"
         ],
-        "serveCases": ["case \"/api/raccoon\", \"/api/raccoon/v1\":"],
-        "authModules": ["apiKeyRequiresSession: /api/raccoon/accounts/export, /api/raccoon/accounts/import"]
+        "serveCases": [
+          "case \"/api/raccoon\", \"/api/raccoon/v1\":"
+        ],
+        "authModules": [
+          "apiKeyRequiresSession: /api/raccoon/accounts/export, /api/raccoon/accounts/import"
+        ]
       },
-      "dbTables": ["raccoon_settings", "raccoon_call_stats", "raccoon_usage_daily"],
+      "dbTables": [
+        "raccoon_settings",
+        "raccoon_call_stats",
+        "raccoon_usage_daily"
+      ],
       "dbColumnAdds": [],
       "frontend": {
-        "files": ["src/js/pages/openai/plugins/RaccoonPlugin.jsx", "src/assets/brand-icons/raccoon.svg"],
+        "files": [
+          "src/js/pages/openai/plugins/RaccoonPlugin.jsx",
+          "src/assets/brand-icons/raccoon.svg"
+        ],
         "registrations": [
-          { "file": "src/js/pages/openai/OpenAIPluginsPanel.jsx", "kind": "PLUGINS registry entry", "id": "raccoon" },
-          { "file": "src/js/components/Icons.jsx", "kind": "brand icon export", "id": "RaccoonBrand" }
+          {
+            "file": "src/js/pages/openai/OpenAIPluginsPanel.jsx",
+            "kind": "PLUGINS registry entry",
+            "id": "raccoon"
+          },
+          {
+            "file": "src/js/components/Icons.jsx",
+            "kind": "brand icon export",
+            "id": "RaccoonBrand"
+          }
         ],
         "hostIntegration": ""
       },
@@ -371,7 +504,9 @@
       "systemContracts": [
         "上游协议事实见开源反代 xhx2api（haoxinyu1/xiaohuanxiong2api）与 raccoon2api（xxhhlk/raccoon2api）；协议层集中在 backend-go/internal/raccoon/upstream.go，模型目录解析在 catalog.go，网页登录（授权页 + office-raccoon 回调换码）在 login.go"
       ],
-      "docs": ["docs/standards/模型网关插件开发指南.md"],
+      "docs": [
+        "docs/standards/模型网关插件开发指南.md"
+      ],
       "uninstallSteps": [
         "rm backend-go/internal/raccoon/",
         "manifest.go：删除 /api/raccoon 与 /api/raccoon/v1 前缀行",
@@ -382,6 +517,237 @@
         "删除 src/js/pages/openai/plugins/RaccoonPlugin.jsx 与 src/assets/brand-icons/raccoon.svg",
         "OpenAIPluginsPanel.jsx：移除 raccoon 注册条目（含 RaccoonBrand 图标 import 与组件 import）",
         "Icons.jsx：移除 raccoonIcon import 与 RaccoonBrand 导出"
+      ]
+    },
+    "cline": {
+      "name": "Cline",
+      "version": "1",
+      "status": "installed",
+      "kind": "engine-plugin",
+      "summary": "Cline（cline.bot）转 OpenAI 兼容 API：WorkOS OAuth2 令牌接入（accessToken 含 workos: 前缀，去掉即 401）、refresh token 自动续期（/api/v1/auth/refresh，grantType 为 camelCase，返回不带前缀需补回）、模型目录动态发现（/ai/cline/recommended-models，按响应分组归池而非按 id 前缀猜）、免费池与 ClinePass 订阅池（cline-free/ 与 cline-pass/ 是计费通道选择器，转发必须原样带）、OpenAI 兼容对话转发（恒流式 + SSE model 改写）、用量统计、网关端点一键接入。设备授权登录（WorkOS RFC 8628）后端已实现。",
+      "backendDirs": [
+        "backend-go/internal/cline/"
+      ],
+      "manifest": {
+        "file": "backend-go/internal/manifest/manifest.go",
+        "lines": [
+          "\t\t{Prefix: \"/api/cline\", Module: \"cline\", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: \"Cline 插件（cline.bot 转 OpenAI 兼容 API）管理\"},",
+          "\t\t{Prefix: \"/api/cline/v1\", Module: \"cline-compatible\", Owner: OwnerGo, Auth: AuthInternal, ResponseMode: ResponseStream, Description: \"Cline 插件 OpenAI 兼容中继（仅本机内部网关调用）\"},"
+        ]
+      },
+      "serverWiring": {
+        "file": "backend-go/internal/server/server.go",
+        "imports": [
+          "\"github.com/iwvw/api-monitor/backend-go/internal/cline\""
+        ],
+        "structField": "cline       *cline.Service",
+        "constructor": "cline:       cline.New(cfg),",
+        "injections": [
+          "server.cline.SetProxyPoolSelector(server.proxypool)",
+          "server.cline.StartCallStatsFlush(warmupCtx)",
+          "server.cline.StartAutoRefresh(warmupCtx)",
+          "server.cline.StartModelRefresh(warmupCtx)",
+          "server.cline.StartLoginSweep(warmupCtx)",
+          "server.cline.ReconcileLinkedEndpoint(warmupCtx)"
+        ],
+        "serveCases": [
+          "case \"/api/cline\", \"/api/cline/v1\":"
+        ],
+        "authModules": [
+          "apiKeyRequiresSession: /api/cline/accounts/export, /api/cline/accounts/import"
+        ]
+      },
+      "dbTables": [
+        "cline_settings",
+        "cline_call_stats",
+        "cline_usage_daily"
+      ],
+      "dbColumnAdds": [],
+      "frontend": {
+        "files": [
+          "src/js/pages/openai/plugins/ClinePlugin.jsx",
+          "src/js/pages/openai/plugins/TokenPlugin.jsx"
+        ],
+        "registrations": [
+          {
+            "file": "src/js/pages/openai/OpenAIPluginsPanel.jsx",
+            "kind": "PLUGINS registry entry",
+            "id": "cline"
+          },
+          {
+            "file": "src/js/components/Icons.jsx",
+            "kind": "brand icon export",
+            "id": "ClineBrand"
+          }
+        ],
+        "hostIntegration": ""
+      },
+      "goDeps": [],
+      "systemContracts": [],
+      "docs": [
+        "docs/standards/模型网关插件开发指南.md"
+      ],
+      "uninstallSteps": [
+        "rm -r backend-go/internal/cline/",
+        "manifest.go：删除 /api/cline 与 /api/cline/v1 前缀行",
+        "route_handlers.go：删除 cline / cline-compatible 两行",
+        "server.go：删除 import、字段、构造、注入与 apiKeyRequiresSession 前缀",
+        "DB：DROP TABLE cline_usage_daily; DROP TABLE cline_call_stats; DROP TABLE cline_settings;",
+        "DB：DELETE FROM openai_endpoints WHERE id = 'cline-internal';",
+        "删除前端插件文件与注册条目"
+      ]
+    },
+    "zcode": {
+      "name": "ZCode",
+      "version": "1",
+      "status": "installed",
+      "kind": "engine-plugin",
+      "summary": "ZCode（智谱 / Z.AI 编码代理客户端）转 OpenAI 兼容 API：订阅登录态接入（accessToken 打推理平面、jwt 打 zcode.z.ai 领取接口，两者不可互换）、国内版走 open.bigmodel.cn、国际版走 api.z.ai、静态模型目录（上游无列模型接口）、OpenAI 兼容对话转发（恒流式 + SSE model 改写）、每日签到 = 领取当天那份赠送套餐（/zcode-plan/billing/preview + /claim，X-Device-Mid 为硬要求，需人机验证时如实回报）、用量统计、网关端点一键接入。",
+      "backendDirs": [
+        "backend-go/internal/zcode/"
+      ],
+      "manifest": {
+        "file": "backend-go/internal/manifest/manifest.go",
+        "lines": [
+          "\t\t{Prefix: \"/api/zcode\", Module: \"zcode\", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: \"ZCode 插件（智谱 / Z.AI 编码套餐转 OpenAI 兼容 API）管理\"},",
+          "\t\t{Prefix: \"/api/zcode/v1\", Module: \"zcode-compatible\", Owner: OwnerGo, Auth: AuthInternal, ResponseMode: ResponseStream, Description: \"ZCode 插件 OpenAI 兼容中继（仅本机内部网关调用）\"},"
+        ]
+      },
+      "serverWiring": {
+        "file": "backend-go/internal/server/server.go",
+        "imports": [
+          "\"github.com/iwvw/api-monitor/backend-go/internal/zcode\""
+        ],
+        "structField": "zcode       *zcode.Service",
+        "constructor": "zcode:       zcode.New(cfg),",
+        "injections": [
+          "server.zcode.SetProxyPoolSelector(server.proxypool)",
+          "server.zcode.StartCallStatsFlush(warmupCtx)",
+          "server.zcode.StartCheckinScheduler(warmupCtx)",
+          "server.zcode.ReconcileLinkedEndpoint(warmupCtx)"
+        ],
+        "serveCases": [
+          "case \"/api/zcode\", \"/api/zcode/v1\":"
+        ],
+        "authModules": [
+          "apiKeyRequiresSession: /api/zcode/accounts/export, /api/zcode/accounts/import"
+        ]
+      },
+      "dbTables": [
+        "zcode_settings",
+        "zcode_call_stats",
+        "zcode_usage_daily"
+      ],
+      "dbColumnAdds": [],
+      "frontend": {
+        "files": [
+          "src/js/pages/openai/plugins/ZCodePlugin.jsx",
+          "src/js/pages/openai/plugins/TokenPlugin.jsx"
+        ],
+        "registrations": [
+          {
+            "file": "src/js/pages/openai/OpenAIPluginsPanel.jsx",
+            "kind": "PLUGINS registry entry",
+            "id": "zcode"
+          },
+          {
+            "file": "src/js/components/Icons.jsx",
+            "kind": "brand icon export",
+            "id": "ZCodeBrand"
+          }
+        ],
+        "hostIntegration": ""
+      },
+      "goDeps": [],
+      "systemContracts": [],
+      "docs": [
+        "docs/standards/模型网关插件开发指南.md"
+      ],
+      "uninstallSteps": [
+        "rm -r backend-go/internal/zcode/",
+        "manifest.go：删除 /api/zcode 与 /api/zcode/v1 前缀行",
+        "route_handlers.go：删除 zcode / zcode-compatible 两行",
+        "server.go：删除 import、字段、构造、注入与 apiKeyRequiresSession 前缀",
+        "DB：DROP TABLE zcode_usage_daily; DROP TABLE zcode_call_stats; DROP TABLE zcode_settings;",
+        "DB：DELETE FROM openai_endpoints WHERE id = 'zcode-internal';",
+        "删除前端插件文件与注册条目"
+      ]
+    },
+    "autoclaw": {
+      "name": "AutoClaw",
+      "version": "1",
+      "status": "installed",
+      "kind": "engine-plugin",
+      "summary": "AutoClaw（智谱 autoglm 桌面客户端）转 OpenAI 兼容 API：国内版走 autoglm-acceleration-api.zhipuai.cn、国际版走 autoglm-api.autoglm.ai（同一套 X-Auth-Sign 客户端指纹 MD5(appId&ts&appKey)）、refresh token 自动续期（/userapi/v1/refresh，失败降级 /agent-refresh）、模型目录动态发现（autoclaw-model-config，X-Version 版本门控）、OpenAI 兼容对话转发（恒流式 + SSE model 改写）、每日签到（autoclaw-task-complete 的 task_id=daily_signin，判成功看 reward_points 而非 HTTP 状态码）、用量统计、网关端点一键接入。转发路径落实四道上游闸：max_tokens 下限 10000、system 首句身份前缀 + 外来 harness 身份句改写、不发 X-Harness-Type、剥离 metadata。",
+      "backendDirs": [
+        "backend-go/internal/autoclaw/"
+      ],
+      "manifest": {
+        "file": "backend-go/internal/manifest/manifest.go",
+        "lines": [
+          "\t\t{Prefix: \"/api/autoclaw\", Module: \"autoclaw\", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: \"AutoClaw 插件（智谱 autoglm 转 OpenAI 兼容 API）管理\"},",
+          "\t\t{Prefix: \"/api/autoclaw/v1\", Module: \"autoclaw-compatible\", Owner: OwnerGo, Auth: AuthInternal, ResponseMode: ResponseStream, Description: \"AutoClaw 插件 OpenAI 兼容中继（仅本机内部网关调用）\"},"
+        ]
+      },
+      "serverWiring": {
+        "file": "backend-go/internal/server/server.go",
+        "imports": [
+          "\"github.com/iwvw/api-monitor/backend-go/internal/autoclaw\""
+        ],
+        "structField": "autoclaw    *autoclaw.Service",
+        "constructor": "autoclaw:    autoclaw.New(cfg),",
+        "injections": [
+          "server.autoclaw.SetProxyPoolSelector(server.proxypool)",
+          "server.autoclaw.StartCallStatsFlush(warmupCtx)",
+          "server.autoclaw.StartModelRefresh(warmupCtx)",
+          "server.autoclaw.StartCheckinScheduler(warmupCtx)",
+          "server.autoclaw.ReconcileLinkedEndpoint(warmupCtx)"
+        ],
+        "serveCases": [
+          "case \"/api/autoclaw\", \"/api/autoclaw/v1\":"
+        ],
+        "authModules": [
+          "apiKeyRequiresSession: /api/autoclaw/accounts/export, /api/autoclaw/accounts/import"
+        ]
+      },
+      "dbTables": [
+        "autoclaw_settings",
+        "autoclaw_call_stats",
+        "autoclaw_usage_daily"
+      ],
+      "dbColumnAdds": [],
+      "frontend": {
+        "files": [
+          "src/js/pages/openai/plugins/AutoClawPlugin.jsx",
+          "src/js/pages/openai/plugins/TokenPlugin.jsx"
+        ],
+        "registrations": [
+          {
+            "file": "src/js/pages/openai/OpenAIPluginsPanel.jsx",
+            "kind": "PLUGINS registry entry",
+            "id": "autoclaw"
+          },
+          {
+            "file": "src/js/components/Icons.jsx",
+            "kind": "brand icon export",
+            "id": "AutoClawBrand"
+          }
+        ],
+        "hostIntegration": ""
+      },
+      "goDeps": [],
+      "systemContracts": [],
+      "docs": [
+        "docs/standards/模型网关插件开发指南.md"
+      ],
+      "uninstallSteps": [
+        "rm -r backend-go/internal/autoclaw/",
+        "manifest.go：删除 /api/autoclaw 与 /api/autoclaw/v1 前缀行",
+        "route_handlers.go：删除 autoclaw / autoclaw-compatible 两行",
+        "server.go：删除 import、字段、构造、注入与 apiKeyRequiresSession 前缀",
+        "DB：DROP TABLE autoclaw_usage_daily; DROP TABLE autoclaw_call_stats; DROP TABLE autoclaw_settings;",
+        "DB：DELETE FROM openai_endpoints WHERE id = 'autoclaw-internal';",
+        "删除前端插件文件与注册条目"
       ]
     }
   }

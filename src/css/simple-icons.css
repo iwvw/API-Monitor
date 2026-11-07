@@ -41,6 +41,8 @@
 .si-bytedance.si--color::before { color: #3C8CFF; }
 .si-centos::before { content: "\ebe3"; }
 .si-centos.si--color::before { color: #262577; }
+.si-cline::before { content: "\ec1a"; }
+.si-cline.si--color::before { color: #18181B; }
 .si-cloudflare::before { content: "\ec24"; }
 .si-cloudflare.si--color::before { color: #F38020; }
 .si-cloudways::before { content: "\ec2a"; }
@@ -161,5 +163,7 @@
 .si-wordpress.si--color::before { color: #21759B; }
 .si-x::before { content: "\f72f"; }
 .si-x.si--color::before { color: #000000; }
+.si-zaim::before { content: "\f75e"; }
+.si-zaim.si--color::before { color: #50A135; }
 .si-zoom::before { content: "\f785"; }
 .si-zoom.si--color::before { color: #0B5CFF; }

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { EmptyState, cx } from '../../components/ui/AppPrimitives.jsx';
-import { Globe, AntigravityBrand, CodeBuddyBrand, PostHogBrand, QoderBrand, RaccoonBrand } from '../../components/Icons.jsx';
+import { Globe, AntigravityBrand, CodeBuddyBrand, PostHogBrand, QoderBrand, RaccoonBrand, ClineBrand, ZCodeBrand, AutoClawBrand } from '../../components/Icons.jsx';
 import { ProxyPoolPlugin } from './plugins/ProxyPoolPlugin.jsx';
 import { AntigravityPlugin } from './plugins/AntigravityPlugin.jsx';
 import { WorkBuddyPlugin } from './plugins/WorkBuddyPlugin.jsx';
@@ -8,6 +8,9 @@ import { LobsterAIPlugin, LobsterAIBrand } from './plugins/LobsterAIPlugin.jsx';
 import { PostHogCodePlugin } from './plugins/PostHogCodePlugin.jsx';
 import { QoderPlugin } from './plugins/QoderPlugin.jsx';
 import { RaccoonPlugin } from './plugins/RaccoonPlugin.jsx';
+import { ClinePlugin } from './plugins/ClinePlugin.jsx';
+import { ZCodePlugin } from './plugins/ZCodePlugin.jsx';
+import { AutoClawPlugin } from './plugins/AutoClawPlugin.jsx';
 
 // 插件注册表：后续新增插件只需向 PLUGINS 追加一项（id 唯一、提供详情组件）。
 // 插件中心是列表式容器，本身不承载具体模块逻辑。
@@ -62,6 +65,27 @@ const PLUGINS = [
     description: '商汤小浣熊（xiaohuanxiong.com）账号转 API。',
     icon: RaccoonBrand,
     detail: RaccoonPlugin,
+  },
+  {
+    id: 'cline',
+    name: 'Cline',
+    description: 'Cline（cline.bot）免费池 / ClinePass 订阅池转 API。',
+    icon: ClineBrand,
+    detail: ClinePlugin,
+  },
+  {
+    id: 'zcode',
+    name: 'ZCode',
+    description: 'ZCode（智谱 / Z.AI）编码套餐转 API。',
+    icon: ZCodeBrand,
+    detail: ZCodePlugin,
+  },
+  {
+    id: 'autoclaw',
+    name: 'AutoClaw',
+    description: 'AutoClaw（智谱 autoglm）桌面客户端账号转 API。',
+    icon: AutoClawBrand,
+    detail: AutoClawPlugin,
   },
 ];
 
