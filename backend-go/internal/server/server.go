@@ -18,8 +18,10 @@ import (
 	"github.com/iwvw/api-monitor/backend-go/internal/antigravity"
 	"github.com/iwvw/api-monitor/backend-go/internal/assets"
 	"github.com/iwvw/api-monitor/backend-go/internal/auth"
+	"github.com/iwvw/api-monitor/backend-go/internal/autoclaw"
 	"github.com/iwvw/api-monitor/backend-go/internal/backup"
 	bookmarksmodule "github.com/iwvw/api-monitor/backend-go/internal/bookmarks"
+	"github.com/iwvw/api-monitor/backend-go/internal/cline"
 	"github.com/iwvw/api-monitor/backend-go/internal/cloudflare"
 	"github.com/iwvw/api-monitor/backend-go/internal/config"
 	"github.com/iwvw/api-monitor/backend-go/internal/cronjobs"
@@ -57,6 +59,7 @@ import (
 	"github.com/iwvw/api-monitor/backend-go/internal/totp"
 	"github.com/iwvw/api-monitor/backend-go/internal/uptime"
 	"github.com/iwvw/api-monitor/backend-go/internal/workbuddy"
+	"github.com/iwvw/api-monitor/backend-go/internal/zcode"
 )
 
 type Server struct {
@@ -89,6 +92,9 @@ type Server struct {
 	posthogcode *posthogcode.Service
 	qoder       *qoder.Service
 	raccoon     *raccoon.Service
+	cline       *cline.Service
+	zcode       *zcode.Service
+	autoclaw    *autoclaw.Service
 	proxypool   *proxypool.Service
 	server      *serveragent.Service
 	backup      *backup.Service
@@ -229,6 +235,9 @@ func newServer(cfg config.Config) (*Server, error) {
 		posthogcode: posthogcode.New(cfg),
 		qoder:       qoder.New(cfg),
 		raccoon:     raccoon.New(cfg),
+		cline:       cline.New(cfg),
+		zcode:       zcode.New(cfg),
+		autoclaw:    autoclaw.New(cfg),
 		proxypool:   proxypool.New(cfg),
 		server:      serverAgentService,
 		backup:      backupService,
@@ -278,6 +287,10 @@ func newServer(cfg config.Config) (*Server, error) {
 	server.qoder.SetProxyPoolSelector(server.proxypool)
 	// 小浣熊插件可引用独立代理池作为出网出口。
 	server.raccoon.SetProxyPoolSelector(server.proxypool)
+	// Cline / ZCode / AutoClaw 同样可引用独立代理池作为出网出口。
+	server.cline.SetProxyPoolSelector(server.proxypool)
+	server.zcode.SetProxyPoolSelector(server.proxypool)
+	server.autoclaw.SetProxyPoolSelector(server.proxypool)
 	server.openai.StartWarmup(warmupCtx)
 	// 启动网关健康告警监测（错误率过高/恢复触发通知）。
 	server.openai.StartAlertMonitor(warmupCtx)
@@ -327,7 +340,21 @@ func newServer(cfg config.Config) (*Server, error) {
 	server.raccoon.StartAutoRefresh(warmupCtx)
 	server.raccoon.StartModelRefresh(warmupCtx)
 	server.raccoon.StartLoginSweep(warmupCtx)
+	server.raccoon.StartCheckinScheduler(warmupCtx)
 	server.raccoon.ReconcileLinkedEndpoint(warmupCtx)
+	// Cline / ZCode / AutoClaw：调用次数与用量落盘、token 续期、目录刷新、签到、端点对账。
+	server.cline.StartCallStatsFlush(warmupCtx)
+	server.cline.StartAutoRefresh(warmupCtx)
+	server.cline.StartModelRefresh(warmupCtx)
+	server.cline.StartLoginSweep(warmupCtx)
+	server.cline.ReconcileLinkedEndpoint(warmupCtx)
+	server.zcode.StartCallStatsFlush(warmupCtx)
+	server.zcode.StartCheckinScheduler(warmupCtx)
+	server.zcode.ReconcileLinkedEndpoint(warmupCtx)
+	server.autoclaw.StartCallStatsFlush(warmupCtx)
+	server.autoclaw.StartModelRefresh(warmupCtx)
+	server.autoclaw.StartCheckinScheduler(warmupCtx)
+	server.autoclaw.ReconcileLinkedEndpoint(warmupCtx)
 	return server, nil
 }
 
@@ -595,6 +622,12 @@ func apiKeyRequiresSession(path string) bool {
 		"/api/qoder/accounts/import",
 		"/api/raccoon/accounts/export",
 		"/api/raccoon/accounts/import",
+		"/api/cline/accounts/export",
+		"/api/cline/accounts/import",
+		"/api/zcode/accounts/export",
+		"/api/zcode/accounts/import",
+		"/api/autoclaw/accounts/export",
+		"/api/autoclaw/accounts/import",
 		"/api/antigravity/accounts/export",
 	}
 	for _, prefix := range protectedPrefixes {

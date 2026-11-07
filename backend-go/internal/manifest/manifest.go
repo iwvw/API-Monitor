@@ -392,6 +392,12 @@ func buildRoutes() []Route {
 		{Prefix: "/api/qoder/v1", Module: "qoder-compatible", Owner: OwnerGo, Auth: AuthInternal, ResponseMode: ResponseStream, Description: "Qoder 插件 OpenAI 兼容中继（仅本机内部网关调用）"},
 		{Prefix: "/api/raccoon", Module: "raccoon", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "小浣熊插件（商汤 xiaohuanxiong.com 转 OpenAI 兼容 API）管理"},
 		{Prefix: "/api/raccoon/v1", Module: "raccoon-compatible", Owner: OwnerGo, Auth: AuthInternal, ResponseMode: ResponseStream, Description: "小浣熊插件 OpenAI 兼容中继（仅本机内部网关调用）"},
+		{Prefix: "/api/cline", Module: "cline", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Cline 插件（cline.bot 转 OpenAI 兼容 API）管理"},
+		{Prefix: "/api/cline/v1", Module: "cline-compatible", Owner: OwnerGo, Auth: AuthInternal, ResponseMode: ResponseStream, Description: "Cline 插件 OpenAI 兼容中继（仅本机内部网关调用）"},
+		{Prefix: "/api/zcode", Module: "zcode", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "ZCode 插件（智谱 / Z.AI 编码套餐转 OpenAI 兼容 API）管理"},
+		{Prefix: "/api/zcode/v1", Module: "zcode-compatible", Owner: OwnerGo, Auth: AuthInternal, ResponseMode: ResponseStream, Description: "ZCode 插件 OpenAI 兼容中继（仅本机内部网关调用）"},
+		{Prefix: "/api/autoclaw", Module: "autoclaw", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "AutoClaw 插件（智谱 autoglm 转 OpenAI 兼容 API）管理"},
+		{Prefix: "/api/autoclaw/v1", Module: "autoclaw-compatible", Owner: OwnerGo, Auth: AuthInternal, ResponseMode: ResponseStream, Description: "AutoClaw 插件 OpenAI 兼容中继（仅本机内部网关调用）"},
 
 		{Prefix: "/api/emailcode", Module: "emailcode", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "通用邮箱验证码收件箱（列表、详情、等待、取用、统计、清理）"},
 		{Prefix: "/api/emailcode/ingest", Module: "emailcode-worker-callback", Owner: OwnerGo, Auth: AuthPublic, ResponseMode: ResponseJSON, Description: "邮件 Worker 投递回调（共享密钥校验，非会话鉴权）", MatchMode: MatchExact},
