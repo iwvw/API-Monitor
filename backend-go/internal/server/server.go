@@ -937,7 +937,10 @@ func setStaticCacheHeaders(w http.ResponseWriter, cleanPath string) {
 		// text/plain；浏览器要求 application/manifest+json 才会解析 PWA manifest。
 		w.Header().Set("Content-Type", "application/manifest+json")
 	}
-	if filepath.Base(cleanPath) == "index.html" {
+	// index.html 与 Service Worker 脚本都必须每次回源校验：前者决定引用哪个
+	// hash 资源包，后者决定缓存版本号。任一处被浏览器启发式缓存命中，都会
+	// 让新版本前端在客户端“看起来没生效”（旧 SW 继续分发旧 chunk）。
+	if base := filepath.Base(cleanPath); base == "index.html" || base == "sw.js" {
 		w.Header().Set("Cache-Control", "no-cache")
 		return
 	}

@@ -53,6 +53,11 @@ type Account struct {
 	LastRefreshAt string `json:"lastRefreshAt,omitempty"`
 	// LastCheckinAt 是最近一次签到成功的时刻（RFC3339，UTC）。
 	LastCheckinAt string `json:"lastCheckinAt,omitempty"`
+	// OnboardingGrants 是一次性首登奖励的结算台账：taskKey → 结算时刻（RFC3339）。
+	// 上游没有「领没领过」的只读判定口，因此这份台账是唯一的真实性来源。
+	OnboardingGrants map[string]string `json:"onboardingGrants,omitempty"`
+	// LastOnboardingAt 是最近一次探测首登奖励的时刻（RFC3339，UTC）。
+	LastOnboardingAt string `json:"lastOnboardingAt,omitempty"`
 	// CheckinDisabled 是签到停用：与转发停用相互独立。
 	CheckinDisabled bool   `json:"checkinDisabled,omitempty"`
 	LastError       string `json:"lastError,omitempty"`
@@ -76,6 +81,8 @@ type AccountView struct {
 	LastCheckinAt    string `json:"lastCheckinAt,omitempty"`
 	CheckinDisabled  bool   `json:"checkinDisabled"`
 	LastError        string `json:"lastError,omitempty"`
+	// Onboarding 是首登奖励的结算状态（两条任务各一）。
+	Onboarding OnboardingStatus `json:"onboarding"`
 }
 
 func (s *Service) toAccountView(a Account) AccountView {
@@ -95,6 +102,7 @@ func (s *Service) toAccountView(a Account) AccountView {
 		LastError:     a.LastError,
 	}
 	view.CheckinDisabled = a.CheckinDisabled
+	view.Onboarding = onboardingStatusOf(a)
 	if until, cooled := s.cooldownUntilOf(a.ID, time.Now()); cooled {
 		if left := int64(time.Until(until).Seconds()); left > 0 {
 			view.CooldownSeconds = left

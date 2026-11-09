@@ -557,6 +557,21 @@ func TestStaticRouteCachePolicy(t *testing.T) {
 	if got := indexRes.Header().Get("Cache-Control"); got != "no-cache" {
 		t.Fatalf("index Cache-Control=%q", got)
 	}
+
+	// sw.js 决定 PWA 缓存版本号，必须同样每次回源校验；被启发式缓存命中会让
+	// 新前端在客户端继续被旧 Service Worker 接管。
+	if err := os.WriteFile(filepath.Join(distDir, "sw.js"), []byte("self.addEventListener('fetch',()=>{})"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	swReq := httptest.NewRequest(http.MethodGet, "/sw.js", nil)
+	swRes := httptest.NewRecorder()
+	handler.ServeHTTP(swRes, swReq)
+	if swRes.Code != http.StatusOK {
+		t.Fatalf("sw.js status=%d", swRes.Code)
+	}
+	if got := swRes.Header().Get("Cache-Control"); got != "no-cache" {
+		t.Fatalf("sw.js Cache-Control=%q", got)
+	}
 }
 
 func TestStaticRouteFallsBackToHashedDistLogo(t *testing.T) {

@@ -523,6 +523,8 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.handleUsage(w, r)
 	case path == "/api/raccoon/checkin":
 		s.handleCheckin(w, r)
+	case path == "/api/raccoon/onboarding":
+		s.handleOnboarding(w, r)
 	case path == "/api/raccoon/models":
 		s.handleModels(w, r)
 	case path == "/api/raccoon/models/toggle":

@@ -24,7 +24,16 @@ const checkinAccountDelay = 2 * time.Second
 
 // CheckinAll 对所有「签到未停用」的账号执行一次签到。
 // 转发停用（Disabled）的账号同样参与 —— 签到开关独立于转发开关。
+//
+// 签到之后顺带跑一次首登奖励探测（一次性 3000×2，已结算的不再打上游）。
 func (s *Service) CheckinAll(ctx context.Context) []map[string]interface{} {
+	results := s.checkinAll(ctx)
+	s.claimOnboardingSettled(ctx)
+	return results
+}
+
+// checkinAll 是签到本体（不含首登奖励）。
+func (s *Service) checkinAll(ctx context.Context) []map[string]interface{} {
 	results := make([]map[string]interface{}, 0)
 	first := true
 	for _, a := range s.Settings().Accounts {
