@@ -160,7 +160,19 @@ import {
   Menu,
   Star,
   Shuffle,
+  Columns,
+  Grid,
 } from '../components/Icons.jsx';
+import TerminalWorkspaceContainer from '../components/server/TerminalWorkspaceContainer.jsx';
+import {
+  buildPresetLayout,
+  createLeafNode,
+  getTreeSessionIds,
+  insertSplitIntoTree,
+  normalizeTree,
+  removeSessionFromTree,
+  updateBranchRatio,
+} from '../modules/terminalSplitTree.js';
 import {
   SERVER_LIST_VIEW_STORAGE_KEY,
   SERVER_COMPACT_COLUMNS_STORAGE_KEY,
@@ -1844,7 +1856,8 @@ function ServerPage() {
   const [sshSessions, setSshSessions] = useState([]);
   const [activeSSHSessionId, setActiveSSHSessionId] = useState('');
   const [visibleSessionIds, setVisibleSessionIds] = useState([]);
-  const [sshViewLayout, setSshViewLayout] = useState('single'); // 'single', 'split-h', 'split-v', 'grid-v', 'grid'
+  const [sshViewLayout, setSshViewLayout] = useState('single'); // 'single', 'split-h', 'split-v', 'master-stack', 'grid'
+  const [sshSplitTree, setSshSplitTree] = useState(null); // 二叉分屏树模型
   const [sshSplitSide, setSshSplitSide] = useState('');
   const [sshGroupState, setSshGroupState] = useState(null);
   const [sshSyncEnabled, setSshSyncEnabled] = useState(false);
@@ -2026,7 +2039,7 @@ function ServerPage() {
   useEffect(() => {
     const timer = setTimeout(() => syncTerminalDOM(), 80);
     return () => clearTimeout(timer);
-  }, [visibleSessionIds, sshViewLayout, showServerStatusSidebar, showSftpSidebar]);
+  }, [visibleSessionIds, sshViewLayout, sshSplitTree, showServerStatusSidebar, showSftpSidebar]);
 
   useLayoutEffect(() => {
     if (serverCurrentTab !== 'terminal') return undefined;
@@ -2051,7 +2064,7 @@ function ServerPage() {
       if (frameOne) window.cancelAnimationFrame(frameOne);
       if (frameTwo) window.cancelAnimationFrame(frameTwo);
     };
-  }, [serverCurrentTab, visibleSessionIds, sshViewLayout, activeTerminalSidebar]);
+  }, [serverCurrentTab, visibleSessionIds, sshViewLayout, sshSplitTree, activeTerminalSidebar]);
 
   useEffect(() => {
     if (serverCurrentTab === 'terminal') return undefined;
@@ -6552,9 +6565,13 @@ function ServerPage() {
 
     if (sshViewLayout !== 'single') {
       // 如果处于分屏中，切回单屏（挂起当前组）
+      setSshSplitTree(createLeafNode(sessionId));
+      visibleSessionIdsRef.current = [sessionId];
       setVisibleSessionIds([sessionId]);
       setSshViewLayout('single');
     } else {
+      setSshSplitTree(createLeafNode(sessionId));
+      visibleSessionIdsRef.current = [sessionId];
       setVisibleSessionIds([sessionId]);
     }
 
@@ -6618,12 +6635,15 @@ function ServerPage() {
       if (groupIds.length > 1 && groupIds.includes(sessionId)) {
         const nextLayout = getTerminalLayoutForSessionIds(groupIds, sshGroupState.layout);
         const nextSide = nextLayout === 'single' ? '' : sshGroupState.side;
+        const restoredTree = buildPresetLayout(groupIds, nextLayout, sessionId);
+        setSshSplitTree(restoredTree);
         visibleSessionIdsRef.current = groupIds;
         setVisibleSessionIds(groupIds);
         setSshViewLayout(nextLayout);
         setSshSplitSide(nextSide);
         setSshGroupState({ ids: groupIds, layout: nextLayout, side: nextSide });
       } else {
+        setSshSplitTree(createLeafNode(sessionId));
         visibleSessionIdsRef.current = [sessionId];
         setVisibleSessionIds([sessionId]);
         setSshViewLayout('single');
@@ -6631,6 +6651,7 @@ function ServerPage() {
         setSshGroupState(null);
       }
     } else {
+      setSshSplitTree(createLeafNode(sessionId));
       visibleSessionIdsRef.current = [sessionId];
       setVisibleSessionIds([sessionId]);
       setSshViewLayout('single');
@@ -6700,8 +6721,31 @@ function ServerPage() {
 
   const getTerminalLayoutForSessionIds = (ids, preferredLayout = sshViewLayout) => {
     if (ids.length <= 1) return 'single';
-    if (ids.length > 2) return 'grid';
+    if (ids.length > 2) return preferredLayout || 'grid';
     return preferredLayout === 'split-v' ? 'split-v' : 'split-h';
+  };
+
+  const applyTerminalPresetLayout = (preset) => {
+    const ids = visibleSessionIds.length > 0 ? visibleSessionIds : (activeSSHSessionId ? [activeSSHSessionId] : []);
+    if (ids.length === 0) return;
+
+    const nextTree = buildPresetLayout(ids, preset, activeSSHSessionId);
+    const nextVisibleIds = nextTree ? getTreeSessionIds(nextTree) : ids;
+    setSshSplitTree(nextTree);
+    visibleSessionIdsRef.current = nextVisibleIds;
+    setVisibleSessionIds(nextVisibleIds);
+    setSshViewLayout(preset);
+    setSshSplitSide(preset === 'split-v' ? 'bottom' : 'right');
+    setSshGroupState(
+      nextVisibleIds.length > 1 ? { ids: nextVisibleIds, layout: preset, side: 'right' } : null
+    );
+
+    setTimeout(() => {
+      syncTerminalDOM();
+      if (activeSSHSessionId) {
+        sshSessionRefs.current[activeSSHSessionId]?.terminal?.focus();
+      }
+    }, 100);
   };
 
   const fitTerminalSession = (sessionId, notifyBackend = true) => {
@@ -7015,11 +7059,14 @@ function ServerPage() {
     }, 100);
   };
 
-  // 重新计算并挂载活动终端到 static slots 静态槽位上
+  // 重新计算并挂载活动终端到 session slots 槽位上（支持分屏树与静态槽位降级）
   const syncTerminalDOM = () => {
     const slots = visibleSessionIdsRef.current;
     slots.forEach((id, index) => {
-      const slotDiv = document.getElementById(`ssh-slot-idx-${index}`);
+      // 优先找分屏树容器中的专属会话挂载槽 ssh-slot-session-${id}，次优找旧静态槽位 ssh-slot-idx-${index}
+      const slotDiv =
+        document.getElementById(`ssh-slot-session-${id}`) ||
+        document.getElementById(`ssh-slot-idx-${index}`);
       const termEl = terminalDOMElements.current[id];
       if (slotDiv && termEl && termEl.parentElement !== slotDiv) {
         slotDiv.appendChild(termEl);
@@ -7090,7 +7137,8 @@ function ServerPage() {
 
     const remaining = sshSessions.filter(s => s.id !== sessionId);
     const remainingIds = new Set(remaining.map(s => s.id));
-    const remainsVisible = visibleSessionIds.filter(id => id !== sessionId && remainingIds.has(id));
+    const nextTree = normalizeTree(removeSessionFromTree(sshSplitTree, sessionId), remainingIds);
+    const remainsVisible = nextTree ? getTreeSessionIds(nextTree) : visibleSessionIds.filter(id => id !== sessionId && remainingIds.has(id));
     const nextActiveId =
       activeSSHSessionId === sessionId
         ? remainsVisible[remainsVisible.length - 1] || remaining[remaining.length - 1]?.id || ''
@@ -7101,6 +7149,7 @@ function ServerPage() {
     const nextSide = nextLayout === 'single' ? '' : sshSplitSide;
 
     setSshSessions(remaining);
+    setSshSplitTree(nextTree);
     visibleSessionIdsRef.current = nextVisibleIds;
     setVisibleSessionIds(nextVisibleIds);
     setSshViewLayout(nextLayout);
@@ -7129,7 +7178,8 @@ function ServerPage() {
       return;
     }
 
-    const nextVisibleIds = visibleSessionIds.filter(id => id !== sessionId);
+    const nextTree = normalizeTree(removeSessionFromTree(sshSplitTree, sessionId), visibleSessionIds);
+    const nextVisibleIds = nextTree ? getTreeSessionIds(nextTree) : visibleSessionIds.filter(id => id !== sessionId);
     const nextLayout = getTerminalLayoutForSessionIds(nextVisibleIds, sshViewLayout);
     const nextSide = nextLayout === 'single' ? '' : sshSplitSide;
     const nextActiveId =
@@ -7137,6 +7187,7 @@ function ServerPage() {
         ? nextVisibleIds[nextVisibleIds.length - 1] || ''
         : activeSSHSessionId;
 
+    setSshSplitTree(nextTree);
     visibleSessionIdsRef.current = nextVisibleIds;
     setVisibleSessionIds(nextVisibleIds);
     setSshViewLayout(nextLayout);
@@ -7362,30 +7413,13 @@ function ServerPage() {
     saveTerminalsToWarehouse();
     setSshSessions(prev => [...prev, newSession]);
 
-    const currentVisibleIds = visibleSessionIds.length > 0 ? visibleSessionIds : [targetId];
-    const updated = currentVisibleIds.filter(id => id !== sessionId);
-    const idx = Math.max(updated.indexOf(targetId), 0);
-    let nextLayout = 'single';
-    let nextSide = '';
+    // 使用分屏树进行精确嵌套切分
+    const nextTree = insertSplitIntoTree(sshSplitTree, targetId, sessionId, position);
+    const updated = getTreeSessionIds(nextTree);
+    const nextLayout = updated.length > 2 ? 'grid' : position === 'top' || position === 'bottom' ? 'split-v' : 'split-h';
+    const nextSide = position;
 
-    if (position === 'left' || position === 'top') {
-      updated.splice(idx, 0, sessionId);
-    } else if (position === 'center') {
-      updated[idx] = sessionId;
-    } else {
-      updated.splice(idx + 1, 0, sessionId);
-    }
-
-    if (position !== 'center') {
-      nextLayout =
-        updated.length > 2
-          ? 'grid'
-          : position === 'top' || position === 'bottom'
-            ? 'split-v'
-            : 'split-h';
-      nextSide = position;
-    }
-
+    setSshSplitTree(nextTree);
     visibleSessionIdsRef.current = updated;
     setVisibleSessionIds(updated);
     setSshViewLayout(nextLayout);
@@ -7414,29 +7448,13 @@ function ServerPage() {
       return;
     }
 
-    const currentVisibleIds = visibleSessionIds.length > 0 ? visibleSessionIds : [targetId];
-    const updated = currentVisibleIds.filter(id => id !== sourceId);
-    const idx = Math.max(updated.indexOf(targetId), 0);
-    let nextLayout = 'single';
-    let nextSide = '';
+    // 使用分屏树进行精确嵌套切分
+    const nextTree = insertSplitIntoTree(sshSplitTree, targetId, sourceId, position);
+    const updated = getTreeSessionIds(nextTree);
+    const nextLayout = updated.length > 2 ? 'grid' : position === 'top' || position === 'bottom' ? 'split-v' : 'split-h';
+    const nextSide = position;
 
-    if (position === 'center') {
-      updated[idx] = sourceId;
-    } else {
-      if (position === 'left' || position === 'top') {
-        updated.splice(idx, 0, sourceId);
-      } else {
-        updated.splice(idx + 1, 0, sourceId);
-      }
-      nextLayout =
-        updated.length > 2
-          ? 'grid'
-          : position === 'top' || position === 'bottom'
-            ? 'split-v'
-            : 'split-h';
-      nextSide = position;
-    }
-
+    setSshSplitTree(nextTree);
     visibleSessionIdsRef.current = updated;
     setVisibleSessionIds(updated);
     setSshViewLayout(nextLayout);
@@ -7599,7 +7617,11 @@ function ServerPage() {
     <div
       className={
         serverCurrentTab === 'terminal'
-          ? 'flex h-full min-h-0 w-full min-w-0 flex-1 flex-col gap-3 overflow-visible'
+          // 终端 tab 需要占满视口并在卡片内部滚动：按「前端布局约定」用
+          // min-h-0 flex-1 的 flex 链向上取高度，不硬编码 calc(100dvh-*)。
+          // 注意不能给页面根加 overflow-hidden：sticky tab 栏用 -mx-[gutter]
+          // 通栏，被裁切后左右两侧各少 12px，会出现「被切断」的接缝。
+          ? 'flex min-h-0 w-full min-w-0 flex-1 flex-col gap-2'
           : 'flex w-full min-w-0 flex-col gap-3 cq-sm:gap-4'
       }
     >
@@ -12429,78 +12451,153 @@ function ServerPage() {
           return (
             <AppCard
               padding="none"
-              className="flex h-full min-h-0 w-full flex-1 flex-col overflow-visible"
+              className="flex h-full min-h-0 w-full flex-1 flex-col overflow-hidden"
             >
               <div className="flex min-h-11 items-center justify-between gap-3 rounded-t-[inherit] border-b border-kumo-line bg-kumo-base px-3 py-2 text-xs">
                 <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto scrollbar-thin">
-                  {sshSessions.map(sess => (
+                  {visibleSessionIds.length > 1 && (
+                    // 分屏组：把参与分屏的会话合并成一个整体标签（不再逐个列出）
                     <div
-                      key={sess.id}
-                      draggable
-                      onDragStart={event => handleTerminalDragStart(event, sess.id)}
-                      onDragEnd={() => {
-                        setDraggedSessionId(null);
-                        setDropTargetId(null);
-                        setDropHint('');
-                      }}
-                      className={`flex h-7 shrink-0 items-center rounded-md border ${
-                        activeSSHSessionId === sess.id
-                          ? 'border-brand/60 bg-kumo-recessed text-kumo-strong'
-                          : 'border-kumo-line bg-kumo-base text-kumo-subtle'
-                      }`}
+                      className="flex h-7 shrink-0 items-center overflow-hidden rounded-md border border-brand/60 bg-kumo-recessed text-kumo-strong"
+                      title={visibleSessionIds
+                        .map(id => sshSessions.find(item => item.id === id)?.name || '终端')
+                        .join(' + ')}
                     >
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="ghost"
-                        onClick={() => {
-                          if (visibleSessionIds.includes(sess.id)) {
-                            activateSSHSession(sess.id);
-                          } else {
-                            switchToSSHTab(sess.id);
-                          }
-                        }}
-                        className="h-full min-w-0 justify-start px-2 text-[11px] font-semibold text-inherit"
-                      >
-                        <span
-                          className={`h-1.5 w-1.5 rounded-full ${
-                            sess.connected
-                              ? 'bg-kumo-success'
-                              : sess.reconnecting
-                                ? 'animate-pulse bg-kumo-warning'
-                                : 'bg-kumo-danger'
-                          }`}
-                          title={
-                            sess.connected
-                              ? '已连接'
-                              : sess.reconnecting
-                                ? `连接断开，正在第 ${sess.reconnectAttempt || 1} 次自动重连`
-                                : '连接已断开'
-                          }
-                        ></span>
-                        <span className="max-w-28 truncate">{sess.name}</span>
-                        <span className="text-[9px] uppercase text-kumo-subtle">
-                          {sess.reconnecting ? '重连中' : sess.type}
+                      <div className="flex items-center gap-1.5 px-2 text-[11px] font-semibold">
+                        <span className="flex items-center gap-1">
+                          {visibleSessionIds.map(id => {
+                            const s = sshSessions.find(item => item.id === id);
+                            return (
+                              <span
+                                key={id}
+                                className={`inline-block h-1.5 w-1.5 rounded-full ${
+                                  s?.connected ? 'bg-kumo-success' : 'bg-kumo-warning'
+                                }`}
+                                title={`${s?.name || '终端'}: ${s?.connected ? '已连接' : '未连接'}`}
+                              />
+                            );
+                          })}
                         </span>
-                      </Button>
-                      <Button
-                        shape="square"
-                        size="sm"
-                        variant="ghost"
-                        icon={<X className="h-3 w-3" />}
-                        aria-label="关闭终端会话"
-                        title="关闭终端会话"
-                        onClick={e => {
-                          e.stopPropagation();
-                          closeSSHSession(sess.id);
-                        }}
-                        className="hover:text-kumo-danger"
-                      />
+                        <span className="max-w-40 truncate">
+                          {visibleSessionIds
+                            .map(id => sshSessions.find(item => item.id === id)?.name || '终端')
+                            .join(' + ')}
+                        </span>
+                        <span className="rounded bg-brand/15 px-1 py-0.2 text-[9px] font-bold text-brand">
+                          {visibleSessionIds.length}分屏
+                        </span>
+                      </div>
                     </div>
-                  ))}
+                  )}
+                  {sshSessions
+                    .filter(sess => visibleSessionIds.length > 1 && visibleSessionIds.includes(sess.id) ? false : true)
+                    .map(sess => (
+                      <div
+                        key={sess.id}
+                        draggable
+                        onDragStart={event => handleTerminalDragStart(event, sess.id)}
+                        onDragEnd={() => {
+                          setDraggedSessionId(null);
+                          setDropTargetId(null);
+                          setDropHint('');
+                        }}
+                        className={`flex h-7 shrink-0 items-center rounded-md border ${
+                          visibleSessionIds.length <= 1 && activeSSHSessionId === sess.id
+                            ? 'border-brand/60 bg-kumo-recessed text-kumo-strong'
+                            : 'border-kumo-line bg-kumo-base text-kumo-subtle'
+                        }`}
+                      >
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => {
+                            if (visibleSessionIds.length > 1) {
+                              // 分屏中点击其它主机：把它加入当前分屏，而不是清空分屏
+                              triggerSplitPane(activeSSHSessionId || visibleSessionIds[0], 'right', sess.id);
+                            } else if (visibleSessionIds.includes(sess.id)) {
+                              activateSSHSession(sess.id);
+                            } else {
+                              switchToSSHTab(sess.id);
+                            }
+                          }}
+                          className="h-full min-w-0 justify-start px-2 text-[11px] font-semibold text-inherit"
+                          title={
+                            visibleSessionIds.length > 1
+                              ? `加入分屏：${sess.name}`
+                              : sess.name
+                          }
+                        >
+                          <span
+                            className={`h-1.5 w-1.5 rounded-full ${
+                              sess.connected
+                                ? 'bg-kumo-success'
+                                : sess.reconnecting
+                                  ? 'animate-pulse bg-kumo-warning'
+                                  : 'bg-kumo-danger'
+                            }`}
+                            title={
+                              sess.connected
+                                ? '已连接'
+                                : sess.reconnecting
+                                  ? `连接断开，正在第 ${sess.reconnectAttempt || 1} 次自动重连`
+                                  : '连接已断开'
+                            }
+                          ></span>
+                          <span className="max-w-28 truncate">{sess.name}</span>
+                        </Button>
+                        <Button
+                          shape="square"
+                          size="sm"
+                          variant="ghost"
+                          icon={<X className="h-3 w-3" />}
+                          aria-label="关闭终端会话"
+                          title="关闭终端会话"
+                          onClick={e => {
+                            e.stopPropagation();
+                            closeSSHSession(sess.id);
+                          }}
+                          className="hover:text-kumo-danger"
+                        />
+                      </div>
+                    ))}
                 </div>
 
                 <div className="flex shrink-0 items-center gap-1.5">
+                  {visibleSessionIds.length > 1 && (
+                    <div className="flex items-center gap-1 border-r border-kumo-line pr-1.5">
+                      <Button
+                        size="sm"
+                        variant={sshViewLayout === 'single' ? 'primary' : 'secondary'}
+                        onClick={() => applyTerminalPresetLayout('single')}
+                        title="单窗口模式"
+                      >
+                        单窗
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant={sshViewLayout === 'split-h' ? 'primary' : 'secondary'}
+                        icon={<Columns className="h-3.5 w-3.5" />}
+                        onClick={() => applyTerminalPresetLayout('split-h')}
+                        title="水平排列"
+                      />
+                      <Button
+                        size="sm"
+                        variant={sshViewLayout === 'master-stack' ? 'primary' : 'secondary'}
+                        onClick={() => applyTerminalPresetLayout('master-stack')}
+                        title="主从模式（主操作台 + 侧栏堆叠）"
+                      >
+                        主从
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant={sshViewLayout === 'grid' ? 'primary' : 'secondary'}
+                        icon={<Grid className="h-3.5 w-3.5" />}
+                        onClick={() => applyTerminalPresetLayout('grid')}
+                        title="智能平衡网格"
+                      />
+                    </div>
+                  )}
                   <Button
                     size="sm"
                     variant={sshSyncEnabled ? 'primary' : 'secondary'}
@@ -12527,101 +12624,48 @@ function ServerPage() {
                 <div className="flex min-w-0 flex-1 flex-col">
                   <div className="relative flex min-h-0 flex-1 overflow-hidden">
                     <div
-                      className={`grid min-h-0 min-w-0 flex-1 gap-1.5 overflow-hidden bg-kumo-recessed p-1.5 transition-[margin] duration-200 ${activeTerminalSidebar ? 'mr-[clamp(18rem,24vw,26rem)]' : ''} ${
-                        sshViewLayout === 'split-h'
-                          ? 'grid-cols-[minmax(0,1fr)_minmax(0,1fr)] grid-rows-1'
-                          : sshViewLayout === 'split-v'
-                            ? 'grid-cols-1 grid-rows-[minmax(0,1fr)_minmax(0,1fr)]'
-                            : sshViewLayout === 'grid'
-                              ? 'grid-cols-[minmax(0,1fr)_minmax(0,1fr)] grid-rows-[minmax(0,1fr)_minmax(0,1fr)]'
-                              : 'grid-cols-1 grid-rows-1'
+                      className={`relative min-h-0 min-w-0 flex-1 overflow-hidden transition-[margin] duration-200 ${
+                        activeTerminalSidebar
+                          ? activeTerminalSidebar === 'sftp'
+                            ? 'mr-[clamp(16rem,20vw,20rem)]'
+                            : 'mr-[clamp(18rem,24vw,26rem)]'
+                          : ''
                       }`}
                     >
-                      {visibleSessionIds.map((id, index) => {
-                        const slotSession = sshSessions.find(s => s.id === id);
-                        const showDropPreview =
-                          dropTargetId === id &&
-                          dropHint &&
-                          draggedSessionId &&
-                          draggedSessionId !== id;
-                        return (
-                          <div
-                            key={id}
-                            onMouseDown={() => activateSSHSession(id)}
-                            onDragOver={e => handleTerminalDragOver(e, id)}
-                            onDragLeave={e => handleTerminalDragLeave(e, id)}
-                            onDrop={e => {
-                              e.preventDefault();
-                              const sourceId =
-                                draggedSessionId ||
-                                e.dataTransfer?.getData('text/plain') ||
-                                undefined;
-                              triggerSplitPane(id, getDropPosition(e), sourceId);
-                              setDropTargetId(null);
-                              setDropHint('');
-                            }}
-                            className={`relative flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden rounded-md border bg-kumo-base ${
-                              activeSSHSessionId === id
-                                ? 'border-kumo-interact'
-                                : 'border-kumo-line'
-                            }`}
-                          >
-                            <div
-                              draggable
-                              onDragStart={event => handleTerminalDragStart(event, id)}
-                              className="flex h-8 cursor-move select-none items-center justify-between border-b border-kumo-line bg-kumo-base px-2 text-[10px] text-kumo-subtle"
-                            >
-                              <Button
-                                type="button"
-                                size="sm"
-                                variant="ghost"
-                                onClick={() => activateSSHSession(id)}
-                                className="h-6 min-w-0 justify-start px-0 text-[10px] font-semibold text-kumo-strong"
-                              >
-                                <TerminalIcon className="h-3.5 w-3.5 shrink-0" />
-                                <span className="truncate">{slotSession?.name || '终端'}</span>
-                              </Button>
-                              <div className="flex items-center gap-1">
-                                <Button
-                                  size="sm"
-                                  variant="ghost"
-                                  onClick={() => createAttachedTerminalView(id, 'right')}
-                                  title="复制终端"
-                                >
-                                  复制
-                                </Button>
-                                <Button
-                                  shape="square"
-                                  size="sm"
-                                  variant="ghost"
-                                  icon={<X className="h-3 w-3" />}
-                                  aria-label="关闭终端"
-                                  title="关闭终端"
-                                  onClick={event => {
-                                    event.stopPropagation();
-                                    removeSSHSessionFromView(id);
-                                  }}
-                                  className="hover:text-kumo-danger"
-                                />
-                              </div>
-                            </div>
-                            <div
-                              id={`ssh-slot-idx-${index}`}
-                              className="app-terminal-surface min-h-0 flex-1 overflow-hidden"
-                            />
-                            {showDropPreview && (
-                              <div
-                                className="pointer-events-none absolute z-20 rounded-md border border-dashed border-brand bg-brand/10 ring-1 ring-brand/25"
-                                style={getTerminalDropPreviewStyle(dropHint)}
-                              />
-                            )}
-                          </div>
-                        );
-                      })}
+                      <TerminalWorkspaceContainer
+                        splitTree={
+                          sshSplitTree ||
+                          (visibleSessionIds.length > 0
+                            ? buildPresetLayout(visibleSessionIds, sshViewLayout, activeSSHSessionId)
+                            : null)
+                        }
+                        sessions={sshSessions}
+                        activeSessionId={activeSSHSessionId}
+                        draggedSessionId={draggedSessionId}
+                        onActivateSession={activateSSHSession}
+                        onCloseSession={removeSSHSessionFromView}
+                        onDuplicateSession={createAttachedTerminalView}
+                        onDragStartSession={handleTerminalDragStart}
+                        onSplitDrop={(targetId, sourceId, position) => {
+                          triggerSplitPane(targetId, position, sourceId);
+                        }}
+                        onRatioChange={(path, ratio) => {
+                          setSshSplitTree(prev => updateBranchRatio(prev, path, ratio));
+                          setTimeout(() => {
+                            visibleSessionIdsRef.current.forEach(id => fitTerminalSession(id, true));
+                          }, 50);
+                        }}
+                      />
                     </div>
 
                     {activeTerminalSidebar && (
-                      <div className="absolute bottom-0 right-0 top-0 z-10 flex min-h-0 w-[clamp(18rem,24vw,26rem)] flex-col overflow-hidden border-l border-kumo-line bg-kumo-base">
+                      <div
+                        className={`absolute bottom-0 right-0 top-0 z-10 flex min-h-0 flex-col overflow-hidden border-l border-kumo-line bg-kumo-base ${
+                          activeTerminalSidebar === 'sftp'
+                            ? 'w-[clamp(16rem,20vw,20rem)]'
+                            : 'w-[clamp(18rem,24vw,26rem)]'
+                        }`}
+                      >
                         {showServerStatusSidebar && (
                           <div className="flex h-full min-h-0 flex-col p-2.5 text-xs">
                             <div className="mb-2.5 flex items-center justify-between border-b border-kumo-line pb-2">

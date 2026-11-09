@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Button, Switch, Loader, Dialog, Input, Badge, Table, Toolbar, Select, Popover } from '@cloudflare/kumo';
 import { SectionCard, FieldRow, EmptyState, AppTable } from '../../../components/ui/AppPrimitives.jsx';
-import { Rocket, Users, Layers, TrendingUp, RefreshCw, Plus, Trash, Edit, Upload, Download, ExternalLink, RaccoonBrand } from '../../../components/Icons.jsx';
+import { Rocket, Users, Layers, TrendingUp, RefreshCw, Plus, Trash, Edit, Upload, Download, ExternalLink, Clock, RaccoonBrand } from '../../../components/Icons.jsx';
 import { toast } from '../../../modules/toast.js';
 import { useConfirmPress } from '../../../hooks/useConfirmPress.js';
 import { getAuthHeaders, formatCompact } from '../utils.js';
@@ -101,6 +101,8 @@ export function RaccoonPlugin() {
   const [prefixDraft, setPrefixDraft] = useState(null);
   const [busyAccount, setBusyAccount] = useState('');
   const [linkBusy, setLinkBusy] = useState(false);
+  const [checkinBusy, setCheckinBusy] = useState(false);
+  const [onboardingBusy, setOnboardingBusy] = useState(false);
   const [editAccount, setEditAccount] = useState(null);
   const [editName, setEditName] = useState('');
   const [balanceAccount, setBalanceAccount] = useState(null);
@@ -538,6 +540,49 @@ export function RaccoonPlugin() {
     }
   };
 
+  const runCheckin = async account => {
+    setCheckinBusy(true);
+    try {
+      const res = await fetch(`${API}/checkin`, {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify(account ? { accountId: account.id } : {}),
+      });
+      const data = await res.json();
+      if (!res.ok || !data?.success) throw new Error(data?.error || '签到失败');
+      if (Array.isArray(data.results)) {
+        const ok = data.results.filter(r => r.success).length;
+        toast.success(`签到完成：${ok}/${data.results.length} 成功`);
+      } else {
+        toast.success(data.message || '签到完成');
+      }
+      await Promise.all([loadAccounts(), loadStatus()]);
+    } catch (e) {
+      toast.error(`签到失败：${e.message}`);
+    } finally {
+      setCheckinBusy(false);
+    }
+  };
+
+  const claimOnboarding = async account => {
+    setOnboardingBusy(true);
+    try {
+      const res = await fetch(`${API}/onboarding`, {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify(account ? { accountId: account.id } : {}),
+      });
+      const data = await res.json();
+      if (!res.ok || !data?.success) throw new Error(data?.error || '领取失败');
+      toast.success(data.gained > 0 ? `首登奖励已领取，+${data.gained} 积分` : '首登奖励已结算（无可领额度）');
+      await Promise.all([loadAccounts(), loadStatus()]);
+    } catch (e) {
+      toast.error(`领取失败：${e.message}`);
+    } finally {
+      setOnboardingBusy(false);
+    }
+  };
+
   const exportAccounts = () => window.open(`${API}/accounts/export`, '_blank');
 
   const importFile = file => {
@@ -623,6 +668,9 @@ export function RaccoonPlugin() {
               disabled={saving}
             />
           </FieldRow>
+          <FieldRow title={<span title="站点时区每天 9:05 与 21:05 自动签到（按天幂等）。上游按 UTC+8 自然日发放每日积分（实测 300 分/天，约 7 天有效），触发方式是打一次 setting_info。签到后会自动探测一次性首登奖励（桌面端 3000 + 手机端 3000，各领一次）。账号级签到开关独立于转发开关">每日自动签到</span>}>
+            <Switch checked={settings?.autoCheckin !== false} onCheckedChange={v => update({ autoCheckin: v })} />
+          </FieldRow>
           <FieldRow title={<span title="多账号时的选号策略。固定首个：始终用列表第一个可用账号，其余作主备，行为最可预期。轮询：依次轮流，请求均匀分摊。两种都自动跳过已停用、token 过期与失败冷却中的账号">选号策略</span>}>
             <Select
               alignItemWithTrigger
@@ -685,6 +733,12 @@ export function RaccoonPlugin() {
                   e.target.value = '';
                 }}
               />
+              <Button size="sm" variant="outline" disabled={checkinBusy} onClick={() => runCheckin(null)}>
+                全部签到
+              </Button>
+              <Button size="sm" variant="outline" disabled={onboardingBusy} onClick={() => claimOnboarding(null)}>
+                领首登奖励
+              </Button>
               <Button size="sm" variant="primary" onClick={openLogin}>
                 <ExternalLink className="h-3.5 w-3.5" /> 网页登录
               </Button>
@@ -787,6 +841,42 @@ export function RaccoonPlugin() {
                                 ) : (
                                   <div className="py-3 text-center text-xs text-kumo-subtle">暂无积分数据</div>
                                 )}
+                                {/* 一次性首登奖励：两条各 3000，互不共享额度 */}
+                                {a.onboarding ? (
+                                  <div className="mt-2 border-t border-kumo-line pt-2">
+                                    <div className="mb-1 flex items-center justify-between gap-2">
+                                      <span className="text-xs font-semibold text-kumo-strong">首登奖励</span>
+                                      <span className="font-mono text-[10px] text-kumo-subtle">
+                                        {a.onboarding.earned}/{a.onboarding.total}
+                                      </span>
+                                    </div>
+                                    {(a.onboarding.tasks || []).map(task => (
+                                      <div key={task.key} className="flex items-center justify-between gap-3 py-0.5">
+                                        <span className="truncate text-xs text-kumo-subtle" title={task.title}>
+                                          {task.title}
+                                        </span>
+                                        <Badge
+                                          variant={task.error ? 'danger' : task.already ? 'success' : 'neutral'}
+                                          className="shrink-0 !text-[0.72em]"
+                                          title={task.error || (task.already ? '已结算' : '未结算')}
+                                        >
+                                          {task.error ? '失败' : task.already ? '已领' : '待领'}
+                                        </Badge>
+                                      </div>
+                                    ))}
+                                    {!a.onboarding.settled ? (
+                                      <Button
+                                        size="sm"
+                                        variant="outline"
+                                        className="mt-1.5 w-full"
+                                        disabled={onboardingBusy}
+                                        onClick={() => claimOnboarding(a)}
+                                      >
+                                        领取
+                                      </Button>
+                                    ) : null}
+                                  </div>
+                                ) : null}
                               </Popover.Content>
                             </Popover>
                           </div>
@@ -817,6 +907,17 @@ export function RaccoonPlugin() {
                         </Table.Cell>
                         <Table.Cell className="!px-2 !py-1.5 text-center">
                           <div className="flex items-center justify-center gap-1">
+                            <Button
+                              size="sm"
+                              shape="square"
+                              variant="outline"
+                              aria-label={`签到 ${a.id}`}
+                              title="立即签到（领取当日积分）"
+                              disabled={busyAccount === a.id || checkinBusy}
+                              onClick={() => runCheckin(a)}
+                            >
+                              <Clock className="h-3 w-3" />
+                            </Button>
                             <Button
                               size="sm"
                               shape="square"
