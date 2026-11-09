@@ -119,8 +119,76 @@ func TestFetchModelNamesUnionSkipsFailingAccount(t *testing.T) {
 	}
 }
 
-// TestFetchModelNamesUnionAllFailReturnsEmpty 全部账号失败时返回空切片
-// （调用方据此保留库中已有模型，而不是覆盖成空）。
+// TestFetchModelsUnionSinglePass 钉住「元数据与 id 同一次遍历取回」这条约束。
+//
+// 背景：曾经写成「先 fetchModelNamesUnion 拿 id，再遍历一遍账号补 displayName」，
+// 上游请求数直接翻倍（2N）。Antigravity 的上游对目录请求有频率限制，
+// 翻倍会明显提高被限流的概率。
+func TestFetchModelsUnionSinglePass(t *testing.T) {
+	var calls atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"models":{"gemini-4-argon-high":{"displayName":"Gemini 4 Argon"}}}`))
+	}))
+	defer srv.Close()
+	withMockUpstream(t, srv.URL)
+
+	s := newUnionTestService(t)
+	st := s.Settings()
+	st.Accounts = []Account{
+		{Email: "a@example.com", AccessToken: "a", ExpiresAt: futureUnix(), ProjectID: "p1"},
+		{Email: "b@example.com", AccessToken: "b", ExpiresAt: futureUnix(), ProjectID: "p2"},
+	}
+	if err := s.SaveSettings(context.Background(), st); err != nil {
+		t.Fatalf("保存设置失败: %v", err)
+	}
+
+	models := s.fetchModelsUnion(context.Background())
+	if len(models) != 1 {
+		t.Fatalf("并集 = %v", models)
+	}
+	// 元数据必须在同一次遍历里拿到（否则 displayName 会空）。
+	if got := models["gemini-4-argon-high"].DisplayName; got != "Gemini 4 Argon" {
+		t.Errorf("displayName = %q, 应在同一次遍历里取到", got)
+	}
+	// 2 个账号 → 恰好 2 次上游请求，不能是 4 次。
+	if n := calls.Load(); n != 2 {
+		t.Errorf("上游请求数 = %d, want 2（每账号一次，不能为补元数据再遍历一遍）", n)
+	}
+}
+
+// TestFetchModelsUnionSkipsAccountWithoutProject 验证缺 ProjectID 的账号被提前跳过
+// （FetchModels 必须带 ProjectID，否则必然失败并刷 warn 噪音）。
+func TestFetchModelsUnionSkipsAccountWithoutProject(t *testing.T) {
+	var calls atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"models":{"gemini-4-argon-high":{"displayName":"Gemini 4 Argon"}}}`))
+	}))
+	defer srv.Close()
+	withMockUpstream(t, srv.URL)
+
+	s := newUnionTestService(t)
+	st := s.Settings()
+	st.Accounts = []Account{
+		// 有 token 但没 ProjectID：必须被跳过，不该发请求。
+		{Email: "noproj@example.com", AccessToken: "x", ExpiresAt: futureUnix()},
+		{Email: "ok@example.com", AccessToken: "y", ExpiresAt: futureUnix(), ProjectID: "p2"},
+	}
+	if err := s.SaveSettings(context.Background(), st); err != nil {
+		t.Fatalf("保存设置失败: %v", err)
+	}
+
+	if models := s.fetchModelsUnion(context.Background()); len(models) != 1 {
+		t.Fatalf("并集 = %v", models)
+	}
+	if n := calls.Load(); n != 1 {
+		t.Errorf("上游请求数 = %d, want 1（缺 ProjectID 的账号应被跳过）", n)
+	}
+}
+
 func TestFetchModelNamesUnionAllFailReturnsEmpty(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)

@@ -601,30 +601,11 @@ func (s *Service) handleModels(w http.ResponseWriter, r *http.Request) {
 		models = m
 	} else {
 		// 全部账号取并集；一个账号都拉不到才算失败。
-		union := map[string]engineag.ModelInfo{}
-		succeeded := 0
-		for _, acc := range s.Settings().Accounts {
-			if !accountAvailable(acc) {
-				continue
-			}
-			m, err := s.FetchModels(ctx, acc.Email)
-			if err != nil {
-				applog.Warn(nil, "antigravity", "拉取模型目录失败", "email", acc.Email, "error", err.Error())
-				continue
-			}
-			succeeded++
-			for id, info := range m {
-				// 同一模型在不同账号下元数据可能略有差异，保留首次出现的。
-				if _, ok := union[id]; !ok {
-					union[id] = info
-				}
-			}
-		}
-		if succeeded == 0 {
+		models = s.fetchModelsUnion(ctx)
+		if len(models) == 0 {
 			response.JSON(w, http.StatusOK, map[string]interface{}{"success": false, "error": "没有可用账号或全部账号拉取失败"})
 			return
 		}
-		models = union
 	}
 	disabled := map[string]bool{}
 	for _, d := range s.Settings().DisabledModels {
@@ -948,15 +929,30 @@ func (s *Service) fetchModelNamesNoFallback(ctx context.Context) []string {
 //
 // 单个账号失败只跳过它（不影响其它账号）；至少一个账号成功即视为本轮成功。
 func (s *Service) fetchModelNamesUnion(ctx context.Context) []string {
-	accounts := s.Settings().Accounts
-	if len(accounts) == 0 {
-		return []string{}
+	models := s.fetchModelsUnion(ctx)
+	out := make([]string, 0, len(models))
+	for id := range models {
+		out = append(out, id)
 	}
-	union := make(map[string]struct{}, 64)
+	sort.Strings(out)
+	return out
+}
+
+// fetchModelsUnion 遍历所有可用账号拉模型目录并取并集（带元数据）。
+//
+// 一次遍历同时拿到 id 与 displayName 等元数据，**不要**再单独为元数据遍历一遍
+// 账号：那会让上游请求数翻倍（2N），而 Antigravity 的上游对目录请求有频率限制。
+//
+// 单个账号失败只跳过它；全部失败返回空 map，调用方据此保留库中已有名单。
+func (s *Service) fetchModelsUnion(ctx context.Context) map[string]engineag.ModelInfo {
+	accounts := s.Settings().Accounts
+	union := make(map[string]engineag.ModelInfo, 64)
 	succeeded := 0
 	for i := range accounts {
 		acc := accounts[i]
-		if !accountAvailable(acc) {
+		// 用 accountAvailableForRelay：FetchModels 必须带 ProjectID，
+		// 缺它的账号必然失败，提前跳过可避免每轮刷 warn 噪音。
+		if !accountAvailableForRelay(acc) {
 			continue
 		}
 		models, err := s.FetchModels(ctx, acc.Email)
@@ -965,19 +961,17 @@ func (s *Service) fetchModelNamesUnion(ctx context.Context) []string {
 			continue
 		}
 		succeeded++
-		for id := range models {
-			union[id] = struct{}{}
+		for id, info := range models {
+			// 同一模型在不同账号下元数据可能略有差异，保留首次出现的。
+			if _, ok := union[id]; !ok {
+				union[id] = info
+			}
 		}
 	}
 	if succeeded == 0 {
-		return []string{}
+		return map[string]engineag.ModelInfo{}
 	}
-	out := make([]string, 0, len(union))
-	for id := range union {
-		out = append(out, id)
-	}
-	sort.Strings(out)
-	return out
+	return union
 }
 
 // defaultModelNames 上游不可达时的兜底模型列表。
