@@ -15,6 +15,14 @@ ARG APP_VERSION=dev-local
 LABEL org.opencontainers.image.version="${APP_VERSION}"
 
 # 覆盖为本机编译的产物（Go 静态二进制 + 前端 dist + Agent 三平台）
+#
+# 必须先删除基底镜像里的旧 dist：`COPY dist /app/dist` 是覆盖式复制，不会删除
+# 目标目录中源目录不存在的文件。基底镜像带有构建期预压缩产物（index.html.br/.gz
+# 等），而本机 dist 通常没有——残留的旧 .br/.gz 会被 static_precompressed.go
+# 优先命中，导致浏览器带 Accept-Encoding 时一直拿到旧 index.html 与旧 chunk，
+# 表现为「改了代码但生产环境没生效」。
+USER root
+RUN rm -rf /app/dist
 COPY --chown=appuser:appuser dist /app/dist
 COPY --chown=appuser:appuser backend-go/api-monitor /app/api-monitor
 

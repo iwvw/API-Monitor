@@ -1,6 +1,6 @@
 /* global self, caches */
 
-const CACHE_VERSION = 'api-monitor-pwa-v3';
+const CACHE_VERSION = 'api-monitor-pwa-v6';
 const APP_SHELL_CACHE = `${CACHE_VERSION}-shell`;
 const RUNTIME_CACHE = `${CACHE_VERSION}-runtime`;
 
