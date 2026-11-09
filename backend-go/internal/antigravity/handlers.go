@@ -8,12 +8,14 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	engineag "github.com/iwvw/api-monitor/backend-go/internal/antigravity/engine/pkg/antigravity"
+	"github.com/iwvw/api-monitor/backend-go/internal/applog"
 	"github.com/iwvw/api-monitor/backend-go/internal/response"
 )
 
@@ -574,19 +576,55 @@ func (s *Service) handleMessages(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// handleModels 拉取指定账号（或当前轮询账号）的模型列表。
+// handleModels 拉取模型列表。
+//
+// 传 `?email=` 时只拉该账号（用于「这个账号能用哪些模型」的排障视图）；
+// 不传时取**所有可用账号的并集** —— 与端点列表的口径保持一致，否则会出现
+// 「某个模型能用但面板里看不到」或反之的不一致。
 func (s *Service) handleModels(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		response.Error(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
 	email := r.URL.Query().Get("email")
-	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
 	defer cancel()
-	models, err := s.FetchModels(ctx, email)
-	if err != nil {
-		response.JSON(w, http.StatusOK, map[string]interface{}{"success": false, "error": err.Error()})
-		return
+
+	var models map[string]engineag.ModelInfo
+	if strings.TrimSpace(email) != "" {
+		// 指定账号：保持原有单账号视图。
+		m, err := s.FetchModels(ctx, email)
+		if err != nil {
+			response.JSON(w, http.StatusOK, map[string]interface{}{"success": false, "error": err.Error()})
+			return
+		}
+		models = m
+	} else {
+		// 全部账号取并集；一个账号都拉不到才算失败。
+		union := map[string]engineag.ModelInfo{}
+		succeeded := 0
+		for _, acc := range s.Settings().Accounts {
+			if !accountAvailable(acc) {
+				continue
+			}
+			m, err := s.FetchModels(ctx, acc.Email)
+			if err != nil {
+				applog.Warn(nil, "antigravity", "拉取模型目录失败", "email", acc.Email, "error", err.Error())
+				continue
+			}
+			succeeded++
+			for id, info := range m {
+				// 同一模型在不同账号下元数据可能略有差异，保留首次出现的。
+				if _, ok := union[id]; !ok {
+					union[id] = info
+				}
+			}
+		}
+		if succeeded == 0 {
+			response.JSON(w, http.StatusOK, map[string]interface{}{"success": false, "error": "没有可用账号或全部账号拉取失败"})
+			return
+		}
+		models = union
 	}
 	disabled := map[string]bool{}
 	for _, d := range s.Settings().DisabledModels {
@@ -596,13 +634,7 @@ func (s *Service) handleModels(w http.ResponseWriter, r *http.Request) {
 	for k := range models {
 		names = append(names, k)
 	}
-	for i := 0; i < len(names); i++ {
-		for j := i + 1; j < len(names); j++ {
-			if names[j] < names[i] {
-				names[i], names[j] = names[j], names[i]
-			}
-		}
-	}
+	sort.Strings(names)
 	out := make([]map[string]interface{}, 0, len(names))
 	for _, n := range names {
 		mi := models[n]
@@ -901,17 +933,50 @@ func (s *Service) fetchModelNames(ctx context.Context) []string {
 
 // fetchModelNamesNoFallback 从上游拉取模型名列表；失败时返回空切片（不写兜底），
 // 让调用方（如前缀变更刷新）据此保留库中已有模型，而不是覆盖成硬编码默认列表。
+//
+// **多账号取并集**：不同账号的模型权限不同（有的账号有 gemini-4-argon，有的没有），
+// 只按单个账号拉会让别的账号独有的模型永远进不了端点列表 —— 表现就是
+// 「某个模型明明能用，端点列表里却看不到」。因此这里遍历所有可用账号取并集。
+// 全部账号都失败时返回空切片，调用方据此保留库中已有名单。
 func (s *Service) fetchModelNamesNoFallback(ctx context.Context) []string {
-	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
-	models, err := s.FetchModels(ctx, "")
-	if err != nil {
+	return s.fetchModelNamesUnion(ctx)
+}
+
+// fetchModelNamesUnion 遍历所有可用账号拉模型目录并取并集。
+//
+// 单个账号失败只跳过它（不影响其它账号）；至少一个账号成功即视为本轮成功。
+func (s *Service) fetchModelNamesUnion(ctx context.Context) []string {
+	accounts := s.Settings().Accounts
+	if len(accounts) == 0 {
 		return []string{}
 	}
-	out := make([]string, 0, len(models))
-	for k := range models {
-		out = append(out, k)
+	union := make(map[string]struct{}, 64)
+	succeeded := 0
+	for i := range accounts {
+		acc := accounts[i]
+		if !accountAvailable(acc) {
+			continue
+		}
+		models, err := s.FetchModels(ctx, acc.Email)
+		if err != nil {
+			applog.Warn(nil, "antigravity", "拉取模型目录失败", "email", acc.Email, "error", err.Error())
+			continue
+		}
+		succeeded++
+		for id := range models {
+			union[id] = struct{}{}
+		}
 	}
+	if succeeded == 0 {
+		return []string{}
+	}
+	out := make([]string, 0, len(union))
+	for id := range union {
+		out = append(out, id)
+	}
+	sort.Strings(out)
 	return out
 }
 

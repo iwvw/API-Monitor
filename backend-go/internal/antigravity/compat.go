@@ -56,25 +56,43 @@ func (s *Service) handleOpenAIModels(w http.ResponseWriter, r *http.Request) {
 		response.Error(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
 	defer cancel()
-	models, err := s.FetchModels(ctx, "")
-	if err != nil {
+	// 多账号取并集：不同账号的模型权限不同，只按单个账号拉会让别的账号独有的
+	// 模型从 /v1/models 里消失，网关据此刷新端点列表时也会漏掉。
+	names := s.fetchModelNamesUnion(ctx)
+	if len(names) == 0 {
 		// 上游拉取失败时返回非 2xx，而不是 200 + 空列表：网关侧 listModelsWithPricing
 		// 会把「验证成功但空列表」当成真实空并覆盖已获取的模型，导致端点不稳定时
 		// 模型列表被清空（加前缀后仍需手动刷新）。返回错误让网关保留旧模型列表。
 		response.JSON(w, http.StatusBadGateway, map[string]interface{}{
 			"object": "list",
-			"error":  err.Error(),
+			"error":  "没有可用账号或全部账号拉取模型失败",
 		})
 		return
+	}
+	// 并集只给出 id；展示名等元数据按账号逐个补齐（取首个能提供的账号）。
+	meta := make(map[string]engineag.ModelInfo, len(names))
+	for _, acc := range s.Settings().Accounts {
+		if !accountAvailable(acc) {
+			continue
+		}
+		m, err := s.FetchModels(ctx, acc.Email)
+		if err != nil {
+			continue
+		}
+		for id, info := range m {
+			if _, ok := meta[id]; !ok {
+				meta[id] = info
+			}
+		}
 	}
 	disabled := map[string]bool{}
 	for _, d := range s.Settings().DisabledModels {
 		disabled[d] = true
 	}
-	data := make([]map[string]interface{}, 0, len(models))
-	for id, mi := range models {
+	data := make([]map[string]interface{}, 0, len(names))
+	for _, id := range names {
 		if disabled[id] {
 			continue
 		}
@@ -88,7 +106,7 @@ func (s *Service) handleOpenAIModels(w http.ResponseWriter, r *http.Request) {
 			"object":      "model",
 			"created":     0,
 			"owned_by":    "antigravity",
-			"displayName": mi.DisplayName,
+			"displayName": meta[id].DisplayName,
 		})
 	}
 	response.JSON(w, http.StatusOK, map[string]interface{}{"object": "list", "data": data})
