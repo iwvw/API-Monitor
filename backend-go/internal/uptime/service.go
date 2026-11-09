@@ -287,6 +287,12 @@ func (s *Service) servePublic(w http.ResponseWriter, r *http.Request, parts []st
 }
 
 func (s *Service) requireAuth(w http.ResponseWriter, r *http.Request) bool {
+	// 管理 AI 内部调用由服务端注入 context 标记（见 server/ai_caller.go）。
+	// AI 调用会剥离 Cookie/Authorization，无法通过会话校验，因此内部标记
+	// 等价于面板管理员身份；context 值不可由外部 HTTP 请求伪造。
+	if isInternalAICall(r.Context()) {
+		return true
+	}
 	if s.auth == nil {
 		return true
 	}

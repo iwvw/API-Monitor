@@ -16,6 +16,7 @@ import (
 	"github.com/iwvw/api-monitor/backend-go/internal/manifest"
 	"github.com/iwvw/api-monitor/backend-go/internal/serveragent"
 	systemmetrics "github.com/iwvw/api-monitor/backend-go/internal/system"
+	"github.com/iwvw/api-monitor/backend-go/internal/uptime"
 )
 
 func (s *Server) callAPIFromAI(ctx context.Context, call systemmetrics.AICallRequest) (systemmetrics.AICallResponse, error) {
@@ -99,6 +100,11 @@ func (s *Server) callAPIFromAI(ctx context.Context, call systemmetrics.AICallReq
 	// Cookie 后会被拦成 401，故注入同款内部调用标记。
 	if route.Module == "filebox" {
 		ctx = filebox.WithInternalAICall(ctx)
+	}
+	// uptime 也在模块内部做会话鉴权，同样需要内部标记，否则读取监测列表/历史
+	// （延迟、丢包）会被拦成 401「请先登录」。
+	if route.Module == "uptime" {
+		ctx = uptime.WithInternalAICall(ctx)
 	}
 	// 把当前 AI 接入权限模式下传给模块（serveragent 危险命令门控依赖它区分
 	// 硬拦截/软拦截/放行）；context 值不可由外部 HTTP 请求伪造。
