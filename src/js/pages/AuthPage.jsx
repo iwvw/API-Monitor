@@ -36,7 +36,7 @@ function prefersReducedMotion() {
 // 由 GlobeMap 用真实旋转逐帧重投影，天然贴合球面、与自转完全同步，
 // 背面自动隐藏、边缘淡出。CSS 用 fill 属性选择只给赤道点加光晕。
 const GLOBE_DEFAULT_ROTATION = [-10, -20, -30];
-const GLOBE_EQUATOR_SAMPLE_DEG = 4;
+const GLOBE_EQUATOR_SAMPLE_DEG = 5;
 
 const EQUATOR_GLOW_MARKERS = Array.from(
   { length: Math.ceil(360 / GLOBE_EQUATOR_SAMPLE_DEG) },
@@ -91,7 +91,7 @@ function AuthGlobeMarkers({ isDarkMode }) {
         landColor={
           isDarkMode ? 'var(--text-color-kumo-subtle)' : 'var(--text-color-kumo-inactive)'
         }
-        landHatchSpacing={4}
+        landHatchSpacing={6}
         markerColor="var(--color-kumo-brand)"
         markerRadius={6}
         showGraticule

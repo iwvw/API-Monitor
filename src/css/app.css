@@ -823,8 +823,6 @@ samp {
 
 .auth-globe-canvas circle[data-globe-marker][fill='var(--color-brand)'] {
   stroke: transparent;
-  filter: drop-shadow(0 0 3px color-mix(in oklab, var(--color-brand) 90%, transparent))
-    drop-shadow(0 0 10px color-mix(in oklab, var(--color-brand) 60%, transparent));
 }
 
 .auth-globe-canvas svg:focus:not(:focus-visible) {
