@@ -69,12 +69,13 @@ func (s *Service) verifyEndpoint(w http.ResponseWriter, r *http.Request, id stri
 
 	checkedAt := time.Now().Format(time.RFC3339)
 
-	// 只有「验证成功且列表拉取成功」才用新结果覆盖 models/pricing；验证失败或
-	// 拉取失败（端点不稳定/超时）时保留库中旧模型与旧定价，避免一次瞬时故障把
-	// 端点模型清空成「暂无模型数据，可刷新端点获取」。
+	// 只有「验证成功且列表拉取成功且列表非空」才用新结果覆盖 models/pricing；
+	// 验证失败、拉取失败或上游返回空列表时保留库中旧模型与旧定价——避免一次
+	// 瞬时故障或空响应把端点模型清空，进而让下次刷新把全部模型判成「新增」
+	// 并入停用名单，静默批量停用用户已启用的模型。
 	modelsJSON := "[]"
 	pricingJSON := "{}"
-	if status == "valid" && listOK {
+	if status == "valid" && listOK && len(modelsList) > 0 {
 		if len(modelsList) > 0 {
 			modelsJSONBytes, _ := json.Marshal(modelsList)
 			modelsJSON = string(modelsJSONBytes)
@@ -110,11 +111,41 @@ func (s *Service) verifyEndpoint(w http.ResponseWriter, r *http.Request, id stri
 		}
 	}
 
-	_, err = db.ExecContext(ctx, `
-		UPDATE openai_endpoints
-		SET status = ?, models = ?, pricing = ?, last_checked = ?
-		WHERE id = ?`,
-		status, modelsJSON, pricingJSON, checkedAt, id)
+	// 新增/刷新模型默认停用：拉取成功且新列表非空时，把不在旧 models 的新模型并入 disabled_models；
+	// 验证/拉取失败或保留旧列表时 disabled_models 不动。
+	writeDisabled := false
+	disabledJSON := "[]"
+	if status == "valid" && listOK && len(modelsList) > 0 {
+		var oldModelsRaw, disabledRaw sql.NullString
+		if scanErr := db.QueryRowContext(ctx, "SELECT models, disabled_models FROM openai_endpoints WHERE id = ?", id).Scan(&oldModelsRaw, &disabledRaw); scanErr == nil {
+			oldList := []string{}
+			if oldModelsRaw.Valid && strings.TrimSpace(oldModelsRaw.String) != "" {
+				_ = json.Unmarshal([]byte(oldModelsRaw.String), &oldList)
+			}
+			curDisabled := []string{}
+			if disabledRaw.Valid && strings.TrimSpace(disabledRaw.String) != "" {
+				_ = json.Unmarshal([]byte(disabledRaw.String), &curDisabled)
+			}
+			disabledBytes, _ := json.Marshal(mergeNewModelDisabled(oldList, modelsList, curDisabled))
+			disabledJSON = string(disabledBytes)
+			writeDisabled = true
+		}
+		// 旧状态读取失败时保守不写 disabled_models（writeDisabled 保持 false）。
+	}
+
+	if writeDisabled {
+		_, err = db.ExecContext(ctx, `
+			UPDATE openai_endpoints
+			SET status = ?, models = ?, pricing = ?, disabled_models = ?, last_checked = ?
+			WHERE id = ?`,
+			status, modelsJSON, pricingJSON, disabledJSON, checkedAt, id)
+	} else {
+		_, err = db.ExecContext(ctx, `
+			UPDATE openai_endpoints
+			SET status = ?, models = ?, pricing = ?, last_checked = ?
+			WHERE id = ?`,
+			status, modelsJSON, pricingJSON, checkedAt, id)
+	}
 	if err != nil {
 		response.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return

@@ -35,7 +35,15 @@ import {
   getAuthHeaders,
 } from './utils.js';
 import { useAnalytics } from './useAnalytics.js';
-import { TimeRangePicker } from '../../components/ui/TimeRangePicker.jsx';
+import { TimeRangePicker, TIME_RANGE_QUICK } from '../../components/ui/TimeRangePicker.jsx';
+
+// 数据看板专属预设：通用快捷时段之上追加 60/90 天与「全部」（全部 = 全量历史，days 取超大值）。
+const ANALYTICS_TIME_PRESETS = [
+  ...TIME_RANGE_QUICK,
+  { label: '过去 60 天', minutes: 86400 },
+  { label: '过去 90 天', minutes: 129600 },
+  { label: '全部', minutes: 52560000 },
+];
 import { useGatewayKeys } from './useGatewayKeys.js';
 import { useHealthChecks } from './useHealthChecks.js';
 import { useEndpoints } from './useEndpoints.js';
@@ -82,8 +90,11 @@ function OpenAIPage() {
     return () => { cancelled = true; };
   }, [activeTab]);
 
+  // 端点（CRUD/排序/模型开关/代理池/导入导出，由 useEndpoints 统一管理）
+  const endpointsApi = useEndpoints();
+
   // Gateway Analytics（状态/拉取/SSE/日志清理由 useAnalytics 统一管理）
-  const analyticsApi = useAnalytics(activeTab);
+  const analyticsApi = useAnalytics(activeTab, endpointsApi.endpoints);
   const {
     analyticsDays, setAnalyticsDays,
     analyticsMinutes,
@@ -144,8 +155,7 @@ function OpenAIPage() {
     deleteGatewayKey,
   } = keysApi;
 
-  // 端点与模型（CRUD/排序/模型开关/代理池/导入导出，由 useEndpoints 统一管理）
-  const endpointsApi = useEndpoints();
+  // 端点与模型（解构 useEndpoints 返回）
   const {
     endpoints, setEndpoints,
     endpointsLoading, setEndpointsLoading,
@@ -631,7 +641,7 @@ function OpenAIPage() {
         <div className="flex min-w-0 items-center justify-end gap-2">
             {activeTab === 'analytics' && (
               <>
-                <TimeRangePicker value={analyticsRangeLabel} onApply={applyAnalyticsRange} />
+                <TimeRangePicker value={analyticsRangeLabel} onApply={applyAnalyticsRange} presets={ANALYTICS_TIME_PRESETS} />
                 <TabBarOverflowActions
                   items={[
                     {

@@ -185,6 +185,19 @@ export function useEndpointCrud({ loadAllModels, routingEditKeyState, confirmSta
     }
   };
 
+  // 切换端点自动刷新模型列表（带 60s TTL 缓存：同一端点 60s 内不重复刷新）。
+  const autoRefreshTsRef = useRef(new Map());
+  useEffect(() => {
+    if (!selectedEndpointId) return undefined;
+    const ep = endpoints.find(e => e.id === selectedEndpointId);
+    if (!ep || !ep.enabled) return undefined;
+    const last = autoRefreshTsRef.current.get(selectedEndpointId);
+    if (last && Date.now() - last < 60_000) return undefined;
+    autoRefreshTsRef.current.set(selectedEndpointId, Date.now());
+    refreshEndpointModels(ep, true);
+    return undefined;
+  }, [selectedEndpointId, endpoints, refreshEndpointModels]);
+
   const refreshAllEndpoints = async () => {
     setEndpointsRefreshing(true);
     try {

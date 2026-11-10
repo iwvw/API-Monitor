@@ -14,7 +14,7 @@ export const TIME_RANGE_QUICK = [
   { label: '过去 30 天', minutes: 43200 },
 ];
 
-export function TimeRangePicker({ value, onApply, buttonClassName = '' }) {
+export function TimeRangePicker({ value, onApply, buttonClassName = '', presets = TIME_RANGE_QUICK }) {
   const [open, setOpen] = useState(false);
   const [customText, setCustomText] = useState('');
   const [range, setRange] = useState(undefined);
@@ -141,7 +141,7 @@ export function TimeRangePicker({ value, onApply, buttonClassName = '' }) {
           <div className="flex">
             {/* 左侧：快捷时段 */}
             <div className="flex w-32 shrink-0 flex-col gap-0.5 border-r border-kumo-line p-2">
-              {TIME_RANGE_QUICK.map((q) => (
+              {presets.map((q) => (
                 <Button
                   key={q.label}
                   type="button"

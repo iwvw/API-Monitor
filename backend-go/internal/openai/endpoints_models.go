@@ -70,16 +70,95 @@ func (s *Service) getEndpointModels(w http.ResponseWriter, r *http.Request, id s
 		return
 	}
 
+	if len(modelsList) == 0 {
+		// 拉取「成功」但上游返回空列表：视为上游异常/临时响应，保留库中旧模型
+		// 与旧定价——否则一次空响应会清空 models，下次刷新会把全部模型判成
+		// 「新增」并入停用名单，静默批量停用用户已启用的模型。仅更新 last_checked。
+		_, _ = db.ExecContext(ctx, "UPDATE openai_endpoints SET last_checked = ? WHERE id = ?", checkedAt, id)
+		s.invalidateRouteCache()
+		var emptyModelsRaw, emptyPricingRaw, emptyDisabledRaw sql.NullString
+		_ = db.QueryRowContext(ctx, "SELECT models, pricing, disabled_models FROM openai_endpoints WHERE id = ?", id).Scan(&emptyModelsRaw, &emptyPricingRaw, &emptyDisabledRaw)
+		existing := []string{}
+		if emptyModelsRaw.Valid && strings.TrimSpace(emptyModelsRaw.String) != "" {
+			_ = json.Unmarshal([]byte(emptyModelsRaw.String), &existing)
+		}
+		existingPricing := PricingMap{}
+		if emptyPricingRaw.Valid && strings.TrimSpace(emptyPricingRaw.String) != "" {
+			_ = json.Unmarshal([]byte(emptyPricingRaw.String), &existingPricing)
+		}
+		curDisabled := []string{}
+		if emptyDisabledRaw.Valid && strings.TrimSpace(emptyDisabledRaw.String) != "" {
+			_ = json.Unmarshal([]byte(emptyDisabledRaw.String), &curDisabled)
+		}
+		response.JSON(w, http.StatusOK, map[string]interface{}{
+			"success":        true,
+			"models":         existing,
+			"pricing":        existingPricing,
+			"disabledModels": curDisabled,
+			"emptyUpstream":  true,
+		})
+		return
+	}
+
 	modelsJSON, _ := json.Marshal(modelsList)
 	pricingJSON, _ := json.Marshal(pricing)
 
-	_, _ = db.ExecContext(ctx, "UPDATE openai_endpoints SET models = ?, pricing = ?, last_checked = ? WHERE id = ?", string(modelsJSON), string(pricingJSON), checkedAt, id)
+	// 新增/刷新模型默认停用：新出现（不在旧 models）的模型并入 disabled_models。
+	// 读取旧状态失败时保守跳过 disabled 覆盖——把全量模型误判为新增会批量
+	// 停用用户已启用的模型，比少合并一次严重得多。
+	var curModelsRaw, disabledRaw sql.NullString
+	disabledJSON := ""
+	if err := db.QueryRowContext(ctx, "SELECT models, disabled_models FROM openai_endpoints WHERE id = ?", id).Scan(&curModelsRaw, &disabledRaw); err == nil {
+		oldModels := []string{}
+		if curModelsRaw.Valid && strings.TrimSpace(curModelsRaw.String) != "" {
+			_ = json.Unmarshal([]byte(curModelsRaw.String), &oldModels)
+		}
+		curDisabled := []string{}
+		if disabledRaw.Valid && strings.TrimSpace(disabledRaw.String) != "" {
+			_ = json.Unmarshal([]byte(disabledRaw.String), &curDisabled)
+		}
+		disabledList := mergeNewModelDisabled(oldModels, modelsList, curDisabled)
+		disabledBytes, _ := json.Marshal(disabledList)
+		disabledJSON = string(disabledBytes)
+	}
+	if disabledJSON != "" {
+		_, _ = db.ExecContext(ctx, "UPDATE openai_endpoints SET models = ?, pricing = ?, disabled_models = ?, last_checked = ? WHERE id = ?", string(modelsJSON), string(pricingJSON), disabledJSON, checkedAt, id)
+	} else {
+		_, _ = db.ExecContext(ctx, "UPDATE openai_endpoints SET models = ?, pricing = ?, last_checked = ? WHERE id = ?", string(modelsJSON), string(pricingJSON), checkedAt, id)
+	}
 	s.invalidateRouteCache()
 
 	response.JSON(w, http.StatusOK, map[string]interface{}{
 		"success": true,
 		"models":  modelsList,
 	})
+}
+
+// setOf 把切片转成 map[string]bool 去重。
+func setOf(items []string) map[string]bool {
+	s := make(map[string]bool, len(items))
+	for _, i := range items {
+		s[i] = true
+	}
+	return s
+}
+
+// mergeNewModelDisabled 返回「新出现模型默认停用」合并后的停用名单：newModels 里
+// 不在 oldModels 的模型并入 disabled。用于新增/自动同步上游模型时保持默认关闭。
+func mergeNewModelDisabled(oldModels, newModels, disabled []string) []string {
+	oldSet := setOf(oldModels)
+	out := setOf(disabled)
+	for _, m := range newModels {
+		if !oldSet[m] {
+			out[m] = true
+		}
+	}
+	list := make([]string, 0, len(out))
+	for m := range out {
+		list = append(list, m)
+	}
+	sort.Strings(list)
+	return list
 }
 
 func (s *Service) toggleEndpointModel(w http.ResponseWriter, r *http.Request, id string) {
@@ -296,18 +375,26 @@ func (s *Service) addEndpointModels(w http.ResponseWriter, r *http.Request, id s
 	}
 	sort.Strings(next)
 
+	// 新增模型默认停用：next 里不在原 models 的并入 disabled_models。
+	oldModels := []string{}
+	if modelsRaw.Valid && strings.TrimSpace(modelsRaw.String) != "" {
+		_ = json.Unmarshal([]byte(modelsRaw.String), &oldModels)
+	}
+	disabled := []string{}
+	if disabledRaw.Valid && strings.TrimSpace(disabledRaw.String) != "" {
+		_ = json.Unmarshal([]byte(disabledRaw.String), &disabled)
+	}
+	disabled = mergeNewModelDisabled(oldModels, next, disabled)
+	disabledJSON, _ := json.Marshal(disabled)
+
 	modelsJSON, _ := json.Marshal(next)
-	_, err = db.ExecContext(ctx, "UPDATE openai_endpoints SET models = ? WHERE id = ?", string(modelsJSON), id)
+	_, err = db.ExecContext(ctx, "UPDATE openai_endpoints SET models = ?, disabled_models = ? WHERE id = ?", string(modelsJSON), string(disabledJSON), id)
 	if err != nil {
 		response.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
 	s.invalidateRouteCache()
 
-	disabled := []string{}
-	if disabledRaw.Valid && disabledRaw.String != "" {
-		_ = json.Unmarshal([]byte(disabledRaw.String), &disabled)
-	}
 	response.JSON(w, http.StatusOK, map[string]interface{}{
 		"success":        true,
 		"models":         next,

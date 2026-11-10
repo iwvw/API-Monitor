@@ -3,10 +3,10 @@ import { toast } from '../../modules/toast.js';
 import { dialog } from '../../modules/dialog.js';
 import { getAuthHeaders } from './utils.js';
 
-export function useAnalytics(activeTab) {
+export function useAnalytics(activeTab, endpoints = []) {
   const [analyticsDays, setAnalyticsDays] = useState(() => {
     const stored = Number(localStorage.getItem('openai_analytics_days'));
-    return [1, 7, 30].includes(stored) ? stored : 7;
+    return stored >= 1 ? stored : 7;
   });
   // 分钟级窗口（30/60/360/720）：与「过去 24 小时」共用 days=1，但带 minutes 精确过滤。
   const [analyticsMinutes, setAnalyticsMinutes] = useState(() => {
@@ -22,7 +22,7 @@ export function useAnalytics(activeTab) {
     const stored = localStorage.getItem('openai_analytics_range_label');
     if (stored) return stored;
     const days = Number(localStorage.getItem('openai_analytics_days'));
-    return days === 1 ? '过去 24 小时' : days === 30 ? '过去 30 天' : '过去 7 天';
+    return days === 1 ? '过去 24 小时' : days === 30 ? '过去 30 天' : days >= 36500 ? '全部' : '过去 7 天';
   });
   const [analyticsSummary, setAnalyticsSummary] = useState({
     totalRequests: 0,
@@ -158,15 +158,48 @@ export function useAnalytics(activeTab) {
     }
   }, [activeTab, analyticsDays, analyticsMinutes, analyticsGranularity, fetchAnalytics]);
 
+  // SSE 实时插入前的筛选匹配：语义与 /analytics/logs 后端一致（状态枚举、model 精确、端点 id/名称精确）。
+  const sseFiltersRef = useRef(null);
+  sseFiltersRef.current = {
+    status: logStatusFilter,
+    model: logModelFilter,
+    endpoint: logEndpointFilter,
+    endpoints,
+  };
+
   // 网关实时推送（SSE）：仅在网关日志 Tab 连接，后端出现请求立即插入日志列表顶部。
   useEffect(() => {
     if (activeTab !== 'logs') return undefined;
     let source = null;
+    const matchesSseFilters = log => {
+      const { status, model, endpoint, endpoints: eps } = sseFiltersRef.current;
+      if (status) {
+        const code = Number(log.statusCode) || 0;
+        if (status === 'error' && !(code >= 400)) return false;
+        if (status === '429' && code !== 429) return false;
+        if (status === '5xx' && !(code >= 500)) return false;
+        if (status === 'success' && !(code >= 200 && code < 400)) return false;
+      }
+      if (model && log.model !== model) return false;
+      if (endpoint) {
+        // 只放行「名称或 id 命中筛选值」的端点对应的日志；初始集合不能预填
+        // 全量端点 id，否则任何已知端点的日志都会绕过端点筛选。
+        const idHits = new Set(
+          eps
+            .filter(e => e?.name === endpoint || e?.id === endpoint)
+            .map(e => e.id)
+            .filter(Boolean)
+        );
+        if (!(idHits.has(log.endpointId) || log.endpointName === endpoint)) return false;
+      }
+      return true;
+    };
     try {
       source = new EventSource('/api/openai/analytics/stream');
       source.addEventListener('log', event => {
         try {
           const log = JSON.parse(event.data);
+          if (!matchesSseFilters(log)) return;
           setAnalyticsLogs(prev => {
             if (!prev || prev.length === 0) return [log, ...prev];
             const dedupOf = item => `${item.timestamp}|${item.model ?? ''}|${item.statusCode ?? ''}|${item.endpoint ?? ''}|${item.clientIp ?? ''}|${item.latencyMs ?? ''}|${item.completionTokens ?? ''}`;
@@ -215,14 +248,14 @@ export function useAnalytics(activeTab) {
     localStorage.setItem('openai_analytics_range_label', analyticsRangeLabel);
   }, [analyticsRangeLabel]);
 
-  // 仪表盘同款时段选择器回调：更新分析范围（天数 + 可选分钟窗口），时间粒度由工具栏下拉手动控制，
-  // 分钟窗口强制按小时粒度，设值后由上方参数变化效果驱动刷新。
+  // 仪表盘同款时段选择器回调：更新分析范围（天数 + 可选分钟窗口），
+  // 粒度自适应：范围 ≤7 天（含分钟窗口）按小时粒度，>7 天按天粒度，设值后由上方参数变化效果驱动刷新。
   const applyAnalyticsRange = useCallback((days, cfRange, label, minutes) => {
     const d = Math.max(1, Number(days) || 1);
     const m = minutes && minutes > 0 && minutes < 1440 ? minutes : null;
     setAnalyticsDays(d);
     setAnalyticsMinutes(m);
-    if (m) setAnalyticsGranularity('hour');
+    setAnalyticsGranularity(m || d <= 7 ? 'hour' : 'day');
     if (label) setAnalyticsRangeLabel(label);
     setAnalyticsPage(1);
   }, []);

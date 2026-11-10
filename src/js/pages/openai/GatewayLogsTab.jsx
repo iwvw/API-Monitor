@@ -1,5 +1,6 @@
+import { useMemo } from 'react';
 import { Button } from '@cloudflare/kumo/components/button';
-import { Input } from '@cloudflare/kumo/components/input';
+import { Combobox } from '@cloudflare/kumo/components/combobox';
 import { Select } from '@cloudflare/kumo/components/select';
 import { Loader, LayerCard, Pagination, Popover, Table } from '@cloudflare/kumo';
 import { formatDateTime } from '../../modules/utils.js';
@@ -38,12 +39,23 @@ export function GatewayLogsTab({ analytics, endpoints }) {
     analyticsPage, setAnalyticsPage,
     analyticsPageSize, setAnalyticsPageSize,
     analyticsTotal,
+    analyticsCharts,
     logStatusFilter, setLogStatusFilter,
     logModelFilter, setLogModelFilter,
     logEndpointFilter, setLogEndpointFilter,
     setLogDetail,
     setLogDetailExpanded,
   } = analytics;
+
+  // 模型候选：当前分析范围内出现过的模型（看板聚合）。端点候选：端点显示名。
+  const modelOptions = useMemo(
+    () => (analyticsCharts?.models || []).map(item => item.model).filter(Boolean),
+    [analyticsCharts]
+  );
+  const endpointOptions = useMemo(
+    () => Array.from(new Set((endpoints || []).map(ep => ep?.name || ep?.id || '').filter(Boolean))),
+    [endpoints]
+  );
 
   return (
         <div className="flex w-full min-w-0 flex-col gap-3">
@@ -66,30 +78,58 @@ export function GatewayLogsTab({ analytics, endpoints }) {
               <Select.Option value="429">限流 429</Select.Option>
               <Select.Option value="5xx">服务端 5xx</Select.Option>
             </Select>
-            <Input
+            <Combobox
               size="sm"
-              className="w-52"
-              value={logModelFilter}
-              aria-label="按模型筛选"
-              onChange={e => {
-                setLogModelFilter(e.target.value);
+              items={modelOptions}
+              inputValue={logModelFilter}
+              onInputValueChange={value => {
+                setLogModelFilter(value || '');
                 setAnalyticsPage(1);
               }}
-              placeholder="按模型筛选，如 deepseek-flash"
-              spellCheck={false}
-            />
-            <Input
+            >
+              <Combobox.TriggerInput
+                className="w-52"
+                placeholder="按模型筛选"
+                aria-label="按模型筛选"
+                spellCheck={false}
+              />
+              <Combobox.Content>
+                <Combobox.Empty>无匹配模型</Combobox.Empty>
+                <Combobox.List>
+                  {model => (
+                    <Combobox.Item key={model} value={model}>
+                      {model}
+                    </Combobox.Item>
+                  )}
+                </Combobox.List>
+              </Combobox.Content>
+            </Combobox>
+            <Combobox
               size="sm"
-              className="w-52"
-              value={logEndpointFilter}
-              aria-label="按端点筛选"
-              onChange={e => {
-                setLogEndpointFilter(e.target.value);
+              items={endpointOptions}
+              inputValue={logEndpointFilter}
+              onInputValueChange={value => {
+                setLogEndpointFilter(value || '');
                 setAnalyticsPage(1);
               }}
-              placeholder="端点名称或 ID"
-              spellCheck={false}
-            />
+            >
+              <Combobox.TriggerInput
+                className="w-52"
+                placeholder="端点名称或 ID"
+                aria-label="按端点筛选"
+                spellCheck={false}
+              />
+              <Combobox.Content>
+                <Combobox.Empty>无匹配端点</Combobox.Empty>
+                <Combobox.List>
+                  {endpoint => (
+                    <Combobox.Item key={endpoint} value={endpoint}>
+                      {endpoint}
+                    </Combobox.Item>
+                  )}
+                </Combobox.List>
+              </Combobox.Content>
+            </Combobox>
             {(logStatusFilter || logModelFilter || logEndpointFilter) && (
               <Button
                 size="sm"

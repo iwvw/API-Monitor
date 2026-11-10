@@ -95,7 +95,7 @@ func (s *Service) refreshAllModels(ctx context.Context) (results []map[string]in
 			// 把端点模型清空成「暂无模型数据，可刷新端点获取」。
 			modelsJSON := "[]"
 			pricingJSON := "{}"
-			if status == "valid" && listOK {
+			if status == "valid" && listOK && len(modelsList) > 0 {
 				if len(modelsList) > 0 {
 					modelsJSONBytes, _ := json.Marshal(modelsList)
 					modelsJSON = string(modelsJSONBytes)
@@ -148,6 +148,35 @@ func (s *Service) refreshAllModels(ctx context.Context) (results []map[string]in
 						SET status = ?, pricing = ?, last_checked = ?
 						WHERE id = ?`,
 						status, pricingJSON, checkedAt, it.id)
+				} else if len(modelsList) > 0 {
+					// 新增/自动同步模型默认停用：新出现（不在旧 models）的并入 disabled_models。
+					// 空列表（上游异常响应）不进入本分支——models/pricing 已走上面的
+					// 保留旧值路径；读取旧状态失败时保守跳过 disabled 覆盖，避免把
+					// 全量模型误判为新增而批量停用用户已启用的模型。
+					var curModelsRaw, disabledRaw sql.NullString
+					if scanErr := dbConn.QueryRowContext(ctx, "SELECT models, disabled_models FROM openai_endpoints WHERE id = ?", it.id).Scan(&curModelsRaw, &disabledRaw); scanErr == nil {
+						oldList := []string{}
+						if curModelsRaw.Valid && strings.TrimSpace(curModelsRaw.String) != "" {
+							_ = json.Unmarshal([]byte(curModelsRaw.String), &oldList)
+						}
+						curDisabled := []string{}
+						if disabledRaw.Valid && strings.TrimSpace(disabledRaw.String) != "" {
+							_ = json.Unmarshal([]byte(disabledRaw.String), &curDisabled)
+						}
+						disabledList := mergeNewModelDisabled(oldList, modelsList, curDisabled)
+						disabledJSON, _ := json.Marshal(disabledList)
+						_, _ = dbConn.ExecContext(ctx, `
+							UPDATE openai_endpoints
+							SET status = ?, models = ?, pricing = ?, disabled_models = ?, last_checked = ?
+							WHERE id = ?`,
+							status, modelsJSON, pricingJSON, string(disabledJSON), checkedAt, it.id)
+					} else {
+						_, _ = dbConn.ExecContext(ctx, `
+							UPDATE openai_endpoints
+							SET status = ?, models = ?, pricing = ?, last_checked = ?
+							WHERE id = ?`,
+							status, modelsJSON, pricingJSON, checkedAt, it.id)
+					}
 				} else {
 					_, _ = dbConn.ExecContext(ctx, `
 						UPDATE openai_endpoints

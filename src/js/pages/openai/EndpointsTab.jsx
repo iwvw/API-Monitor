@@ -28,6 +28,7 @@ import { modelHealthKey } from '../../modules/openaiModelHealth.js';
 import { ProxyRuntimeMeta } from './ProxyRuntimeMeta.jsx';
 import { MultiSelectPopover } from './MultiSelectPopover.jsx';
 import { KeyStatusBadge } from './KeyStatusBadge.jsx';
+import { toast } from '../../modules/toast.js';
 
 const ENDPOINT_LIST_COLUMNS = [
   { id: 'endpoint', role: 'primary', minWidth: 200, grow: 1 },
@@ -41,9 +42,40 @@ const ENDPOINT_MODEL_COLUMNS = [
   { id: 'model', role: 'primary', minWidth: 260, maxWidth: 320, grow: 1 },
   { id: 'mapping', role: 'meta', minWidth: 180, grow: 1 },
   { id: 'health', role: 'status' },
-  { id: 'latency', role: 'count', align: 'center' },
   { id: 'actions', role: 'actions-md' },
 ];
+
+function copyTextHelper(value, label = '内容') {
+  const text = String(value || '').trim();
+  if (!text) {
+    toast.error('没有可复制的内容');
+    return;
+  }
+  const fallback = () => {
+    try {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.setAttribute('readonly', '');
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+      toast.success(`${label}已复制`);
+    } catch {
+      toast.error('复制失败');
+    }
+  };
+  if (navigator.clipboard?.writeText) {
+    navigator.clipboard
+      .writeText(text)
+      .then(() => toast.success(`${label}已复制`))
+      .catch(() => fallback());
+  } else {
+    fallback();
+  }
+}
 
 export function EndpointsTab({
   endpointsApi,
@@ -109,7 +141,7 @@ export function EndpointsTab({
             className="hidden"
             onChange={importEndpointsFromFile}
           />
-          <div className="flex flex-col gap-2 rounded-lg border border-kumo-line bg-kumo-base p-2 shadow-none cq-sm:flex-row cq-sm:items-center cq-sm:justify-between">
+          <div className="flex flex-col gap-2 cq-sm:flex-row cq-sm:items-center cq-sm:justify-between">
 <div className="flex min-w-0 items-center gap-2">
               <ClipboardText
                 size="sm"
@@ -197,8 +229,8 @@ export function EndpointsTab({
                 : 0;
 
               return (
-                <div className="grid min-w-0 gap-3 cq-lg:grid-cols-[fit-content(28rem)_minmax(0,1fr)]">
-                  <section className="flex min-w-0 flex-col gap-2 cq-lg:sticky cq-lg:top-[70px] cq-lg:self-start">
+                <div className="grid min-w-0 gap-3 cq-lg:grid-cols-[fit-content(28rem)_minmax(0,1fr)] cq-lg:grid-rows-[minmax(0,calc(100dvh-11.25rem))]">
+                  <section className="flex min-h-0 min-w-0 flex-col gap-2">
                     <div className="flex min-h-8 items-center justify-between gap-2 px-1">
                       <div className="flex items-center gap-2 text-xs text-kumo-subtle">
                         <Server className="h-3.5 w-3.5" />
@@ -206,8 +238,8 @@ export function EndpointsTab({
                       </div>
                       <span className="text-xs text-kumo-subtle">{endpoints.length} 个</span>
                     </div>
-                    <LayerCard className="min-w-0 p-0 shadow-none">
-                      <div className="overflow-x-auto overscroll-x-contain scrollbar-thin">
+                    <LayerCard className="min-h-64 flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden p-0 shadow-none">
+                      <div className="min-h-0 min-w-0 flex-1 overflow-auto overscroll-x-contain scrollbar-thin">
                         <AppTable tableId="endpoints-list" columns={ENDPOINT_LIST_COLUMNS} className="w-full min-w-[420px] text-xs">
                           <Table.Header sticky variant="compact">
                             <Table.Row className="h-8">
@@ -230,15 +262,18 @@ export function EndpointsTab({
                                   <div className="min-w-0 flex-1">
                                     <div className="flex items-center gap-1.5 min-w-0">
                                       <span
-                                        className="inline-flex w-7 shrink-0 items-center justify-center rounded font-mono text-xs font-semibold leading-5 tabular-nums text-brand"
+                                        className="inline-flex w-7 shrink-0 items-center justify-center rounded border-2 border-kumo-line/70 font-mono text-xs font-semibold leading-5 tabular-nums text-brand"
                                         title="启用模型数"
                                       >
                                         {activeModelIdsForEndpoint(item).length}
                                       </span>
                                       {item.pluginId && (
-                                        <Badge variant="info" className="shrink-0" title="由插件注册">
+                                        <span
+                                          className="shrink-0 rounded border-2 border-kumo-line/70 px-1 text-[10px] font-semibold leading-5 text-brand"
+                                          title="由插件注册"
+                                        >
                                           插件
-                                        </Badge>
+                                        </span>
                                       )}
                                       <div className="truncate font-semibold leading-5 text-kumo-strong" title={item.name}>
                                         {item.name || '未命名端点'}
@@ -351,7 +386,7 @@ export function EndpointsTab({
                     </LayerCard>
                   </section>
 
-                  <section className="flex min-h-0 min-w-0 flex-col gap-2">
+                  <section className="flex min-h-0 min-w-0 flex-1 flex-col gap-2">
                     <div className="flex min-h-8 flex-wrap items-center justify-between gap-2 px-1">
                       <div className="flex min-w-0 items-center gap-2 text-xs">
                         <span className="truncate font-medium text-kumo-strong">
@@ -362,12 +397,7 @@ export function EndpointsTab({
                           variant="secondary"
                           aria-label="复制端点地址"
                           title={endpoint.baseUrl}
-                          onClick={() => {
-                            navigator.clipboard
-                              .writeText(endpoint.baseUrl)
-                              .then(() => toast.success('端点地址已复制'))
-                              .catch(() => toast.error('复制失败'));
-                          }}
+                          onClick={() => copyTextHelper(endpoint.baseUrl, '端点地址')}
                         >
                           端点
                         </Button>
@@ -378,10 +408,7 @@ export function EndpointsTab({
                           title="复制 API Key（默认首个）"
                           onClick={() => {
                             const keys = [endpoint.apiKey, ...(endpoint.apiKeys || [])].filter(Boolean);
-                            navigator.clipboard
-                              .writeText(keys[0] || '')
-                              .then(() => toast.success(keys.length > 1 ? '已复制首个 API Key' : 'API Key 已复制'))
-                              .catch(() => toast.error('复制失败'));
+                            copyTextHelper(keys[0], keys.length > 1 ? '首个 API Key' : 'API Key');
                           }}
                         >
                           密钥
@@ -487,8 +514,8 @@ export function EndpointsTab({
                       </div>
                     </div>
 
-                    <LayerCard className="min-w-0 p-0 shadow-none">
-                      <div className="overflow-x-auto overscroll-x-contain scrollbar-thin">
+                    <LayerCard className="min-h-64 flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden p-0 shadow-none">
+                      <div className="min-h-0 min-w-0 flex-1 overflow-auto overscroll-x-contain scrollbar-thin">
                         <AppTable tableId="endpoint-models" columns={ENDPOINT_MODEL_COLUMNS} className="min-w-[820px] text-xs">
                           <Table.Header sticky variant="compact">
                             <Table.Row className="h-8">
@@ -526,7 +553,6 @@ export function EndpointsTab({
                               <Table.Head className="!px-2.5 !py-1.5">模型</Table.Head>
                               <Table.Head className="!px-2 !py-1.5">映射</Table.Head>
                               <Table.Head className="!px-2 !py-1.5 text-center">健康</Table.Head>
-                              <Table.Head className="!px-2 !py-1.5 text-center">延迟</Table.Head>
                               <Table.Head className="app-table-action !px-2 !py-1.5">操作</Table.Head>
                             </Table.Row>
                           </Table.Header>
@@ -647,12 +673,25 @@ export function EndpointsTab({
                                       )}
                                     </Table.Cell>
                                     <Table.Cell className="!px-2 !py-1.5 text-center">
-                                      <StatusBadge tone={healthTone}>
-                                        {healthLabel}
-                                      </StatusBadge>
-                                    </Table.Cell>
-                                    <Table.Cell className="!px-2 !py-1.5 text-center font-mono text-kumo-strong">
-                                      {health?.latency != null ? `${health.latency} ms` : '-'}
+                                      <div className="inline-flex items-center gap-2">
+                                        {health?.status !== 'healthy' && health?.status !== 'degraded' && (
+                                          <StatusBadge tone={healthTone}>
+                                            {healthLabel}
+                                          </StatusBadge>
+                                        )}
+                                        {(health?.status === 'healthy' || health?.status === 'degraded') &&
+                                          health?.latency != null && (
+                                            <span
+                                              className={`font-mono font-semibold ${
+                                                health?.status === 'healthy'
+                                                  ? 'text-kumo-success'
+                                                  : 'text-kumo-warning'
+                                              }`}
+                                            >
+                                              {health.latency} ms
+                                            </span>
+                                          )}
+                                      </div>
                                     </Table.Cell>
                                     <Table.Cell className="!px-2 !py-1.5 text-center">
                                       <div className="inline-flex gap-1">
@@ -709,7 +748,7 @@ export function EndpointsTab({
                             ) : (
                               <Table.Row>
                                 <Table.Cell
-                                  colSpan={6}
+                                  colSpan={5}
                                   className="py-10 text-center text-kumo-subtle"
                                 >
                                   暂无模型数据，可刷新端点获取

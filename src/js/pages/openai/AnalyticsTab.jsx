@@ -86,7 +86,7 @@ export function AnalyticsTab({ analytics, isDarkMode, trendSeries, byModelTrend 
                   </div>
                 )}
                 </div>
-                <span className="hidden truncate text-[11px] text-kumo-subtle cq-xl:block">最近 {analyticsMinutes ? `${analyticsMinutes} 分钟` : `${analyticsDays} 天`}</span>
+                <span className="hidden truncate text-[11px] text-kumo-subtle cq-xl:block">最近 {analyticsMinutes ? `${analyticsMinutes} 分钟` : analyticsDays >= 36500 ? '全部' : `${analyticsDays} 天`}</span>
               </AppCard>
               <AppCard padding="md" className="flex min-h-0 min-w-0 flex-col justify-between gap-1.5 max-sm:!p-2.5">
                 <div className="flex items-center justify-between gap-2">
@@ -142,7 +142,7 @@ export function AnalyticsTab({ analytics, isDarkMode, trendSeries, byModelTrend 
                     </Popover>
                   )}
                 </div>
-                <span className="hidden truncate text-[11px] text-kumo-subtle cq-xl:block">最近 {analyticsMinutes ? `${analyticsMinutes} 分钟` : `${analyticsDays} 天`}</span>
+                <span className="hidden truncate text-[11px] text-kumo-subtle cq-xl:block">最近 {analyticsMinutes ? `${analyticsMinutes} 分钟` : analyticsDays >= 36500 ? '全部' : `${analyticsDays} 天`}</span>
               </AppCard>
               <AppCard padding="md" className="flex min-h-0 min-w-0 flex-col justify-between gap-1.5 max-sm:!p-2.5">
                 <div className="flex items-center justify-between gap-2">
@@ -290,7 +290,7 @@ export function AnalyticsTab({ analytics, isDarkMode, trendSeries, byModelTrend 
                   ) : (
                     <>
                       <span className="truncate font-mono text-2xl font-semibold leading-none text-brand">
-                        {((analyticsSummary.totalTokens || 0) / Math.max(1, analyticsMinutes || analyticsDays * 24 * 60)).toFixed(1)}
+                        {((analyticsSummary.totalTokens || 0) / Math.max(1, analyticsMinutes || analyticsSummary.activeMinutes || analyticsDays * 24 * 60)).toFixed(1)}
                       </span>
                       <span className="shrink-0 text-xs font-medium text-kumo-subtle">/min</span>
                     </>
@@ -311,7 +311,7 @@ export function AnalyticsTab({ analytics, isDarkMode, trendSeries, byModelTrend 
                   ) : (
                     <>
                       <span className="truncate font-mono text-2xl font-semibold leading-none text-brand">
-                        {((analyticsSummary.totalRequests || 0) / Math.max(1, analyticsMinutes || analyticsDays * 24 * 60)).toFixed(1)}
+                        {((analyticsSummary.totalRequests || 0) / Math.max(1, analyticsMinutes || analyticsSummary.activeMinutes || analyticsDays * 24 * 60)).toFixed(1)}
                       </span>
                       <span className="shrink-0 text-xs font-medium text-kumo-subtle">/min</span>
                     </>

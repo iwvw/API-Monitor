@@ -643,6 +643,21 @@ func (s *Service) getAnalyticsSummary(w http.ResponseWriter, r *http.Request) {
 	if totalRequests > 0 {
 		errorRate = float64(errorCount) / float64(totalRequests)
 	}
+
+	// 实际活跃时长：窗口内所有请求的实际处理时间合计（秒级精度），由
+	// latency_sum（毫秒累计）换算为分钟。用它做平均 TPM/RPM 的分母才能反映
+	// 真实吞吐——若用「活跃小时数 × 60」会把整小时都算作活跃，分母被放大、
+	// 平均值失真。
+	activeMs := int64(0)
+	_ = db.QueryRowContext(ctx, `
+		SELECT COALESCE(SUM(latency_sum), 0)
+		FROM openai_gateway_stats_hourly
+		WHERE hour >= ? AND route != 'models' AND requests > 0
+	`, timeFilter).Scan(&activeMs)
+	var activeMinutes float64
+	if activeMs > 0 {
+		activeMinutes = float64(activeMs) / 60000.0
+	}
 	// 缓存命中占比：缓存命中的 token 占上游提示词 token 的比例。
 	cachedRatio := 0.0
 	if totalPromptTokens > 0 {
@@ -786,6 +801,7 @@ func (s *Service) getAnalyticsSummary(w http.ResponseWriter, r *http.Request) {
 		"avgLatency":            avgLatency,
 		"avgTtfbMs":             avgTtfbMs,
 		"totalTokens":           totalTokens,
+		"activeMinutes":         activeMinutes,
 		"totalCachedTokens":     totalCachedTokens,
 		"cachedRatio":           cachedRatio,
 		"totalPromptTokens":     totalPromptTokens,

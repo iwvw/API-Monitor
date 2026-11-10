@@ -2539,6 +2539,11 @@ table.isolate tr:last-child td {
   border-bottom: 0;
 }
 
+/* 模型映射表末行保留分隔线（全站规则默认移除末行边线以避底部双线）。 */
+table[data-app-table-id="endpoint-models"] tr:last-child td {
+  border-bottom: 1px solid var(--color-kumo-fill);
+}
+
 .app-semantic-table th,
 .app-semantic-table td {
   vertical-align: middle;
