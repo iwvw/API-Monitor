@@ -4362,6 +4362,43 @@ func TestSelectEndpointCandidatesDualMapping(t *testing.T) {
 	}
 }
 
+// TestSelectEndpointCandidatesMappingAllDisabledFallsBackToDirectModel 验证：
+// 映射目标全部被停用（如「新模型默认停用」自动停掉了映射目标）时，端点模型
+// 列表里同名的直连模型若未停用，端点仍应可路由——映射与直连是独立来源。
+func TestSelectEndpointCandidatesMappingAllDisabledFallsBackToDirectModel(t *testing.T) {
+	s := newOpenAIService(t)
+	db, err := s.open(context.Background())
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer db.Close()
+	mappingsJSON, _ := json.Marshal(map[string]string{
+		"deepseek-v4.1-flash-sg": "deepseek-v4.1-flash",
+	})
+	disabledJSON, _ := json.Marshal([]string{"deepseek-v4.1-flash-sg"})
+	modelsJSON, _ := json.Marshal([]string{"deepseek-v4.1-flash", "deepseek-v4.1-flash-sg"})
+	_, err = db.ExecContext(context.Background(), `
+		INSERT INTO openai_endpoints (id, name, base_url, api_key, status, enabled, models, model_mappings, disabled_models)
+		VALUES ('oai_direct_fallback', 'workbuddy', 'https://example.com/v1', 'sk-test', 'valid', 1, ?, ?, ?)`,
+		string(modelsJSON), string(mappingsJSON), string(disabledJSON))
+	if err != nil {
+		t.Fatalf("insert endpoint: %v", err)
+	}
+
+	for i := 0; i < 10; i++ {
+		candidates, _, _, selectedModel, found := s.selectEndpointCandidates(context.Background(), db, "deepseek-v4.1-flash", "", "")
+		if !found {
+			t.Fatalf("iteration %d: no candidate found (direct model must keep endpoint routable)", i)
+		}
+		if len(candidates) != 1 || candidates[0].ID != "oai_direct_fallback" {
+			t.Fatalf("iteration %d: candidates=%#v", i, candidates)
+		}
+		if selectedModel != "deepseek-v4.1-flash" {
+			t.Fatalf("iteration %d: selectedModel=%q, want direct deepseek-v4.1-flash", i, selectedModel)
+		}
+	}
+}
+
 func TestAnalyticsChartsByDimensionCarryTokenSeries(t *testing.T) {
 	service := newOpenAIService(t)
 	db, err := service.open(context.Background())

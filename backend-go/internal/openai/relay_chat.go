@@ -29,6 +29,20 @@ func (s *Service) resolveEndpointModel(ep Endpoint, requested string) (string, b
 		}
 	}
 	if first != "" {
+		// 有映射命中但映射目标全部被停用：映射与同名直连模型是两个独立来源，
+		// 端点模型列表里若存在同名直连且未停用，仍应可路由——否则一次「新模型
+		// 默认停用」就会把同名直连的可用来源一并封死。这里只认 Models 直连
+		// （endpointHasModel 会把映射也算上，不满足「独立来源」语义）。
+		directOK := false
+		for _, m := range ep.Models {
+			if m == requested {
+				directOK = true
+				break
+			}
+		}
+		if directOK && !isModelDisabled(ep.DisabledModels, requested) {
+			return requested, true
+		}
 		return "", false
 	}
 	return requested, !isModelDisabled(ep.DisabledModels, requested)
