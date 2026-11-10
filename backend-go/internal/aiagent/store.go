@@ -1100,8 +1100,8 @@ func (s *Service) persistAccessLogBatch(entries []AccessLog) {
 		return
 	}
 	stmt, err := tx.PrepareContext(logCtx, `INSERT INTO aiagent_access_logs
-		(user_id, token_id, instance_id, action, result, status_code, error_summary, ip, user_agent, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+		(user_id, token_id, instance_id, action, result, status_code, error_summary, ip, user_agent, latency_ms, duration_ms, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
 	if err != nil {
 		_ = tx.Rollback()
 		return
@@ -1130,8 +1130,15 @@ func (s *Service) persistAccessLogBatch(entries []AccessLog) {
 		if entry.StatusCode != 0 {
 			statusCode = entry.StatusCode
 		}
+		var latencyMS, durationMS interface{}
+		if entry.LatencyMS > 0 {
+			latencyMS = entry.LatencyMS
+		}
+		if entry.DurationMS > 0 {
+			durationMS = entry.DurationMS
+		}
 		_, _ = stmt.ExecContext(logCtx, userID, tokenID, instanceID, entry.Action, entry.Result,
-			statusCode, errorText, ip, userAgent, entry.CreatedAt)
+			statusCode, errorText, ip, userAgent, latencyMS, durationMS, entry.CreatedAt)
 	}
 	_ = tx.Commit()
 
@@ -1159,7 +1166,7 @@ func (s *Service) listAccessLogs(ctx context.Context, db *sql.DB, limit int, ins
 		limit = 100
 	}
 
-	query := `SELECT id, user_id, token_id, instance_id, action, result, status_code, error_summary, ip, user_agent, created_at
+	query := `SELECT id, user_id, token_id, instance_id, action, result, status_code, error_summary, ip, user_agent, latency_ms, duration_ms, created_at
 		FROM aiagent_access_logs`
 	args := make([]interface{}, 0, 2)
 	if instanceID != "" {
@@ -1178,9 +1185,9 @@ func (s *Service) listAccessLogs(ctx context.Context, db *sql.DB, limit int, ins
 	for rows.Next() {
 		var entry AccessLog
 		var userID, tokenID, instanceID, errorText, ip, userAgent sql.NullString
-		var statusCode sql.NullInt64
+		var statusCode, latencyMS, durationMS sql.NullInt64
 		if err := rows.Scan(&entry.ID, &userID, &tokenID, &instanceID, &entry.Action, &entry.Result,
-			&statusCode, &errorText, &ip, &userAgent, &entry.CreatedAt); err != nil {
+			&statusCode, &errorText, &ip, &userAgent, &latencyMS, &durationMS, &entry.CreatedAt); err != nil {
 			return nil, err
 		}
 		entry.UserID = userID.String
@@ -1190,6 +1197,8 @@ func (s *Service) listAccessLogs(ctx context.Context, db *sql.DB, limit int, ins
 		entry.IP = ip.String
 		entry.UserAgent = userAgent.String
 		entry.StatusCode = int(statusCode.Int64)
+		entry.LatencyMS = latencyMS.Int64
+		entry.DurationMS = durationMS.Int64
 		logs = append(logs, entry)
 	}
 	return logs, rows.Err()

@@ -196,6 +196,10 @@ type AccessLog struct {
 	IP         string `json:"ip,omitempty"`
 	UserAgent  string `json:"userAgent,omitempty"`
 	CreatedAt  string `json:"createdAt"`
+	// LatencyMS 是网关转发拿到上游响应头的耗时（毫秒），近似首包延迟；0 表示未记录。
+	LatencyMS int64 `json:"latencyMs,omitempty"`
+	// DurationMS 是网关转发全流程耗时（含流式传输，毫秒）；0 表示未记录。
+	DurationMS int64 `json:"durationMs,omitempty"`
 }
 
 // 请求载荷。

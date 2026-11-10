@@ -772,6 +772,8 @@ func (s *Service) handleGateway(w http.ResponseWriter, r *http.Request, instance
 
 	started := time.Now()
 	resp, err := s.runtime.RoundTrip(ctx, instance.ServerID, instance.Port, req)
+	// headerMS 是拿到上游响应头的耗时，近似首包延迟；后续流式传输不再计入。
+	headerMS := time.Since(started).Milliseconds()
 	if err != nil {
 		s.writeAccessLog(r.Context(), AccessLog{
 			UserID:     auth.UserID,
@@ -782,6 +784,7 @@ func (s *Service) handleGateway(w http.ResponseWriter, r *http.Request, instance
 			Error:      err.Error(),
 			IP:         s.clientIP(r),
 			UserAgent:  r.UserAgent(),
+			DurationMS: time.Since(started).Milliseconds(),
 		})
 		// 面向客户端返回通用错误，细节只留在服务端访问日志，避免泄漏内部信息。
 		s.writeGatewayError(w, http.StatusBadGateway, CodeChannelError, "upstream agent request failed")
@@ -803,16 +806,20 @@ func (s *Service) handleGateway(w http.ResponseWriter, r *http.Request, instance
 
 	bytesWritten, copyErr := copyStream(r.Context(), w, resp.Body, func() { _ = resp.Body.Close() })
 	// 审计写入由 writeAccessLog 内部脱离请求上下文，客户端断开也能落地。
+	// 耗时拆成独立列：latency 是拿到上游响应头的耗时（近似首包延迟），
+	// duration 是含流式传输的全流程耗时；action 文本不再内嵌耗时。
 	s.writeAccessLog(r.Context(), AccessLog{
 		UserID:     auth.UserID,
 		TokenID:    auth.TokenID,
 		InstanceID: instance.ID,
-		Action:     fmt.Sprintf("gw %s %s (%s, %d bytes)", sanitizeLogToken(r.Method), sanitizeLogToken(req.Path), time.Since(started).Round(time.Millisecond), bytesWritten),
+		Action:     fmt.Sprintf("gw %s %s (%d bytes)", sanitizeLogToken(r.Method), sanitizeLogToken(req.Path), bytesWritten),
 		Result:     resultFor(resp.StatusCode, copyErr),
 		StatusCode: resp.StatusCode,
 		Error:      errorText(copyErr),
 		IP:         s.clientIP(r),
 		UserAgent:  r.UserAgent(),
+		LatencyMS:  headerMS,
+		DurationMS: time.Since(started).Milliseconds(),
 	})
 }
 

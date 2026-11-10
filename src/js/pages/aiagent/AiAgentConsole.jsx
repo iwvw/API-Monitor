@@ -54,11 +54,11 @@ const AI_AGENT_INSTANCE_COLUMNS = [
   { id: 'check', role: 'check' },
   { id: 'name', role: 'primary', minWidth: 200, grow: 1 },
   { id: 'provider', role: 'meta', minWidth: 96, idealWidth: 128, maxWidth: 176, align: 'center' },
-  { id: 'host', role: 'content', minWidth: 150, grow: 1, verticalAlign: 'middle' },
-  { id: 'port', role: 'number', align: 'right' },
-  { id: 'status', role: 'status' },
-  { id: 'memory', role: 'number', align: 'right' },
-  { id: 'cpu', role: 'number', align: 'right' },
+  { id: 'host', role: 'content', minWidth: 150, grow: 1, align: 'center', verticalAlign: 'middle' },
+  { id: 'port', role: 'number', align: 'center' },
+  { id: 'status', role: 'status', align: 'center' },
+  { id: 'memory', role: 'number', align: 'center' },
+  { id: 'cpu', role: 'number', align: 'center' },
   { id: 'actions', role: 'actions-xl' },
 ];
 
@@ -76,6 +76,8 @@ const AI_AGENT_LOG_COLUMNS = [
   { id: 'result', role: 'status' },
   { id: 'instance', role: 'content', minWidth: 150, grow: 1, verticalAlign: 'middle' },
   { id: 'ip', role: 'identifier' },
+  { id: 'latency', role: 'number' },
+  { id: 'duration', role: 'number' },
 ];
 
 // 生命周期控件（ADR-0006）：仅当主机 Agent 声明了能力、且实例启用时可用。
@@ -244,6 +246,14 @@ function shortId(value) {
   return value.length > 12 ? `${value.slice(0, 12)}…` : value;
 }
 
+// formatMs 把毫秒渲染为可读文本：不足 1 秒显示毫秒，否则显示秒（一位小数）。
+// 0/缺失返回 '—'——存量日志没有这两个字段，不伪造成 0。
+function formatMs(value) {
+  if (!value || value <= 0) return '—';
+  if (value < 1000) return `${value} ms`;
+  return `${(value / 1000).toFixed(1)} s`;
+}
+
 function instanceDialogDescription(editingInstance) {
   if (editingInstance) {
     return '实例指向一台已安装 Agent 的主机上的 AI Agent 本地服务端口。';
@@ -293,12 +303,12 @@ function InstanceTable({
               />
             </Table.Head>
             <Table.Head>名称</Table.Head>
-            <Table.Head>Provider</Table.Head>
-            <Table.Head>主机</Table.Head>
-            <Table.Head className="text-right">端口</Table.Head>
-            <Table.Head>状态</Table.Head>
-            <Table.Head className="text-right">内存</Table.Head>
-            <Table.Head className="text-right">CPU</Table.Head>
+            <Table.Head className="text-center">Provider</Table.Head>
+            <Table.Head className="text-center">主机</Table.Head>
+            <Table.Head className="text-center">端口</Table.Head>
+            <Table.Head className="text-center">状态</Table.Head>
+            <Table.Head className="text-center">内存</Table.Head>
+            <Table.Head className="text-center">CPU</Table.Head>
             <Table.Head className="app-table-action">操作</Table.Head>
           </Table.Row>
         </Table.Header>
@@ -320,11 +330,11 @@ function InstanceTable({
                     {!instance.enabled && <StatusBadge tone="neutral">已停用</StatusBadge>}
                   </div>
                 </Table.Cell>
-                <Table.Cell>{instance.providerLabel || instance.provider}</Table.Cell>
-                <Table.Cell>{instance.hostName || instance.serverId}</Table.Cell>
-                <Table.Cell className="text-right font-mono text-xs">{instance.port}</Table.Cell>
+                <Table.Cell className="text-center">{instance.providerLabel || instance.provider}</Table.Cell>
+                <Table.Cell className="text-center">{instance.hostName || instance.serverId}</Table.Cell>
+                <Table.Cell className="text-center font-mono text-xs">{instance.port}</Table.Cell>
                 <Table.Cell>
-                  <div className="flex items-center gap-1.5">
+                  <div className="flex items-center justify-center gap-1.5">
                     <StatusBadge tone={status.tone} title={status.detail}>
                       <span className="inline-flex items-center gap-1">
                         {/* 过渡态（正在拉起/自动重启）加转圈：与静止的故障态区分开，
@@ -344,10 +354,10 @@ function InstanceTable({
                     )}
                   </div>
                 </Table.Cell>
-                <Table.Cell className="text-right font-mono text-xs">
+                <Table.Cell className="text-center font-mono text-xs">
                   {formatResource(instance, 'memory')}
                 </Table.Cell>
-                <Table.Cell className="text-right font-mono text-xs">
+                <Table.Cell className="text-center font-mono text-xs">
                   {formatResource(instance, 'cpu')}
                 </Table.Cell>
                 <Table.Cell className="app-table-action">
@@ -1153,7 +1163,6 @@ export default function AiAgentConsole() {
       {activeTab === 'instances' && (
         <SectionCard
           title="AI Agent 实例"
-          description="登记各主机上的 AI Agent 服务；用户在「用户管理」中按需授权可用实例。"
           bodyPadding="none"
           actions={
             <>
@@ -1420,6 +1429,8 @@ export default function AiAgentConsole() {
                     <Table.Head className="text-center">结果</Table.Head>
                     <Table.Head>实例</Table.Head>
                     <Table.Head>IP</Table.Head>
+                    <Table.Head title="网关拿到上游响应头的耗时（近似首包延迟）">延迟</Table.Head>
+                    <Table.Head title="网关转发全流程耗时（含流式传输）">耗时</Table.Head>
                   </Table.Row>
                 </Table.Header>
                 <Table.Body>
@@ -1471,6 +1482,12 @@ export default function AiAgentConsole() {
                           title={entry.ip || ''}
                         >
                           {entry.ip || '-'}
+                        </Table.Cell>
+                        <Table.Cell className="whitespace-nowrap font-mono text-xs text-kumo-subtle">
+                          {formatMs(entry.latencyMs)}
+                        </Table.Cell>
+                        <Table.Cell className="whitespace-nowrap font-mono text-xs text-kumo-subtle">
+                          {formatMs(entry.durationMs)}
                         </Table.Cell>
                       </Table.Row>
                     );

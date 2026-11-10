@@ -87,6 +87,8 @@ func (s *Service) ensureSchema(ctx context.Context, db *sql.DB) error {
 			error_summary TEXT,
 			ip            TEXT,
 			user_agent    TEXT,
+			latency_ms    INTEGER,
+			duration_ms   INTEGER,
 			created_at    TEXT NOT NULL
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_aiagent_access_logs_created ON aiagent_access_logs(created_at)`,
@@ -102,6 +104,29 @@ func (s *Service) ensureSchema(ctx context.Context, db *sql.DB) error {
 	}
 	if err := s.migrateInstanceDesiredState(ctx, db); err != nil {
 		return fmt.Errorf("aiagent migrateInstanceDesiredState: %w", err)
+	}
+	if err := s.migrateAccessLogTimings(ctx, db); err != nil {
+		return fmt.Errorf("aiagent migrateAccessLogTimings: %w", err)
+	}
+	return nil
+}
+
+// migrateAccessLogTimings 为旧库的访问日志表补上延迟/耗时列（网关转发的
+// 首包耗时与总耗时）。存量行为 NULL（未记录），前端显示为占位符。
+//
+// 幂等：两列都已存在时直接返回。
+func (s *Service) migrateAccessLogTimings(ctx context.Context, db *sql.DB) error {
+	for _, column := range []string{"latency_ms", "duration_ms"} {
+		hasColumn, err := columnExists(ctx, db, "aiagent_access_logs", column)
+		if err != nil {
+			return err
+		}
+		if hasColumn {
+			continue
+		}
+		if _, err := db.ExecContext(ctx, `ALTER TABLE aiagent_access_logs ADD COLUMN `+column+` INTEGER`); err != nil {
+			return err
+		}
 	}
 	return nil
 }

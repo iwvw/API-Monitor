@@ -1894,6 +1894,12 @@ func (s *Service) buildInstanceViewWithHosts(
 			view.Status = s.probeInstance(ctx, instance)
 			view.HostOnline = view.Status.HostOnline
 		}
+	} else {
+		// 不探测的快速路径：status/lifecycle 保持零值表示「未探测」，但主机在线
+		// 状态必须填——它只是内存查 Agent 连接注册表，零成本。否则不带 probe 的
+		// 调用方（如 MCP）会把整份列表误读成主机离线。
+		view.HostOnline = s.agentOnline(instance.ServerID)
+		view.Status.HostOnline = view.HostOnline
 	}
 	return view
 }
