@@ -11,6 +11,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"crypto/tls"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -348,12 +349,20 @@ var (
 )
 
 // sharedHTTPClient 是共享的出网客户端（带 cookie jar）。
+//
+// 显式置空 TLSClientConfig 禁用 HTTP/2：TLSClientConfig 非 nil 时标准库不再
+// 自动启用 h2（见 http.Transport 文档），出网固定走 HTTP/1.1。原因：共享
+// client 的 h2 连接池里一条连接被「响应体未读完即关闭」（健康检测/请求取消/
+// 空闲超时都会触发）毒化后，复用同连接的后续请求全部报
+// 「http2: response body closed」，且每次启动后的自动任务立刻复现；HTTP/1.1
+// 按请求独占连接，没有这个共享故障面。
 func sharedHTTPClient() *http.Client {
 	httpClientOnce.Do(func() {
 		jar, _ := cookiejar.New(nil)
 		sharedClient = &http.Client{
 			Timeout: 120 * time.Second,
 			Transport: &http.Transport{
+				TLSClientConfig:     &tls.Config{},
 				MaxIdleConns:        20,
 				IdleConnTimeout:     90 * time.Second,
 				MaxIdleConnsPerHost: 5,
