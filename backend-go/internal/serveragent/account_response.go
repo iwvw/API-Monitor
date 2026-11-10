@@ -480,9 +480,9 @@ func (s *Service) buildInfoField(metrics map[string]interface{}) map[string]inte
 	if p, ok := metrics["platform"].(string); ok {
 		platform = p
 	}
-	platformVersion := ""
-	if pv, ok := metrics["platformVersion"].(string); ok {
-		platformVersion = pv
+	platformVersion := getString(metrics, "platform_version")
+	if platformVersion == "" {
+		platformVersion = getString(metrics, "platformVersion")
 	}
 	agentVersion := ""
 	if av, ok := metrics["agent_version"].(string); ok {

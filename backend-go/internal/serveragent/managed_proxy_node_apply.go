@@ -221,7 +221,7 @@ func syncDirectManagedNodeAddress(ctx context.Context, db *sql.DB, nodeID, serve
 		return errors.New("host instance has no deployable address")
 	}
 	// 节点可以显式绑定与主机账号不同的地址（典型场景：主机同时具备 IPv4 与 IPv6，
-	// 而客户端只能走 IPv6 出口）。此时保留节点自身的 public_host，不要被账号地址覆盖。
+	// 而 IPv4 出口被封锁时客户端只能走 IPv6）。显式地址优先于账号默认地址，避免被覆盖。
 	currentHost = strings.TrimSpace(currentHost)
 	if currentHost != "" && currentHost != "0.0.0.0" && currentHost != host {
 		host = currentHost

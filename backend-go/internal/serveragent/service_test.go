@@ -3409,7 +3409,7 @@ func TestBuildCachedInfoPreservesHardwareModelsFromHostInfo(t *testing.T) {
 		},
 	)
 
-	if cached["cpu_model"] != "GenuineIntel Intel(R) Core(TM) i9-14900HX" {
+	if cached["cpu_model"] != "Intel(R) Core(TM) i9-14900HX" {
 		t.Fatalf("cpu_model = %#v", cached["cpu_model"])
 	}
 	if cached["gpu_model"] != "NVIDIA GeForce RTX 4060 Laptop GPU" {
@@ -3421,13 +3421,15 @@ func TestBuildInfoFieldExtractsHardwareModelsFromHostInfoArrays(t *testing.T) {
 	service := &Service{}
 
 	info := service.buildInfoField(map[string]interface{}{
-		"cpu":           []interface{}{"GenuineIntel Intel(R) Core(TM) i9-14900HX"},
-		"gpu":           []interface{}{"NVIDIA GeForce RTX 4060 Laptop GPU"},
-		"agent_version": "0.1.6",
+		"cpu":              []interface{}{"GenuineIntel Intel(R) Core(TM) i9-14900HX"},
+		"gpu":              []interface{}{"NVIDIA GeForce RTX 4060 Laptop GPU"},
+		"agent_version":    "0.1.6",
+		"platform":         "Windows",
+		"platform_version": "10.0.22631.4602",
 	})
 
 	cpu := info["cpu"].(map[string]interface{})
-	if cpu["Model"] != "GenuineIntel Intel(R) Core(TM) i9-14900HX" {
+	if cpu["Model"] != "Intel(R) Core(TM) i9-14900HX" {
 		t.Fatalf("cpu model = %#v", cpu["Model"])
 	}
 
@@ -3440,6 +3442,9 @@ func TestBuildInfoFieldExtractsHardwareModelsFromHostInfoArrays(t *testing.T) {
 	}
 	if info["agentVersion"] != "0.1.6" {
 		t.Fatalf("agentVersion = %#v", info["agentVersion"])
+	}
+	if info["platformVersion"] != "10.0.22631.4602" {
+		t.Fatalf("platformVersion = %#v", info["platformVersion"])
 	}
 }
 

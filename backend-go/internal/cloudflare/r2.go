@@ -3,10 +3,12 @@ package cloudflare
 import (
 	"archive/zip"
 	"encoding/json"
+	"io"
 	"mime"
 	"net/http"
 	"net/url"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -273,11 +275,12 @@ func (s *Service) r2ObjectDownload(w http.ResponseWriter, r *http.Request, accou
 		return
 	}
 	path := "/accounts/" + url.PathEscape(cfAccountID) + "/r2/buckets/" + url.PathEscape(bucketName) + "/objects/" + url.PathEscape(objectKey)
-	raw, contentType, err := s.cfRawRequest(r.Context(), http.MethodGet, path, auth, "*/*", "", nil)
+	reader, contentLength, contentType, err := s.cfStreamRequest(r.Context(), http.MethodGet, path, auth, "*/*", "", nil)
 	if err != nil {
 		response.JSON(w, http.StatusInternalServerError, map[string]interface{}{"error": err.Error()})
 		return
 	}
+	defer reader.Close()
 	if contentType == "" {
 		contentType = "application/octet-stream"
 	}
@@ -285,8 +288,11 @@ func (s *Service) r2ObjectDownload(w http.ResponseWriter, r *http.Request, accou
 	w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": objectFileName(objectKey)}))
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Cache-Control", "private, max-age=60")
+	if contentLength >= 0 {
+		w.Header().Set("Content-Length", strconv.FormatInt(contentLength, 10))
+	}
 	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write(raw)
+	_, _ = io.Copy(w, reader)
 }
 
 func (s *Service) r2FolderDownload(w http.ResponseWriter, r *http.Request, accountID, bucketName string) {
@@ -304,8 +310,7 @@ func (s *Service) r2FolderDownload(w http.ResponseWriter, r *http.Request, accou
 		return
 	}
 	prefix := r.URL.Query().Get("prefix")
-	// 打包时每个对象全量读入内存再写入 zip，内存占用与最大单对象成正比；
-	// 超过上限的对象跳过并记录，避免超大对象拖垮进程。
+	// 对象逐个流式写入 zip；仍设上限跳过超大对象，避免异常大的对象长时间占用连接。
 	const maxObjectBytes = 512 << 20
 	type objectEntry struct {
 		key  string
@@ -369,13 +374,6 @@ func (s *Service) r2FolderDownload(w http.ResponseWriter, r *http.Request, accou
 			applog.Warn(ctx, "cloudflare", "r2 folder download skipped oversized object", "bucket", bucketName, "key", object.key, "size_bytes", object.size, "max_bytes", maxObjectBytes)
 			continue
 		}
-		path := "/accounts/" + url.PathEscape(cfAccountID) + "/r2/buckets/" + url.PathEscape(bucketName) + "/objects/" + url.PathEscape(object.key)
-		raw, _, err := s.cfRawRequest(ctx, http.MethodGet, path, auth, "*/*", "", nil)
-		if err != nil {
-			failed++
-			applog.Warn(ctx, "cloudflare", "r2 folder download object failed", "bucket", bucketName, "key", object.key, "error", err.Error())
-			continue
-		}
 		rel := object.key
 		if prefix != "" {
 			rel = strings.TrimPrefix(object.key, prefix)
@@ -392,15 +390,25 @@ func (s *Service) r2FolderDownload(w http.ResponseWriter, r *http.Request, accou
 			applog.Warn(ctx, "cloudflare", "r2 folder download skipped unsafe entry name", "bucket", bucketName, "key", object.key, "entry", rel)
 			continue
 		}
+		path := "/accounts/" + url.PathEscape(cfAccountID) + "/r2/buckets/" + url.PathEscape(bucketName) + "/objects/" + url.PathEscape(object.key)
+		reader, _, _, err := s.cfStreamRequest(ctx, http.MethodGet, path, auth, "*/*", "", nil)
+		if err != nil {
+			failed++
+			applog.Warn(ctx, "cloudflare", "r2 folder download object failed", "bucket", bucketName, "key", object.key, "error", err.Error())
+			continue
+		}
 		header := &zip.FileHeader{Name: rel, Method: zip.Deflate}
 		header.SetModTime(time.Now())
 		entry, err := zw.CreateHeader(header)
 		if err != nil {
+			reader.Close()
 			return
 		}
-		if _, err := entry.Write(raw); err != nil {
+		if _, err := io.Copy(entry, reader); err != nil {
+			reader.Close()
 			return
 		}
+		reader.Close()
 		downloaded++
 	}
 	if skipped > 0 || failed > 0 {

@@ -174,7 +174,7 @@ func (s *Service) HandleGetServers(w http.ResponseWriter, r *http.Request) {
 			}
 
 			// 实时的最新指标格式化
-			item.Info = s.buildInfoStruct(metadata)
+			item.Info = s.buildInfoStruct(mergeInfoSources(cachedMap, metadata))
 			item.ResolvedCountry = firstNonEmpty(
 				getString(metadata, "resolved_country"),
 				cleanCountryCode(getString(metadata, "country_code")),
@@ -303,7 +303,7 @@ func (s *Service) HandleGetServerDetail(w http.ResponseWriter, r *http.Request) 
 		}
 
 		// 实时的最新指标格式化
-		detail.Info = s.buildInfoStruct(metadata)
+		detail.Info = s.buildInfoStruct(mergeInfoSources(cachedMap, metadata))
 		detail.ResolvedCountry = firstNonEmpty(
 			getString(metadata, "resolved_country"),
 			cleanCountryCode(getString(metadata, "country_code")),
@@ -536,6 +536,19 @@ func parseDiskString(diskStr string) []map[string]interface{} {
 			"usage":  "0%",
 		},
 	}
+}
+
+// mergeInfoSources 合并 DB 缓存与 Agent 实时 metadata：实时指标以 metadata 为准，
+// 静态字段（如 platform_version）在 metadata 缺失时由 cached_info 补齐。
+func mergeInfoSources(cached, metadata map[string]interface{}) map[string]interface{} {
+	merged := make(map[string]interface{}, len(cached)+len(metadata))
+	for k, v := range cached {
+		merged[k] = v
+	}
+	for k, v := range metadata {
+		merged[k] = v
+	}
+	return merged
 }
 
 func (s *Service) buildInfoStruct(cached map[string]interface{}) map[string]interface{} {
