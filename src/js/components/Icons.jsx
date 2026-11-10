@@ -294,8 +294,6 @@ export const QoderBrand = createAssetIcon(qoderIcon, 'Qoder');
 export const RaccoonBrand = createAssetIcon(raccoonIcon, 'Raccoon');
 // Cline 有官方 simple-icons 图标；ZCode / AutoClaw 没有，用通用字体图标兜底。
 export const ClineBrand = createFontIcon('si si-cline', 'Cline');
-export const ZCodeBrand = createFontIcon('si si-zaim', 'ZCode');
-export const AutoClawBrand = createFontIcon('si si-zaim', 'AutoClaw');
 export const KoyebBrand = createFontIcon('si si-koyeb', 'Koyeb');
 export const FlyIoBrand = createFontIcon('si si-flydotio', 'Fly.io');
 

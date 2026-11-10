@@ -18,7 +18,6 @@ import (
 	"github.com/iwvw/api-monitor/backend-go/internal/antigravity"
 	"github.com/iwvw/api-monitor/backend-go/internal/assets"
 	"github.com/iwvw/api-monitor/backend-go/internal/auth"
-	"github.com/iwvw/api-monitor/backend-go/internal/autoclaw"
 	"github.com/iwvw/api-monitor/backend-go/internal/backup"
 	bookmarksmodule "github.com/iwvw/api-monitor/backend-go/internal/bookmarks"
 	"github.com/iwvw/api-monitor/backend-go/internal/cline"
@@ -35,7 +34,6 @@ import (
 	githubmodule "github.com/iwvw/api-monitor/backend-go/internal/github"
 	"github.com/iwvw/api-monitor/backend-go/internal/huawei"
 	"github.com/iwvw/api-monitor/backend-go/internal/koyeb"
-	"github.com/iwvw/api-monitor/backend-go/internal/lobsterai"
 	"github.com/iwvw/api-monitor/backend-go/internal/m365"
 	"github.com/iwvw/api-monitor/backend-go/internal/manifest"
 	"github.com/iwvw/api-monitor/backend-go/internal/notification"
@@ -59,7 +57,6 @@ import (
 	"github.com/iwvw/api-monitor/backend-go/internal/totp"
 	"github.com/iwvw/api-monitor/backend-go/internal/uptime"
 	"github.com/iwvw/api-monitor/backend-go/internal/workbuddy"
-	"github.com/iwvw/api-monitor/backend-go/internal/zcode"
 )
 
 type Server struct {
@@ -87,14 +84,11 @@ type Server struct {
 	openai      *openai.Service
 	antigravity *antigravity.Service
 	workbuddy   *workbuddy.Service
-	lobsterai   *lobsterai.Service
 	emailcode   *emailcode.Service
 	posthogcode *posthogcode.Service
 	qoder       *qoder.Service
 	raccoon     *raccoon.Service
 	cline       *cline.Service
-	zcode       *zcode.Service
-	autoclaw    *autoclaw.Service
 	proxypool   *proxypool.Service
 	server      *serveragent.Service
 	backup      *backup.Service
@@ -230,14 +224,11 @@ func newServer(cfg config.Config) (*Server, error) {
 		openai:      openai.New(cfg),
 		antigravity: antigravity.New(cfg),
 		workbuddy:   workbuddy.New(cfg),
-		lobsterai:   lobsterai.New(cfg),
 		emailcode:   emailcode.New(cfg),
 		posthogcode: posthogcode.New(cfg),
 		qoder:       qoder.New(cfg),
 		raccoon:     raccoon.New(cfg),
 		cline:       cline.New(cfg),
-		zcode:       zcode.New(cfg),
-		autoclaw:    autoclaw.New(cfg),
 		proxypool:   proxypool.New(cfg),
 		server:      serverAgentService,
 		backup:      backupService,
@@ -279,8 +270,6 @@ func newServer(cfg config.Config) (*Server, error) {
 	server.antigravity.SetNotifier(notifyService)
 	// WorkBuddy 插件可引用独立代理池作为出网出口。
 	server.workbuddy.SetProxyPoolSelector(server.proxypool)
-	// LobsterAI 插件可引用独立代理池作为出网出口。
-	server.lobsterai.SetProxyPoolSelector(server.proxypool)
 	// PostHog Code 插件可引用独立代理池作为出网出口。
 	server.posthogcode.SetProxyPoolSelector(server.proxypool)
 	// Qoder 插件可引用独立代理池作为出网出口。
@@ -289,8 +278,6 @@ func newServer(cfg config.Config) (*Server, error) {
 	server.raccoon.SetProxyPoolSelector(server.proxypool)
 	// Cline / ZCode / AutoClaw 同样可引用独立代理池作为出网出口。
 	server.cline.SetProxyPoolSelector(server.proxypool)
-	server.zcode.SetProxyPoolSelector(server.proxypool)
-	server.autoclaw.SetProxyPoolSelector(server.proxypool)
 	server.openai.StartWarmup(warmupCtx)
 	// 启动网关健康告警监测（错误率过高/恢复触发通知）。
 	server.openai.StartAlertMonitor(warmupCtx)
@@ -307,10 +294,6 @@ func newServer(cfg config.Config) (*Server, error) {
 	// 启动插件的调用次数定期落盘（重启保留，ctx 取消时补最后一次落盘）。
 	server.antigravity.StartCallStatsFlush(warmupCtx)
 	server.workbuddy.StartCallStatsFlush(warmupCtx)
-	// LobsterAI 插件调用次数与用量定期落盘。
-	server.lobsterai.StartCallStatsFlush(warmupCtx)
-	// LobsterAI 插件每日自动签到调度（站点时区 9/21 点，关闭开关时后台静默跳过）。
-	server.lobsterai.StartCheckinScheduler(warmupCtx)
 	// WorkBuddy 插件 access token 自动刷新：定期把即将过期/已过期的账号提前换新，
 	// 避免直到转发时才暴露 token 失效。
 	server.workbuddy.StartAutoRefresh(warmupCtx)
@@ -348,13 +331,9 @@ func newServer(cfg config.Config) (*Server, error) {
 	server.cline.StartModelRefresh(warmupCtx)
 	server.cline.StartLoginSweep(warmupCtx)
 	server.cline.ReconcileLinkedEndpoint(warmupCtx)
-	server.zcode.StartCallStatsFlush(warmupCtx)
-	server.zcode.StartCheckinScheduler(warmupCtx)
-	server.zcode.ReconcileLinkedEndpoint(warmupCtx)
-	server.autoclaw.StartCallStatsFlush(warmupCtx)
-	server.autoclaw.StartModelRefresh(warmupCtx)
-	server.autoclaw.StartCheckinScheduler(warmupCtx)
-	server.autoclaw.ReconcileLinkedEndpoint(warmupCtx)
+	// 启动（系统更新/重启）后自动清理一次废弃表：只删规则匹配且不再被使用的表，
+	// 有候选时先备份再 DROP；活跃插件的表已被规则豁免，不会误删。
+	server.settings.StartupCleanupDeprecatedTables(warmupCtx)
 	return server, nil
 }
 
@@ -616,18 +595,12 @@ func apiKeyRequiresSession(path string) bool {
 		"/api/posthogcode/accounts/import",
 		"/api/workbuddy/accounts/export",
 		"/api/workbuddy/accounts/import",
-		"/api/lobsterai/accounts/export",
-		"/api/lobsterai/accounts/import",
 		"/api/qoder/accounts/export",
 		"/api/qoder/accounts/import",
 		"/api/raccoon/accounts/export",
 		"/api/raccoon/accounts/import",
 		"/api/cline/accounts/export",
 		"/api/cline/accounts/import",
-		"/api/zcode/accounts/export",
-		"/api/zcode/accounts/import",
-		"/api/autoclaw/accounts/export",
-		"/api/autoclaw/accounts/import",
 		"/api/antigravity/accounts/export",
 	}
 	for _, prefix := range protectedPrefixes {

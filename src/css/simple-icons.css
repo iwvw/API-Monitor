@@ -163,7 +163,5 @@
 .si-wordpress.si--color::before { color: #21759B; }
 .si-x::before { content: "\f72f"; }
 .si-x.si--color::before { color: #000000; }
-.si-zaim::before { content: "\f75e"; }
-.si-zaim.si--color::before { color: #50A135; }
 .si-zoom::before { content: "\f785"; }
 .si-zoom.si--color::before { color: #0B5CFF; }
