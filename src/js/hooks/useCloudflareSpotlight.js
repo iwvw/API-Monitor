@@ -4,6 +4,10 @@ export function useCloudflareSpotlight() {
   const surfaceRef = useRef(null);
 
   useEffect(() => {
+    // 系统开启「减弱动态效果」时禁用背景光斑跟随，避免登录页整屏鼠标重绘。
+    if (typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      return undefined;
+    }
     const surface = surfaceRef.current;
     if (!surface) return undefined;
     let animationFrame = 0;
