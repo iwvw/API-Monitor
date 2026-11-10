@@ -7617,11 +7617,14 @@ function ServerPage() {
     <div
       className={
         serverCurrentTab === 'terminal'
-          // 终端 tab 需要占满视口并在卡片内部滚动：按「前端布局约定」用
-          // min-h-0 flex-1 的 flex 链向上取高度，不硬编码 calc(100dvh-*)。
-          // 注意不能给页面根加 overflow-hidden：sticky tab 栏用 -mx-[gutter]
-          // 通栏，被裁切后左右两侧各少 12px，会出现「被切断」的接缝。
-          ? 'flex min-h-0 w-full min-w-0 flex-1 flex-col gap-2'
+          // 终端 tab 需要「确定高度」：分屏树的 h-full 依赖百分比高度，若只给
+          // min-h-full + flex-1（父级 inner 是 min-h-full，高度为 auto），h-full
+          // 会退化成 auto，垂直分屏时两栏按内容高度累加而不是均分剩余空间
+          // （实测 2 行合计 1610px > 视口 1000px）。故此处给出视口扣减高度
+          // （见 docs/standards/前端布局约定.md 的「主机实例终端 tab」例外），
+          // 并**不加** overflow-hidden：sticky tab 栏用 -mx-[gutter] 通栏，
+          // 裁切会让左右各少 12px。
+          ? 'flex h-[calc(100dvh-var(--app-header-height)-var(--app-canvas-gutter-bottom))] min-h-[26rem] w-full min-w-0 flex-col gap-2'
           : 'flex w-full min-w-0 flex-col gap-3 cq-sm:gap-4'
       }
     >

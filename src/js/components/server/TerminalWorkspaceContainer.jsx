@@ -76,7 +76,7 @@ function TerminalPaneView({
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
-      className={`relative flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden rounded-md border bg-kumo-base transition-colors ${
+      className={`relative flex min-h-0 w-full min-w-0 flex-1 flex-col overflow-hidden rounded-md border bg-kumo-base transition-colors ${
         isActive ? 'border-kumo-interact ring-1 ring-kumo-interact/30' : 'border-kumo-line'
       }`}
     >
@@ -265,7 +265,7 @@ function TerminalNodeRenderer({
 
     return (
       <div
-        className={`flex h-full min-h-0 w-full min-w-0 overflow-hidden ${
+        className={`flex min-h-0 min-w-0 flex-1 overflow-hidden ${
           isHorizontal ? 'flex-row' : 'flex-col'
         }`}
       >
@@ -273,7 +273,7 @@ function TerminalNodeRenderer({
           style={{
             flex: `${currentRatio} ${currentRatio} 0%`,
           }}
-          className="min-h-0 min-w-0 overflow-hidden"
+          className="flex min-h-0 min-w-0 overflow-hidden"
         >
           <TerminalNodeRenderer
             node={node.first}
@@ -299,7 +299,7 @@ function TerminalNodeRenderer({
           style={{
             flex: `${1 - currentRatio} ${1 - currentRatio} 0%`,
           }}
-          className="min-h-0 min-w-0 overflow-hidden"
+          className="flex min-h-0 min-w-0 overflow-hidden"
         >
           <TerminalNodeRenderer
             node={node.second}
