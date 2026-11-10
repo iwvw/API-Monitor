@@ -102,7 +102,7 @@ export const getInitialServerListViewMode = () => {
   if (typeof window === 'undefined') return 'cards';
   const saved = window.localStorage.getItem(SERVER_LIST_VIEW_STORAGE_KEY);
   if (saved === 'compact' || saved === 'cards') return saved;
-  return window.matchMedia?.('(min-width: 768px)').matches ? 'compact' : 'cards';
+  return 'compact';
 };
 
 export const getInitialCompactVisibleColumns = () => {

@@ -96,6 +96,9 @@ export default function TileGrid({
   tileSizes = DEFAULT_TILE_SIZES,
   maxCols = 8,
   cols: colsOverride,
+  rowHeight: rowHeightOverride,
+  dragEnabled = true,
+  resizeEnabled = true,
 }) {
   const { width, containerRef, mounted } = useContainerWidth();
   // 列数：外部 cols 优先（按断点固定，断点内宽度变化列数不变、布局稳定）；
@@ -104,7 +107,7 @@ export default function TileGrid({
   // 行高随当前列宽动态计算，使 1×1（h=2）在任何宽度下都是精确正方形：2*rowHeight + marginY = 列宽
   // containerPadding 归零：嵌入仪表盘时与页面 gutter（12px）对齐，避免网格内容额外内缩一圈
   const colWidth = (width - (cols - 1) * 12) / cols;
-  const rowHeight = Math.max(72, Math.min(150, (colWidth - 12) / 2));
+  const rowHeight = rowHeightOverride ?? Math.max(72, Math.min(150, (colWidth - 12) / 2));
 
   const onColsChangeRef = useRef(onColsChange);
   onColsChangeRef.current = onColsChange;
@@ -284,8 +287,8 @@ export default function TileGrid({
           width={width}
           layout={fittedLayout}
           gridConfig={{ cols, rowHeight, margin: [12, 12], containerPadding: [0, 0] }}
-          dragConfig={{ enabled: true, handle: '.tile-header', cancel: 'canvas, button, select, input, a, .tile-scroll', threshold: isCoarsePointer ? 15 : 3 }}
-          resizeConfig={{ enabled: true, handles: ['se'], handleComponent: TileResizeHandle }}
+          dragConfig={{ enabled: dragEnabled, handle: '.tile-header', cancel: 'canvas, button, select, input, a, .tile-scroll', threshold: isCoarsePointer ? 15 : 3 }}
+          resizeConfig={{ enabled: resizeEnabled, handles: ['se'], handleComponent: TileResizeHandle }}
           compactor={verticalCompactor}
           onLayoutChange={handleGridChange}
         >

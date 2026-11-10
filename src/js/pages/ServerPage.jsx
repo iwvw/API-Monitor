@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useLayoutEffect, useRef, useMemo, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import useStore from '../store.js';
 import { useShallow } from 'zustand/react/shallow';
 import { toast } from '../modules/toast.js';
@@ -162,6 +163,9 @@ import {
   Shuffle,
   Columns,
   Grid,
+  Eye,
+  EyeOff,
+  Maximize2,
 } from '../components/Icons.jsx';
 import TerminalWorkspaceContainer from '../components/server/TerminalWorkspaceContainer.jsx';
 import {
@@ -252,6 +256,7 @@ import { TrendSeriesLabel } from './server/TrendSeriesLabel.jsx';
 import { ExpandedTrendChartCard } from './server/ExpandedTrendChartCard.jsx';
 import { NetworkQualityPanel } from './server/NetworkQualityPanel.jsx';
 import { CompactExpandedRow } from './server/CompactExpandedRow.jsx';
+import TileGrid from './tiles/TileGrid.jsx';
 import { CompactColumnMenu } from './server/CompactColumnMenu.jsx';
 
 echarts.use([
@@ -587,8 +592,8 @@ const SERVER_CREDENTIAL_COLUMNS = [
 ];
 
 const NETWORK_TARGET_COLUMNS = [
-  { id: 'name', role: 'primary', minWidth: 96 },
-  { id: 'endpoint', role: 'identifier', minWidth: 150 },
+  { id: 'name', role: 'primary', minWidth: 160, grow: 1 },
+  { id: 'endpoint', role: 'identifier', minWidth: 200 },
   { id: 'enabled', role: 'status' },
   { id: 'actions', role: 'actions-sm' },
 ];
@@ -1685,6 +1690,18 @@ function ServerPage() {
   const [serverSearchText, setServerSearchText] = useState('');
   const [serverStatusFilter, setServerStatusFilter] = useState('all');
   const [serverListViewMode, setServerListViewMode] = useState(getInitialServerListViewMode);
+  const [cardDetailServerId, setCardDetailServerId] = useState(null);
+
+  useEffect(() => {
+    if (!cardDetailServerId) return undefined;
+    const onKeyDown = event => {
+      if (event.key !== 'Escape') return;
+      setExpandedServers(prev => prev.filter(id => id !== cardDetailServerId));
+      setCardDetailServerId(null);
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [cardDetailServerId]);
   const [serverMapOpen, setServerMapOpen] = useState(false);
   const [compactVisibleColumns, setCompactVisibleColumns] = useState(
     getInitialCompactVisibleColumns
@@ -1694,7 +1711,6 @@ function ServerPage() {
   const [renderedCompactExpandedServers, setRenderedCompactExpandedServers] = useState([]);
   const [chartSeriesReadyServers, setChartSeriesReadyServers] = useState([]);
   const [expandedDockerPanels, setExpandedDockerPanels] = useState([]);
-  const [draggedServerId, setDraggedServerId] = useState(null);
 
   // 凭据状态
   const [serverCredentials, setServerCredentials] = useState([]);
@@ -1745,7 +1761,6 @@ function ServerPage() {
   });
   const [selectedCredentialId, setSelectedCredentialId] = useState('');
   const [serverModalSaving, setServerModalSaving] = useState(false);
-  const [serverModalError, setServerModalError] = useState('');
 
   const [serverAddMode, setServerAddMode] = useState('ssh'); // 'ssh' | 'agent'
   const [quickDeployName, setQuickDeployName] = useState('');
@@ -1862,11 +1877,12 @@ function ServerPage() {
   const [sshGroupState, setSshGroupState] = useState(null);
   const [sshSyncEnabled, setSshSyncEnabled] = useState(false);
   const [draggedSessionId, setDraggedSessionId] = useState(null);
-  const [dropHint, setDropHint] = useState('');
-  const [dropTargetId, setDropTargetId] = useState(null);
 
   const [activeTerminalSidebar, setActiveTerminalSidebar] = useState(null);
   const [sshIdeFullscreen, setSshIdeFullscreen] = useState(false);
+
+  const [terminalStatusRefreshing, setTerminalStatusRefreshing] = useState(false);
+  const [terminalIpMasked, setTerminalIpMasked] = useState(false);
 
   // SFTP 状态
   const [sftpCurrentPath, setSftpCurrentPath] = useState('/');
@@ -2036,35 +2052,25 @@ function ServerPage() {
     };
   }, [compactColumnMenu.open]);
 
-  useEffect(() => {
-    const timer = setTimeout(() => syncTerminalDOM(), 80);
-    return () => clearTimeout(timer);
-  }, [visibleSessionIds, sshViewLayout, sshSplitTree, showServerStatusSidebar, showSftpSidebar]);
-
   useLayoutEffect(() => {
     if (serverCurrentTab !== 'terminal') return undefined;
 
     visibleSessionIdsRef.current = visibleSessionIds;
-    const restore = () => restoreVisibleTerminalSurfaces({ focus: true });
-    restore();
-
     if (typeof window === 'undefined') return undefined;
+
     let frameOne = 0;
     let frameTwo = 0;
-    const timerOne = window.setTimeout(restore, 50);
-    const timerTwo = window.setTimeout(restore, 180);
+    const restore = () => restoreVisibleTerminalSurfaces({ focus: true });
     frameOne = window.requestAnimationFrame(() => {
       restore();
       frameTwo = window.requestAnimationFrame(restore);
     });
 
     return () => {
-      window.clearTimeout(timerOne);
-      window.clearTimeout(timerTwo);
       if (frameOne) window.cancelAnimationFrame(frameOne);
       if (frameTwo) window.cancelAnimationFrame(frameTwo);
     };
-  }, [serverCurrentTab, visibleSessionIds, sshViewLayout, sshSplitTree, activeTerminalSidebar]);
+  }, [serverCurrentTab, visibleSessionIds, sshViewLayout, sshSplitTree, activeTerminalSidebar, sshIdeFullscreen]);
 
   useEffect(() => {
     if (serverCurrentTab === 'terminal') return undefined;
@@ -3281,7 +3287,6 @@ function ServerPage() {
     });
     setSelectedCredentialId('');
     setServerModalMode('add');
-    setServerModalError('');
     setShowServerModal(true);
   };
 
@@ -3317,7 +3322,6 @@ function ServerPage() {
     setServerAddMode('ssh');
     setSelectedCredentialId('');
     setServerModalMode('edit');
-    setServerModalError('');
     setShowServerModal(true);
   };
 
@@ -3342,11 +3346,10 @@ function ServerPage() {
 
   const testServerConnection = async () => {
     if (!serverForm.host || !serverForm.username) {
-      setServerModalError('请填写连接地址和用户名');
+      toast.warning('请填写连接地址和用户名');
       return;
     }
     setServerModalSaving(true);
-    setServerModalError('');
     toast.info('正在测试连接...');
 
     try {
@@ -3367,11 +3370,10 @@ function ServerPage() {
       if (data.success) {
         toast.success('连接测试成功');
       } else {
-        setServerModalError('测试连接失败: ' + data.message);
-        toast.error('测试连接失败');
+        toast.error('测试连接失败: ' + data.message);
       }
     } catch (e) {
-      setServerModalError('测试连接请求异常: ' + e.message);
+      toast.error('测试连接请求异常: ' + e.message);
     } finally {
       setServerModalSaving(false);
     }
@@ -3465,11 +3467,11 @@ function ServerPage() {
     const isAgentForm = serverForm.monitorMode === 'agent' || serverAddMode === 'agent';
     const hasSshEndpoint = Boolean(serverForm.host?.trim() && serverForm.username?.trim());
     if (!serverForm.name?.trim()) {
-      setServerModalError('请填写主机名称');
+      toast.warning('请填写主机名称');
       return;
     }
     if (!isAgentForm && !hasSshEndpoint) {
-      setServerModalError('请填写连接地址和用户名');
+      toast.warning('请填写连接地址和用户名');
       return;
     }
     if (
@@ -3480,12 +3482,11 @@ function ServerPage() {
       const cycleStart = new Date(`${serverForm.trafficCycleStart}T00:00:00`).getTime();
       const cycleEnd = new Date(`${serverForm.trafficCycleEnd}T23:59:59`).getTime();
       if (Number.isFinite(cycleStart) && Number.isFinite(cycleEnd) && cycleEnd < cycleStart) {
-        setServerModalError('流量周期结束时间不能早于开始时间');
+        toast.warning('流量周期结束时间不能早于开始时间');
         return;
       }
     }
     setServerModalSaving(true);
-    setServerModalError('');
 
     try {
       const tags = Array.isArray(serverForm.tags)
@@ -3553,10 +3554,10 @@ function ServerPage() {
         setShowServerModal(false);
         loadServerList();
       } else {
-        setServerModalError(data.error || '保存失败');
+        toast.error(data.error || '保存失败');
       }
     } catch (e) {
-      setServerModalError('保存异常: ' + e.message);
+      toast.error('保存异常: ' + e.message);
     } finally {
       setServerModalSaving(false);
     }
@@ -3565,12 +3566,11 @@ function ServerPage() {
   const generateQuickInstallCommand = async () => {
     const name = quickDeployName.trim();
     if (!name) {
-      setServerModalError('请输入主机名称');
+      toast.warning('请输入主机名称');
       return;
     }
 
     setServerModalSaving(true);
-    setServerModalError('');
     setQuickDeployResult(null);
 
     try {
@@ -3586,10 +3586,10 @@ function ServerPage() {
         toast.success(data.data?.isNew ? 'Agent 主机已创建' : 'Agent 安装命令已生成');
         loadServerList();
       } else {
-        setServerModalError(data.error || '生成 Agent 安装命令失败');
+        toast.error(data.error || '生成 Agent 安装命令失败');
       }
     } catch (e) {
-      setServerModalError('Agent 快速安装请求失败：' + e.message);
+      toast.error('Agent 快速安装请求失败：' + e.message);
     } finally {
       setServerModalSaving(false);
     }
@@ -3971,42 +3971,6 @@ function ServerPage() {
       toast.error('排序保存请求失败');
       loadServerList();
     }
-  };
-
-  const handleServerDragStart = (server, event) => {
-    if (
-      serverSearchText.trim() ||
-      serverStatusFilter !== 'all' ||
-      expandedServers.includes(server.id)
-    ) {
-      event.preventDefault();
-      return;
-    }
-    setDraggedServerId(server.id);
-    event.dataTransfer.effectAllowed = 'move';
-    event.dataTransfer.setData('text/plain', String(server.id));
-  };
-
-  const handleServerDragOver = event => {
-    if (!draggedServerId || serverSearchText.trim() || serverStatusFilter !== 'all') return;
-    event.preventDefault();
-    event.dataTransfer.dropEffect = 'move';
-  };
-
-  const handleServerDrop = async (targetServerId, event) => {
-    event.preventDefault();
-    if (!draggedServerId || draggedServerId === targetServerId) return;
-
-    const fromIndex = serverList.findIndex(s => s.id === draggedServerId);
-    const toIndex = serverList.findIndex(s => s.id === targetServerId);
-    if (fromIndex < 0 || toIndex < 0) return;
-
-    const next = [...serverList];
-    const [moved] = next.splice(fromIndex, 1);
-    next.splice(toIndex, 0, moved);
-    setServerList(next);
-    setDraggedServerId(null);
-    await saveServerOrder(next);
   };
 
   const toggleDockerPanel = serverId => {
@@ -7277,30 +7241,6 @@ function ServerPage() {
       event.dataTransfer.setData('text/plain', id);
     }
     setDraggedSessionId(id);
-    setDropTargetId(null);
-    setDropHint('');
-  };
-
-  const handleTerminalDragOver = (e, targetId) => {
-    e.preventDefault();
-    if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
-    const sourceId = draggedSessionId || e.dataTransfer?.getData('text/plain') || '';
-    if (!sourceId || sourceId === targetId) {
-      setDropTargetId(null);
-      setDropHint('');
-      return;
-    }
-    setDropTargetId(targetId);
-    setDropHint(getDropPosition(e));
-  };
-
-  const handleTerminalDragLeave = (e, targetId) => {
-    const nextTarget = e.relatedTarget;
-    if (nextTarget instanceof Node && e.currentTarget.contains(nextTarget)) return;
-    if (dropTargetId === targetId) {
-      setDropTargetId(null);
-      setDropHint('');
-    }
   };
 
   const getSplitSourceSessionId = targetId => {
@@ -7313,31 +7253,6 @@ function ServerPage() {
       sshSessions.find(session => session.id !== targetId)?.id ||
       ''
     );
-  };
-
-  const getDropPosition = event => {
-    const rect = event.currentTarget.getBoundingClientRect();
-    const x = rect.width ? (event.clientX - rect.left) / rect.width : 0.5;
-    const y = rect.height ? (event.clientY - rect.top) / rect.height : 0.5;
-    if (y < 0.22) return 'top';
-    if (y > 0.78) return 'bottom';
-    return x < 0.5 ? 'left' : 'right';
-  };
-
-  const getTerminalDropPreviewStyle = position => {
-    const gap = '0.5rem';
-    switch (position) {
-      case 'left':
-        return { left: gap, right: '50%', top: gap, bottom: gap };
-      case 'right':
-        return { left: '50%', right: gap, top: gap, bottom: gap };
-      case 'top':
-        return { left: gap, right: gap, top: gap, bottom: '50%' };
-      case 'bottom':
-        return { left: gap, right: gap, top: '50%', bottom: gap };
-      default:
-        return { left: gap, right: gap, top: gap, bottom: gap };
-    }
   };
 
   const updateDockerComposeDeployment = async () => {
@@ -7430,8 +7345,6 @@ function ServerPage() {
     setActiveSSHSessionId(sessionId);
     if (showSftpSidebar) syncSftpToSession(targetId);
     setDraggedSessionId(null);
-    setDropTargetId(null);
-    setDropHint('');
 
     setTimeout(() => initSessionTerminal(sessionId, newSession), 200);
     setTimeout(() => {
@@ -7465,8 +7378,6 @@ function ServerPage() {
     setActiveSSHSessionId(sourceId);
     if (showSftpSidebar) syncSftpToSession(sourceId);
     setDraggedSessionId(null);
-    setDropTargetId(null);
-    setDropHint('');
 
     setTimeout(() => {
       syncTerminalDOM();
@@ -7493,6 +7404,39 @@ function ServerPage() {
     }
     return list;
   }, [serverList, serverStatusFilter, serverSearchText]);
+
+  // 卡片视图网格布局：单列堆叠，由列表顺序派生（拖拽排序后重排列表，布局随之重建）
+  // 卡片视图自适应列数：≥768px 两列，窄屏单列（与卡片/紧凑视图切换断点一致）
+  const isWideCardListView = useMediaQuery('(min-width: 1280px)');
+  const cardColumns = isWideCardListView ? 2 : 1;
+
+  const serverCardLayout = useMemo(
+    () =>
+      filteredServers.map((server, index) => ({
+        i: String(server.id),
+        x: index % cardColumns,
+        y: Math.floor(index / cardColumns),
+        w: 1,
+        h: 1,
+      })),
+    [filteredServers, cardColumns]
+  );
+
+  // 拖拽结束：按网格位置 (y, x) 重排主机列表并持久化顺序
+  const handleServerCardLayoutChange = nextLayout => {
+    const orderedIds = [...nextLayout]
+      .sort((a, b) => a.y - b.y || a.x - b.x)
+      .map(item => String(item.i));
+    const orderedSet = new Set(orderedIds);
+    const byId = new Map(serverList.map(s => [String(s.id), s]));
+    const visible = orderedIds.map(id => byId.get(id)).filter(Boolean);
+    const hidden = serverList.filter(s => !orderedSet.has(String(s.id)));
+    const orderedServers = visible.concat(hidden);
+    const changed = orderedServers.some((s, idx) => s !== serverList[idx]);
+    if (!changed) return;
+    setServerList(orderedServers);
+    saveServerOrder(orderedServers);
+  };
 
   const statsSummary = useMemo(() => {
     const total = serverList.length;
@@ -7574,7 +7518,7 @@ function ServerPage() {
             <Edit className="h-4 w-4" />
             <span>编辑主机</span>
           </ContextMenu.Item>
-          <ContextMenu.Separator className="mx-1 my-1 h-px bg-kumo-line" />
+          <ContextMenu.Separator className="-mx-1.5 my-1 h-0.5 bg-kumo-hairline" />
           <ContextMenu.Item
             className="relative flex cursor-default items-center gap-2 rounded-md px-2 py-1.5 text-sm outline-hidden select-none focus:text-kumo-default focus:ring-kumo-focus/50 focus-visible:ring-2 focus-visible:ring-kumo-brand data-disabled:pointer-events-none data-disabled:opacity-50 data-highlighted:bg-kumo-overlay"
             disabled={!isServerOnline(server)}
@@ -7597,7 +7541,7 @@ function ServerPage() {
             <X className="h-4 w-4" />
             <span>关闭主机</span>
           </ContextMenu.Item>
-          <ContextMenu.Separator className="mx-1 my-1 h-px bg-kumo-line" />
+          <ContextMenu.Separator className="-mx-1.5 my-1 h-0.5 bg-kumo-hairline" />
           <ContextMenu.Item
             className="relative flex cursor-default items-center gap-2 rounded-md px-2 py-1.5 text-sm text-kumo-danger outline-hidden select-none focus:text-kumo-danger focus:ring-kumo-focus/50 focus-visible:ring-2 focus-visible:ring-kumo-brand data-disabled:pointer-events-none data-disabled:opacity-50 data-highlighted:bg-kumo-danger/5 data-highlighted:text-kumo-danger"
             onClick={event => {
@@ -7615,17 +7559,18 @@ function ServerPage() {
 
   return (
     <div
+      // 终端 tab 与卡片视图需要「确定高度」：分屏树的 h-full 依赖百分比高度，若只给
+      // min-h-full + flex-1（父级 inner 是 min-h-full，高度为 auto），h-full
+      // 会退化成 auto，垂直分屏时两栏按内容高度累加而不是均分剩余空间
+      // （实测 2 行合计 1610px > 视口 1000px）。故此处给出视口扣减高度
+      // （见 docs/standards/前端布局约定.md 的「主机实例终端 tab」例外），
+      // 并**不加** overflow-hidden：sticky tab 栏用 -mx-[gutter] 通栏，裁切会让左右各少 12px。
       className={
         serverCurrentTab === 'terminal'
-          // 终端 tab 需要「确定高度」：分屏树的 h-full 依赖百分比高度，若只给
-          // min-h-full + flex-1（父级 inner 是 min-h-full，高度为 auto），h-full
-          // 会退化成 auto，垂直分屏时两栏按内容高度累加而不是均分剩余空间
-          // （实测 2 行合计 1610px > 视口 1000px）。故此处给出视口扣减高度
-          // （见 docs/standards/前端布局约定.md 的「主机实例终端 tab」例外），
-          // 并**不加** overflow-hidden：sticky tab 栏用 -mx-[gutter] 通栏，
-          // 裁切会让左右各少 12px。
           ? 'flex h-[calc(100dvh-var(--app-header-height)-var(--app-canvas-gutter-bottom))] min-h-[26rem] w-full min-w-0 flex-col gap-2'
-          : 'flex w-full min-w-0 flex-col gap-3 cq-sm:gap-4'
+          : serverCurrentTab === 'list' && (serverListViewMode === 'cards' || serverMapOpen)
+            ? 'flex h-[calc(100dvh-var(--app-header-height)-var(--app-canvas-gutter-bottom))] min-h-[26rem] w-full min-w-0 flex-col gap-3 cq-sm:gap-4'
+            : 'flex w-full min-w-0 flex-col gap-3 cq-sm:gap-4'
       }
     >
       <CompactColumnMenu
@@ -7640,6 +7585,7 @@ function ServerPage() {
         className={`${stickyTabsBaseClass} justify-between gap-2 border-b border-kumo-line [&>*]:min-w-0`}
       >
         <Tabs
+          key={`module-tabs-${sshSessions.length > 0 ? 'terminal' : 'plain'}`}
           {...MODULE_TABS_PROPS}
           value={serverCurrentTab}
           onValueChange={value => {
@@ -8115,9 +8061,9 @@ function ServerPage() {
 
       {/* ==================== 1. 主机管理 ==================== */}
       {serverCurrentTab === 'list' && (
-        <div className="flex flex-col gap-4">
-          {/* 控制过滤器栏 */}
-          <div className={SERVER_SECONDARY_BAR_CLASS}>
+        <>
+          {/* 控制过滤器栏（通栏对齐主 tab） */}
+          <div className="-mt-3 -mb-3 -mx-[var(--app-canvas-gutter-x)] flex min-h-[46px] flex-wrap items-center gap-2 px-[var(--app-tab-gutter-x)] py-2 cq-lg:justify-between cq-sm:-mt-4 cq-sm:-mb-4">
             <div className={SERVER_SECONDARY_TABS_GROUP_CLASS}>
               <Tabs
                 {...TOOL_TABS_PROPS}
@@ -8138,14 +8084,6 @@ function ServerPage() {
                 onValueChange={setServerListViewMode}
                 tabs={[
                   {
-                    value: 'cards',
-                    label: (
-                      <span title="卡片视图" aria-label="卡片视图">
-                        <LayoutDashboard className="h-3.5 w-3.5" />
-                      </span>
-                    ),
-                  },
-                  {
                     value: 'compact',
                     label: (
                       <span title="表格视图" aria-label="表格视图">
@@ -8153,18 +8091,26 @@ function ServerPage() {
                       </span>
                     ),
                   },
+                  {
+                    value: 'cards',
+                    label: (
+                      <span title="卡片视图" aria-label="卡片视图">
+                        <LayoutDashboard className="h-3.5 w-3.5" />
+                      </span>
+                    ),
+                  },
                 ]}
               />
               <Button
                 size="sm"
-                shape="square"
-                variant="secondary"
-                className={serverMapOpen ? 'border-brand/50 text-brand' : ''}
+                variant={serverMapOpen ? 'primary' : 'secondary'}
                 icon={<Globe className="h-3.5 w-3.5" />}
                 aria-label={serverMapOpen ? '切回主机列表' : '切换到主机地图'}
                 title={serverMapOpen ? '切回主机列表' : '切换到主机地图'}
                 onClick={() => setServerMapOpen(prev => !prev)}
-              />
+              >
+                地图
+              </Button>
             </div>
 
             <ResponsiveSearchInput
@@ -8176,24 +8122,31 @@ function ServerPage() {
             />
           </div>
 
-          {/* 列表渲染 */}
-          {serverMapOpen ? (
+          <div
+            className={
+              serverListViewMode === 'cards' || serverMapOpen
+                ? 'flex min-h-0 flex-1 flex-col gap-4'
+                : 'flex flex-col gap-4'
+            }
+          >
+            {/* 列表渲染 */}
+            {serverMapOpen ? (
             serverLoading && filteredServers.length === 0 ? (
-              <div
-                className="w-full overflow-hidden rounded-lg border border-kumo-line/70 bg-kumo-base"
-                style={{ height: 'calc(100vh - 260px)' }}
-              >
+              <div className="min-h-0 w-full flex-1 overflow-hidden rounded-lg border border-kumo-line/70 bg-kumo-base">
                 <SkeletonLine className="h-full w-full rounded-none" />
               </div>
             ) : (
-              <ServerLocationMap
-                echarts={echarts}
-                servers={filteredServers}
-                resolveStatus={server => resolveServerDisplayStatus(server).state}
-                title="主机地图"
-                subtitle="当前筛选中的主机地理分布"
-                height="calc(100vh - 260px)"
-              />
+              <div className="min-h-0 w-full flex-1">
+                <ServerLocationMap
+                  echarts={echarts}
+                  servers={filteredServers}
+                  resolveStatus={server => resolveServerDisplayStatus(server).state}
+                  title="主机地图"
+                  subtitle="当前筛选中的主机地理分布"
+                  height="100%"
+                  className="h-full min-h-0"
+                />
+              </div>
             )
           ) : serverLoading && serverList.length === 0 ? (
             <AppCard
@@ -8212,9 +8165,15 @@ function ServerPage() {
               <p className="text-xs">未找到符合当前条件的主机节点</p>
             </AppCard>
           ) : (
-            <div className="flex flex-col gap-3">
+            <div
+              className={
+                serverListViewMode === 'cards'
+                  ? 'flex min-h-0 flex-1 flex-col gap-3'
+                  : 'flex flex-col gap-3'
+              }
+            >
               {serverListViewMode === 'compact' ? (
-                <div className="w-full max-w-full overflow-hidden rounded-md border border-kumo-interact/60 bg-kumo-base">
+                <div className="w-full max-w-full overflow-hidden rounded-md border border-kumo-interact/60 bg-kumo-base [&_tr:last-child]:border-b-0">
                   <ScrollableTable
                     layout="fixed"
                     widths={visibleCompactColumnWidths}
@@ -8341,7 +8300,7 @@ function ServerPage() {
                                 render={
                                   <Table.Row
                                     variant={isExpanded ? 'selected' : 'default'}
-                                    className="cursor-pointer border-b border-kumo-line/80 hover:bg-kumo-recessed/15"
+                                    className={`select-none border-b border-kumo-line/80 ${isExpanded ? '' : 'hover:bg-kumo-recessed/15'}`}
                                     onClick={() => toggleServerExpand(server.id)}
                                   >
                                     {isCompactColumnVisible('status') && (
@@ -8474,7 +8433,7 @@ function ServerPage() {
                                     {isCompactColumnVisible('memory') && (
                                       <Table.Cell className="!px-[2px] !py-1.5 whitespace-nowrap">
                                         <DenseUsageMeter
-                                          label="Mem"
+                                          label="内存"
                                           value={memUsage}
                                           detail={`${Math.round(memUsage)}%`}
                                           indicatorClassName="!bg-none !bg-kumo-info"
@@ -8485,7 +8444,7 @@ function ServerPage() {
                                     {isCompactColumnVisible('disk') && (
                                       <Table.Cell className="!px-[2px] !py-1.5 whitespace-nowrap">
                                         <DenseUsageMeter
-                                          label="Disk"
+                                          label="硬盘"
                                           value={diskUsage}
                                           detail={`${Math.round(diskUsage)}%`}
                                           indicatorClassName="!bg-none !bg-kumo-warning"
@@ -8897,10 +8856,17 @@ function ServerPage() {
                   </ScrollableTable>
                 </div>
               ) : (
-                filteredServers.map(server => {
+                (() => {
+                  const serverCardMap = new Map(
+                    filteredServers.map(server => [String(server.id), server])
+                  );
+                  const renderServerCard = (server, { overlay = false } = {}) => {
                   const country = getFlagCountry(server);
                   const locationText = getServerLocationText(server);
-                  const isExpanded = expandedServers.includes(server.id);
+                  const isExpanded = overlay;
+                  const cardBorderClass = overlay
+                    ? 'rounded-none border-0'
+                    : `border rounded-lg ${isExpanded ? 'border-brand/70  ring-1 ring-brand/20' : 'border-kumo-line/90  hover:border-kumo-interact '}`;
                   const isChartSeriesReady = chartSeriesReadyServers.includes(server.id);
                   const isDarkMode = theme === 'dark';
                   const {
@@ -8945,8 +8911,6 @@ function ServerPage() {
                   const pausedContainers = dockerSummary.paused;
                   const stoppedContainers = dockerSummary.stopped;
                   const lifecycle = getServerLifecycle(server);
-                  const canDrag =
-                    !serverSearchText.trim() && serverStatusFilter === 'all' && !isExpanded;
                   const cycleParts = getServerCycleParts(server);
                   const txTotal = cycleParts.tx;
                   const rxTotal = cycleParts.rx;
@@ -8990,16 +8954,21 @@ function ServerPage() {
                   return (
                     <ContextMenu.Root key={server.id}>
                       <ContextMenu.Trigger
-                        draggable={canDrag}
-                        onDragStart={event => handleServerDragStart(server, event)}
-                        onDragOver={handleServerDragOver}
-                        onDrop={event => handleServerDrop(server.id, event)}
-                        onDragEnd={() => setDraggedServerId(null)}
-                        className={`bg-kumo-base border rounded-lg ${isExpanded ? 'border-brand/70  ring-1 ring-brand/20' : 'border-kumo-line/90  hover:border-kumo-interact '} ${draggedServerId === server.id ? 'opacity-50' : ''}`}
+                        className={`select-none flex ${overlay ? 'min-h-0' : 'h-full'} min-h-0 flex-col overflow-hidden bg-kumo-base ${!overlay && !isServerOnline(server) ? 'opacity-60 grayscale' : ''} ${cardBorderClass}`}
                       >
                         <div
-                          onClick={() => toggleServerExpand(server.id)}
-                          className="grid min-h-[56px] grid-cols-[minmax(0,1fr)_2.25rem] items-center gap-x-3 gap-y-2 px-3 py-2.5 cursor-pointer cq-sm:flex cq-sm:flex-nowrap cq-sm:justify-between cq-sm:gap-2.5 cq-sm:py-2"
+                          onClick={
+                            overlay
+                              ? () => {
+                                  setExpandedServers(prev => prev.filter(id => id !== server.id));
+                                  setCardDetailServerId(null);
+                                }
+                              : () => {
+                                  toggleServerExpand(server.id);
+                                  setCardDetailServerId(server.id);
+                                }
+                          }
+                          className={`tile-header grid min-h-[56px] grid-cols-[minmax(0,1fr)_2.25rem] items-center gap-x-3 gap-y-2 px-3 py-2.5 ${overlay ? 'border-b border-kumo-line' : ''} cq-sm:flex cq-sm:flex-nowrap cq-sm:items-center cq-sm:justify-between cq-sm:gap-2.5 cq-sm:py-2`}
                         >
                           <div className="order-1 flex min-w-0 items-center gap-3">
                             <span className="relative flex h-2 w-2 rounded-full">
@@ -9053,9 +9022,10 @@ function ServerPage() {
                             </div>
                           </div>
 
-                          <div className="contents cq-sm:order-2 cq-sm:ml-auto cq-sm:flex cq-sm:shrink-0 cq-sm:flex-nowrap cq-sm:items-center cq-sm:gap-2.5">
-                            {isServerOnline(server) && server.info && (
-                              <div className="order-3 col-span-2 grid w-full grid-cols-4 gap-1.5 text-[10px] font-semibold text-kumo-subtle cq-sm:order-none cq-sm:col-span-1 cq-sm:flex cq-sm:h-9 cq-sm:w-auto cq-sm:items-center cq-sm:gap-2.5">
+                          <div className="contents cq-sm:order-2 cq-sm:ml-auto cq-sm:flex cq-sm:min-w-0 cq-sm:flex-nowrap cq-sm:items-center cq-sm:gap-2.5">
+                            <div className="order-3 col-span-2 grid w-full grid-cols-4 gap-1.5 text-[10px] font-semibold text-kumo-strong cq-sm:order-none cq-sm:col-span-1 cq-sm:flex cq-sm:h-9 cq-sm:w-auto cq-sm:items-center cq-sm:gap-2.5">
+                              {server.info ? (
+                                <>
                                 {hasGpuData && (
                                   <CompactMetricBar
                                     label="GPU"
@@ -9075,7 +9045,7 @@ function ServerPage() {
                                   width={server.info.cpu?.Usage || '0%'}
                                 />
                                 <CompactMetricBar
-                                  label="Mem"
+                                  label="内存"
                                   value={`${parseInt(server.info.memory?.Usage || '0')}%`}
                                   valueClassName="text-kumo-info"
                                   barClassName="bg-kumo-info"
@@ -9084,7 +9054,7 @@ function ServerPage() {
                                 />
                                 {server.info.disk?.[0] && (
                                   <CompactMetricBar
-                                    label="Disk"
+                                    label="硬盘"
                                     value={`${parseInt(server.info.disk[0].usage || '0')}%`}
                                     valueClassName="text-kumo-warning"
                                     barClassName="bg-kumo-warning"
@@ -9094,7 +9064,7 @@ function ServerPage() {
                                 )}
                                 <div className="hidden cq-sm:block">
                                   <CompactMetricBar
-                                    label="剩余"
+                                    label="余期"
                                     value={
                                       lifecycle.expiresAt
                                         ? `${Math.round(lifecycle.remainingPercent)}%`
@@ -9159,8 +9129,16 @@ function ServerPage() {
                                     </span>
                                   </div>
                                 )}
+                                </>
+                              ) : (
+                                <>
+                                  <CompactMetricBar label="CPU" value="--" barClassName="bg-kumo-subtle/40" width="0%" />
+                                  <CompactMetricBar label="内存" value="--" barClassName="bg-kumo-subtle/40" width="0%" />
+                                  <CompactMetricBar label="硬盘" value="--" barClassName="bg-kumo-subtle/40" width="0%" />
+                                  <CompactMetricBar label="余期" value="--" barClassName="bg-kumo-subtle/40" width="0%" />
+                                </>
+                              )}
                               </div>
-                            )}
 
                             <div
                               className="order-2 flex items-center justify-end gap-1.5 cq-sm:order-none"
@@ -9180,9 +9158,10 @@ function ServerPage() {
                           </div>
                         </div>
 
-                        <AnimatedCollapse open={isExpanded} keepMounted>
+                        {isExpanded && (
+
                           <div
-                            className={`rounded-b-lg border-t border-kumo-line/90 bg-kumo-canvas/45 ${isDenseViewport ? 'p-1.5' : 'p-1.5 cq-sm:p-2'}`}
+                            className={isDenseViewport ? 'p-1.5' : 'p-1.5 cq-sm:p-2'}
                           >
                             {server.loading && !server.info ? (
                               <div className="space-y-2 py-5">
@@ -9231,7 +9210,7 @@ function ServerPage() {
                                       muted={rowMuted}
                                     />
                                     <ExpandedProgressMetric
-                                      label="剩余"
+                                      label="余期"
                                       value={lifecycle.remainingPercent}
                                       detail={lifecycle.label}
                                       caption={
@@ -9257,13 +9236,13 @@ function ServerPage() {
                                         <ExpandedInfoChip
                                           label="系统"
                                           value={
-                                            server.info?.platform ||
-                                            server.info?.platformVersion ||
+                                            [server.info?.platform, server.info?.platformVersion]
+                                              .filter(Boolean)
+                                              .join(' ') ||
                                             server.info?.system?.Kernel ||
                                             '-'
                                           }
                                         />
-                                        {/* <ExpandedInfoChip label="版本" value={server.info?.platformVersion || server.info?.system?.Kernel || '-'} /> */}
                                         <ExpandedInfoChip
                                           label="CPU 型号"
                                           value={
@@ -9842,24 +9821,59 @@ function ServerPage() {
                                         <div className="px-3 py-4 text-center text-xs text-kumo-subtle">
                                           暂无容器
                                         </div>
-                                      )}
-                                    </AnimatedCollapse>
+                        )}
+                                      </AnimatedCollapse>
                                   </AppCard>
                                 )}
                               </div>
                             )}
                           </div>
-                        </AnimatedCollapse>
+                        )}
+
                       </ContextMenu.Trigger>
 
                       {renderServerContextMenu(server)}
                     </ContextMenu.Root>
                   );
-                })
+                };
+
+                const serverById = item => serverCardMap.get(String(item.i));
+                const detailServer = cardDetailServerId
+                  ? serverCardMap.get(String(cardDetailServerId))
+                  : null;
+
+                return (
+                  <div className="relative flex min-h-0 flex-1 flex-col">
+                    <div className="min-h-0 flex-1 overflow-y-auto scrollbar-thin">
+                      <TileGrid
+                        layout={serverCardLayout}
+                        onLayoutChange={handleServerCardLayoutChange}
+                        cols={cardColumns}
+                        rowHeight={isCompactViewport ? 104 : 58}
+                        dragEnabled={!serverSearchText.trim() && serverStatusFilter === 'all'}
+                        resizeEnabled={false}
+                        renderTile={item => {
+                          const server = serverById(item);
+                          return server ? renderServerCard(server) : null;
+                        }}
+                      >
+                      </TileGrid>
+                    </div>
+                    {detailServer && (
+                      <div className="absolute inset-0 z-30 overflow-y-auto rounded-md border border-kumo-line bg-kumo-base scrollbar-thin">
+                        <div className="relative flex min-h-full w-full flex-col">
+                          {renderServerCard(detailServer, { overlay: true })}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+                })()
               )}
             </div>
           )}
         </div>
+        </>
       )}
 
       {/* ==================== 3. Docker 控制台 ==================== */}
@@ -12334,11 +12348,11 @@ function ServerPage() {
                   <div className="px-3 py-8 text-center text-xs text-kumo-subtle">暂无监测目标</div>
                 ) : (
                   <div className="max-h-64 overflow-auto">
-                    <AppTable tableId="network-targets" columns={NETWORK_TARGET_COLUMNS}>
+                    <AppTable tableId="network-targets" columns={NETWORK_TARGET_COLUMNS} className="min-w-[520px]">
                       <Table.Header variant="compact">
                         <Table.Row>
-                          <Table.Head className="text-center">名称</Table.Head>
-                          <Table.Head className="text-center">节点地址</Table.Head>
+                          <Table.Head className="text-left">名称</Table.Head>
+                          <Table.Head className="text-left">节点地址</Table.Head>
                           <Table.Head className="text-center">状态</Table.Head>
                           <Table.Head className="app-table-action">操作</Table.Head>
                         </Table.Row>
@@ -12347,9 +12361,9 @@ function ServerPage() {
                         {networkTargets.map(target => (
                           <Table.Row
                             key={target.id}
-                            className="border-b border-kumo-line/80 hover:bg-kumo-recessed/10 text-center"
+                            className="border-b border-kumo-line/80 hover:bg-kumo-recessed/10"
                           >
-                            <Table.Cell className="whitespace-nowrap">
+                            <Table.Cell className="whitespace-nowrap text-left">
                               <span
                                 className="font-semibold text-kumo-strong truncate block"
                                 title={target.name}
@@ -12358,10 +12372,15 @@ function ServerPage() {
                               </span>
                             </Table.Cell>
                             <Table.Cell
-                              className="whitespace-nowrap font-mono text-[11px] text-kumo-subtle truncate text-center"
-                              title={`${target.host}:${target.port}`}
+                              className="text-left"
+                              title={`${target.host}:${target.port} (${target.type})`}
                             >
-                              {target.host}:{target.port} ({target.type})
+                              <span className="block truncate font-mono text-[11px] leading-4 text-kumo-subtle">
+                                {target.host}:{target.port}
+                              </span>
+                              <span className="block truncate text-[10px] leading-4 text-kumo-subtle/70">
+                                {target.type}
+                              </span>
                             </Table.Cell>
                             <Table.Cell className="whitespace-nowrap">
                               <div className="flex justify-center">
@@ -12451,10 +12470,14 @@ function ServerPage() {
           const terminalCycleParts = getServerCycleParts(activeServer);
           const terminalTxTotal = terminalCycleParts.tx;
           const terminalRxTotal = terminalCycleParts.rx;
-          return (
+          const terminalCard = (
             <AppCard
               padding="none"
-              className="flex h-full min-h-0 w-full flex-1 flex-col overflow-hidden"
+              className={
+                sshIdeFullscreen
+                  ? 'flex h-full w-full min-h-0 flex-col overflow-hidden rounded-none border-0'
+                  : 'flex h-full min-h-0 w-full flex-1 flex-col overflow-hidden'
+              }
             >
               <div className="flex min-h-11 items-center justify-between gap-3 rounded-t-[inherit] border-b border-kumo-line bg-kumo-base px-3 py-2 text-xs">
                 <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto scrollbar-thin">
@@ -12486,7 +12509,7 @@ function ServerPage() {
                             .map(id => sshSessions.find(item => item.id === id)?.name || '终端')
                             .join(' + ')}
                         </span>
-                        <span className="rounded bg-brand/15 px-1 py-0.2 text-[9px] font-bold text-brand">
+                        <span className="rounded bg-brand/15 px-1 py-0.2 text-[10px] font-bold text-brand">
                           {visibleSessionIds.length}分屏
                         </span>
                       </div>
@@ -12501,8 +12524,6 @@ function ServerPage() {
                         onDragStart={event => handleTerminalDragStart(event, sess.id)}
                         onDragEnd={() => {
                           setDraggedSessionId(null);
-                          setDropTargetId(null);
-                          setDropHint('');
                         }}
                         className={`flex h-7 shrink-0 items-center rounded-md border ${
                           visibleSessionIds.length <= 1 && activeSSHSessionId === sess.id
@@ -12603,12 +12624,13 @@ function ServerPage() {
                   )}
                   <Button
                     size="sm"
+                    aria-pressed={sshSyncEnabled}
                     variant={sshSyncEnabled ? 'primary' : 'secondary'}
                     icon={<Send className="h-3.5 w-3.5" />}
                     onClick={() => setSshSyncEnabled(prev => !prev)}
-                    title="同步输入"
+                    title={sshSyncEnabled ? '同步输入已开启（点击关闭）' : '同步输入已关闭（点击开启）'}
                   >
-                    同步{sshSyncEnabled ? '开' : '关'}
+                    同步
                   </Button>
                   <Button
                     size="sm"
@@ -12620,6 +12642,15 @@ function ServerPage() {
                   >
                     重连
                   </Button>
+                  <Button
+                    shape="square"
+                    size="sm"
+                    variant={sshIdeFullscreen ? 'primary' : 'secondary'}
+                    icon={<Maximize2 className="h-3.5 w-3.5" />}
+                    onClick={() => setSshIdeFullscreen(v => !v)}
+                    title={sshIdeFullscreen ? '退出页面全屏' : '页面全屏（扩大分屏）'}
+                    aria-label={sshIdeFullscreen ? '退出页面全屏' : '页面全屏'}
+                  />
                 </div>
               </div>
 
@@ -12627,12 +12658,8 @@ function ServerPage() {
                 <div className="flex min-w-0 flex-1 flex-col">
                   <div className="relative flex min-h-0 flex-1 overflow-hidden">
                     <div
-                      className={`relative min-h-0 min-w-0 flex-1 overflow-hidden transition-[margin] duration-200 ${
-                        activeTerminalSidebar
-                          ? activeTerminalSidebar === 'sftp'
-                            ? 'mr-[clamp(16rem,20vw,20rem)]'
-                            : 'mr-[clamp(18rem,24vw,26rem)]'
-                          : ''
+                      className={`relative min-h-0 min-w-0 flex-1 overflow-hidden transition-[margin] duration-base ${
+                        activeTerminalSidebar ? 'mr-[clamp(18rem,24vw,26rem)]' : ''
                       }`}
                     >
                       <TerminalWorkspaceContainer
@@ -12663,41 +12690,73 @@ function ServerPage() {
 
                     {activeTerminalSidebar && (
                       <div
-                        className={`absolute bottom-0 right-0 top-0 z-10 flex min-h-0 flex-col overflow-hidden border-l border-kumo-line bg-kumo-base ${
-                          activeTerminalSidebar === 'sftp'
-                            ? 'w-[clamp(16rem,20vw,20rem)]'
-                            : 'w-[clamp(18rem,24vw,26rem)]'
-                        }`}
+                        className={`absolute bottom-0 right-0 top-0 z-10 flex min-h-0 flex-col overflow-hidden border-l border-kumo-line bg-kumo-base w-[clamp(18rem,24vw,26rem)]`}
                       >
                         {showServerStatusSidebar && (
-                          <div className="flex h-full min-h-0 flex-col p-2.5 text-xs">
-                            <div className="mb-2.5 flex items-center justify-between border-b border-kumo-line pb-2">
-                              <span className="text-[11px] font-semibold text-kumo-strong">
-                                资源监控
-                              </span>
-                              <Button
-                                shape="square"
-                                size="sm"
-                                variant="ghost"
-                                icon={<X className="h-3 w-3" />}
-                                aria-label="关闭资源监控"
-                                title="关闭资源监控"
-                                onClick={() => setActiveTerminalSidebar(null)}
-                              />
+                          <div className="flex h-full min-h-0 flex-col text-xs">
+                            <div className="flex shrink-0 items-center justify-between gap-2 border-b border-kumo-line px-2.5 py-2">
+                              <div className="flex min-w-0 items-center gap-2">
+                                <Activity className="h-4 w-4 shrink-0 text-brand" />
+                                <span className="truncate text-xs font-semibold text-kumo-strong">资源监控</span>
+                                <Badge variant="neutral" className="max-w-32 shrink-0 truncate text-[10px] leading-4">
+                                  {activeSession?.name || activeServer?.name || '-'}
+                                </Badge>
+                              </div>
+                              <div className="flex shrink-0 items-center gap-1">
+                                <Button
+                                  shape="square"
+                                  size="sm"
+                                  variant="secondary"
+                                  icon={terminalIpMasked ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
+                                  aria-label={terminalIpMasked ? '显示 IP' : '打码 IP'}
+                                  title={terminalIpMasked ? '显示 IP' : '打码 IP'}
+                                  onClick={() => setTerminalIpMasked(v => !v)}
+                                />
+                                <Button
+                                  shape="square"
+                                  size="sm"
+                                  variant="secondary"
+                                  icon={<RefreshCw className="h-3.5 w-3.5" />}
+                                  aria-label="刷新资源指标"
+                                  title="刷新资源指标"
+                                  loading={terminalStatusRefreshing}
+                                  onClick={async () => {
+                                    const serverId = activeServer?.id;
+                                    if (!serverId || terminalStatusRefreshing) return;
+                                    setTerminalStatusRefreshing(true);
+                                    try {
+                                      await refreshServerInfo(serverId);
+                                    } finally {
+                                      setTerminalStatusRefreshing(false);
+                                    }
+                                  }}
+                                />
+                              </div>
                             </div>
-                            <div className="min-h-0 space-y-2 overflow-y-auto px-1 pb-1 pr-2">
+                            <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-2.5">
                               <div className="min-w-0 rounded-md border border-kumo-line/70 bg-kumo-recessed/20 p-2">
                                 <div className="flex min-w-0 items-center gap-2">
                                   <i className={getOSIconClass(activeInfo.platform)}></i>
-                                  <div className="min-w-0">
-                                    <div className="truncate text-xs font-semibold text-kumo-strong">
+                                  <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden">
+                                    <span className="truncate text-xs font-semibold text-kumo-strong">
                                       {activeSession?.name || activeServer?.name || '-'}
-                                    </div>
-                                    <div className="mt-1 truncate font-mono text-[10px] text-kumo-subtle">
-                                      {getHostAddress(activeServer, serverIpDisplayMode) ||
-                                        activeServer?.host ||
-                                        'Agent'}
-                                    </div>
+                                    </span>
+                                    <span
+                                      className="truncate font-mono text-[10px] text-kumo-subtle"
+                                      title={
+                                        terminalIpMasked
+                                          ? '****'
+                                          : getHostAddress(activeServer, serverIpDisplayMode) ||
+                                            activeServer?.host ||
+                                            'Agent'
+                                      }
+                                    >
+                                      {terminalIpMasked
+                                        ? '****'
+                                        : getHostAddress(activeServer, serverIpDisplayMode) ||
+                                          activeServer?.host ||
+                                          'Agent'}
+                                    </span>
                                   </div>
                                 </div>
                               </div>
@@ -12748,8 +12807,9 @@ function ServerPage() {
                                   <ExpandedInfoChip
                                     label="系统"
                                     value={
-                                      activeInfo.platform ||
-                                      activeInfo.platformVersion ||
+                                      [activeInfo.platform, activeInfo.platformVersion]
+                                        .filter(Boolean)
+                                        .join(' ') ||
                                       activeInfo.system?.Kernel ||
                                       '-'
                                     }
@@ -12888,6 +12948,15 @@ function ServerPage() {
               </div>
             </AppCard>
           );
+
+          return sshIdeFullscreen
+            ? createPortal(
+                <div className="fixed inset-0 z-[9999] bg-kumo-recessed animate-in fade-in-0 zoom-in-95 duration-quick">
+                  {terminalCard}
+                </div>,
+                document.body
+              )
+            : terminalCard;
         })()}
 
       {/* ==================== xterm.js 实例静默挂载的仓库 ==================== */}
@@ -12898,41 +12967,19 @@ function ServerPage() {
       ></div>
 
       {/* ==================== 模态框: 添加与编辑服务器 ==================== */}
-      <Dialog.Root open={showServerModal} onOpenChange={setShowServerModal}>
-        <Dialog
-          size="xl"
-          className="@container flex max-h-[calc(100dvh-1rem)] w-[calc(100vw-1rem)] max-w-[48rem] flex-col overflow-hidden p-0 cq-sm:max-w-[calc(100vw-3rem)]"
-        >
-          <div ref={serverModalPortalRef} className="flex min-h-0 flex-1 flex-col">
-            <div className="flex min-w-0 items-center justify-between gap-3 bg-kumo-recessed/35 px-4 py-3 border-b border-kumo-line">
-              <Dialog.Title className="min-w-0 truncate text-sm font-semibold text-kumo-strong">
-                {serverModalMode === 'add' ? '新增主机实例' : '编辑主机实例'}
-              </Dialog.Title>
-              <Dialog.Close
-                aria-label="关闭"
-                render={props => (
-                  <Button
-                    {...props}
-                    type="button"
-                    variant="secondary"
-                    shape="square"
-                    size="sm"
-                    icon={<X className="h-3.5 w-3.5" />}
-                    aria-label="关闭"
-                    className="shrink-0"
-                  />
-                )}
-              />
-            </div>
-
-            <div className="min-w-0 flex flex-1 flex-col gap-3 overflow-y-auto p-4 text-xs">
+      <LayerDialog.Root open={showServerModal} onOpenChange={setShowServerModal}>
+        <LayerDialog.Content size="xl">
+          <LayerDialog.Title>
+            {serverModalMode === 'add' ? '新增主机实例' : '编辑主机实例'}
+          </LayerDialog.Title>
+          <LayerDialog.Body>
+            <div ref={serverModalPortalRef} className="flex flex-col gap-3 text-xs">
               {serverModalMode === 'add' && (
                 <Tabs
                   {...TOOL_TABS_PROPS}
                   value={serverAddMode}
                   onValueChange={value => {
                     setServerAddMode(value);
-                    setServerModalError('');
                   }}
                   tabs={[
                     { value: 'ssh', label: 'SSH' },
@@ -12943,7 +12990,7 @@ function ServerPage() {
 
               {serverModalMode === 'edit' || serverAddMode === 'ssh' ? (
                 <>
-                  <div className="grid grid-cols-1 gap-3 cq-sm:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_minmax(0,1fr)]">
+                  <div className="flex flex-col gap-3">
                     <div className="flex flex-col gap-1.5">
                       <label className="font-semibold text-kumo-subtle">主机名称 (别名)</label>
                       <Input
@@ -12956,21 +13003,23 @@ function ServerPage() {
                         className="px-3 py-2 text-kumo-strong"
                       />
                     </div>
-                    <div className="flex flex-col gap-1.5">
-                      <label className="font-semibold text-kumo-subtle">开始时间</label>
-                      <DateField
-                        value={serverForm.startsAt}
-                        onChange={startsAt => setServerForm(prev => ({ ...prev, startsAt }))}
-                        placeholder="未设置"
-                      />
-                    </div>
-                    <div className="flex flex-col gap-1.5">
-                      <label className="font-semibold text-kumo-subtle">到期时间</label>
-                      <DateField
-                        value={serverForm.expiresAt}
-                        onChange={expiresAt => setServerForm(prev => ({ ...prev, expiresAt }))}
-                        placeholder="永不过期"
-                      />
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="flex flex-col gap-1.5">
+                        <label className="font-semibold text-kumo-subtle">开始时间</label>
+                        <DateField
+                          value={serverForm.startsAt}
+                          onChange={startsAt => setServerForm(prev => ({ ...prev, startsAt }))}
+                          placeholder="未设置"
+                        />
+                      </div>
+                      <div className="flex flex-col gap-1.5">
+                        <label className="font-semibold text-kumo-subtle">到期时间</label>
+                        <DateField
+                          value={serverForm.expiresAt}
+                          onChange={expiresAt => setServerForm(prev => ({ ...prev, expiresAt }))}
+                          placeholder="永不过期"
+                        />
+                      </div>
                     </div>
                   </div>
 
@@ -13194,7 +13243,17 @@ function ServerPage() {
                   <section className="rounded-lg border border-kumo-line bg-kumo-recessed/20 p-3.5">
                     <div className="mb-3 flex items-center justify-between gap-3">
                       <h3 className="font-semibold text-kumo-strong">连接与验证</h3>
-                      <span className="text-[11px] text-kumo-subtle">SSH 登录信息</span>
+                      <div className="flex items-center gap-2">
+                        <span className="text-[11px] text-kumo-subtle">SSH 登录信息</span>
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          onClick={testServerConnection}
+                          disabled={serverModalSaving}
+                        >
+                          连接测试
+                        </Button>
+                      </div>
                     </div>
 
                     <div className="grid grid-cols-1 gap-3 cq-sm:grid-cols-3">
@@ -13472,51 +13531,29 @@ function ServerPage() {
                   )}
                 </div>
               )}
-
-              {serverModalError && (
-                <div className="text-xs text-kumo-danger font-semibold bg-kumo-danger/10 border border-kumo-danger/20 p-2.5 rounded">
-                  {serverModalError}
-                </div>
-              )}
             </div>
 
-            <div className="flex flex-col-reverse gap-2.5 border-t border-kumo-line bg-kumo-recessed/25 px-4 py-3 cq-sm:flex-row cq-sm:justify-end">
-              {serverModalMode === 'add' && serverAddMode === 'agent' ? (
-                <>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="primary"
-                    loading={serverModalSaving}
-                    onClick={generateQuickInstallCommand}
-                    className="w-full cq-sm:w-auto"
-                  >
-                    生成 Agent 安装命令
-                  </Button>
-                </>
-              ) : null}
-              <Button
-                size="sm"
-                variant="secondary"
-                onClick={testServerConnection}
-                disabled={serverModalSaving}
-                className={`w-full px-3.5 py-1.5 text-xs font-semibold cq-sm:w-auto ${serverModalMode === 'add' && serverAddMode === 'agent' ? 'hidden' : ''}`}
-              >
-                连接测试
-              </Button>
-              <Button
-                size="sm"
-                variant="primary"
-                onClick={saveServer}
-                disabled={serverModalSaving}
-                className={`w-full px-4 py-1.5 text-kumo-inverse text-xs font-semibold cq-sm:w-auto ${serverModalMode === 'add' && serverAddMode === 'agent' ? 'hidden' : ''}`}
-              >
-                {serverModalSaving ? '保存中...' : '保存'}
-              </Button>
-            </div>
-          </div>
-        </Dialog>
-      </Dialog.Root>
+            {serverModalMode === 'add' && serverAddMode === 'agent' && (
+              <div className="flex flex-wrap items-center gap-2">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="secondary"
+                  loading={serverModalSaving}
+                  onClick={generateQuickInstallCommand}
+                >
+                  生成 Agent 安装命令
+                </Button>
+              </div>
+            )}
+          </LayerDialog.Body>
+          <LayerDialog.Actions dismissLabel="取消">
+            <LayerDialog.Action type="button" loading={serverModalSaving} onClick={saveServer}>
+              {serverModalMode === 'add' ? '新增' : '保存'}
+            </LayerDialog.Action>
+          </LayerDialog.Actions>
+        </LayerDialog.Content>
+      </LayerDialog.Root>
 
       {/* ==================== 模态框: 凭据预设新增 ==================== */}
       <LayerDialog.Root open={showAddCredentialModal} onOpenChange={setShowAddCredentialModal}>
@@ -13691,8 +13728,13 @@ function ServerPage() {
           className="@container flex max-h-[calc(100dvh-1rem)] w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] flex-col overflow-hidden p-0 cq-lg:!w-[min(72rem,calc(100vw-3rem))] cq-lg:!max-w-[min(72rem,calc(100vw-3rem))]"
         >
           <div className="flex min-w-0 items-center justify-between gap-3 bg-kumo-recessed/35 px-4 py-3 border-b border-kumo-line">
-            <Dialog.Title className="min-w-0 truncate text-sm font-semibold text-kumo-strong">
-              部署 Agent
+            <Dialog.Title className="flex min-w-0 items-center gap-2 text-sm font-semibold text-kumo-strong">
+              <span className="truncate">部署 Agent</span>
+              {agentModalData?.serverName && (
+                <Badge variant="outline" className="max-w-40 shrink-0 truncate text-[10px] leading-4">
+                  {agentModalData.serverName}
+                </Badge>
+              )}
             </Dialog.Title>
             <Dialog.Close
               aria-label="关闭"
@@ -13720,72 +13762,76 @@ function ServerPage() {
               </div>
             ) : agentModalData ? (
               <div className="flex flex-col gap-4">
-                <div className="rounded-md border border-kumo-line bg-kumo-recessed/35 p-3">
-                  <div className="text-[11px] font-medium text-kumo-subtle">目标主机</div>
-                  <div className="mt-1 font-semibold text-kumo-strong">
-                    {agentModalData.serverName}
-                  </div>
-                </div>
-
                 <div className="flex flex-col gap-3">
-                  <div className="grid gap-3 cq-md:grid-cols-[minmax(0,1fr)_auto] cq-md:items-center">
-                    <div className="font-semibold text-kumo-subtle">安装命令</div>
-                    <div className="min-w-0">
-                      <Tabs
-                        {...TOOL_TABS_PROPS}
-                        className="w-fit max-w-full"
-                        listClassName="w-fit max-w-full"
-                        value={agentInstallOS}
-                        onValueChange={setAgentInstallOS}
-                        tabs={[
-                          { value: 'linux', label: 'Linux' },
-                          { value: 'win', label: 'Windows' },
-                        ]}
+                  <div className="font-semibold text-kumo-subtle">安装命令</div>
+                  {[
+                    { os: 'linux', label: 'Linux / macOS', binary: 'agent-linux-amd64', downloadLabel: 'Linux x64' },
+                    { os: 'win', label: 'Windows', binary: 'agent-windows-amd64.exe', downloadLabel: 'Windows x64' },
+                  ].map(({ os, label, binary, downloadLabel }) => (
+                    <div
+                      key={os}
+                      className="flex flex-col gap-2 rounded-md border border-kumo-line bg-kumo-recessed/25 p-3"
+                    >
+                      <div className="text-xs font-semibold text-kumo-strong">{label}</div>
+                      <ClipboardText
+                        size="sm"
+                        text={getAgentInstallCommand(os)}
+                        className="w-full"
+                        tooltip={{ text: '复制', copiedText: 'Agent 安装命令已复制', side: 'top' }}
+                        labels={{ copyAction: `复制 ${label} Agent 安装命令` }}
                       />
                     </div>
-                  </div>
-
-                  <ClipboardText
-                    size="sm"
-                    text={getAgentInstallCommand(agentInstallOS)}
-                    className="w-full"
-                    tooltip={{ text: '复制', copiedText: 'Agent 安装命令已复制', side: 'top' }}
-                    labels={{ copyAction: '复制 Agent 安装命令' }}
-                  />
-                  <div className="rounded-md border border-kumo-line bg-kumo-recessed/25 px-3 py-2 text-[11px] leading-relaxed text-kumo-subtle">
-                    {getAgentInstallExecutionHint(agentInstallOS)}
+                  ))}
+                  <div className="flex flex-col gap-2 rounded-md border border-kumo-line bg-kumo-recessed/25 p-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="text-xs font-semibold text-kumo-strong">手动安装</div>
+                      <div className="flex shrink-0 items-center gap-2">
+                        <LinkButton
+                          size="sm"
+                          variant="secondary"
+                          href={`${getAgentBaseApiUrl() || agentModalData.apiUrl}/agent/agent-linux-amd64`}
+                          target="_blank"
+                          rel="noreferrer"
+                          external
+                          icon={<Download className="h-3.5 w-3.5" />}
+                        >
+                          下载 Linux x64 Agent
+                        </LinkButton>
+                        <LinkButton
+                          size="sm"
+                          variant="secondary"
+                          href={`${getAgentBaseApiUrl() || agentModalData.apiUrl}/agent/agent-windows-amd64.exe`}
+                          target="_blank"
+                          rel="noreferrer"
+                          external
+                          icon={<Download className="h-3.5 w-3.5" />}
+                        >
+                          下载 Windows x64 Agent
+                        </LinkButton>
+                      </div>
+                    </div>
+                    {agentModalData.agentKey && (
+                      <>
+                        <div className="text-[10px] text-kumo-subtle">Linux / macOS</div>
+                        <ClipboardText
+                          size="sm"
+                          text={`chmod +x agent-linux-amd64 && ./agent-linux-amd64 service install --url ${getAgentBaseApiUrl()} --key ${agentModalData.agentKey}`}
+                          className="w-full"
+                          tooltip={{ text: '复制', copiedText: '手动安装命令已复制', side: 'top' }}
+                          labels={{ copyAction: '复制 Linux 手动安装命令' }}
+                        />
+                        <div className="text-[10px] text-kumo-subtle">Windows PowerShell</div>
+                        <ClipboardText
+                          size="sm"
+                          text={`.\\agent-windows-amd64.exe service install --url ${getAgentBaseApiUrl()} --key ${agentModalData.agentKey}`}
+                          className="w-full"
+                          tooltip={{ text: '复制', copiedText: '手动安装命令已复制', side: 'top' }}
+                          labels={{ copyAction: '复制 Windows 手动安装命令' }}
+                        />
+                      </>
+                    )}
                   </div>
                 </div>
-
-                <div className="grid grid-cols-1 gap-2">
-                  <LinkButton
-                    size="sm"
-                    variant="secondary"
-                    href={`${getAgentBaseApiUrl() || agentModalData.apiUrl}/agent/${isWindowsAgentInstallOs(agentInstallOS) ? 'agent-windows-amd64.exe' : 'agent-linux-amd64'}`}
-                    target="_blank"
-                    rel="noreferrer"
-                    external
-                    icon={<Download className="h-3.5 w-3.5" />}
-                    className="w-full justify-center"
-                  >
-                    下载 {isWindowsAgentInstallOs(agentInstallOS) ? 'Windows x64' : 'Linux x64'}{' '}
-                    Agent
-                  </LinkButton>
-                </div>
-
-                {agentModalData.agentKey && (
-                  <ClipboardText
-                    size="sm"
-                    text={
-                      !isWindowsAgentInstallOs(agentInstallOS)
-                        ? `chmod +x agent-linux-amd64 && ./agent-linux-amd64 service install --url ${getAgentBaseApiUrl()} --key ${agentModalData.agentKey}`
-                        : `.\\agent-windows-amd64.exe service install --url ${getAgentBaseApiUrl()} --key ${agentModalData.agentKey}`
-                    }
-                    className="w-full"
-                    tooltip={{ text: '复制', copiedText: '手动安装命令已复制', side: 'top' }}
-                    labels={{ copyAction: '复制手动安装命令' }}
-                  />
-                )}
 
                 {agentInstallLog && (
                   <CodeEditor
@@ -13835,17 +13881,16 @@ function ServerPage() {
               </Button>
             </div>
             <div className="flex flex-col-reverse gap-2 cq-sm:flex-row cq-sm:flex-wrap cq-sm:items-center cq-sm:justify-end cq-sm:gap-3">
-              {!isWindowsAgentInstallOs(agentInstallOS) &&
-                canSshDeployAgent(
-                  serverList.find(server => server.id === agentModalData?.serverId)
-                ) && (
-                  <Checkbox
-                    label="Linux SSH 覆盖"
-                    checked={agentForceSsh}
-                    disabled={agentInstallLoading || agentInstalling}
-                    onCheckedChange={checked => setAgentForceSsh(Boolean(checked))}
-                  />
-                )}
+              {canSshDeployAgent(
+                serverList.find(server => server.id === agentModalData?.serverId)
+              ) && (
+                <Checkbox
+                  label="Linux SSH 覆盖"
+                  checked={agentForceSsh}
+                  disabled={agentInstallLoading || agentInstalling}
+                  onCheckedChange={checked => setAgentForceSsh(Boolean(checked))}
+                />
+              )}
               <Button
                 type="button"
                 size="sm"

@@ -1,13 +1,17 @@
 import React from 'react';
 
-function CompactMetricBarComponent({ label, value, valueClassName, barClassName, color, width = '0%' }) {
+function CompactMetricBarComponent({ label, value, valueClassName, barClassName, color, width = '0%', boxed = false }) {
   let resolvedWidth = typeof width === 'number' ? `${width}%` : String(width);
   if (!resolvedWidth.endsWith('%') && /^\d+(\.\d+)?$/.test(resolvedWidth)) {
     resolvedWidth = `${resolvedWidth}%`;
   }
 
+  const boxClassName = boxed
+    ? 'flex min-w-0 flex-col gap-1 rounded-md border border-kumo-line/70 bg-kumo-recessed/25 px-2 py-1'
+    : 'flex min-w-0 flex-col gap-1 rounded-md border border-kumo-line/70 bg-kumo-recessed/25 px-2 py-1 cq-sm:w-auto cq-sm:min-w-14 cq-sm:border-0 cq-sm:bg-transparent cq-sm:px-0 cq-sm:py-0';
+
   return (
-    <div className="flex min-w-0 flex-col gap-1 rounded-md border border-kumo-line/70 bg-kumo-recessed/25 px-2 py-1 cq-sm:w-14 cq-sm:border-0 cq-sm:bg-transparent cq-sm:px-0 cq-sm:py-0">
+    <div className={boxClassName}>
       <div className="flex min-w-0 items-center justify-between gap-1">
         <span className="truncate">{label}</span>
         <span className={`shrink-0 font-semibold ${color ? '' : valueClassName}`} style={color ? { color } : undefined}>{value}</span>
@@ -26,4 +30,5 @@ export const CompactMetricBar = React.memo(CompactMetricBarComponent, (prev, nex
   && prev.barClassName === next.barClassName
   && prev.color === next.color
   && prev.width === next.width
+  && prev.boxed === next.boxed
 ));

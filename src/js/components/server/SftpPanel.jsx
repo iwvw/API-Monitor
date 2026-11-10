@@ -1,46 +1,20 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Button } from '@cloudflare/kumo/components/button';
 import { Dialog } from '@cloudflare/kumo/components/dialog';
 import { LayerDialog } from '@cloudflare/kumo/components/layer-dialog';
 import { Input } from '@cloudflare/kumo/components/input';
+import { Badge } from '@cloudflare/kumo';
 import { toast } from '../../modules/toast.js';
 import { dialog } from '../../modules/dialog.js';
 import { formatDateTime, formatFileSize } from '../../modules/utils.js';
 import { buildSftpDownloadUrl, chmodSftpPath, createSftpDirectory, deleteSftpPath, listSftpDirectory, readSftpFile, renameSftpPath, uploadSftpFile, writeSftpFile } from '../../modules/server-sftp.js';
 import { ContextMenu } from '@cloudflare/kumo/primitives/context-menu';
-import { ArrowLeft, Copy, Download, Edit, Eye, FileText, Folder, FolderOpen, Key, RefreshCw, Save, Trash, Upload, X } from '../Icons.jsx';
+import { ChevronRight, Copy, Download, Edit, Eye, FileText, Folder, FolderOpen, Key, RefreshCw, Save, Trash, Upload } from '../Icons.jsx';
 import CodeEditor from '../ui/CodeEditor.jsx';
 
 const contextMenuItemClassName = 'relative flex cursor-default items-center gap-2 rounded-md px-2 py-1.5 text-sm outline-hidden select-none focus:text-kumo-default focus:ring-kumo-focus/50 focus-visible:ring-2 focus-visible:ring-kumo-brand data-disabled:pointer-events-none data-disabled:opacity-50 data-highlighted:bg-kumo-overlay';
 const contextMenuDangerItemClassName = 'relative flex cursor-default items-center gap-2 rounded-md px-2 py-1.5 text-sm text-kumo-danger outline-hidden select-none focus:text-kumo-danger focus:ring-kumo-focus/50 focus-visible:ring-2 focus-visible:ring-kumo-brand data-disabled:pointer-events-none data-disabled:opacity-50 data-highlighted:bg-kumo-danger/5 data-highlighted:text-kumo-danger';
 
-function buildBreadcrumbs(remotePath) {
-  const normalized = String(remotePath || '/').replace(/\\/g, '/');
-  const parts = normalized.split('/').filter(Boolean);
-  if (/^[A-Za-z]:$/.test(parts[0])) {
-    const drive = parts.shift();
-    const crumbs = [{ name: drive, path: drive }];
-    let current = drive;
-    parts.forEach(part => {
-      current += `/${part}`;
-      crumbs.push({ name: part, path: current });
-    });
-    return crumbs;
-  }
-
-  const crumbs = [{ name: '/', path: '/' }];
-  let current = '';
-  parts.forEach(part => {
-    current += `/${part}`;
-    crumbs.push({ name: part, path: current });
-  });
-  return crumbs;
-}
-
-/**
- * SFTP 目录项排序：目录恒在文件之前，同组内按名称自然序（数字按数值比较）。
- * 远端返回顺序不可靠（ls 顺序受文件系统影响），必须在前端统一。
- */
 function sortSftpEntries(entries) {
   return [...entries].sort((a, b) => {
     if (Boolean(a.isDirectory) !== Boolean(b.isDirectory)) return a.isDirectory ? -1 : 1;
@@ -50,6 +24,15 @@ function sortSftpEntries(entries) {
     });
   });
 }
+
+const parentOfPath = value => {
+  const parts = String(value || '').replace(/\\/g, '/').split('/');
+  parts.pop();
+  const base = parts.join('/');
+  return base || '/';
+};
+
+const sftpTreeCache = new Map();
 
 function FileContextMenu({ file, children, onOpen, onDownload, onCopyPath, onRename, onChmod, onDelete }) {
   return (
@@ -70,7 +53,7 @@ function FileContextMenu({ file, children, onOpen, onDownload, onCopyPath, onRen
               <Copy className="h-4 w-4" />
               <span>复制路径</span>
             </ContextMenu.Item>
-            <ContextMenu.Separator className="mx-1 my-1 h-px bg-kumo-line" />
+            <ContextMenu.Separator className="-mx-1.5 my-1 h-0.5 bg-kumo-hairline" />
             <ContextMenu.Item className={contextMenuItemClassName} onClick={onRename}>
               <Edit className="h-4 w-4" />
               <span>重命名</span>
@@ -79,7 +62,7 @@ function FileContextMenu({ file, children, onOpen, onDownload, onCopyPath, onRen
               <Key className="h-4 w-4" />
               <span>权限</span>
             </ContextMenu.Item>
-            <ContextMenu.Separator className="mx-1 my-1 h-px bg-kumo-line" />
+            <ContextMenu.Separator className="-mx-1.5 my-1 h-0.5 bg-kumo-hairline" />
             <ContextMenu.Item className={contextMenuDangerItemClassName} onClick={onDelete}>
               <Trash className="h-4 w-4" />
               <span>删除</span>
@@ -93,12 +76,13 @@ function FileContextMenu({ file, children, onOpen, onDownload, onCopyPath, onRen
 
 export default function SftpPanel({ serverId, serverName, initialPath = '.', onClose, onPathChange }) {
   const uploadInputRef = useRef(null);
-  const [files, setFiles] = useState([]);
-  const [currentPath, setCurrentPath] = useState(initialPath || '.');
-  const [pathInput, setPathInput] = useState(initialPath || '.');
+  const [rootPath, setRootPath] = useState(initialPath || '.');
+  const [tree, setTree] = useState({});
+  const [expanded, setExpanded] = useState(() => new Set());
+  const [selectedPath, setSelectedPath] = useState('');
   const [loading, setLoading] = useState(false);
-  const [uploading, setUploading] = useState(false);
   const [error, setError] = useState('');
+  const [uploading, setUploading] = useState(false);
   const [editorOpen, setEditorOpen] = useState(false);
   const [editFile, setEditFile] = useState(null);
   const [saving, setSaving] = useState(false);
@@ -108,42 +92,146 @@ export default function SftpPanel({ serverId, serverName, initialPath = '.', onC
   const [mkdirName, setMkdirName] = useState('');
   const [chmodFile, setChmodFile] = useState(null);
   const [chmodValue, setChmodValue] = useState('644');
-  const breadcrumbs = useMemo(() => buildBreadcrumbs(currentPath), [currentPath]);
   const hasUnsavedEdit = Boolean(editFile && editFile.content !== editFile.originalContent);
 
-  const loadDirectory = async (path = currentPath) => {
-    if (!serverId) return;
-    setLoading(true);
-    setError('');
-    try {
-      const data = await listSftpDirectory(serverId, path || '.');
-      const nextPath = data.path || path || '.';
-      setFiles(sortSftpEntries(data.data || []));
-      setCurrentPath(nextPath);
-      setPathInput(nextPath);
-      onPathChange?.(serverId, nextPath);
-    } catch (err) {
-      setError(err.message || '加载 SFTP 目录失败');
-    } finally {
-      setLoading(false);
-    }
+  // serverIdRef 镜像当前主机：异步目录请求返回时校验发起主机是否仍是当前
+  // 主机，防止切换服务器后旧主机的目录结果写入新主机的树并被持久化进缓存。
+  const serverIdRef = useRef(serverId);
+  useEffect(() => {
+    serverIdRef.current = serverId;
+  }, [serverId]);
+
+  const fetchDirectory = async dirPath => {
+    const data = await listSftpDirectory(serverId, dirPath || '.');
+    return { path: data.path || dirPath || '.', items: sortSftpEntries(data.data || []) };
   };
 
   useEffect(() => {
-    setCurrentPath(initialPath || '.');
-    setPathInput(initialPath || '.');
-    if (serverId) loadDirectory(initialPath || '.');
-     
+    setError('');
+    if (!serverId) {
+      setLoading(false);
+      setTree({});
+      setExpanded(new Set());
+      setSelectedPath('');
+      return undefined;
+    }
+    const cached = sftpTreeCache.get(serverId);
+    if (cached) {
+      setRootPath(cached.rootPath);
+      setTree(cached.tree);
+      setExpanded(new Set(cached.expanded));
+      setSelectedPath(cached.selectedPath || '');
+      setLoading(false);
+      onPathChange?.(serverId, cached.rootPath);
+      return undefined;
+    }
+    let cancelled = false;
+    setTree({});
+    setExpanded(new Set());
+    setSelectedPath('');
+    setLoading(true);
+    (async () => {
+      try {
+        const { path, items } = await fetchDirectory(initialPath || '.');
+        if (cancelled) return;
+        setRootPath(path);
+        setTree({ [path]: { status: 'loaded', items } });
+        setExpanded(new Set([path]));
+        onPathChange?.(serverId, path);
+      } catch (err) {
+        if (!cancelled) setError(err.message || '加载 SFTP 目录失败');
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [serverId]);
 
-  const openFile = async (file) => {
-    if (file.isDirectory) {
-      loadDirectory(file.path);
+  useEffect(() => {
+    if (!serverId || Object.keys(tree).length === 0) return;
+    sftpTreeCache.set(serverId, { rootPath, tree, expanded: [...expanded], selectedPath });
+  }, [serverId, rootPath, tree, expanded, selectedPath]);
+
+  const findTreeEntry = targetPath => {
+    for (const dir of Object.values(tree)) {
+      const hit = (dir?.items || []).find(item => item.path === targetPath);
+      if (hit) return hit;
+    }
+    return null;
+  };
+
+  const resolveTargetDir = () => {
+    if (!selectedPath) return rootPath;
+    const entry = findTreeEntry(selectedPath);
+    if (entry?.isDirectory) return entry.path;
+    return parentOfPath(selectedPath);
+  };
+
+  const patchTreeDir = (dirPath, patch) => {
+    setTree(prev => ({ ...prev, [dirPath]: { ...(prev[dirPath] || { items: [] }), ...patch } }));
+  };
+
+  const loadTreeDir = async (dirPath, { silent = false } = {}) => {
+    if (!serverId) return null;
+    const requestedServerId = serverId;
+    patchTreeDir(dirPath, { status: 'loading', error: '' });
+    try {
+      const { path, items } = await fetchDirectory(dirPath);
+      // 请求在途期间切换了服务器：丢弃结果，避免跨主机目录数据污染树与缓存。
+      if (serverIdRef.current !== requestedServerId) return null;
+      setTree(prev => {
+        const next = { ...prev };
+        delete next[dirPath];
+        next[path] = { status: 'loaded', items };
+        return next;
+      });
+      return path;
+    } catch (err) {
+      if (serverIdRef.current !== requestedServerId) return null;
+      patchTreeDir(dirPath, { status: 'error', error: err.message || '加载失败' });
+      if (!silent) toast.error(err.message || '加载 SFTP 目录失败');
+      return null;
+    }
+  };
+
+  const toggleTreeDir = async entry => {
+    setSelectedPath(entry.path);
+    const wasExpanded = expanded.has(entry.path);
+    setExpanded(prev => {
+      const next = new Set(prev);
+      if (wasExpanded) next.delete(entry.path);
+      else next.add(entry.path);
+      return next;
+    });
+    if (!wasExpanded && !tree[entry.path]) {
+      await loadTreeDir(entry.path);
+    }
+  };
+
+  const refreshTree = async () => {
+    const dirs = [rootPath, ...[...expanded].filter(p => p !== rootPath)];
+    await Promise.allSettled(dirs.map(p => loadTreeDir(p, { silent: true })));
+  };
+
+  const pruneTreeFrom = dirPath => {
+    const prefix = String(dirPath).replace(/\/$/, '') + '/';
+    setTree(prev =>
+      Object.fromEntries(Object.entries(prev).filter(([p]) => p !== dirPath && !p.startsWith(prefix)))
+    );
+    setExpanded(prev => new Set([...prev].filter(p => p !== dirPath && !p.startsWith(prefix))));
+  };
+
+  const openFile = async entry => {
+    if (entry.isDirectory) {
+      toggleTreeDir(entry);
       return;
     }
+    setSelectedPath(entry.path);
     try {
-      const data = await readSftpFile(serverId, file.path);
-      setEditFile({ path: file.path, name: file.name, content: data.data || '', originalContent: data.data || '' });
+      const data = await readSftpFile(serverId, entry.path);
+      setEditFile({ path: entry.path, name: entry.name, content: data.data || '', originalContent: data.data || '' });
       setEditorOpen(true);
     } catch (err) {
       toast.error(err.message || '读取文件失败');
@@ -158,7 +246,7 @@ export default function SftpPanel({ serverId, serverName, initialPath = '.', onC
       toast.success('文件已保存');
       setEditorOpen(false);
       setEditFile(null);
-      loadDirectory(currentPath);
+      loadTreeDir(parentOfPath(editFile.path), { silent: true });
     } catch (err) {
       toast.error(err.message || '保存文件失败');
     } finally {
@@ -181,15 +269,16 @@ export default function SftpPanel({ serverId, serverName, initialPath = '.', onC
     setEditFile(null);
   };
 
-  const uploadFiles = async (event) => {
+  const uploadFiles = async event => {
     const selected = Array.from(event.target.files || []);
     if (selected.length === 0) return;
+    const targetDir = resolveTargetDir();
     setUploading(true);
     let ok = 0;
     let failed = 0;
     for (const file of selected) {
       try {
-        await uploadSftpFile(serverId, currentPath, file, file.webkitRelativePath || '');
+        await uploadSftpFile(serverId, targetDir, file, file.webkitRelativePath || '');
         ok += 1;
       } catch {
         failed += 1;
@@ -198,19 +287,22 @@ export default function SftpPanel({ serverId, serverName, initialPath = '.', onC
     event.target.value = '';
     setUploading(false);
     toast.success(`上传完成：成功 ${ok}，失败 ${failed}`);
-    loadDirectory(currentPath);
+    setExpanded(prev => new Set(prev).add(targetDir));
+    loadTreeDir(targetDir, { silent: true });
   };
 
   const createDirectory = async () => {
     const name = mkdirName.trim();
     if (!name) return;
-    const targetPath = `${currentPath.replace(/\/$/, '')}/${name}`;
+    const targetDir = resolveTargetDir();
+    const targetPath = `${targetDir.replace(/\/$/, '')}/${name}`;
     try {
       await createSftpDirectory(serverId, targetPath);
       toast.success('目录已创建');
       setMkdirOpen(false);
       setMkdirName('');
-      loadDirectory(currentPath);
+      setExpanded(prev => new Set(prev).add(targetDir));
+      loadTreeDir(targetDir, { silent: true });
     } catch (err) {
       toast.error(err.message || '创建目录失败');
     }
@@ -218,28 +310,32 @@ export default function SftpPanel({ serverId, serverName, initialPath = '.', onC
 
   const renamePath = async () => {
     if (!renameFile || !renameValue.trim()) return;
-    const base = renameFile.path.split('/').slice(0, -1).join('/') || '/';
-    const targetPath = `${base.replace(/\/$/, '')}/${renameValue.trim()}`;
+    const parentDir = parentOfPath(renameFile.path);
+    const targetPath = `${parentDir.replace(/\/$/, '')}/${renameValue.trim()}`;
     try {
       await renameSftpPath(serverId, renameFile.path, targetPath);
       toast.success('重命名成功');
       setRenameFile(null);
-      loadDirectory(currentPath);
+      if (renameFile.isDirectory) pruneTreeFrom(renameFile.path);
+      loadTreeDir(parentDir, { silent: true });
     } catch (err) {
       toast.error(err.message || '重命名失败');
     }
   };
 
-  const deletePath = async (file) => {
+  const deletePath = async file => {
     const ok = await dialog.deleteResource({
       resourceType: file.isDirectory ? '远程目录' : '远程文件',
       resourceName: file.name,
     });
     if (!ok) return;
+    const parentDir = parentOfPath(file.path);
     try {
       await deleteSftpPath(serverId, file.path, file.isDirectory, file.isDirectory);
       toast.success(file.isDirectory ? '目录已删除' : '文件已删除');
-      loadDirectory(currentPath);
+      if (file.isDirectory) pruneTreeFrom(file.path);
+      if (selectedPath === file.path) setSelectedPath('');
+      loadTreeDir(parentDir, { silent: true });
     } catch (err) {
       toast.error(err.message || '删除失败');
     }
@@ -251,114 +347,134 @@ export default function SftpPanel({ serverId, serverName, initialPath = '.', onC
       await chmodSftpPath(serverId, chmodFile.path, chmodValue.trim());
       toast.success('权限已更新');
       setChmodFile(null);
-      loadDirectory(currentPath);
+      loadTreeDir(parentOfPath(chmodFile.path), { silent: true });
     } catch (err) {
       toast.error(err.message || '权限修改失败');
     }
   };
 
-  const copyPath = async (file) => {
+  const copyPath = async entry => {
     try {
-      await navigator.clipboard.writeText(file.path);
+      await navigator.clipboard.writeText(entry.path);
       toast.success('路径已复制');
     } catch {
       toast.error('复制路径失败');
     }
   };
 
+  const renderRows = (dirPath, depth) => {
+    const dir = tree[dirPath];
+    if (!dir) return null;
+    if (dir.status === 'loading') {
+      return (
+        <div style={{ paddingLeft: 12 + depth * 16 }} className="py-1 text-[10px] text-kumo-subtle">
+          加载中…
+        </div>
+      );
+    }
+    if (dir.status === 'error') {
+      return (
+        <div style={{ paddingLeft: 12 + depth * 16 }} className="py-1 text-[10px] text-kumo-danger">
+          {dir.error}
+        </div>
+      );
+    }
+    if (dir.items.length === 0) {
+      return (
+        <div style={{ paddingLeft: 12 + depth * 16 }} className="py-1 text-[10px] text-kumo-subtle">
+          （空目录）
+        </div>
+      );
+    }
+    return (
+      <React.Fragment>
+        {dir.items.map(entry => {
+          const isDir = Boolean(entry.isDirectory);
+          const isExpanded = isDir && expanded.has(entry.path);
+          const isSelected = selectedPath === entry.path;
+          const downloadUrl = !isDir ? buildSftpDownloadUrl(serverId, entry.path) : null;
+          const startRename = () => {
+            setRenameFile(entry);
+            setRenameValue(entry.name);
+          };
+          const startChmod = () => {
+            setChmodFile(entry);
+            setChmodValue(String(entry.mode ? (entry.mode & 0o777).toString(8) : '644'));
+          };
+          return (
+            <React.Fragment key={entry.path}>
+              <FileContextMenu
+                file={entry}
+                onOpen={() => openFile(entry)}
+                onDownload={downloadUrl ? () => window.open(downloadUrl, '_blank', 'noopener') : null}
+                onCopyPath={() => copyPath(entry)}
+                onRename={startRename}
+                onChmod={startChmod}
+                onDelete={() => deletePath(entry)}
+              >
+                <Button
+                  type="button"
+                  variant="ghost"
+                  onClick={() => openFile(entry)}
+                  onContextMenu={() => setSelectedPath(entry.path)}
+                  title={`${entry.path}\n修改时间: ${entry.mtime ? formatDateTime(entry.mtime) : '-'}\n权限: ${entry.permissions || '-'}`}
+                  className={`mb-px flex !h-auto !min-h-0 w-full min-w-0 items-center justify-start gap-1.5 rounded-md px-0 py-[3px] pr-2 text-left font-normal hover:bg-kumo-fill focus-visible:bg-kumo-fill ${isSelected ? 'bg-kumo-fill' : 'bg-transparent'}`}
+                  style={{ paddingLeft: 8 + depth * 16 }}
+                >
+                  {isDir ? (
+                    <ChevronRight className={`h-3.5 w-3.5 shrink-0 text-kumo-subtle transition-transform duration-quick ${isExpanded ? 'rotate-90' : ''}`} />
+                  ) : (
+                    <span className="h-3.5 w-3.5 shrink-0" />
+                  )}
+                  {isDir ? (
+                    <Folder className="h-3.5 w-3.5 shrink-0 text-brand" />
+                  ) : (
+                    <FileText className="h-3.5 w-3.5 shrink-0 text-kumo-subtle" />
+                  )}
+                  <span className="min-w-0 truncate text-xs font-medium text-kumo-strong">{entry.name}</span>
+                  {!isDir && (
+                    <span className="ml-auto shrink-0 pl-2 font-mono text-[10px] tabular-nums text-kumo-subtle">
+                      {formatFileSize(entry.size)}
+                    </span>
+                  )}
+                </Button>
+              </FileContextMenu>
+              {isDir && isExpanded && renderRows(entry.path, depth + 1)}
+            </React.Fragment>
+          );
+        })}
+      </React.Fragment>
+    );
+  };
+
   return (
     <>
-      <div className="flex h-full min-h-0 w-full flex-col overflow-hidden border-t border-kumo-line bg-kumo-base">
+      <div className="flex h-full min-h-0 w-full flex-col overflow-hidden bg-kumo-base">
         <div className="flex items-center justify-between gap-2 border-b border-kumo-line px-2.5 py-2">
-          <div className="min-w-0">
-            <div className="flex items-center gap-1.5 text-xs font-semibold text-kumo-strong">
-              <FolderOpen className="h-3.5 w-3.5 shrink-0 text-brand" />
-              <span className="truncate">文件系统</span>
-            </div>
-            <div className="truncate text-[10px] text-kumo-subtle">{serverName || serverId || '-'}</div>
+          <div className="flex min-w-0 items-center gap-2">
+            <FolderOpen className="h-4 w-4 shrink-0 text-brand" />
+            <span className="truncate text-xs font-semibold text-kumo-strong">文件系统</span>
+            <Badge variant="neutral" className="max-w-32 shrink-0 truncate text-[10px] leading-4">
+              {serverName || serverId || '-'}
+            </Badge>
           </div>
           <div className="flex shrink-0 items-center gap-1">
             <Button shape="square" size="sm" variant="secondary" icon={<Upload className="h-3.5 w-3.5" />} aria-label="上传" title="上传" onClick={() => uploadInputRef.current?.click()} disabled={!serverId || uploading} />
             <Button shape="square" size="sm" variant="secondary" icon={<Folder className="h-3.5 w-3.5" />} aria-label="新建目录" title="新建目录" onClick={() => setMkdirOpen(true)} />
-            <Button shape="square" size="sm" variant="secondary" icon={<RefreshCw className="h-3.5 w-3.5" />} aria-label="刷新" title="刷新" onClick={() => loadDirectory(currentPath)} loading={loading || uploading} />
-            <Button shape="square" size="sm" variant="ghost" icon={<X className="h-3 w-3" />} aria-label="关闭 SFTP" title="关闭 SFTP" onClick={onClose} />
+            <Button shape="square" size="sm" variant="secondary" icon={<RefreshCw className="h-3.5 w-3.5" />} aria-label="刷新" title="刷新" onClick={() => refreshTree()} loading={loading || uploading} />
           </div>
         </div>
 
-        <div className="flex min-h-0 flex-1 flex-col gap-2 p-2.5">
-          <form
-            className="flex min-w-0 items-center gap-1.5"
-            onSubmit={event => {
-              event.preventDefault();
-              loadDirectory(pathInput);
-            }}
-          >
-            <Button shape="square" size="sm" variant="secondary" icon={<ArrowLeft className="h-3.5 w-3.5" />} aria-label="返回上级目录" onClick={() => loadDirectory(breadcrumbs.at(-2)?.path || breadcrumbs[0]?.path || currentPath)} />
-            <Input size="sm" aria-label="SFTP 路径" value={pathInput} onChange={event => setPathInput(event.target.value)} className="min-w-0 flex-1 font-mono text-xs" />
-            <Button size="sm" variant="primary" type="submit">跳转</Button>
-          </form>
-
-          <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-kumo-line">
-            <div className="flex items-center gap-1 overflow-x-auto border-b border-kumo-line px-2.5 py-1.5 text-[10px] text-kumo-subtle scrollbar-none">
-              {breadcrumbs.map((crumb, idx) => (
-                <React.Fragment key={`${crumb.path}-${idx}`}>
-                  <Button type="button" size="xs" variant="ghost" className="h-auto min-w-0 truncate px-0 py-0 font-semibold text-kumo-default hover:text-kumo-strong" onClick={() => loadDirectory(crumb.path)}>
-                    {crumb.name}
-                  </Button>
-                  {idx < breadcrumbs.length - 1 ? <span>/</span> : null}
-                </React.Fragment>
-              ))}
+        <div className="min-h-0 flex-1 p-1">
+          {loading ? (
+            <div className="py-10 text-center text-xs text-kumo-subtle">加载中...</div>
+          ) : error ? (
+            <div className="m-3 rounded-md border border-kumo-danger/30 bg-kumo-danger/10 p-3 text-xs text-kumo-danger">{error}</div>
+          ) : tree[rootPath] ? (
+            <div className="min-h-0 max-h-full overflow-y-auto overflow-x-hidden scrollbar-thin">
+              {renderRows(rootPath, 0)}
             </div>
-            <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden scrollbar-thin">
-              {loading ? (
-                <div className="py-10 text-center text-xs text-kumo-subtle">加载中...</div>
-              ) : error ? (
-                <div className="m-3 rounded-md border border-kumo-danger/30 bg-kumo-danger/10 p-3 text-xs text-kumo-danger">{error}</div>
-              ) : files.length === 0 ? (
-                <div className="py-10 text-center text-xs text-kumo-subtle">目录为空</div>
-              ) : (
-                <div className="flex flex-col py-0.5">
-                  {files.map(file => {
-                    const downloadUrl = !file.isDirectory ? buildSftpDownloadUrl(serverId, file.path) : null;
-                    const startRename = () => { setRenameFile(file); setRenameValue(file.name); };
-                    const startChmod = () => { setChmodFile(file); setChmodValue(String(file.mode ? (file.mode & 0o777).toString(8) : '644')); };
-                    return (
-                      <FileContextMenu
-                        key={file.path}
-                        file={file}
-                        onOpen={() => openFile(file)}
-                        onDownload={downloadUrl ? () => window.open(downloadUrl, '_blank', 'noopener') : null}
-                        onCopyPath={() => copyPath(file)}
-                        onRename={startRename}
-                        onChmod={startChmod}
-                        onDelete={() => deletePath(file)}
-                      >
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          onClick={() => openFile(file)}
-                          title={`${file.path}\n修改时间: ${file.mtime ? formatDateTime(file.mtime) : '-'}\n权限: ${file.permissions || '-'}`}
-                          className="flex !h-auto !min-h-0 w-full min-w-0 items-center justify-start gap-1.5 rounded-none px-2.5 py-[3px] text-left font-normal hover:bg-kumo-fill focus-visible:bg-kumo-fill"
-                        >
-                          {file.isDirectory ? (
-                            <Folder className="h-3.5 w-3.5 shrink-0 text-brand" />
-                          ) : (
-                            <FileText className="h-3.5 w-3.5 shrink-0 text-kumo-subtle" />
-                          )}
-                          <span className="min-w-0 truncate text-xs font-medium text-kumo-strong">{file.name}</span>
-                          {!file.isDirectory && (
-                            <span className="ml-auto shrink-0 pl-2 font-mono text-[10px] tabular-nums text-kumo-subtle">
-                              {formatFileSize(file.size)}
-                            </span>
-                          )}
-                        </Button>
-                      </FileContextMenu>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-          </div>
+          ) : null}
         </div>
 
         <Input ref={uploadInputRef} size="sm" aria-label="上传 SFTP 文件" type="file" className="hidden" onChange={uploadFiles} multiple />

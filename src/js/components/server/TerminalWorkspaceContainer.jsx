@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
 import { Button } from '@cloudflare/kumo';
 import { Terminal as TerminalIcon, X } from '../Icons.jsx';
 import { getDropTargetRegion } from '../../modules/terminalSplitTree.js';
@@ -194,10 +194,10 @@ function TerminalTreeSplitter({ direction, onResize }) {
   return (
     <div
       onPointerDown={handlePointerDown}
-      className={`group relative z-20 shrink-0 transition-colors ${
+      className={`group relative z-20 shrink-0 rounded-full transition-colors duration-quick ${
         direction === 'h'
-          ? 'w-1.5 cursor-col-resize hover:bg-brand/40'
-          : 'h-1.5 cursor-row-resize hover:bg-brand/40'
+          ? 'w-1 cursor-col-resize hover:bg-brand/60'
+          : 'h-1 cursor-row-resize hover:bg-brand/60'
       } ${isHoveredOrActive ? '!bg-brand' : 'bg-transparent'}`}
     >
       {/* 辅助热区扩大线 */}
@@ -337,10 +337,10 @@ export default function TerminalWorkspaceContainer({
   onSplitDrop,
   onRatioChange,
 }) {
-  const sessionMap = new Map(sessions.map((s) => [s.id, s]));
+  const sessionMap = useMemo(() => new Map(sessions.map((s) => [s.id, s])), [sessions]);
 
   return (
-    <div className="relative flex h-full min-h-0 w-full min-w-0 flex-1 overflow-hidden bg-kumo-recessed p-1.5">
+    <div className="relative flex h-full min-h-0 w-full min-w-0 flex-1 overflow-hidden bg-kumo-recessed p-1">
       <TerminalNodeRenderer
         node={splitTree}
         path={[]}
