@@ -1244,15 +1244,15 @@ fn current_epoch_ms() -> u64 {
 }
 
 fn format_cpu_model(vendor: &str, brand: &str, physical_cores: usize) -> String {
-    let vendor = vendor.trim();
     let brand = brand.trim();
-
-    match (vendor.is_empty(), brand.is_empty()) {
-        (false, false) => format!("{} {} {} Core(s)", vendor, brand, physical_cores),
-        (false, true) => format!("{} {} Core(s)", vendor, physical_cores),
-        (true, false) => format!("{} {} Core(s)", brand, physical_cores),
-        (true, true) => format!("Unknown CPU {} Core(s)", physical_cores),
+    if !brand.is_empty() {
+        return brand.to_string();
     }
+    let vendor = vendor.trim();
+    if !vendor.is_empty() {
+        return format!("{} {} Core(s)", vendor, physical_cores);
+    }
+    format!("Unknown CPU {} Core(s)", physical_cores)
 }
 
 fn collect_windows_conn_counts() -> (i32, i32) {
@@ -1379,20 +1379,17 @@ mod tests {
     use std::time::Instant;
 
     #[test]
-    fn format_cpu_model_includes_physical_core_count() {
+    fn format_cpu_model_prefers_brand_only() {
         let model = format_cpu_model("GenuineIntel", "13th Gen Intel(R) Core(TM) i7-13700HX", 16);
 
-        assert_eq!(
-            model,
-            "GenuineIntel 13th Gen Intel(R) Core(TM) i7-13700HX 16 Core(s)"
-        );
+        assert_eq!(model, "13th Gen Intel(R) Core(TM) i7-13700HX");
     }
 
     #[test]
     fn format_cpu_model_handles_missing_vendor_or_brand() {
         assert_eq!(
             format_cpu_model("", "13th Gen Intel(R) Core(TM) i7-13700HX", 16),
-            "13th Gen Intel(R) Core(TM) i7-13700HX 16 Core(s)"
+            "13th Gen Intel(R) Core(TM) i7-13700HX"
         );
         assert_eq!(
             format_cpu_model("GenuineIntel", "", 16),
