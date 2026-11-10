@@ -9,6 +9,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/iwvw/api-monitor/backend-go/internal/applog"
 )
 
 // ModelInfo 是模型目录里的一项。
@@ -53,6 +55,7 @@ func (s *Service) ensureCatalog(ctx context.Context) {
 		return
 	}
 	if err := s.ensureToken(ctx, &acc); err != nil {
+		applog.Warn(ctx, "cline", "catalog token refresh failed", "account", acc.ID, "error", err.Error())
 		return
 	}
 	models, err := s.fetchCatalog(ctx, acc.AccessToken)
@@ -60,6 +63,7 @@ func (s *Service) ensureCatalog(ctx context.Context) {
 		s.modelMu.Lock()
 		s.fetchFailAt = time.Now()
 		s.modelMu.Unlock()
+		applog.Warn(ctx, "cline", "fetch model catalog failed", "error", err.Error())
 		return
 	}
 	s.storeCatalog(models)
@@ -149,6 +153,11 @@ func (s *Service) handleModels(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	models := s.catalog()
+	if len(models) == 0 {
+		// 目录为空时同步回源一次：让「刷新」与首次打开不必等 10 分钟定时器。
+		s.ensureCatalog(r.Context())
+		models = s.catalog()
+	}
 	disabled := s.disabledMatchTokens()
 	out := make([]map[string]interface{}, 0, len(models))
 	for _, m := range models {

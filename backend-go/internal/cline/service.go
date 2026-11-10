@@ -58,6 +58,9 @@ type Settings struct {
 	DisabledModels []string `json:"disabledModels"`
 	// AccountStrategy 是多账号选号策略：first（默认）/ round-robin。
 	AccountStrategy string `json:"accountStrategy"`
+	// FreeOnly 是「启用免费」模式开关的持久化偏好：开启时前端只显示免费池模型，
+	// 非免费模型由前端批量写入 DisabledModels 实现真正停用；这里仅记录偏好。
+	FreeOnly bool `json:"freeOnly"`
 	// Accounts 账号凭据。含 token 与 refresh token，仅服务端可见。
 	Accounts []Account `json:"accounts"`
 }
@@ -336,7 +339,16 @@ func (s *Service) upsertAccount(ctx context.Context, acc Account) error {
 	if !replaced {
 		st.Accounts = append(st.Accounts, acc)
 	}
-	return s.SaveSettings(ctx, st)
+	if err := s.SaveSettings(ctx, st); err != nil {
+		return err
+	}
+	// 账号落库（导入/登录/续期）后异步回源模型目录，避免等 10 分钟定时器。
+	go func() {
+		ensureCtx, cancel := context.WithTimeout(context.Background(), time.Minute)
+		defer cancel()
+		s.ensureCatalog(ensureCtx)
+	}()
+	return nil
 }
 
 // removeAccount 按账号 ID 删除。
@@ -546,6 +558,7 @@ func (s *Service) publicSettings() map[string]interface{} {
 		"proxyPoolId":     st.ProxyPoolID,
 		"disabledModels":  st.DisabledModels,
 		"accountStrategy": normalizeStrategy(st.AccountStrategy),
+		"freeOnly":        st.FreeOnly,
 		"accounts":        views,
 	}
 }

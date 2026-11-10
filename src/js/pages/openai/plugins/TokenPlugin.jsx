@@ -8,9 +8,8 @@ import { getAuthHeaders, formatCompact } from '../utils.js';
 
 // TokenPlugin 是「粘贴凭证型」插件的通用面板。
 //
-// Cline / ZCode / AutoClaw 三家的账号接入方式相同（粘贴上游 token，没有
-// 本地回调式网页登录），面板结构也一致，因此抽成一个参数化组件，避免三份
-// 几乎相同的代码各自漂移。
+// Cline 的账号接入方式相同（粘贴上游 token，没有本地回调式网页登录），
+// 面板结构一致，因此抽成一个参数化组件，避免重复代码各自漂移。
 //
 // config 字段：
 //   - api            后端前缀（如 '/api/cline'）
@@ -31,6 +30,7 @@ export function TokenPlugin({
   hasCheckin = false,
   strategyOptions,
   addHint = '',
+  headerActions = null,
 }) {
   const { isArmed, confirmPress } = useConfirmPress();
   const fileInputRef = useRef(null);
@@ -39,6 +39,7 @@ export function TokenPlugin({
   const [accounts, setAccounts] = useState([]);
   const [models, setModels] = useState([]);
   const [modelsReady, setModelsReady] = useState(true);
+  const [freeOnly, setFreeOnly] = useState(false);
   const [linkState, setLinkState] = useState(null);
   const [usage, setUsage] = useState(null);
   const [usageDays, setUsageDays] = useState(7);
@@ -118,6 +119,7 @@ export function TokenPlugin({
       if (!res.ok || !data?.success) throw new Error(data?.error || '加载失败');
       setSettings(data.settings);
       setAccounts(data.settings?.accounts || []);
+      setFreeOnly(!!data.settings?.freeOnly);
     } catch (e) {
       toast.error(`插件设置加载失败：${e.message}`);
     } finally {
@@ -398,6 +400,40 @@ export function TokenPlugin({
     setSettings(s => (s ? { ...s, disabledModels: next.filter(m => !m.enabled).map(m => m.id) } : s));
   };
 
+  const hasFreePool = models.some(m => m.pool === 'free');
+  const nonFreeIds = models.filter(m => m.pool !== 'free').map(m => m.id);
+  const visibleModels = freeOnly && hasFreePool ? models.filter(m => m.pool === 'free') : models;
+
+  // 免费模式（入库偏好 settings.freeOnly）：列表只显示免费池，非免费模型批量停用；
+  // 关闭只恢复显示（DisabledModels 由专用启停接口管理，PUT 会被服务端强制保留 current）。
+  const toggleFreeMode = async enabled => {
+    if (!settings) {
+      toast.error('插件设置尚未加载');
+      setFreeOnly(false);
+      return;
+    }
+    setFreeOnly(enabled);
+    try {
+      if (enabled && nonFreeIds.length > 0) {
+        const res = await fetch(`${api}/models/toggle-batch`, {
+          method: 'POST',
+          headers: getAuthHeaders(),
+          body: JSON.stringify({ enabled: false, models: nonFreeIds }),
+        });
+        const data = await res.json();
+        if (!res.ok || !data?.success) throw new Error(data?.error || '操作失败');
+        applyModels(models.map(m => (nonFreeIds.includes(m.id) ? { ...m, enabled: false } : m)));
+      }
+      await save(
+        { ...settings, freeOnly: enabled },
+        enabled ? '免费模式已启用' : '已退出免费模式'
+      );
+    } catch (e) {
+      toast.error(e.message);
+      setFreeOnly(false);
+    }
+  };
+
   const toggleModel = async (model, enabled) => {
     try {
       const res = await fetch(`${api}/models/toggle/${encodeURIComponent(model.id)}`, {
@@ -580,6 +616,7 @@ export function TokenPlugin({
           bodyPadding="none"
           actions={
             <div className="flex items-center gap-1.5">
+              {typeof headerActions === 'function' ? headerActions(refreshAll) : headerActions}
               <Toolbar size="sm" aria-label="账号导出导入" className="shrink-0">
                 <Toolbar.Button onClick={exportAccounts} icon={<Upload className="h-3.5 w-3.5" />}>
                   <span className="hidden cq-sm:inline">导出</span>
@@ -879,7 +916,23 @@ export function TokenPlugin({
           )}
         </SectionCard>
 
-        <SectionCard title="模型" icon={<Layers className="h-4 w-4 text-brand" />} bodyPadding="none">
+        <SectionCard
+          title="模型"
+          icon={<Layers className="h-4 w-4 text-brand" />}
+          bodyPadding="none"
+          actions={hasFreePool ? (
+            <label className="flex items-center gap-1.5 text-xs text-kumo-subtle">
+              <Switch
+                size="sm"
+                checked={freeOnly}
+                onCheckedChange={toggleFreeMode}
+                aria-label="启用免费"
+                title="只启用免费（free）额度池：非免费模型批量停用，列表只显示免费模型"
+              />
+              启用免费
+            </label>
+          ) : null}
+        >
           {models.length ? (
             <div className="overflow-x-auto">
               <AppTable tableId={`${config.id}-models`} columns={MODEL_COLUMNS} className="w-full min-w-[26rem] text-xs">
@@ -903,7 +956,7 @@ export function TokenPlugin({
                   </Table.Row>
                 </Table.Header>
                 <Table.Body>
-                  {models.map(m => (
+                  {visibleModels.map(m => (
                     <Table.Row key={m.id} className="h-9">
                       <Table.Cell className="!px-2 !py-1.5 text-center">
                         <div className="flex justify-center">
@@ -932,6 +985,13 @@ export function TokenPlugin({
                       ) : null}
                     </Table.Row>
                   ))}
+                  {freeOnly && hasFreePool && visibleModels.length === 0 ? (
+                    <Table.Row>
+                      <Table.Cell colSpan={config?.modelMeta ? 3 : 2} className="text-center py-6 text-sm text-kumo-subtle">
+                        无免费模型
+                      </Table.Cell>
+                    </Table.Row>
+                  ) : null}
                 </Table.Body>
               </AppTable>
             </div>

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Button, Switch, Select, Loader, Input, Dialog, Table, Badge, Toolbar, LayerCard } from '@cloudflare/kumo';
 import { SectionCard, FieldRow, EmptyState, AppTable } from '../../../components/ui/AppPrimitives.jsx';
-import { AntigravityBrand, Plus, Upload, Download, Trash, RefreshCw, Edit, Rocket, TrendingUp } from '../../../components/Icons.jsx';
+import { AntigravityBrand, Plus, Upload, Download, Trash, RefreshCw, Edit, Rocket, TrendingUp, Users } from '../../../components/Icons.jsx';
 import { toast } from '../../../modules/toast.js';
 import { useConfirmPress } from '../../../hooks/useConfirmPress.js';
 import { getAuthHeaders, formatCompact } from '../utils.js';
@@ -549,6 +549,7 @@ export function AntigravityPlugin() {
 
         <SectionCard
           title="Google 账号"
+          icon={<Users className="h-4 w-4 text-brand" />}
           bodyPadding="none"
           actions={
             <div className="flex items-center gap-1.5">
