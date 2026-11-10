@@ -8,7 +8,6 @@ import { useConfirmPress } from '../hooks/useConfirmPress.js';
 import { Button, LinkButton } from '@cloudflare/kumo/components/button';
 import { Badge } from '@cloudflare/kumo/components/badge';
 import { ContextMenu } from '@cloudflare/kumo/primitives/context-menu';
-import { Dialog } from '@cloudflare/kumo/components/dialog';
 import { LayerDialog } from '@cloudflare/kumo/components/layer-dialog';
 import { Input, Textarea } from '@cloudflare/kumo/components/input';
 import { Select } from '@cloudflare/kumo/components/select';
@@ -13716,44 +13715,26 @@ function ServerPage() {
       </LayerDialog.Root>
 
       {/* ==================== 模态框: 单机 Agent 部署 ==================== */}
-      <Dialog.Root
+      <LayerDialog.Root
         open={showAgentModal}
         onOpenChange={open => {
           setShowAgentModal(open);
           if (!open) setAgentModalData(null);
         }}
       >
-        <Dialog
-          size="xl"
-          className="@container flex max-h-[calc(100dvh-1rem)] w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] flex-col overflow-hidden p-0 cq-lg:!w-[min(72rem,calc(100vw-3rem))] cq-lg:!max-w-[min(72rem,calc(100vw-3rem))]"
-        >
-          <div className="flex min-w-0 items-center justify-between gap-3 bg-kumo-recessed/35 px-4 py-3 border-b border-kumo-line">
-            <Dialog.Title className="flex min-w-0 items-center gap-2 text-sm font-semibold text-kumo-strong">
+        <LayerDialog.Content size="xl">
+          <LayerDialog.Title>
+            <span className="flex min-w-0 items-center gap-2">
               <span className="truncate">部署 Agent</span>
               {agentModalData?.serverName && (
                 <Badge variant="outline" className="max-w-40 shrink-0 truncate text-[10px] leading-4">
                   {agentModalData.serverName}
                 </Badge>
               )}
-            </Dialog.Title>
-            <Dialog.Close
-              aria-label="关闭"
-              render={props => (
-                <Button
-                  {...props}
-                  type="button"
-                  variant="secondary"
-                  shape="square"
-                  size="sm"
-                  icon={<X className="h-3.5 w-3.5" />}
-                  aria-label="关闭"
-                  className="shrink-0"
-                />
-              )}
-            />
-          </div>
-
-          <div className="flex-1 overflow-y-auto p-4 text-xs text-kumo-default">
+            </span>
+          </LayerDialog.Title>
+          <LayerDialog.Body>
+            <div className="flex w-0 min-w-full flex-col gap-4 text-xs text-kumo-default">
             {agentInstallLoading && !agentModalData?.installCommand ? (
               <div className="space-y-3 py-8">
                 <SkeletonLine className="h-4 w-1/3 mx-auto" />
@@ -13761,8 +13742,8 @@ function ServerPage() {
                 <SkeletonLine className="h-4 w-2/3 mx-auto" />
               </div>
             ) : agentModalData ? (
-              <div className="flex flex-col gap-4">
-                <div className="flex flex-col gap-3">
+              <div className="flex min-w-0 flex-col gap-4">
+                <div className="flex min-w-0 flex-col gap-3">
                   <div className="font-semibold text-kumo-subtle">安装命令</div>
                   {[
                     { os: 'linux', label: 'Linux / macOS', binary: 'agent-linux-amd64', downloadLabel: 'Linux x64' },
@@ -13770,7 +13751,7 @@ function ServerPage() {
                   ].map(({ os, label, binary, downloadLabel }) => (
                     <div
                       key={os}
-                      className="flex flex-col gap-2 rounded-md border border-kumo-line bg-kumo-recessed/25 p-3"
+                      className="flex min-w-0 flex-col gap-2 rounded-md border border-kumo-line bg-kumo-recessed/25 p-3"
                     >
                       <div className="text-xs font-semibold text-kumo-strong">{label}</div>
                       <ClipboardText
@@ -13782,7 +13763,7 @@ function ServerPage() {
                       />
                     </div>
                   ))}
-                  <div className="flex flex-col gap-2 rounded-md border border-kumo-line bg-kumo-recessed/25 p-3">
+                  <div className="flex min-w-0 flex-col gap-2 rounded-md border border-kumo-line bg-kumo-recessed/25 p-3">
                     <div className="flex items-center justify-between gap-2">
                       <div className="text-xs font-semibold text-kumo-strong">手动安装</div>
                       <div className="flex shrink-0 items-center gap-2">
@@ -13856,8 +13837,7 @@ function ServerPage() {
               <div className="py-8 text-center text-xs text-kumo-subtle">未加载 Agent 数据</div>
             )}
           </div>
-
-          <div className="flex flex-col gap-3 border-t border-kumo-line bg-kumo-recessed/25 px-4 py-3 cq-sm:flex-row cq-sm:items-center cq-sm:justify-between">
+          <div className="flex flex-wrap items-center justify-between gap-2 pt-3">
             <div className="flex flex-wrap items-center gap-2">
               <Button
                 type="button"
@@ -13880,79 +13860,45 @@ function ServerPage() {
                 重新生成 Key
               </Button>
             </div>
-            <div className="flex flex-col-reverse gap-2 cq-sm:flex-row cq-sm:flex-wrap cq-sm:items-center cq-sm:justify-end cq-sm:gap-3">
-              {canSshDeployAgent(
-                serverList.find(server => server.id === agentModalData?.serverId)
-              ) && (
-                <Checkbox
-                  label="Linux SSH 覆盖"
-                  checked={agentForceSsh}
-                  disabled={agentInstallLoading || agentInstalling}
-                  onCheckedChange={checked => setAgentForceSsh(Boolean(checked))}
-                />
-              )}
-              <Button
-                type="button"
-                size="sm"
-                variant="secondary"
-                onClick={() => setShowAgentModal(false)}
-                className="w-full cq-sm:w-auto"
-              >
-                关闭
-              </Button>
-              <Button
-                type="button"
-                size="sm"
-                variant="primary"
-                icon={<Play className="h-3.5 w-3.5" />}
-                loading={agentInstalling}
-                disabled={!agentModalData || agentInstallLoading}
-                onClick={() => agentModalData && autoInstallAgent(agentModalData.serverId)}
-                className="w-full cq-sm:w-auto"
-              >
-                一键安装
-              </Button>
-            </div>
+            {canSshDeployAgent(
+              serverList.find(server => server.id === agentModalData?.serverId)
+            ) && (
+              <Checkbox
+                label="Linux SSH 覆盖"
+                checked={agentForceSsh}
+                disabled={agentInstallLoading || agentInstalling}
+                onCheckedChange={checked => setAgentForceSsh(Boolean(checked))}
+              />
+            )}
           </div>
-        </Dialog>
-      </Dialog.Root>
+          </LayerDialog.Body>
+          <LayerDialog.Actions dismissLabel="关闭">
+            <LayerDialog.Action
+              type="button"
+              icon={<Play className="h-3.5 w-3.5" />}
+              loading={agentInstalling}
+              disabled={!agentModalData || agentInstallLoading}
+              onClick={() => agentModalData && autoInstallAgent(agentModalData.serverId)}
+            >
+              一键安装
+            </LayerDialog.Action>
+          </LayerDialog.Actions>
+        </LayerDialog.Content>
+      </LayerDialog.Root>
 
       {/* ==================== 模态框: 批量 Agent 部署 ==================== */}
-      <Dialog.Root
+      <LayerDialog.Root
         open={showBatchAgentModal}
+        dismissDisabled={agentInstallLoading}
         onOpenChange={open => {
           if (!open && agentInstallLoading) return;
           setShowBatchAgentModal(open);
         }}
       >
-        <Dialog
-          size="xl"
-          className="@container flex max-h-[calc(100dvh-1rem)] w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] flex-col overflow-hidden p-0 !w-[min(64rem,calc(100vw-2rem))] !max-w-[min(64rem,calc(100vw-2rem))]"
-        >
-          <div className="flex min-w-0 items-center justify-between gap-3 bg-kumo-recessed/35 px-4 py-3 border-b border-kumo-line">
-            <Dialog.Title className="min-w-0 truncate text-sm font-semibold text-kumo-strong">
-              批量部署 Agent
-            </Dialog.Title>
-            <Dialog.Close
-              aria-label="关闭"
-              render={props => (
-                <Button
-                  {...props}
-                  type="button"
-                  variant="secondary"
-                  shape="square"
-                  size="sm"
-                  icon={<X className="h-3.5 w-3.5" />}
-                  aria-label="关闭"
-                  disabled={agentInstallLoading}
-                  className="shrink-0"
-                />
-              )}
-            />
-          </div>
-
-          <div className="flex-1 overflow-y-auto p-4 text-xs text-kumo-default">
-            <div className="flex flex-col gap-4">
+        <LayerDialog.Content size="xl">
+          <LayerDialog.Title>批量部署 Agent</LayerDialog.Title>
+          <LayerDialog.Body>
+            <div className="flex w-full flex-col gap-4">
               <div className="rounded-md border border-kumo-line bg-kumo-recessed/35 p-3 text-kumo-subtle">
                 已选择 {selectedBatchServers.length} / {serverList.length} 台主机。
               </div>
@@ -13981,7 +13927,7 @@ function ServerPage() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 gap-2 rounded-md border border-kumo-line bg-kumo-recessed/25 p-3 cq-sm:grid-cols-2 cq-md:grid-cols-3">
+              <div className="grid grid-cols-1 gap-2 rounded-md border border-kumo-line bg-kumo-recessed/25 p-3 sm:grid-cols-2 md:grid-cols-3">
                 {serverList.map(server => {
                   const deployable = canSshDeployAgent(server);
                   return (
@@ -14071,80 +14017,32 @@ function ServerPage() {
                 </div>
               )}
             </div>
-          </div>
-
-          <div className="flex flex-col gap-3 border-t border-kumo-line bg-kumo-recessed/25 px-4 py-3 cq-sm:flex-row cq-sm:items-center cq-sm:justify-between">
-            <div className="flex flex-wrap items-center gap-3 text-xs text-kumo-subtle">
-              <Checkbox
-                label="强制 SSH 覆盖"
-                checked={batchAgentForceSsh}
-                disabled={agentInstallLoading}
-                onCheckedChange={checked => setBatchAgentForceSsh(Boolean(checked))}
-              />
-              {agentInstallLoading && <span>任务执行中</span>}
-            </div>
-            <div className="flex flex-col-reverse gap-2 cq-sm:flex-row cq-sm:justify-end">
-              <Button
-                type="button"
-                size="sm"
-                variant="secondary"
-                disabled={agentInstallLoading}
-                onClick={() => setShowBatchAgentModal(false)}
-                className="w-full cq-sm:w-auto"
-              >
-                关闭
-              </Button>
-              <Button
-                type="button"
-                size="sm"
-                variant="primary"
-                icon={<Play className="h-3.5 w-3.5" />}
-                loading={agentInstallLoading}
-                disabled={selectedBatchServers.length === 0}
-                onClick={runBatchAgentInstall}
-                className="w-full cq-sm:w-auto"
-              >
-                开始部署
-              </Button>
-            </div>
-          </div>
-        </Dialog>
-      </Dialog.Root>
+          </LayerDialog.Body>
+          <LayerDialog.Actions dismissLabel="关闭">
+            <LayerDialog.Action
+              type="button"
+              icon={<Play className="h-3.5 w-3.5" />}
+              loading={agentInstallLoading}
+              disabled={selectedBatchServers.length === 0}
+              onClick={runBatchAgentInstall}
+            >
+              开始部署
+            </LayerDialog.Action>
+          </LayerDialog.Actions>
+        </LayerDialog.Content>
+      </LayerDialog.Root>
 
       {/* ==================== 模态框: Agent 一键升级 ==================== */}
-      <Dialog.Root
+      <LayerDialog.Root
         open={showUpgradeModal}
         onOpenChange={open => {
           setShowUpgradeModal(open);
         }}
       >
-        <Dialog
-          size="xl"
-          className="@container flex max-h-[calc(100dvh-1rem)] w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] flex-col overflow-hidden p-0 !w-[min(64rem,calc(100vw-2rem))] !max-w-[min(64rem,calc(100vw-2rem))]"
-        >
-          <div className="flex min-w-0 items-center justify-between gap-3 bg-kumo-recessed/35 px-4 py-3 border-b border-kumo-line">
-            <Dialog.Title className="min-w-0 truncate text-sm font-semibold text-kumo-strong">
-              升级 Agent
-            </Dialog.Title>
-            <Dialog.Close
-              aria-label="关闭"
-              render={props => (
-                <Button
-                  {...props}
-                  type="button"
-                  variant="secondary"
-                  shape="square"
-                  size="sm"
-                  icon={<X className="h-3.5 w-3.5" />}
-                  aria-label="关闭"
-                  className="shrink-0"
-                />
-              )}
-            />
-          </div>
-
-          <div className="flex-1 overflow-y-auto p-4 text-xs text-kumo-default">
-            <div className="flex flex-col gap-4">
+        <LayerDialog.Content size="xl">
+          <LayerDialog.Title>升级 Agent</LayerDialog.Title>
+          <LayerDialog.Body>
+            <div className="@container flex w-full flex-col gap-4 text-xs text-kumo-default">
               <div className="grid grid-cols-1 gap-2 cq-sm:grid-cols-2">
                 <div className="rounded-md border border-kumo-line bg-kumo-recessed/35 p-3">
                   <div className="text-[11px] font-medium text-kumo-subtle">目标 Agent</div>
@@ -14238,79 +14136,48 @@ function ServerPage() {
                   )}
                 </div>
               </div>
+              <div className="flex flex-wrap items-center gap-3 text-xs text-kumo-subtle">
+                <Checkbox
+                  label="Linux SSH 保底"
+                  checked={upgradeFallbackSsh}
+                  disabled={upgrading}
+                  onCheckedChange={checked => setUpgradeFallbackSsh(Boolean(checked))}
+                />
+              </div>
             </div>
-          </div>
+          </LayerDialog.Body>
+          <LayerDialog.Actions dismissLabel={upgrading ? '后台运行' : '关闭'}>
+            <LayerDialog.Action
+              type="button"
+              icon={<Upload className="h-3.5 w-3.5" />}
+              loading={upgrading}
+              disabled={upgrading || getAgentUpgradeTargets().length === 0}
+              onClick={performOneKeyUpgrade}
+            >
+              开始升级
+            </LayerDialog.Action>
+          </LayerDialog.Actions>
+        </LayerDialog.Content>
+      </LayerDialog.Root>
 
-          <div className="flex flex-col gap-3 border-t border-kumo-line bg-kumo-recessed/25 px-4 py-3 cq-sm:flex-row cq-sm:items-center cq-sm:justify-between">
-            <div className="flex flex-wrap items-center gap-3">
-              <Checkbox
-                label="Linux SSH 保底"
-                checked={upgradeFallbackSsh}
-                disabled={upgrading}
-                onCheckedChange={checked => setUpgradeFallbackSsh(Boolean(checked))}
-              />
-            </div>
-            <div className="flex flex-col-reverse gap-2 cq-sm:flex-row cq-sm:justify-end">
-              <Button
-                type="button"
-                size="sm"
-                variant="secondary"
-                onClick={() => setShowUpgradeModal(false)}
-                className="w-full cq-sm:w-auto"
-              >
-                {upgrading ? '后台运行' : '关闭'}
-              </Button>
-              <Button
-                type="button"
-                size="sm"
-                variant="primary"
-                icon={<Upload className="h-3.5 w-3.5" />}
-                loading={upgrading}
-                disabled={upgrading || getAgentUpgradeTargets().length === 0}
-                onClick={performOneKeyUpgrade}
-                className="w-full cq-sm:w-auto"
-              >
-                开始升级
-              </Button>
-            </div>
-          </div>
-        </Dialog>
-      </Dialog.Root>
-
-      <Dialog.Root
+      <LayerDialog.Root
         open={Boolean(dockerComposeEditor)}
         onOpenChange={open => {
           if (!open) requestCloseDockerComposeEditor();
         }}
       >
-        <Dialog
-          size="xl"
-          className="@container flex h-[min(78dvh,760px)] max-h-[calc(100dvh-1rem)] w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] flex-col overflow-hidden p-0 cq-sm:min-w-[56rem] cq-sm:max-w-[calc(100vw-3rem)]"
-        >
-          <div className="flex min-w-0 items-center justify-between gap-3 border-b border-kumo-line bg-kumo-recessed/35 px-4 py-3">
-            <Dialog.Title className="flex min-w-0 items-center gap-2 truncate text-sm font-semibold text-kumo-strong">
+        <LayerDialog.Content size="xl">
+          <LayerDialog.Title>
+            <span className="flex min-w-0 items-center gap-2">
               <FolderOpen className="h-4 w-4 shrink-0 text-brand" />
               <span className="truncate">
                 {dockerComposeEditor?.mode === 'edit' ? '修改 Compose 配置' : '查看 Compose 配置'}
               </span>
-            </Dialog.Title>
-            <Dialog.Close
-              aria-label="关闭"
-              render={props => (
-                <Button
-                  {...props}
-                  type="button"
-                  variant="secondary"
-                  shape="square"
-                  size="sm"
-                  icon={<X className="h-3.5 w-3.5" />}
-                  className="shrink-0"
-                />
-              )}
-            />
-          </div>
-
-          <div className="grid min-h-0 flex-1 gap-3 overflow-hidden p-4 text-xs cq-lg:grid-cols-[18rem_minmax(0,1fr)]">
+            </span>
+          </LayerDialog.Title>
+          <LayerDialog.Body>
+            <div className="w-0 min-w-full text-xs text-kumo-default">
+              <div className="@container grid min-w-0 h-[min(64dvh,680px)] gap-3 overflow-hidden p-4 grid-cols-1 cq-md:grid-cols-[18rem_minmax(0,1fr)]">
             <LayerCard className="flex min-h-0 flex-col overflow-hidden p-0">
               <LayerCard.Secondary className={SERVER_SECTION_HEADER_CLASS}>
                 <span className="inline-flex min-w-0 items-center gap-2 text-xs font-semibold text-kumo-strong">
@@ -14398,55 +14265,35 @@ function ServerPage() {
                 className="min-h-0 flex-1"
                 minHeight="0"
               />
+              </div>
             </div>
           </div>
-
-          <div className="flex flex-col gap-3 border-t border-kumo-line bg-kumo-recessed/25 px-4 py-3 cq-sm:flex-row cq-sm:items-center cq-sm:justify-between">
-            <div className="min-w-0 truncate text-[11px] text-kumo-subtle">
-              {dockerComposeEditor?.path || '未选择配置文件'}
-            </div>
-            <div className="flex flex-col-reverse gap-2 cq-sm:flex-row cq-sm:justify-end">
-              <Button
+          </LayerDialog.Body>
+          <LayerDialog.Actions dismissLabel="关闭">
+            {dockerComposeEditor?.mode === 'edit' ? (
+              <LayerDialog.Action
                 type="button"
-                size="sm"
-                variant="secondary"
-                onClick={requestCloseDockerComposeEditor}
-                className="w-full cq-sm:w-auto"
+                icon={<Save className="h-3.5 w-3.5" />}
+                loading={dockerComposeEditor?.saving}
+                disabled={dockerComposeEditor?.loading || !dockerComposeEditor?.path}
+                onClick={saveDockerComposeConfig}
               >
-                关闭
-              </Button>
-              {dockerComposeEditor?.mode === 'edit' && (
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="primary"
-                  icon={<Save className="h-3.5 w-3.5" />}
-                  loading={dockerComposeEditor?.saving}
-                  disabled={dockerComposeEditor?.loading || !dockerComposeEditor?.path}
-                  onClick={saveDockerComposeConfig}
-                  className="w-full cq-sm:w-auto"
-                >
-                  保存
-                </Button>
-              )}
-              {dockerComposeEditor?.mode === 'view' && dockerComposeEditor?.saved && (
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="primary"
-                  icon={<Upload className="h-3.5 w-3.5" />}
-                  loading={dockerComposeEditor?.updating}
-                  disabled={dockerComposeEditor?.updating || !dockerComposeEditor?.path}
-                  onClick={updateDockerComposeDeployment}
-                  className="w-full cq-sm:w-auto"
-                >
-                  更新编排
-                </Button>
-              )}
-            </div>
-          </div>
-        </Dialog>
-      </Dialog.Root>
+                保存
+              </LayerDialog.Action>
+            ) : (
+              <LayerDialog.Action
+                type="button"
+                icon={<Upload className="h-3.5 w-3.5" />}
+                loading={dockerComposeEditor?.updating}
+                disabled={dockerComposeEditor?.updating || !dockerComposeEditor?.path || !dockerComposeEditor?.saved}
+                onClick={updateDockerComposeDeployment}
+              >
+                更新编排
+              </LayerDialog.Action>
+            )}
+          </LayerDialog.Actions>
+        </LayerDialog.Content>
+      </LayerDialog.Root>
 
       <LayerDialog.Root
         open={dockerLogsModalOpen}

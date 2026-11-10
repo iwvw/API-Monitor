@@ -1,6 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Button } from '@cloudflare/kumo/components/button';
-import { Dialog } from '@cloudflare/kumo/components/dialog';
 import { LayerDialog } from '@cloudflare/kumo/components/layer-dialog';
 import { Input } from '@cloudflare/kumo/components/input';
 import { Badge, Tabs } from '@cloudflare/kumo';
@@ -430,50 +429,54 @@ export default function QuickCommandBar({
         </div>
       </div>
 
-      <Dialog.Root open={managerOpen} onOpenChange={setManagerOpen}>
-        <Dialog size="lg" className="flex max-h-[calc(100dvh-1rem)] !w-[min(48rem,calc(100vw-2rem))] !max-w-[min(48rem,calc(100vw-2rem))] flex-col overflow-hidden p-0">
-          <div className="flex items-center justify-between gap-3 border-b border-kumo-line px-4 py-3">
-            <Dialog.Title className="text-sm font-semibold text-kumo-strong">{editing ? '编辑命令片段' : '新增命令片段'}</Dialog.Title>
-            <Dialog.Close />
-          </div>
-          <div className="space-y-3 overflow-y-auto p-4">
-            <Input size="sm" label="名称" value={form.title} onChange={event => setForm(prev => ({ ...prev, title: event.target.value }))} />
-            <div className="space-y-1.5">
-              <Input size="sm" label="分类" value={form.category} onChange={event => setForm(prev => ({ ...prev, category: event.target.value }))} />
-              {categoryOptions.length > 0 && (
-                <div className="flex max-h-24 flex-wrap gap-1 overflow-y-auto px-1 py-1 pr-2">
-                  {categoryOptions.map(option => (
-                    <Button
-                      key={option}
-                      type="button"
-                      size="sm"
-                      variant="secondary"
-                      className={`h-7 max-w-full px-2 text-[11px] ${
-                        normalizeCategory(form.category) === option
-                          ? 'border-kumo-interact bg-kumo-recessed text-kumo-strong'
-                          : 'text-kumo-default'
-                      }`}
-                      onClick={() => setForm(prev => ({ ...prev, category: option }))}
-                    >
-                      <span className="truncate">{option}</span>
-                    </Button>
-                  ))}
-                </div>
-              )}
+      <LayerDialog.Root open={managerOpen} onOpenChange={setManagerOpen}>
+        <LayerDialog.Content size="xl">
+          <LayerDialog.Title>{editing ? '编辑命令片段' : '新增命令片段'}</LayerDialog.Title>
+          <LayerDialog.Body>
+            <div className="space-y-3">
+              <Input size="sm" label="名称" value={form.title} onChange={event => setForm(prev => ({ ...prev, title: event.target.value }))} />
+              <div className="space-y-1.5">
+                <Input size="sm" label="分类" value={form.category} onChange={event => setForm(prev => ({ ...prev, category: event.target.value }))} />
+                {categoryOptions.length > 0 && (
+                  <div className="flex max-h-24 flex-wrap gap-1 overflow-y-auto px-1 py-1 pr-2">
+                    {categoryOptions.map(option => (
+                      <Button
+                        key={option}
+                        type="button"
+                        size="sm"
+                        variant="secondary"
+                        className={`h-7 max-w-full px-2 text-[11px] ${
+                          normalizeCategory(form.category) === option
+                            ? 'border-kumo-interact bg-kumo-recessed text-kumo-strong'
+                            : 'text-kumo-default'
+                        }`}
+                        onClick={() => setForm(prev => ({ ...prev, category: option }))}
+                      >
+                        <span className="truncate">{option}</span>
+                      </Button>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <CodeEditor label="命令" language="shell" value={form.content} onChange={content => setForm(prev => ({ ...prev, content }))} minHeight="8rem" />
+              <Input size="sm" label="说明" value={form.description} onChange={event => setForm(prev => ({ ...prev, description: event.target.value }))} />
+              <div className="flex items-center justify-between gap-2 pt-1">
+                <Button size="sm" variant={form.favorite ? 'primary' : 'secondary'} icon={<Star className="h-3.5 w-3.5" />} onClick={() => setForm(prev => ({ ...prev, favorite: !prev.favorite }))}>
+                  {form.favorite ? '已收藏' : '收藏'}
+                </Button>
+                {editing?.id ? (
+                  <Button size="sm" variant={isArmed('snippet-remove') ? 'destructive' : 'secondary-destructive'} icon={<Trash className="h-3.5 w-3.5" />} onClick={() => removeSnippet(editing)}>
+                    删除
+                  </Button>
+                ) : null}
+              </div>
             </div>
-            <CodeEditor label="命令" language="shell" value={form.content} onChange={content => setForm(prev => ({ ...prev, content }))} minHeight="8rem" />
-            <Input size="sm" label="说明" value={form.description} onChange={event => setForm(prev => ({ ...prev, description: event.target.value }))} />
-            <Button size="sm" variant={form.favorite ? 'primary' : 'secondary'} icon={<Star className="h-3.5 w-3.5" />} onClick={() => setForm(prev => ({ ...prev, favorite: !prev.favorite }))}>
-              {form.favorite ? '已收藏' : '收藏'}
-            </Button>
-          </div>
-          <div className="flex justify-end gap-2 border-t border-kumo-line px-4 py-3">
-            {editing?.id ? <Button size="sm" variant={isArmed('snippet-remove') ? 'destructive' : 'secondary-destructive'} icon={<Trash className="h-3.5 w-3.5" />} onClick={() => removeSnippet(editing)}>删除</Button> : null}
-            <Button size="sm" variant="secondary" onClick={() => setManagerOpen(false)}>取消</Button>
-            <Button size="sm" variant="primary" icon={<Save className="h-3.5 w-3.5" />} onClick={saveSnippet}>保存</Button>
-          </div>
-        </Dialog>
-      </Dialog.Root>
+          </LayerDialog.Body>
+          <LayerDialog.Actions dismissLabel="取消">
+            <LayerDialog.Action type="button" icon={<Save className="h-3.5 w-3.5" />} onClick={saveSnippet}>保存</LayerDialog.Action>
+          </LayerDialog.Actions>
+        </LayerDialog.Content>
+      </LayerDialog.Root>
 
       <LayerDialog.Root open={historyOpen} onOpenChange={setHistoryOpen}>
         <LayerDialog.Content size="base">

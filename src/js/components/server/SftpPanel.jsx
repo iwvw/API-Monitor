@@ -1,6 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Button } from '@cloudflare/kumo/components/button';
-import { Dialog } from '@cloudflare/kumo/components/dialog';
 import { LayerDialog } from '@cloudflare/kumo/components/layer-dialog';
 import { Input } from '@cloudflare/kumo/components/input';
 import { Badge } from '@cloudflare/kumo';
@@ -9,7 +8,7 @@ import { dialog } from '../../modules/dialog.js';
 import { formatDateTime, formatFileSize } from '../../modules/utils.js';
 import { buildSftpDownloadUrl, chmodSftpPath, createSftpDirectory, deleteSftpPath, listSftpDirectory, readSftpFile, renameSftpPath, uploadSftpFile, writeSftpFile } from '../../modules/server-sftp.js';
 import { ContextMenu } from '@cloudflare/kumo/primitives/context-menu';
-import { ChevronRight, Copy, Download, Edit, Eye, FileText, Folder, FolderOpen, Key, RefreshCw, Save, Trash, Upload } from '../Icons.jsx';
+import { ChevronRight, Copy, Download, Edit, Eye, FileText, Folder, FolderOpen, Key, RefreshCw, Trash, Upload } from '../Icons.jsx';
 import CodeEditor from '../ui/CodeEditor.jsx';
 
 const contextMenuItemClassName = 'relative flex cursor-default items-center gap-2 rounded-md px-2 py-1.5 text-sm outline-hidden select-none focus:text-kumo-default focus:ring-kumo-focus/50 focus-visible:ring-2 focus-visible:ring-kumo-brand data-disabled:pointer-events-none data-disabled:opacity-50 data-highlighted:bg-kumo-overlay';
@@ -34,38 +33,41 @@ const parentOfPath = value => {
 
 const sftpTreeCache = new Map();
 
-function FileContextMenu({ file, children, onOpen, onDownload, onCopyPath, onRename, onChmod, onDelete }) {
+function FileContextMenu({ files = [], children, onOpen, onDownload, onCopyPath, onRename, onChmod, onDelete }) {
+  const single = files.length === 1;
+  const first = files[0] || null;
+  const hasDirectory = files.some(f => f?.isDirectory);
   return (
     <ContextMenu.Root>
       <ContextMenu.Trigger render={children} />
       <ContextMenu.Portal>
         <ContextMenu.Positioner sideOffset={6}>
           <ContextMenu.Popup className="z-50 min-w-44 overflow-hidden rounded-lg border border-kumo-line bg-kumo-control p-1.5 text-kumo-default outline-none data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95">
-            <ContextMenu.Item className={contextMenuItemClassName} onClick={onOpen}>
+            <ContextMenu.Item className={contextMenuItemClassName} disabled={!single} onClick={onOpen}>
               <Eye className="h-4 w-4" />
-              <span>{file.isDirectory ? '打开目录' : '打开文件'}</span>
+              <span>{first?.isDirectory ? '打开目录' : '打开文件'}</span>
             </ContextMenu.Item>
-            <ContextMenu.Item className={contextMenuItemClassName} disabled={file.isDirectory || !onDownload} onClick={onDownload}>
+            <ContextMenu.Item className={contextMenuItemClassName} disabled={hasDirectory || !single} onClick={onDownload}>
               <Download className="h-4 w-4" />
               <span>下载</span>
             </ContextMenu.Item>
-            <ContextMenu.Item className={contextMenuItemClassName} onClick={onCopyPath}>
+            <ContextMenu.Item className={contextMenuItemClassName} onClick={() => onCopyPath?.(files)}>
               <Copy className="h-4 w-4" />
-              <span>复制路径</span>
+              <span>{single ? '复制路径' : `复制 ${files.length} 条路径`}</span>
             </ContextMenu.Item>
             <ContextMenu.Separator className="-mx-1.5 my-1 h-0.5 bg-kumo-hairline" />
-            <ContextMenu.Item className={contextMenuItemClassName} onClick={onRename}>
+            <ContextMenu.Item className={contextMenuItemClassName} disabled={!single} onClick={onRename}>
               <Edit className="h-4 w-4" />
               <span>重命名</span>
             </ContextMenu.Item>
-            <ContextMenu.Item className={contextMenuItemClassName} onClick={onChmod}>
+            <ContextMenu.Item className={contextMenuItemClassName} onClick={() => onChmod?.(files)}>
               <Key className="h-4 w-4" />
-              <span>权限</span>
+              <span>{single ? '权限' : `设置 ${files.length} 项权限`}</span>
             </ContextMenu.Item>
             <ContextMenu.Separator className="-mx-1.5 my-1 h-0.5 bg-kumo-hairline" />
-            <ContextMenu.Item className={contextMenuDangerItemClassName} onClick={onDelete}>
+            <ContextMenu.Item className={contextMenuDangerItemClassName} onClick={() => onDelete?.(files)}>
               <Trash className="h-4 w-4" />
-              <span>删除</span>
+              <span>{single ? '删除' : `删除 ${files.length} 项`}</span>
             </ContextMenu.Item>
           </ContextMenu.Popup>
         </ContextMenu.Positioner>
@@ -79,7 +81,9 @@ export default function SftpPanel({ serverId, serverName, initialPath = '.', onC
   const [rootPath, setRootPath] = useState(initialPath || '.');
   const [tree, setTree] = useState({});
   const [expanded, setExpanded] = useState(() => new Set());
-  const [selectedPath, setSelectedPath] = useState('');
+  const [selectedPaths, setSelectedPaths] = useState([]);
+  const selectionFocusRef = useRef('');
+  const [contextFiles, setContextFiles] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [uploading, setUploading] = useState(false);
@@ -112,7 +116,7 @@ export default function SftpPanel({ serverId, serverName, initialPath = '.', onC
       setLoading(false);
       setTree({});
       setExpanded(new Set());
-      setSelectedPath('');
+      setSelectedPaths([]);
       return undefined;
     }
     const cached = sftpTreeCache.get(serverId);
@@ -120,7 +124,7 @@ export default function SftpPanel({ serverId, serverName, initialPath = '.', onC
       setRootPath(cached.rootPath);
       setTree(cached.tree);
       setExpanded(new Set(cached.expanded));
-      setSelectedPath(cached.selectedPath || '');
+      setSelectedPaths(Array.isArray(cached.selectedPaths) ? cached.selectedPaths : (cached.selectedPath ? [cached.selectedPath] : []));
       setLoading(false);
       onPathChange?.(serverId, cached.rootPath);
       return undefined;
@@ -128,7 +132,7 @@ export default function SftpPanel({ serverId, serverName, initialPath = '.', onC
     let cancelled = false;
     setTree({});
     setExpanded(new Set());
-    setSelectedPath('');
+    setSelectedPaths([]);
     setLoading(true);
     (async () => {
       try {
@@ -151,8 +155,8 @@ export default function SftpPanel({ serverId, serverName, initialPath = '.', onC
 
   useEffect(() => {
     if (!serverId || Object.keys(tree).length === 0) return;
-    sftpTreeCache.set(serverId, { rootPath, tree, expanded: [...expanded], selectedPath });
-  }, [serverId, rootPath, tree, expanded, selectedPath]);
+    sftpTreeCache.set(serverId, { rootPath, tree, expanded: [...expanded], selectedPaths });
+  }, [serverId, rootPath, tree, expanded, selectedPaths]);
 
   const findTreeEntry = targetPath => {
     for (const dir of Object.values(tree)) {
@@ -162,11 +166,28 @@ export default function SftpPanel({ serverId, serverName, initialPath = '.', onC
     return null;
   };
 
+  // 返回按当前可见渲染顺序平铺的路径数组（深度优先，跟随展开状态），
+  // 用于 Shift 范围多选时确定锚点与目标之间的条目区间。
+  const flattenVisiblePaths = () => {
+    const result = [];
+    const walk = dirPath => {
+      const dir = tree[dirPath];
+      if (!dir || dir.status !== 'loaded' || !Array.isArray(dir.items)) return;
+      dir.items.forEach(item => {
+        result.push(item.path);
+        if (item.isDirectory && expanded.has(item.path)) walk(item.path);
+      });
+    };
+    walk(rootPath);
+    return result;
+  };
+
   const resolveTargetDir = () => {
-    if (!selectedPath) return rootPath;
-    const entry = findTreeEntry(selectedPath);
+    const focus = selectionFocusRef.current;
+    if (!focus) return rootPath;
+    const entry = findTreeEntry(focus);
     if (entry?.isDirectory) return entry.path;
-    return parentOfPath(selectedPath);
+    return parentOfPath(focus);
   };
 
   const patchTreeDir = (dirPath, patch) => {
@@ -197,7 +218,6 @@ export default function SftpPanel({ serverId, serverName, initialPath = '.', onC
   };
 
   const toggleTreeDir = async entry => {
-    setSelectedPath(entry.path);
     const wasExpanded = expanded.has(entry.path);
     setExpanded(prev => {
       const next = new Set(prev);
@@ -228,7 +248,6 @@ export default function SftpPanel({ serverId, serverName, initialPath = '.', onC
       toggleTreeDir(entry);
       return;
     }
-    setSelectedPath(entry.path);
     try {
       const data = await readSftpFile(serverId, entry.path);
       setEditFile({ path: entry.path, name: entry.name, content: data.data || '', originalContent: data.data || '' });
@@ -309,57 +328,117 @@ export default function SftpPanel({ serverId, serverName, initialPath = '.', onC
   };
 
   const renamePath = async () => {
-    if (!renameFile || !renameValue.trim()) return;
-    const parentDir = parentOfPath(renameFile.path);
+    if (!renameFile || !renameFile[0] || !renameValue.trim()) return;
+    const file = renameFile[0];
+    const parentDir = parentOfPath(file.path);
     const targetPath = `${parentDir.replace(/\/$/, '')}/${renameValue.trim()}`;
     try {
-      await renameSftpPath(serverId, renameFile.path, targetPath);
+      await renameSftpPath(serverId, file.path, targetPath);
       toast.success('重命名成功');
       setRenameFile(null);
-      if (renameFile.isDirectory) pruneTreeFrom(renameFile.path);
+      if (file.isDirectory) pruneTreeFrom(file.path);
       loadTreeDir(parentDir, { silent: true });
     } catch (err) {
       toast.error(err.message || '重命名失败');
     }
   };
 
-  const deletePath = async file => {
-    const ok = await dialog.deleteResource({
-      resourceType: file.isDirectory ? '远程目录' : '远程文件',
-      resourceName: file.name,
-    });
+  const deletePaths = async files => {
+    const list = Array.isArray(files) ? files : [files];
+    const filesOnly = list.filter(f => !f.isDirectory);
+    const dirsOnly = list.filter(f => f.isDirectory);
+    const type = dirsOnly.length > 0 ? (filesOnly.length > 0 ? '远程文件与目录' : '远程目录') : '远程文件';
+    const name = list.length > 1 ? `${list.length} 个项目` : list[0]?.name;
+    const ok = await dialog.deleteResource({ resourceType: type, resourceName: name });
     if (!ok) return;
-    const parentDir = parentOfPath(file.path);
-    try {
-      await deleteSftpPath(serverId, file.path, file.isDirectory, file.isDirectory);
-      toast.success(file.isDirectory ? '目录已删除' : '文件已删除');
-      if (file.isDirectory) pruneTreeFrom(file.path);
-      if (selectedPath === file.path) setSelectedPath('');
-      loadTreeDir(parentDir, { silent: true });
-    } catch (err) {
-      toast.error(err.message || '删除失败');
+    const parentDirs = new Set(list.map(f => parentOfPath(f.path)));
+    let failed = 0;
+    for (const file of list) {
+      try {
+        await deleteSftpPath(serverId, file.path, file.isDirectory, file.isDirectory);
+        if (file.isDirectory) pruneTreeFrom(file.path);
+      } catch {
+        failed += 1;
+      }
     }
+    if (failed === 0) toast.success(`已删除 ${list.length - failed} 项`);
+    else toast.error(`${failed} 项删除失败`);
+    const removed = new Set(list.map(f => f.path));
+    setSelectedPaths(prev => prev.filter(p => !removed.has(p)));
+    setContextFiles([]);
+    parentDirs.forEach(p => loadTreeDir(p, { silent: true }));
   };
 
   const chmodPath = async () => {
-    if (!chmodFile || !chmodValue.trim()) return;
-    try {
-      await chmodSftpPath(serverId, chmodFile.path, chmodValue.trim());
-      toast.success('权限已更新');
-      setChmodFile(null);
-      loadTreeDir(parentOfPath(chmodFile.path), { silent: true });
-    } catch (err) {
-      toast.error(err.message || '权限修改失败');
+    const targets = Array.isArray(chmodFile) ? chmodFile : [];
+    if (targets.length === 0 || !chmodValue.trim()) return;
+    let failed = 0;
+    for (const file of targets) {
+      try {
+        await chmodSftpPath(serverId, file.path, chmodValue.trim());
+      } catch {
+        failed += 1;
+      }
     }
+    if (failed === 0) toast.success('权限已更新');
+    else toast.error(`${failed} 项权限修改失败`);
+    setChmodFile(null);
+    const parentDirs = new Set(targets.map(f => parentOfPath(f.path)));
+    parentDirs.forEach(p => loadTreeDir(p, { silent: true }));
   };
 
-  const copyPath = async entry => {
+  const copyPaths = async files => {
+    const list = Array.isArray(files) ? files : [files];
     try {
-      await navigator.clipboard.writeText(entry.path);
-      toast.success('路径已复制');
+      await navigator.clipboard.writeText(list.map(f => f.path).join('\n'));
+      toast.success(list.length > 1 ? `已复制 ${list.length} 条路径` : '路径已复制');
     } catch {
       toast.error('复制路径失败');
     }
+  };
+
+  // 解析一批选中路径为真实条目对象（供右键菜单批量操作使用）。
+  const resolveEntries = paths => (paths || [])
+    .map(p => findTreeEntry(p))
+    .filter(Boolean);
+
+  const handleRowClick = (event, entry) => {
+    const { shiftKey, metaKey, ctrlKey } = event;
+    const path = entry.path;
+    if (shiftKey) {
+      // Shift 范围多选：按当前可见顺序在锚点与目标之间全选。
+      const flat = flattenVisiblePaths();
+      const anchor = selectionFocusRef.current || path;
+      const from = flat.indexOf(anchor);
+      const to = flat.indexOf(path);
+      if (from !== -1 && to !== -1) {
+        const start = Math.min(from, to);
+        const end = Math.max(from, to);
+        setSelectedPaths(flat.slice(start, end + 1));
+      } else {
+        setSelectedPaths([path]);
+      }
+      return;
+    }
+    if (metaKey || ctrlKey) {
+      setSelectedPaths(prev => prev.includes(path) ? prev.filter(p => p !== path) : [...prev, path]);
+      selectionFocusRef.current = path;
+      return;
+    }
+    setSelectedPaths([path]);
+    selectionFocusRef.current = path;
+  };
+
+  // 右键：若被键条目已在当前多选中，则作用于整个选择集；否则单选该条目。
+  const handleRowContextMenu = entry => {
+    const path = entry.path;
+    if (selectedPaths.includes(path)) {
+      setContextFiles(resolveEntries(selectedPaths));
+      return;
+    }
+    setSelectedPaths([path]);
+    selectionFocusRef.current = path;
+    setContextFiles([entry]);
   };
 
   const renderRows = (dirPath, depth) => {
@@ -391,34 +470,35 @@ export default function SftpPanel({ serverId, serverName, initialPath = '.', onC
         {dir.items.map(entry => {
           const isDir = Boolean(entry.isDirectory);
           const isExpanded = isDir && expanded.has(entry.path);
-          const isSelected = selectedPath === entry.path;
-          const downloadUrl = !isDir ? buildSftpDownloadUrl(serverId, entry.path) : null;
+          const isSelected = selectedPaths.includes(entry.path);
+          const firstContext = contextFiles[0];
           const startRename = () => {
-            setRenameFile(entry);
-            setRenameValue(entry.name);
+            setRenameFile(contextFiles);
+            setRenameValue(contextFiles[0]?.name || '');
           };
           const startChmod = () => {
-            setChmodFile(entry);
-            setChmodValue(String(entry.mode ? (entry.mode & 0o777).toString(8) : '644'));
+            setChmodFile(contextFiles);
+            setChmodValue(String(firstContext?.mode ? (firstContext.mode & 0o777).toString(8) : '644'));
           };
           return (
             <React.Fragment key={entry.path}>
               <FileContextMenu
-                file={entry}
-                onOpen={() => openFile(entry)}
-                onDownload={downloadUrl ? () => window.open(downloadUrl, '_blank', 'noopener') : null}
-                onCopyPath={() => copyPath(entry)}
+                files={contextFiles}
+                onOpen={() => openFile(contextFiles[0])}
+                onDownload={() => contextFiles.forEach(f => { if (!f.isDirectory) window.open(buildSftpDownloadUrl(serverId, f.path), '_blank', 'noopener'); })}
+                onCopyPath={() => copyPaths(contextFiles)}
                 onRename={startRename}
                 onChmod={startChmod}
-                onDelete={() => deletePath(entry)}
+                onDelete={() => deletePaths(contextFiles)}
               >
                 <Button
                   type="button"
                   variant="ghost"
-                  onClick={() => openFile(entry)}
-                  onContextMenu={() => setSelectedPath(entry.path)}
+                  onClick={event => handleRowClick(event, entry)}
+                  onDoubleClick={() => openFile(entry)}
+                  onContextMenu={event => { event.preventDefault(); handleRowContextMenu(entry); }}
                   title={`${entry.path}\n修改时间: ${entry.mtime ? formatDateTime(entry.mtime) : '-'}\n权限: ${entry.permissions || '-'}`}
-                  className={`mb-px flex !h-auto !min-h-0 w-full min-w-0 items-center justify-start gap-1.5 rounded-md px-0 py-[3px] pr-2 text-left font-normal hover:bg-kumo-fill focus-visible:bg-kumo-fill ${isSelected ? 'bg-kumo-fill' : 'bg-transparent'}`}
+                  className={`mb-px flex !h-auto !min-h-0 w-full min-w-0 items-center justify-start gap-1.5 rounded-md px-0 py-[3px] pr-2 text-left font-normal hover:bg-kumo-fill focus-visible:bg-kumo-fill ${isSelected ? 'bg-brand/15 text-kumo-strong' : 'bg-transparent'}`}
                   style={{ paddingLeft: 8 + depth * 16 }}
                 >
                   {isDir ? (
@@ -480,29 +560,27 @@ export default function SftpPanel({ serverId, serverName, initialPath = '.', onC
         <Input ref={uploadInputRef} size="sm" aria-label="上传 SFTP 文件" type="file" className="hidden" onChange={uploadFiles} multiple />
       </div>
 
-      <Dialog.Root open={editorOpen && Boolean(editFile)} onOpenChange={(open) => (open ? setEditorOpen(true) : requestCloseEditor())}>
-        <Dialog size="xl" className="flex h-[min(72dvh,720px)] w-[min(920px,calc(100vw-2rem))] max-h-[calc(100dvh-1rem)] max-w-none flex-col overflow-hidden p-0">
-          <div className="flex items-center justify-between gap-3 border-b border-kumo-line px-4 py-3">
-            <Dialog.Title className="min-w-0 truncate text-sm font-semibold text-kumo-strong">编辑 {editFile?.name}</Dialog.Title>
-            <Dialog.Close />
-          </div>
-          <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-hidden p-4">
-            <div className="shrink-0 truncate font-mono text-[10px] text-kumo-subtle">{editFile?.path}</div>
-            <CodeEditor
-              label="SFTP 文件内容"
-              fileName={editFile?.name || editFile?.path || ''}
-              value={editFile?.content || ''}
-              onChange={content => setEditFile(prev => ({ ...prev, content }))}
-              className="min-h-0 flex-1"
-              minHeight="0"
-            />
-          </div>
-          <div className="flex justify-end gap-2 border-t border-kumo-line px-4 py-3">
-            <Button size="sm" variant="secondary" onClick={requestCloseEditor}>取消</Button>
-            <Button size="sm" variant="primary" icon={<Save className="h-3.5 w-3.5" />} loading={saving} onClick={saveFile}>保存</Button>
-          </div>
-        </Dialog>
-      </Dialog.Root>
+      <LayerDialog.Root open={editorOpen && Boolean(editFile)} onOpenChange={(open) => (open ? setEditorOpen(true) : requestCloseEditor())}>
+        <LayerDialog.Content size="xl" verticalAlign="top">
+          <LayerDialog.Title>编辑 {editFile?.name}</LayerDialog.Title>
+          <LayerDialog.Body>
+            <div className="flex h-[min(62dvh,640px)] flex-col gap-2">
+              <div className="shrink-0 truncate font-mono text-[10px] text-kumo-subtle">{editFile?.path}</div>
+              <CodeEditor
+                label="SFTP 文件内容"
+                fileName={editFile?.name || editFile?.path || ''}
+                value={editFile?.content || ''}
+                onChange={content => setEditFile(prev => ({ ...prev, content }))}
+                className="min-h-0 flex-1"
+                minHeight="0"
+              />
+            </div>
+          </LayerDialog.Body>
+          <LayerDialog.Actions dismissLabel="取消">
+            <LayerDialog.Action type="button" loading={saving} onClick={saveFile}>保存</LayerDialog.Action>
+          </LayerDialog.Actions>
+        </LayerDialog.Content>
+      </LayerDialog.Root>
 
       <LayerDialog.Root open={mkdirOpen} onOpenChange={setMkdirOpen}>
         <LayerDialog.Content size="sm">
@@ -516,7 +594,7 @@ export default function SftpPanel({ serverId, serverName, initialPath = '.', onC
         </LayerDialog.Content>
       </LayerDialog.Root>
 
-      <LayerDialog.Root open={Boolean(renameFile)} onOpenChange={open => !open && setRenameFile(null)}>
+      <LayerDialog.Root open={Boolean(renameFile && renameFile.length)} onOpenChange={open => !open && setRenameFile(null)}>
         <LayerDialog.Content size="sm">
           <LayerDialog.Title>重命名</LayerDialog.Title>
           <LayerDialog.Body>
@@ -528,7 +606,7 @@ export default function SftpPanel({ serverId, serverName, initialPath = '.', onC
         </LayerDialog.Content>
       </LayerDialog.Root>
 
-      <LayerDialog.Root open={Boolean(chmodFile)} onOpenChange={open => !open && setChmodFile(null)}>
+      <LayerDialog.Root open={Boolean(chmodFile && chmodFile.length)} onOpenChange={open => !open && setChmodFile(null)}>
         <LayerDialog.Content size="sm">
           <LayerDialog.Title>修改权限</LayerDialog.Title>
           <LayerDialog.Body>
