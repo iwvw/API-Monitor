@@ -203,6 +203,7 @@ export default defineConfig(({ mode }) => {
           ws: true,
         },
         '/uploads': proxyTarget(),
+        '^/agent(?:/|$)': proxyTarget(),
         '^/site-brand-icons(?:/|$)': proxyTarget(),
       },
     },

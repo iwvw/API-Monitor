@@ -555,6 +555,29 @@ Action sub-component
 
 ```tsx
 <Banner
+      icon={<Warning weight="fill" />}
+      variant="alert"
+      title="Review your payment method"
+      description="Add a credit or debit card directly in Billing to continue."
+      action={
+        <>
+          <Banner.Action
+            variant="secondary"
+            href="https://developers.cloudflare.com/billing/"
+            external
+          >
+            View docs
+          </Banner.Action>
+          <Banner.Action href="https://dash.cloudflare.com/">
+            Manage payments
+          </Banner.Action>
+        </>
+      }
+    />
+```
+
+```tsx
+<Banner
       size="sm"
       description="A DNS record for puppies.cloudflare.dev already exists in this zone."
       action={<Link href="#">Manage DNS for puppies.cloudflare.dev</Link>}
