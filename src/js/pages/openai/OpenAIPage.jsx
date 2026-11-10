@@ -188,7 +188,6 @@ function OpenAIPage() {
     modelSwitchLoading, setModelSwitchLoading,
     toggleModelEnabled,
     modelEnabledForEndpoint,
-    openAddEndpointModal,
     openEditEndpointModal,
     updateEndpointProxy,
     addEndpointProxy,
@@ -778,13 +777,6 @@ function OpenAIPage() {
                       onClick: refreshAllEndpoints,
                       disabled: endpointsRefreshing,
                       loading: endpointsRefreshing,
-                    },
-                    {
-                      key: 'add',
-                      label: '新增端点',
-                      icon: <Plus className={iconButtonIconClass} />,
-                      onClick: openAddEndpointModal,
-                      variant: 'primary',
                     },
                   ]}
                 />

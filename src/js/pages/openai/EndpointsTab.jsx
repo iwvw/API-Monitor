@@ -236,7 +236,19 @@ export function EndpointsTab({
                         <Server className="h-3.5 w-3.5" />
                         <span className="font-medium text-kumo-strong">上游端点</span>
                       </div>
-                      <span className="text-xs text-kumo-subtle">{endpoints.length} 个</span>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-kumo-subtle">{endpoints.length} 个</span>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="primary"
+                          icon={<Plus className="h-3.5 w-3.5" />}
+                          onClick={openAddEndpointModal}
+                          className="flex items-center gap-1.5 px-2.5"
+                        >
+                          新增端点
+                        </Button>
+                      </div>
                     </div>
                     <LayerCard className="min-h-64 flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden p-0 shadow-none">
                       <div className="min-h-0 min-w-0 flex-1 overflow-auto overscroll-x-contain scrollbar-thin">
