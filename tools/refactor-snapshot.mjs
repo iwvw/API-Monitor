@@ -39,7 +39,7 @@ const API_PROBES = [
   '/api/github/public/probe',
   '/api/backup',
   '/api/notification',
-  '/api/openai',
+  '/api/modelhub',
   '/api/uptime',
   '/api/nonexistent-refactor-probe',
 ];

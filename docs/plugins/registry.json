@@ -25,7 +25,7 @@
         "structField": "proxypool *proxypool.Service",
         "constructor": "proxypool: proxypool.New(cfg),",
         "injections": [
-          "server.openai.SetProxyPoolSelector(server.proxypool)"
+          "server.modelhub.SetProxyPoolSelector(server.proxypool)"
         ],
         "serveCases": [
           "case \"/api/proxypool\":"
@@ -38,16 +38,16 @@
       "dbColumnAdds": [],
       "frontend": {
         "files": [
-          "src/js/pages/openai/plugins/ProxyPoolPlugin.jsx"
+          "src/js/pages/modelhub/plugins/ProxyPoolPlugin.jsx"
         ],
         "registrations": [
           {
-            "file": "src/js/pages/openai/OpenAIPluginsPanel.jsx",
+            "file": "src/js/pages/modelhub/ModelHubPluginsPanel.jsx",
             "kind": "PLUGINS registry entry",
             "id": "proxypool"
           }
         ],
-        "hostIntegration": "OpenAIPage.jsx 端点表单「使用独立代理池」下拉（proxyPoolId），属 openai 主模块接入，卸载时保留列、仅清空端点引用"
+        "hostIntegration": "ModelHubPage.jsx 端点表单「使用独立代理池」下拉（proxyPoolId），属模型网关主模块接入，卸载时保留列、仅清空端点引用"
       },
       "goDeps": [],
       "systemContracts": [],
@@ -59,8 +59,8 @@
         "manifest.go：删除 /api/proxypool 前缀行",
         "server.go：删除 import、proxypool 字段、proxypool.New(cfg)、SetProxyPoolSelector 注入、/api/proxypool case",
         "go mod tidy（如引入过依赖）",
-        "DB：DROP TABLE proxypool_state; DROP TABLE proxy_pools;（并清空 openai_endpoints.proxy_pool_id 引用）",
-        "删除 src/js/pages/openai/plugins/ProxyPoolPlugin.jsx",
+        "DB：DROP TABLE proxypool_state; DROP TABLE proxy_pools;（并清空 modelhub_endpoints.proxy_pool_id 引用）",
+        "删除 src/js/pages/modelhub/plugins/ProxyPoolPlugin.jsx",
         "OpenAIPluginsPanel.jsx：移除 proxypool 注册条目"
       ]
     },
@@ -105,11 +105,11 @@
       "dbColumnAdds": [],
       "frontend": {
         "files": [
-          "src/js/pages/openai/plugins/AntigravityPlugin.jsx"
+          "src/js/pages/modelhub/plugins/AntigravityPlugin.jsx"
         ],
         "registrations": [
           {
-            "file": "src/js/pages/openai/OpenAIPluginsPanel.jsx",
+            "file": "src/js/pages/modelhub/ModelHubPluginsPanel.jsx",
             "kind": "PLUGINS registry entry",
             "id": "antigravity"
           }
@@ -128,7 +128,7 @@
         "server.go：删除 import、antigravity 字段、antigravity.New(cfg)、SetProxyPoolSelector 注入、StartVersionDiscovery 调用、/api/antigravity case、antigravity-compatible 鉴权分支",
         "go mod tidy",
         "DB：DROP TABLE antigravity_usage_daily; DROP TABLE antigravity_call_stats; DROP TABLE antigravity_settings;",
-        "删除 src/js/pages/openai/plugins/AntigravityPlugin.jsx",
+        "删除 src/js/pages/modelhub/plugins/AntigravityPlugin.jsx",
         "OpenAIPluginsPanel.jsx：移除 antigravity 注册条目",
         "删除 docs/standards/模型网关插件-antigravity方案.md"
       ]
@@ -178,11 +178,11 @@
       "dbColumnAdds": [],
       "frontend": {
         "files": [
-          "src/js/pages/openai/plugins/WorkBuddyPlugin.jsx"
+          "src/js/pages/modelhub/plugins/WorkBuddyPlugin.jsx"
         ],
         "registrations": [
           {
-            "file": "src/js/pages/openai/OpenAIPluginsPanel.jsx",
+            "file": "src/js/pages/modelhub/ModelHubPluginsPanel.jsx",
             "kind": "PLUGINS registry entry",
             "id": "workbuddy"
           }
@@ -204,8 +204,8 @@
         "manifest.go：删除 /api/workbuddy 与 /api/workbuddy/v1 前缀行",
         "server.go：删除 import、workbuddy 字段、workbuddy.New(cfg)、SetProxyPoolSelector 注入、StartCallStatsFlush、StartAutoRefresh、StartCheckinScheduler、/api/workbuddy case、workbuddy-compatible 鉴权分支",
         "DB：DROP TABLE workbuddy_diagnostics; DROP TABLE workbuddy_usage_daily; DROP TABLE workbuddy_call_stats; DROP TABLE workbuddy_settings;",
-        "DB：DELETE FROM openai_endpoints WHERE id = 'workbuddy-internal';",
-        "删除 src/js/pages/openai/plugins/WorkBuddyPlugin.jsx",
+        "DB：DELETE FROM modelhub_endpoints WHERE id = 'workbuddy-internal';",
+        "删除 src/js/pages/modelhub/plugins/WorkBuddyPlugin.jsx",
         "OpenAIPluginsPanel.jsx：移除 workbuddy 注册条目（含 CodeBuddyBrand 图标 import 与组件 import）",
         "删除 docs/standards/模型网关插件-workbuddy方案.md"
       ]
@@ -250,11 +250,11 @@
       "dbColumnAdds": [],
       "frontend": {
         "files": [
-          "src/js/pages/openai/plugins/PostHogCodePlugin.jsx"
+          "src/js/pages/modelhub/plugins/PostHogCodePlugin.jsx"
         ],
         "registrations": [
           {
-            "file": "src/js/pages/openai/OpenAIPluginsPanel.jsx",
+            "file": "src/js/pages/modelhub/ModelHubPluginsPanel.jsx",
             "kind": "PLUGINS registry entry",
             "id": "posthogcode"
           }
@@ -275,8 +275,8 @@
         "manifest.go：删除 /api/posthogcode 与 /api/posthogcode/v1 前缀行",
         "server.go：删除 import、posthogcode 字段、posthogcode.New(cfg)、SetProxyPoolSelector 注入、StartCallStatsFlush、StartAutoRefresh、/api/posthogcode case",
         "DB：DROP TABLE posthogcode_call_stats; DROP TABLE posthogcode_settings;",
-        "DB：DELETE FROM openai_endpoints WHERE id = 'posthogcode-internal';",
-        "删除 src/js/pages/openai/plugins/PostHogCodePlugin.jsx",
+        "DB：DELETE FROM modelhub_endpoints WHERE id = 'posthogcode-internal';",
+        "删除 src/js/pages/modelhub/plugins/PostHogCodePlugin.jsx",
         "删除 src/assets/brand-icons/posthog.svg",
         "Icons.jsx：移除 postHogIcon import 与 PostHogBrand 导出",
         "OpenAIPluginsPanel.jsx：移除 posthogcode 注册条目（含 PostHogBrand 图标 import 与组件 import）"
@@ -323,11 +323,11 @@
       "dbColumnAdds": [],
       "frontend": {
         "files": [
-          "src/js/pages/openai/plugins/LobsterAIPlugin.jsx"
+          "src/js/pages/modelhub/plugins/LobsterAIPlugin.jsx"
         ],
         "registrations": [
           {
-            "file": "src/js/pages/openai/OpenAIPluginsPanel.jsx",
+            "file": "src/js/pages/modelhub/ModelHubPluginsPanel.jsx",
             "kind": "PLUGINS registry entry",
             "id": "lobsterai"
           }
@@ -350,8 +350,8 @@
         "server.go：删除 import、lobsterai 字段、lobsterai.New(cfg)、SetProxyPoolSelector 注入、StartCallStatsFlush、StartCheckinScheduler、/api/lobsterai case",
         "go mod tidy（robfig/cron 若仍被其它模块使用则保留）",
         "DB：DROP TABLE lobsterai_usage_daily; DROP TABLE lobsterai_call_stats; DROP TABLE lobsterai_settings;",
-        "DB：DELETE FROM openai_endpoints WHERE id = 'lobsterai-internal';",
-        "删除 src/js/pages/openai/plugins/LobsterAIPlugin.jsx",
+        "DB：DELETE FROM modelhub_endpoints WHERE id = 'lobsterai-internal';",
+        "删除 src/js/pages/modelhub/plugins/LobsterAIPlugin.jsx",
         "OpenAIPluginsPanel.jsx：移除 lobsterai 注册条目（含 LobsterAIBrand 图标 import 与组件 import）",
         "删除 docs/standards/模型网关插件-lobsterai方案.md"
       ]
@@ -398,12 +398,12 @@
       "dbColumnAdds": [],
       "frontend": {
         "files": [
-          "src/js/pages/openai/plugins/QoderPlugin.jsx",
+          "src/js/pages/modelhub/plugins/QoderPlugin.jsx",
           "src/assets/brand-icons/qoder.png"
         ],
         "registrations": [
           {
-            "file": "src/js/pages/openai/OpenAIPluginsPanel.jsx",
+            "file": "src/js/pages/modelhub/ModelHubPluginsPanel.jsx",
             "kind": "PLUGINS registry entry",
             "id": "qoder"
           },
@@ -431,8 +431,8 @@
         "server.go：删除 import、qoder 字段、qoder.New(cfg)、SetProxyPoolSelector 注入、StartCallStatsFlush、StartAutoRefresh、StartCheckinScheduler、/api/qoder case，以及 apiKeyRequiresSession 的 /api/qoder/accounts 前缀",
         "go mod tidy（robfig/cron 若仍被其它模块使用则保留）",
         "DB：DROP TABLE qoder_usage_daily; DROP TABLE qoder_call_stats; DROP TABLE qoder_settings;",
-        "DB：DELETE FROM openai_endpoints WHERE id = 'qoder-internal';",
-        "删除 src/js/pages/openai/plugins/QoderPlugin.jsx",
+        "DB：DELETE FROM modelhub_endpoints WHERE id = 'qoder-internal';",
+        "删除 src/js/pages/modelhub/plugins/QoderPlugin.jsx",
         "OpenAIPluginsPanel.jsx：移除 qoder 注册条目（含 QoderBrand 图标 import 与组件 import）",
         "删除 docs/standards/模型网关插件-qoder方案.md"
       ]
@@ -483,12 +483,12 @@
       "dbColumnAdds": [],
       "frontend": {
         "files": [
-          "src/js/pages/openai/plugins/RaccoonPlugin.jsx",
+          "src/js/pages/modelhub/plugins/RaccoonPlugin.jsx",
           "src/assets/brand-icons/raccoon.svg"
         ],
         "registrations": [
           {
-            "file": "src/js/pages/openai/OpenAIPluginsPanel.jsx",
+            "file": "src/js/pages/modelhub/ModelHubPluginsPanel.jsx",
             "kind": "PLUGINS registry entry",
             "id": "raccoon"
           },
@@ -513,8 +513,8 @@
         "route_handlers.go：删除 raccoon / raccoon-compatible 两行",
         "server.go：删除 import、raccoon 字段、raccoon.New(cfg)、SetProxyPoolSelector / StartCallStatsFlush / StartAutoRefresh / StartModelRefresh / ReconcileLinkedEndpoint 注入，以及 apiKeyRequiresSession 的 /api/raccoon/accounts 前缀",
         "DB：DROP TABLE raccoon_usage_daily; DROP TABLE raccoon_call_stats; DROP TABLE raccoon_settings;",
-        "DB：DELETE FROM openai_endpoints WHERE id = 'raccoon-internal';",
-        "删除 src/js/pages/openai/plugins/RaccoonPlugin.jsx 与 src/assets/brand-icons/raccoon.svg",
+        "DB：DELETE FROM modelhub_endpoints WHERE id = 'raccoon-internal';",
+        "删除 src/js/pages/modelhub/plugins/RaccoonPlugin.jsx 与 src/assets/brand-icons/raccoon.svg",
         "OpenAIPluginsPanel.jsx：移除 raccoon 注册条目（含 RaccoonBrand 图标 import 与组件 import）",
         "Icons.jsx：移除 raccoonIcon import 与 RaccoonBrand 导出"
       ]
@@ -565,12 +565,12 @@
       "dbColumnAdds": [],
       "frontend": {
         "files": [
-          "src/js/pages/openai/plugins/ClinePlugin.jsx",
-          "src/js/pages/openai/plugins/TokenPlugin.jsx"
+          "src/js/pages/modelhub/plugins/ClinePlugin.jsx",
+          "src/js/pages/modelhub/plugins/TokenPlugin.jsx"
         ],
         "registrations": [
           {
-            "file": "src/js/pages/openai/OpenAIPluginsPanel.jsx",
+            "file": "src/js/pages/modelhub/ModelHubPluginsPanel.jsx",
             "kind": "PLUGINS registry entry",
             "id": "cline"
           },
@@ -593,7 +593,7 @@
         "route_handlers.go：删除 cline / cline-compatible 两行",
         "server.go：删除 import、字段、构造、注入与 apiKeyRequiresSession 前缀",
         "DB：DROP TABLE cline_usage_daily; DROP TABLE cline_call_stats; DROP TABLE cline_settings;",
-        "DB：DELETE FROM openai_endpoints WHERE id = 'cline-internal';",
+        "DB：DELETE FROM modelhub_endpoints WHERE id = 'cline-internal';",
         "删除前端插件文件与注册条目"
       ]
     }

@@ -253,7 +253,7 @@ daily request / quota / insufficient / credit」这几类明确信号，并**排
 | MiniMax (`mmodel`) | 0.20 / MiniMax-M2.7 | **0.10** / MiniMax-M3.1-Flash |
 | Qwen3.8-Max (`qmodel_38max`) | 0.50 | 窗口内 0.20 |
 
-**不要把倍率写进 `openai_endpoints.pricing`**：那一列是「每百万 token 的**货币**单价」，
+**不要把倍率写进 `modelhub_endpoints.pricing`**：那一列是「每百万 token 的**货币**单价」，
 `price_factor` 是相对倍数、不含货币，硬写会让网关算出假金额。
 
 ### 3.6 思考强度与上下文（`thinking.go` / `params.go`）

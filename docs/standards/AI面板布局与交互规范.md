@@ -19,7 +19,7 @@ AI 侧栏/全屏对话面板（`src/js/components/adminai/`）的布局与交互
 - **思考强度**：`admin_ai_reasoning_effort`（设置页「基础设置」），取值 `low|medium|high`，留空表示不携带 `reasoning_effort`、保持上游默认。厂商差异（`max`→`high`、`thinking`/`effort` 别名、Claude 的 budget 语义）由 `/v1` 网关的 `normalizeReasoningEffort` / `requestEnablesReasoning` 统一处理，面板侧不做分支。非法值在写入时（`clampAISetting`）与请求构造时（`normalizeReasoningEffort`）各收敛一次，都不会透传给上游。
 - **`@` 资源菜单**：子序列模糊匹配（`fuzzyMatch`，前缀与连续命中加权）+ 匹配高亮 + 上下键/Enter 键盘导航。菜单与输入框是兄弟节点，keydown 不冒泡到菜单容器，因此在**捕获阶段**挂 document 监听（capture 先于 target 冒泡）。
 - **`/` 斜杠命令**：仅行首 `/` 且未输入空格时触发，命令只做本地动作（切模式/新对话/停止），不写入消息正文。命令清单在 `SlashCommandMenu.jsx` 的 `SLASH_COMMANDS`，新增命令必须对应已有能力，不引入新的后端语义。
-- **模型选择器**（`ModelPicker.jsx`）：选项来自 `/api/openai/models`，空选项时不渲染。选择结果通过 `POST /api/admin-ai/messages` 的 `model` 字段传递，只影响随后发送的消息；空值表示用管理设置里的 `admin_ai_default_model`。
+- **模型选择器**（`ModelPicker.jsx`）：选项来自 `/api/modelhub/models`，空选项时不渲染。选择结果通过 `POST /api/admin-ai/messages` 的 `model` 字段传递，只影响随后发送的消息；空值表示用管理设置里的 `admin_ai_default_model`。
 - **Enter 冲突**：`handleTextareaKeyDown` 在 `atMenuOpen || slashMenuOpen` 时直接返回，把 Enter 让给菜单键盘导航。
 
 ## 原语分层

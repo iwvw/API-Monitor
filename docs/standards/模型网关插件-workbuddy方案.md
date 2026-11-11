@@ -78,7 +78,7 @@ backend-go/internal/workbuddy/
 ├── relay.go       /api/workbuddy/v1：模型列表 + chat/completions（流式/非流式）
 ├── usage.go       实际用量与扣费（站点时区日聚合）、选号权重、usage 接口
 ├── diag.go        /_diag 排障面：上游原始 usage 与归一化后实际写往下游的 usage
-└── link.go        与网关端点列表的接入/断开/状态（openai_endpoints）
+└── link.go        与网关端点列表的接入/断开/状态（modelhub_endpoints）
 ```
 
 ### 4.1 Settings（持久化于 `workbuddy_settings.data`）
@@ -114,7 +114,7 @@ backend-go/internal/workbuddy/
 | `workbuddy_usage_daily` | 实际用量与扣费，按「站点时区日期 × 账号 × 模型」聚合（主键 `day, account_id, model`） |
 | `workbuddy_diagnostics` | 单行（`id = 1`）最近一次 usage 诊断快照，由每分钟的落盘 ticker 写入 |
 
-`openai_endpoints` 表复用既有结构（`plugin_id = 'workbuddy'`），不新增列。
+`modelhub_endpoints` 表复用既有结构（`plugin_id = 'workbuddy'`），不新增列。
 
 ## 5. HTTP 接口契约
 
@@ -160,7 +160,7 @@ backend-go/internal/workbuddy/
 > 用于定位「插件有值、网关统计为 0」这类字节级不一致：网关用字面量正则
 > `"cached_tokens"\s*:\s*(\d+)` 取第一个匹配，只认不带引号的整数。
 
-网关接入后，`openai_endpoints` 里会出现一条固定端点：
+网关接入后，`modelhub_endpoints` 里会出现一条固定端点：
 
 - `id = "workbuddy-internal"`
 - `name = "WorkBuddy"`
@@ -239,7 +239,7 @@ backend-go/internal/workbuddy/
 3. `server.go`：删除 import、`workbuddy` 字段、`workbuddy.New(cfg)`、`SetProxyPoolSelector` 注入、
    `StartCallStatsFlush`、`serveGoRoute` case、`workbuddy-compatible` 鉴权分支
 4. DB：`DROP TABLE workbuddy_call_stats; DROP TABLE workbuddy_settings;`
-   并 `DELETE FROM openai_endpoints WHERE id = 'workbuddy-internal';`
+   并 `DELETE FROM modelhub_endpoints WHERE id = 'workbuddy-internal';`
 5. 删除 `src/js/pages/openai/plugins/WorkBuddyPlugin.jsx`
 6. `OpenAIPluginsPanel.jsx`：移除 `workbuddy` 注册条目
 7. 删除本文档
@@ -253,9 +253,9 @@ backend-go/internal/workbuddy/
 | `service.go` | Service/Settings、建表（`workbuddy_settings` / `workbuddy_call_stats`）、设置读写、`ServeHTTP` 全路径分派、模型前缀、调用计数落盘 |
 | `upstream.go` | 上游协议层：协议常量、数据形状、HTTP 管线（`commonHeaders` / `backendHeaders` / `doEnvelope` / `doJSON` / `httpClientFor`）、**五个上游调用全部实现**、六个纯函数适配器、SSE 聚合 |
 | `auth.go` | 扫码登录 start/poll、token 刷新、账号 CRUD / 启停 / 导出导入、脱敏视图、token 状态计算 |
-| `models.go` | 模型目录缓存（10 分钟 TTL，失败回落上一份快照）、启停、前缀变更时 `openai_endpoints` 三列命名空间迁移 |
+| `models.go` | 模型目录缓存（10 分钟 TTL，失败回落上一份快照）、启停、前缀变更时 `modelhub_endpoints` 三列命名空间迁移 |
 | `relay.go` | `/v1/models`、`/v1/chat/completions`、选号与失效即刷新、后台 `StartAutoRefresh` |
-| `link.go` | 与 `openai_endpoints` 的接入/断开/状态 |
+| `link.go` | 与 `modelhub_endpoints` 的接入/断开/状态 |
 
 ### 上游五个调用的实现要点
 
@@ -284,10 +284,10 @@ backend-go/internal/workbuddy/
 | 层 | 落点 | 作用 |
 | --- | --- | --- |
 | 插件设置 | `workbuddy_settings.disabledModels` | 单一事实来源，存**对外（带前缀）**模型名 |
-| 网关联络 | `openai_endpoints.disabled_models`（由 `syncLinkedEndpointDisabledModels` 写入） | **网关就是按这一列拦请求的**：`internal/openai/relay.go` 的 `resolveEndpointModel` → `isModelDisabled(ep.DisabledModels, requested)`。只改插件设置，网关仍会把请求路由过来 |
+| 网关联络 | `modelhub_endpoints.disabled_models`（由 `syncLinkedEndpointDisabledModels` 写入） | **网关就是按这一列拦请求的**：`internal/openai/relay.go` 的 `resolveEndpointModel` → `isModelDisabled(ep.DisabledModels, requested)`。只改插件设置，网关仍会把请求路由过来 |
 | 转发闸 | `relay.go` 的 `serveChatCompletions` 前置判定 | 覆盖直连 `/api/workbuddy/v1`（绕过网关）的情况，返回 OpenAI 的 `model_not_found` |
 
-注意 `openai_endpoints.models` 只是展示/刷新用的名单，**既不拦请求也不做白名单**（网关不读它做准入），
+注意 `modelhub_endpoints.models` 只是展示/刷新用的名单，**既不拦请求也不做白名单**（网关不读它做准入），
 所以不能靠"把它从 models 里删掉"来实现停用。
 
 前缀变更时，停用名单也要跟着换命名空间。前端是整对象 PUT，提交的是「新前缀 + 旧命名空间的名单」，
@@ -454,9 +454,9 @@ backend-go/internal/workbuddy/
 
 - **每账号调用次数**：已有（`workbuddy_call_stats`）。
 - **每账号 token 用量 + 按倍率加权的相对消耗**：可从网关自身的数据聚合 ——
-  `openai_gateway_stats_hourly` 与调用日志都带 `endpointId`（= `workbuddy-internal`）与
+  `modelhub_gateway_stats_hourly` 与调用日志都带 `endpointId`（= `workbuddy-internal`）与
   prompt/completion tokens，再乘各模型倍率即可得到「相对消耗」，用于找出吃额度的账号/模型。
-- ⚠️ **不要把倍率写进 `openai_endpoints.pricing`**：那一列是「每百万 token 的**货币**单价」，
+- ⚠️ **不要把倍率写进 `modelhub_endpoints.pricing`**：那一列是「每百万 token 的**货币**单价」，
   而 credits 是相对倍数、不含货币单价，两者不可直接换算；硬写会让网关算出假金额。
 
 ### 实测数据（2026-09-10，28 个可服务对话的模型）
@@ -521,7 +521,7 @@ cd backend-go && WORKBUDDY_LIVE=1 go test ./internal/workbuddy/ -run TestLiveFet
 
 ### 旁证：此前的 0 与「上游是否缓存」无关
 
-`data/data.db` 的 `openai_gateway_analytics`：Vertex 端点 499 次调用命中 3324 万 / 5372 万 prompt（≈86%），
+`data/data.db` 的 `modelhub_gateway_analytics`：Vertex 端点 499 次调用命中 3324 万 / 5372 万 prompt（≈86%），
 `workbuddy-internal` 16 次全 0。那 86% 来自 `gemini_upstream.go` 对 Gemini `total_cached_tokens` 的显式映射 ——
 两个端点只差在**适配层有没有做字段映射**。看 0 就断言"上游没缓存"，是漏掉了一层。
 
@@ -548,7 +548,7 @@ cd backend-go && WORKBUDDY_LIVE=1 go test ./internal/workbuddy/ -run TestLiveFet
 把上游 usage 里的 tokens 与 **`usage.credit`（本次请求的真实扣费，实测字段）** 按
 「**站点时区日期 × 账号 × 模型**」聚合，回答"谁在烧额度、哪个模型最贵"。
 
-### 为什么落插件自己的表，而不是网关的 `openai_gateway_analytics`
+### 为什么落插件自己的表，而不是网关的 `modelhub_gateway_analytics`
 
 - 那张表的维度是**端点 / 网关 key**，列结构属 openai 模块（单 Owner 文件），加列会跨域改动；
 - "哪个插件账号在消耗"属于插件自己的域，落自己的表最干净，也不影响网关既有统计。

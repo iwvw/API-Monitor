@@ -14,7 +14,7 @@ API Monitor 目前管理着大量可被视作「资产」的对象：主机与�
 2. 到期字段口径不统一：`server_accounts.expires_at` 是 DATETIME，`subscription_subscriptions.expire_at` 是 TEXT，`uptime_monitor_states.ssl_expiry` 又是另一种语义，跨模块汇总必须先归一。
 3. 到期判断逻辑重复且分散：`ServerPage.jsx` 在前端算剩余天数，`subscription/summary.go` 在后端算 expired，`uptime/ssl.go` 又单独算 `daysLeft`。
 4. 面板管不到的资产（网络设备、存储、终端、线下服务器、SaaS 账号）完全没有登记入口。
-5. 成本信息仅零星存在（`openai_gateway_stats_hourly.cost`、华为云费用概览），没有统一口径。
+5. 成本信息仅零星存在（`modelhub_gateway_stats_hourly.cost`、华为云费用概览），没有统一口径。
 6. 到期告警能力存在但未覆盖资产维度：`notification` 模块已支持 `ssl_expiry` 等事件，却没有统一的资产到期事件。
 
 用户真正需要的不是「把各模块列表再抄一遍」，而是一个既能独立登记台账、又能把已有对象纳管进来统一看到期与成本的资产中心。
@@ -207,7 +207,7 @@ API Monitor 目前管理着大量可被视作「资产」的对象：主机与�
 | `aliyun_domains` / `tencent_domains` | `domain` | 到期时间（刷新时拉取） |
 | `uptime_monitor_states` | `ssl_cert` | `ssl_expiry`（直接读表，不重复握手探测） |
 | `m365_accounts` 许可证 | `license` | 许可证数量与到期 |
-| `openai_gateway_keys` / `api_access_keys` / `aiagent_tokens` | `api_key` | `expires_at` |
+| `modelhub_gateway_keys` / `api_access_keys` / `aiagent_tokens` | `api_key` | `expires_at` |
 | `managed_proxy_nodes` | `proxy_node` | 节点状态与端口 |
 
 ### 11. 到期告警（P1）
