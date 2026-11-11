@@ -4,7 +4,7 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
 /**
- * 模型网关插件（与面板 `OpenAIPluginsPanel` 的注册表一致）。
+ * 模型网关插件（与面板 `ModelHubPluginsPanel` 的注册表一致）。
  *
  * 插件是「账号转 API」的上游适配器：Antigravity / WorkBuddy / LobsterAI 等。
  * 每个插件有独立的 status / accounts / settings / models 接口，

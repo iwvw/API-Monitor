@@ -789,7 +789,7 @@ private fun LogCard(log: GatewayLog) {
 }
 
 /**
- * 日志时间只显示 HH:mm。后端 `openai_gateway_analytics.timestamp` 目前是
+ * 日志时间只显示 HH:mm。后端 `modelhub_gateway_analytics.timestamp` 目前是
  * `YYYY-MM-DD HH:MM:SS`，但也兼容 RFC3339（`...THH:MM:SSZ`）——直接 takeLast
  * 会在格式切换时切出 "0:36:" 这种残片。
  */
