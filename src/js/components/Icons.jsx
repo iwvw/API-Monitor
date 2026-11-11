@@ -301,7 +301,7 @@ export const MODULE_ICON_MAP = {
   dashboard: LayoutDashboard,
   settings: Settings,
   assets: HardDrive,
-  openai: Sparkle,
+  modelhub: Sparkle,
   aiagent: Terminal,
   subscription: Plug,
   paas: Rocket,

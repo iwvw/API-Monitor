@@ -24,7 +24,7 @@ import {
 import {
   activeModelIdsForEndpoint,
 } from './utils.js';
-import { modelHealthKey } from '../../modules/openaiModelHealth.js';
+import { modelHealthKey } from '../../modules/modelhubModelHealth.js';
 import { ProxyRuntimeMeta } from './ProxyRuntimeMeta.jsx';
 import { MultiSelectPopover } from './MultiSelectPopover.jsx';
 import { KeyStatusBadge } from './KeyStatusBadge.jsx';
@@ -125,7 +125,7 @@ export function EndpointsTab({
   const {
     modelHealthBatchLoading,
     modelHealthAbortControllersRef,
-    openaiModelHealth,
+    modelhubModelHealth,
     testModelHealth,
     openHealthCheckForEndpoint,
   } = healthApi;
@@ -576,7 +576,7 @@ export function EndpointsTab({
                                     ? model.trim()
                                     : (model.id || '').trim();
                                 const healthKey = modelHealthKey(endpoint.id, modelId);
-                                const health = openaiModelHealth[healthKey];
+                                const health = modelhubModelHealth[healthKey];
                                 const canStopHealthCheck =
                                   health?.loading &&
                                   modelHealthAbortControllersRef.current.has(healthKey);

@@ -18,7 +18,7 @@ import { toast } from '../../modules/toast.js';
 import { dialog } from '../../modules/dialog.js';
 import { MODULE_TABS_PROPS } from '../../modules/kumoTabs.js';
 import { PageStack, stickyTabsBaseClass } from '../../components/ui/AppPrimitives.jsx';
-import { kumoHex, formatCompact } from '../openai/utils.js';
+import { kumoHex, formatCompact } from '../modelhub/utils.js';
 import useStore from '../../store.js';
 import { RefreshCw } from '../../components/Icons.jsx';
 import {

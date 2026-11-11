@@ -18,7 +18,7 @@ export const buildSampleEventData = (rule = {}) => {
       workflowName: '每日Token用量分析',
       status: 'success',
       summary: '成功 3，失败 0，跳过 0',
-      output: '读取 GET /api/openai/analytics/summary 完成，总量 1,283,990 tokens',
+      output: '读取 GET /api/modelhub/analytics/summary 完成，总量 1,283,990 tokens',
       duration: 11,
       triggerType: 'cron',
       time: new Date().toLocaleString('zh-CN'),

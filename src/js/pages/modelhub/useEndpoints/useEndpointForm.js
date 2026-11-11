@@ -47,7 +47,7 @@ export function useEndpointForm({ loadEndpoints, loadAllModels, confirmState }) 
     setEndpointKeyChecking(true);
     setEndpointKeyChecks(rows.map(() => ({ status: 'checking' })));
     try {
-      const response = await fetch(`/api/openai/endpoints/${endpointId}/key-check`, {
+      const response = await fetch(`/api/modelhub/endpoints/${endpointId}/key-check`, {
         method: 'POST',
         headers: getAuthHeaders(),
         body: JSON.stringify({
@@ -237,7 +237,7 @@ export function useEndpointForm({ loadEndpoints, loadAllModels, confirmState }) 
       if (proxyImportLoading) return;
       setProxyImportLoading(true);
       try {
-        const response = await fetch('/api/openai/proxies/import-list', {
+        const response = await fetch('/api/modelhub/proxies/import-list', {
           method: 'POST',
           headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
           body: JSON.stringify({ text }),
@@ -280,7 +280,7 @@ export function useEndpointForm({ loadEndpoints, loadAllModels, confirmState }) 
     let cancelled = false;
     const load = async () => {
       try {
-        const response = await fetch(`/api/openai/endpoints/${editingEndpoint.id}/proxy-state`, {
+        const response = await fetch(`/api/modelhub/endpoints/${editingEndpoint.id}/proxy-state`, {
           headers: getAuthHeaders(),
         });
         const data = await response.json().catch(() => ({}));
@@ -330,14 +330,14 @@ export function useEndpointForm({ loadEndpoints, loadAllModels, confirmState }) 
     if (!editingEndpoint?.id || unbanningProxies) return;
     setUnbanningProxies(true);
     try {
-      const response = await fetch(`/api/openai/endpoints/${editingEndpoint.id}/proxy-state/unban`, {
+      const response = await fetch(`/api/modelhub/endpoints/${editingEndpoint.id}/proxy-state/unban`, {
         method: 'POST',
         headers: getAuthHeaders(),
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok || !data.success) throw new Error(data.error || `HTTP ${response.status}`);
       toast.success(data.cleared ? `已解封 ${data.cleared} 条代理` : '代理池无被禁用的出口');
-      const stateRes = await fetch(`/api/openai/endpoints/${editingEndpoint.id}/proxy-state`, {
+      const stateRes = await fetch(`/api/modelhub/endpoints/${editingEndpoint.id}/proxy-state`, {
         headers: getAuthHeaders(),
       });
       const stateData = await stateRes.json().catch(() => ({}));
@@ -360,14 +360,14 @@ export function useEndpointForm({ loadEndpoints, loadAllModels, confirmState }) 
     if (!editingEndpoint?.id || probingProxies) return;
     setProbingProxies(true);
     try {
-      const response = await fetch(`/api/openai/endpoints/${editingEndpoint.id}/proxy-state/probe`, {
+      const response = await fetch(`/api/modelhub/endpoints/${editingEndpoint.id}/proxy-state/probe`, {
         method: 'POST',
         headers: getAuthHeaders(),
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok || !data.success) throw new Error(data.error || `HTTP ${response.status}`);
       toast.success(data.probed ? `已探测 ${data.probed} 条代理，可达 ${data.reachable} 条` : '代理池为空');
-      const stateRes = await fetch(`/api/openai/endpoints/${editingEndpoint.id}/proxy-state`, {
+      const stateRes = await fetch(`/api/modelhub/endpoints/${editingEndpoint.id}/proxy-state`, {
         headers: getAuthHeaders(),
       });
       const stateData = await stateRes.json().catch(() => ({}));
@@ -421,7 +421,7 @@ export function useEndpointForm({ loadEndpoints, loadAllModels, confirmState }) 
     if (proxyImportLoading) return;
     setProxyImportLoading(true);
     try {
-      const response = await fetch('/api/openai/proxies/resolve-subscription', {
+      const response = await fetch('/api/modelhub/proxies/resolve-subscription', {
         method: 'POST',
         headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
         body: JSON.stringify({ url }),
@@ -486,8 +486,8 @@ export function useEndpointForm({ loadEndpoints, loadAllModels, confirmState }) 
     setEndpointFormError('');
     try {
       const url = editingEndpoint
-        ? `/api/openai/endpoints/${editingEndpoint.id}`
-        : '/api/openai/endpoints';
+        ? `/api/modelhub/endpoints/${editingEndpoint.id}`
+        : '/api/modelhub/endpoints';
       const apiKeys = (endpointForm.apiKeys || []).map(k => (k || '').trim()).filter(Boolean);
       const response = await fetch(url, {
         method: editingEndpoint ? 'PUT' : 'POST',
@@ -519,10 +519,10 @@ export function useEndpointForm({ loadEndpoints, loadAllModels, confirmState }) 
   };
 
   const keyDeleteConfirmActive = rowIndex =>
-    isArmed(`openai-endpoint-key:${endpointKeyEpoch}:${rowIndex}`);
+    isArmed(`modelhub-endpoint-key:${endpointKeyEpoch}:${rowIndex}`);
 
   const removeEndpointKey = rowIndex => {
-    if (!confirmPress(`openai-endpoint-key:${endpointKeyEpoch}:${rowIndex}`, '删除此 Key')) return;
+    if (!confirmPress(`modelhub-endpoint-key:${endpointKeyEpoch}:${rowIndex}`, '删除此 Key')) return;
     setEndpointKeyEpoch(epoch => epoch + 1);
     setEndpointForm(current => {
       const keys = [current.apiKey || '', ...(current.apiKeys || [])];
@@ -541,7 +541,7 @@ export function useEndpointForm({ loadEndpoints, loadAllModels, confirmState }) 
   };
 
   const deleteEndpointConfirmActive = id =>
-    isArmed(`openai-endpoint-delete:${id}`);
+    isArmed(`modelhub-endpoint-delete:${id}`);
 
   return {
     editingEndpoint,

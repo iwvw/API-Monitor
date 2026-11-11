@@ -27,7 +27,7 @@ export function useEndpointCrud({ loadAllModels, routingEditKeyState, confirmSta
     async (silent = false) => {
       if (!silent) setEndpointsLoading(true);
       try {
-        const response = await fetch('/api/openai/endpoints', {
+        const response = await fetch('/api/modelhub/endpoints', {
           headers: getAuthHeaders(),
         });
         const data = await response.json();
@@ -46,7 +46,7 @@ export function useEndpointCrud({ loadAllModels, routingEditKeyState, confirmSta
   );
 
   useEffect(() => {
-    localStorage.removeItem('openai_endpoints_cache');
+    localStorage.removeItem('modelhub_endpoints_cache');
     loadEndpoints();
   }, [loadEndpoints]);
   const endpointImportInputRef = useRef(null);
@@ -57,7 +57,7 @@ export function useEndpointCrud({ loadAllModels, routingEditKeyState, confirmSta
   const exportEndpoints = async () => {
     setEndpointExporting(true);
     try {
-      const response = await fetch('/api/openai/export', { headers: getAuthHeaders() });
+      const response = await fetch('/api/modelhub/export', { headers: getAuthHeaders() });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok || payload.success !== true) throw new Error(payload.error || '导出端点失败');
       const list = Array.isArray(payload.endpoints) ? payload.endpoints : [];
@@ -66,7 +66,7 @@ export function useEndpointCrud({ loadAllModels, routingEditKeyState, confirmSta
       const url = URL.createObjectURL(blob);
       const anchor = document.createElement('a');
       anchor.href = url;
-      anchor.download = `openai-endpoints-${new Date().toISOString().slice(0, 10)}.json`;
+      anchor.download = `modelhub-endpoints-${new Date().toISOString().slice(0, 10)}.json`;
       document.body.appendChild(anchor);
       anchor.click();
       anchor.remove();
@@ -102,7 +102,7 @@ export function useEndpointCrud({ loadAllModels, routingEditKeyState, confirmSta
     setImportModeDialog(null);
     setEndpointImporting(true);
     try {
-      const response = await fetch('/api/openai/import', {
+      const response = await fetch('/api/modelhub/import', {
         method: 'POST',
         headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
         body: JSON.stringify({ endpoints: list, overwrite }),
@@ -146,7 +146,7 @@ export function useEndpointCrud({ loadAllModels, routingEditKeyState, confirmSta
   const verifyEndpoint = async endpoint => {
     try {
       toast.info(`正在验证 ${endpoint.name || '端点'}...`, { isManual: true });
-      const response = await fetch(`/api/openai/endpoints/${endpoint.id}/verify`, {
+      const response = await fetch(`/api/modelhub/endpoints/${endpoint.id}/verify`, {
         method: 'POST',
         headers: getAuthHeaders(),
       });
@@ -167,7 +167,7 @@ export function useEndpointCrud({ loadAllModels, routingEditKeyState, confirmSta
     // Set local refreshing
     setEndpoints(prev => prev.map(e => (e.id === endpoint.id ? { ...e, refreshing: true } : e)));
     try {
-      const response = await fetch(`/api/openai/endpoints/${endpoint.id}/verify`, {
+      const response = await fetch(`/api/modelhub/endpoints/${endpoint.id}/verify`, {
         method: 'POST',
         headers: getAuthHeaders(),
       });
@@ -201,7 +201,7 @@ export function useEndpointCrud({ loadAllModels, routingEditKeyState, confirmSta
   const refreshAllEndpoints = async () => {
     setEndpointsRefreshing(true);
     try {
-      const response = await fetch('/api/openai/endpoints/refresh', {
+      const response = await fetch('/api/modelhub/endpoints/refresh', {
         method: 'POST',
         headers: getAuthHeaders(),
       });
@@ -225,7 +225,7 @@ export function useEndpointCrud({ loadAllModels, routingEditKeyState, confirmSta
     const updatedEnabled = !endpoint.enabled;
     setEndpointToggleLoading(prev => ({ ...prev, [endpoint.id]: true }));
     try {
-      const response = await fetch(`/api/openai/endpoints/${endpoint.id}/toggle`, {
+      const response = await fetch(`/api/modelhub/endpoints/${endpoint.id}/toggle`, {
         method: 'POST',
         headers: getAuthHeaders(),
         body: JSON.stringify({ enabled: updatedEnabled }),
@@ -247,13 +247,13 @@ export function useEndpointCrud({ loadAllModels, routingEditKeyState, confirmSta
     }
   };
 
-  // 保存端点路由优先级/权重：PUT /api/openai/endpoints/:id/routing（照搬模型映射模式）。
+  // 保存端点路由优先级/权重：PUT /api/modelhub/endpoints/:id/routing（照搬模型映射模式）。
   const saveEndpointRouting = async (endpointId, field, value) => {
     const { setRoutingEditKey } = routingEditKeyState;
     setRoutingEditKey(null);
     const payload = field === 'priority' ? { priority: value } : { weight: value };
     try {
-      const res = await fetch(`/api/openai/endpoints/${endpointId}/routing`, {
+      const res = await fetch(`/api/modelhub/endpoints/${endpointId}/routing`, {
         method: 'PUT',
         headers: getAuthHeaders(),
         body: JSON.stringify(payload),
@@ -279,12 +279,12 @@ export function useEndpointCrud({ loadAllModels, routingEditKeyState, confirmSta
   };
 
   const deleteEndpointConfirmActive = id =>
-    isArmed(`openai-endpoint-delete:${id}`);
+    isArmed(`modelhub-endpoint-delete:${id}`);
 
   const deleteEndpoint = async endpoint => {
-    if (!confirmPress(`openai-endpoint-delete:${endpoint.id}`, `删除端点 ${endpoint.name || endpoint.baseUrl}`)) return;
+    if (!confirmPress(`modelhub-endpoint-delete:${endpoint.id}`, `删除端点 ${endpoint.name || endpoint.baseUrl}`)) return;
     try {
-      const response = await fetch(`/api/openai/endpoints/${endpoint.id}`, {
+      const response = await fetch(`/api/modelhub/endpoints/${endpoint.id}`, {
         method: 'DELETE',
         headers: getAuthHeaders(),
       });

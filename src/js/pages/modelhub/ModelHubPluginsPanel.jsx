@@ -65,9 +65,9 @@ const PLUGINS = [
   },
 ];
 
-// OpenAIPluginsPanel：模型网关「插件」中心。
+// ModelHubPluginsPanel：模型网关「插件」中心。
 // 左侧插件列表 + 右侧详情，点击左侧切换，右侧常驻显示当前插件详情。
-export function OpenAIPluginsPanel() {
+export function ModelHubPluginsPanel() {
   const [selectedId, setSelectedId] = useState(PLUGINS[0]?.id ?? null);
   const selected = PLUGINS.find(p => p.id === selectedId) ?? PLUGINS[0];
 

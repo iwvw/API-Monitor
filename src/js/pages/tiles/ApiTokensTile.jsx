@@ -7,7 +7,7 @@ import TileSkeleton from './TileSkeleton.jsx';
 import ValueStatBar from './ValueStatBar.jsx';
 import { widthTier } from './constants.js';
 import { pctDelta, seriesSummary, shortDay } from './utils.js';
-import { formatTokensAxis, formatTokensZh } from '../openai/utils.js';
+import { formatTokensAxis, formatTokensZh } from '../modelhub/utils.js';
 
 export default function ApiTokensTile({ data, loading, isDarkMode, density = 'full', w = 1 }) {
   const trend = useMemo(() => (Array.isArray(data?.trend) ? data.trend : []), [data]);

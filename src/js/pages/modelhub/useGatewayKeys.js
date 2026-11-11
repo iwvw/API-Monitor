@@ -26,7 +26,7 @@ const [newGatewayKey, setNewGatewayKey] = useState(null);
 const loadGatewayKeys = useCallback(async () => {
   setGatewayKeysLoading(true);
   try {
-    const response = await fetch('/api/openai/keys', { headers: getAuthHeaders() });
+    const response = await fetch('/api/modelhub/keys', { headers: getAuthHeaders() });
     const data = await response.json().catch(() => []);
     if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
     setGatewayKeys(Array.isArray(data) ? data : []);
@@ -143,7 +143,7 @@ const saveGatewayKey = async () => {
   setGatewayKeyFormError('');
   try {
     const response = await fetch(
-      editingGatewayKey ? `/api/openai/keys/${editingGatewayKey.id}` : '/api/openai/keys',
+      editingGatewayKey ? `/api/modelhub/keys/${editingGatewayKey.id}` : '/api/modelhub/keys',
       {
         method: editingGatewayKey ? 'PUT' : 'POST',
         headers: getAuthHeaders(),
@@ -170,7 +170,7 @@ const toggleGatewayKey = async key => {
   const nextEnabled = !key.enabled;
   setGatewayKeyToggleLoading(prev => ({ ...prev, [key.id]: true }));
   try {
-    const response = await fetch(`/api/openai/keys/${key.id}/toggle`, {
+    const response = await fetch(`/api/modelhub/keys/${key.id}/toggle`, {
       method: 'POST',
       headers: getAuthHeaders(),
       body: JSON.stringify({ enabled: nextEnabled }),
@@ -191,7 +191,7 @@ const toggleGatewayKey = async key => {
 
 const setDefaultGatewayKey = async key => {
   try {
-    const response = await fetch(`/api/openai/keys/${key.id}/default`, {
+    const response = await fetch(`/api/modelhub/keys/${key.id}/default`, {
       method: 'PUT',
       headers: getAuthHeaders(),
     });
@@ -207,7 +207,7 @@ const setDefaultGatewayKey = async key => {
 const rotateGatewayKey = async key => {
   if (!(await dialog.confirm(`确认轮换 "${key.name}"？旧密钥会立即失效。`))) return;
   try {
-    const response = await fetch(`/api/openai/keys/${key.id}/rotate`, {
+    const response = await fetch(`/api/modelhub/keys/${key.id}/rotate`, {
       method: 'POST',
       headers: getAuthHeaders(),
     });
@@ -224,7 +224,7 @@ const rotateGatewayKey = async key => {
 const deleteGatewayKey = async key => {
   if (!confirmPress(`gateway-key-${key.id}`, `删除网关密钥「${key.name}」`)) return;
   try {
-    const response = await fetch(`/api/openai/keys/${key.id}`, {
+    const response = await fetch(`/api/modelhub/keys/${key.id}`, {
       method: 'DELETE',
       headers: getAuthHeaders(),
     });

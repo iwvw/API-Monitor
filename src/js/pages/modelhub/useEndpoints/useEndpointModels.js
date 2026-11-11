@@ -18,7 +18,7 @@ export function useEndpointModels({ setEndpoints }) {
   const loadAllModels = useCallback(
     async (silent = false) => {
       try {
-        const response = await fetch('/api/openai/v1/models', {
+        const response = await fetch('/api/modelhub/v1/models', {
           headers: getAuthHeaders(),
         });
         const data = await response.json();
@@ -65,7 +65,7 @@ export function useEndpointModels({ setEndpoints }) {
       )
     );
     try {
-      const response = await fetch(`/api/openai/endpoints/${endpoint.id}/models/toggle`, {
+      const response = await fetch(`/api/modelhub/endpoints/${endpoint.id}/models/toggle`, {
         method: 'POST',
         headers: getAuthHeaders(),
         body: JSON.stringify({ model: modelId, enabled }),
@@ -105,7 +105,7 @@ export function useEndpointModels({ setEndpoints }) {
     setModelBatchActionLoading(true);
     try {
       const response = await fetch(
-        `/api/openai/endpoints/${endpoint.id}/models/toggle-batch`,
+        `/api/modelhub/endpoints/${endpoint.id}/models/toggle-batch`,
         {
           method: 'POST',
           headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
@@ -143,7 +143,7 @@ export function useEndpointModels({ setEndpoints }) {
       .filter(Boolean);
     if (models.length === 0 && !replace) return false;
     try {
-      const response = await fetch(`/api/openai/endpoints/${endpoint.id}/models/add`, {
+      const response = await fetch(`/api/modelhub/endpoints/${endpoint.id}/models/add`, {
         method: 'POST',
         headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
         body: JSON.stringify({ models, replace }),
@@ -176,12 +176,12 @@ export function useEndpointModels({ setEndpoints }) {
     }
   };
 
-  // 保存模型映射：PUT /api/openai/endpoints/:id/model-mappings。
+  // 保存模型映射：PUT /api/modelhub/endpoints/:id/model-mappings。
   const saveEndpointMapping = async (endpoint, modelId, alias) => {
     setMappingEditKey(null);
     const clean = (alias || '').trim();
     try {
-      const res = await fetch(`/api/openai/endpoints/${endpoint.id}/model-mappings`, {
+      const res = await fetch(`/api/modelhub/endpoints/${endpoint.id}/model-mappings`, {
         method: 'PUT',
         headers: getAuthHeaders(),
         body: JSON.stringify({

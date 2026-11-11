@@ -11,7 +11,7 @@ export const getSourceModuleName = (module) => {
     uptime: '可用性监测',
     server: '主机实例',
     github: 'GitHub',
-    openai: 'OpenAI 接口',
+    modelhub: '模型网关',
     system: '系统设置',
     filebox: '文件柜',
     totp: '双因子认证',

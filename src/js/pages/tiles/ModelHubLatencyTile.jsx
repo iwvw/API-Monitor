@@ -6,7 +6,7 @@ import TileSkeleton from './TileSkeleton.jsx';
 import { widthTier } from './constants.js';
 import { fmtMs, seriesSummary, shortDay } from './utils.js';
 
-export default function OpenaiLatencyTile({ data, loading, isDarkMode, density = 'full', w = 1 }) {
+export default function ModelHubLatencyTile({ data, loading, isDarkMode, density = 'full', w = 1 }) {
   const daily = useMemo(() => (Array.isArray(data?.daily) ? data.daily : []), [data]);
   const categories = useMemo(() => daily.map((p) => shortDay(p.day)), [daily]);
   const latValues = useMemo(() => daily.map((p) => p.avgLatency ?? 0), [daily]);

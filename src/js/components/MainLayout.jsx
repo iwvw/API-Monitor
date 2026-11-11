@@ -40,7 +40,7 @@ const TotpPage = lazy(() => import('../pages/TotpPage.jsx'));
 const FileboxPage = lazy(() => import('../pages/filebox/FileboxPage.jsx'));
 const UptimePage = lazy(() => import('../pages/uptime/UptimePage.jsx'));
 const NotificationPage = lazy(() => import('../pages/notification/NotificationPage.jsx'));
-const OpenAIPage = lazy(() => import('../pages/OpenAIPage.jsx'));
+const ModelHubPage = lazy(() => import('../pages/ModelHubPage.jsx'));
 const SubscriptionPage = lazy(() => import('../pages/SubscriptionPage.jsx'));
 const GitHubPage = lazy(() => import('../pages/GitHubPage.jsx'));
 const DockerHubPage = lazy(() => import('../pages/DockerHubPage.jsx'));
@@ -647,7 +647,7 @@ function MainLayout() {
     'notification',
     'filebox',
     'subscription',
-    'openai',
+    'modelhub',
     'aiagent',
     'apidocs',
     'dns',
@@ -686,8 +686,8 @@ function MainLayout() {
         return <DashboardPage />;
       case 'assets':
         return <AssetsPage />;
-      case 'openai':
-        return <OpenAIPage />;
+      case 'modelhub':
+        return <ModelHubPage />;
       case 'subscription':
         return <SubscriptionPage />;
 

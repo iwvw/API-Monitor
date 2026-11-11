@@ -123,7 +123,7 @@ const sortRoutes = routes =>
 const routeGroup = route => {
   const prefix = route.prefix || '';
   if (
-    prefix.startsWith(routePrefixLiteral(API_SEGMENT, 'openai')) ||
+    prefix.startsWith(routePrefixLiteral(API_SEGMENT, 'modelhub')) ||
     prefix.startsWith(routePrefixLiteral(API_SEGMENT, 'chat')) ||
     prefix.startsWith(routePrefixLiteral('v1'))
   )
@@ -284,7 +284,7 @@ const routeDescription = route => {
   )
     return '主机终端和 Agent 实时连接';
   if (
-    prefix.startsWith(routePrefixLiteral(API_SEGMENT, 'openai')) ||
+    prefix.startsWith(routePrefixLiteral(API_SEGMENT, 'modelhub')) ||
     prefix.startsWith(routePrefixLiteral('v1')) ||
     prefix.startsWith(routePrefixLiteral(API_SEGMENT, 'chat'))
   )

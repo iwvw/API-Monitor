@@ -703,13 +703,13 @@ import {
       else localStorage.removeItem('adminai-model');
     } catch { }
   };
-  // 模型选项来自对外暴露的模型列表（/api/openai/models 与 /v1/models 同源）。
+  // 模型选项来自对外暴露的模型列表（/api/modelhub/models 与 /v1/models 同源）。
   // 面板常驻挂载，首次打开时懒加载一次即可，失败静默降级为「不显示选择器」。
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const res = await fetch('/api/openai/models');
+        const res = await fetch('/api/modelhub/models');
         if (!res.ok) return;
         const data = await res.json();
         const list = Array.isArray(data) ? data : (data.data || []);

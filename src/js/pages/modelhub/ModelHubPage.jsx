@@ -7,7 +7,7 @@ import { ChartPalette, Popover, Tabs, Toolbar } from '@cloudflare/kumo';
 import { MODULE_TABS_PROPS } from '../../modules/kumoTabs.js';
 import { useConfirmPress } from '../../hooks/useConfirmPress.js';
 import useStore from '../../store.js';
-import { endpointModelIds, modelHealthKey } from '../../modules/openaiModelHealth.js';
+import { endpointModelIds, modelHealthKey } from '../../modules/modelhubModelHealth.js';
 import {
   PageStack,
   stickyTabsBaseClass,
@@ -47,7 +47,7 @@ const ANALYTICS_TIME_PRESETS = [
 import { useGatewayKeys } from './useGatewayKeys.js';
 import { useHealthChecks } from './useHealthChecks.js';
 import { useEndpoints } from './useEndpoints.js';
-import { OpenAIPluginsPanel } from './OpenAIPluginsPanel.jsx';
+import { ModelHubPluginsPanel } from './ModelHubPluginsPanel.jsx';
 import { GatewayKeysTab } from './GatewayKeysTab.jsx';
 import { AnalyticsTab } from './AnalyticsTab.jsx';
 import { GatewayLogsTab } from './GatewayLogsTab.jsx';
@@ -60,7 +60,7 @@ import { ProxyManagerDialog } from './ProxyManagerDialog.jsx';
 import { GatewayKeyDialogs } from './GatewayKeyDialogs.jsx';
 import { HealthCheckDialog } from './HealthCheckDialog.jsx';
 
-function OpenAIPage() {
+function ModelHubPage() {
   const { isArmed, confirmPress } = useConfirmPress();
   const theme = useStore(s => s.theme);
   const isDarkMode = theme === 'dark';
@@ -273,7 +273,7 @@ function OpenAIPage() {
   // 端点模型健康检测（单测/批量/进度，由 useHealthChecks 统一管理）
   const healthApi = useHealthChecks({ endpoints, selectedEndpointId });
   const {
-    openaiModelHealth, setOpenaiModelHealth,
+    modelhubModelHealth, setModelhubModelHealth,
     modelHealthBatchLoading,
     healthCheckProgress, setHealthCheckProgress,
     healthCheckModal, setHealthCheckModal,
@@ -284,7 +284,7 @@ function OpenAIPage() {
     openHealthCheckForEndpoint,
   } = healthApi;
 
-  // 对外暴露模型实时查询（/v1/models 同源的 /api/openai/models，每次打开 popover 即时拉取）
+  // 对外暴露模型实时查询（/v1/models 同源的 /api/modelhub/models，每次打开 popover 即时拉取）
   const [exposedModels, setExposedModels] = useState([]);
   const [exposedModelsLoading, setExposedModelsLoading] = useState(false);
   const [exposedModelsError, setExposedModelsError] = useState(null);
@@ -318,7 +318,7 @@ function OpenAIPage() {
     setExposedModelsLoading(true);
     setExposedModelsError(null);
     try {
-      const res = await fetch('/api/openai/models', { signal: controller.signal, headers: { Accept: 'application/json' } });
+      const res = await fetch('/api/modelhub/models', { signal: controller.signal, headers: { Accept: 'application/json' } });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const json = await res.json();
       setExposedModels(Array.isArray(json?.data) ? json.data : []);
@@ -495,7 +495,7 @@ function OpenAIPage() {
   const failedModelIdsForEndpoint = endpoint => {
     if (!endpoint) return [];
     return endpointModelIds(endpoint).filter(
-      modelId => openaiModelHealth[modelHealthKey(endpoint.id, modelId)]?.status === 'error'
+      modelId => modelhubModelHealth[modelHealthKey(endpoint.id, modelId)]?.status === 'error'
     );
   };
 
@@ -505,7 +505,7 @@ function OpenAIPage() {
     if (modelBatchActionLoading) return;
     const targets = endpointModelIds(endpoint).filter(modelId => {
       if (!modelEnabledForEndpoint(endpoint, modelId)) return false;
-      const health = openaiModelHealth[modelHealthKey(endpoint.id, modelId)];
+      const health = modelhubModelHealth[modelHealthKey(endpoint.id, modelId)];
       return health?.status !== 'healthy' && health?.status !== 'degraded';
     });
     if (targets.length === 0) {
@@ -554,7 +554,7 @@ function OpenAIPage() {
     try {
       for (const entry of entries) {
         const response = await fetch(
-          `/api/openai/endpoints/${entry.endpoint.id}/models/toggle-batch`,
+          `/api/modelhub/endpoints/${entry.endpoint.id}/models/toggle-batch`,
           {
             method: 'POST',
             headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
@@ -850,9 +850,9 @@ function OpenAIPage() {
 
       {/* 3. Health Check Config Dialog */}
       <HealthCheckDialog healthApi={healthApi} />
-      {activeTab === 'beta' && <OpenAIPluginsPanel />}
+      {activeTab === 'beta' && <ModelHubPluginsPanel />}
     </PageStack>
   );
 }
 
-export default OpenAIPage;
+export default ModelHubPage;

@@ -8,9 +8,9 @@ import {
   modelHealthTargets,
   normalizeModelHealthRecord,
   resolveModelHealthConcurrency,
-} from './openaiModelHealth.js';
+} from './modelhubModelHealth.js';
 
-describe('OpenAI model health helpers', () => {
+describe('ModelHub model health helpers', () => {
   it('keeps the same model on different endpoints as separate targets', () => {
     const targets = modelHealthTargets([
       { id: 'endpoint-a', enabled: true, models: ['shared-model', 'model-a'] },

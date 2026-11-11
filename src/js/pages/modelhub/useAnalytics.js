@@ -5,23 +5,23 @@ import { getAuthHeaders } from './utils.js';
 
 export function useAnalytics(activeTab, endpoints = []) {
   const [analyticsDays, setAnalyticsDays] = useState(() => {
-    const stored = Number(localStorage.getItem('openai_analytics_days'));
+    const stored = Number(localStorage.getItem('modelhub_analytics_days'));
     return stored >= 1 ? stored : 7;
   });
   // 分钟级窗口（30/60/360/720）：与「过去 24 小时」共用 days=1，但带 minutes 精确过滤。
   const [analyticsMinutes, setAnalyticsMinutes] = useState(() => {
-    const stored = Number(localStorage.getItem('openai_analytics_minutes'));
+    const stored = Number(localStorage.getItem('modelhub_analytics_minutes'));
     return [30, 60, 360, 720].includes(stored) ? stored : null;
   });
   const [analyticsGranularity, setAnalyticsGranularity] = useState(() => {
-    const stored = localStorage.getItem('openai_analytics_granularity');
+    const stored = localStorage.getItem('modelhub_analytics_granularity');
     return ['hour', 'day', 'week'].includes(stored) ? stored : 'day';
   });
   // 数据看板范围按钮文案：默认按持久化的分析范围推断，应用后同步记录。
   const [analyticsRangeLabel, setAnalyticsRangeLabel] = useState(() => {
-    const stored = localStorage.getItem('openai_analytics_range_label');
+    const stored = localStorage.getItem('modelhub_analytics_range_label');
     if (stored) return stored;
-    const days = Number(localStorage.getItem('openai_analytics_days'));
+    const days = Number(localStorage.getItem('modelhub_analytics_days'));
     return days === 1 ? '过去 24 小时' : days === 30 ? '过去 30 天' : days >= 36500 ? '全部' : '过去 7 天';
   });
   const [analyticsSummary, setAnalyticsSummary] = useState({
@@ -62,7 +62,7 @@ export function useAnalytics(activeTab, endpoints = []) {
   const [analyticsLogs, setAnalyticsLogs] = useState([]);
   const [analyticsPage, setAnalyticsPage] = useState(1);
   const [analyticsPageSize, setAnalyticsPageSize] = useState(() => {
-    const stored = Number(localStorage.getItem('openai_analytics_page_size'));
+    const stored = Number(localStorage.getItem('modelhub_analytics_page_size'));
     return [10, 20, 50, 100].includes(stored) ? stored : 50;
   });
   const [analyticsTotal, setAnalyticsTotal] = useState(0);
@@ -93,7 +93,7 @@ export function useAnalytics(activeTab, endpoints = []) {
       if (logStatusFilter) logQuery.set('status', logStatusFilter);
       if (logModelFilter) logQuery.set('model', logModelFilter);
       if (logEndpointFilter) logQuery.set('endpoint', logEndpointFilter);
-      const logsURL = `/api/openai/analytics/logs?${logQuery.toString()}`;
+      const logsURL = `/api/modelhub/analytics/logs?${logQuery.toString()}`;
       // 分钟窗口下图表固定按小时粒度；其余沿用工具栏手动粒度。
       const chartsGran = analyticsMinutes ? 'hour' : analyticsGranularity;
       const chartsQ = new URLSearchParams({ days: String(analyticsDays), granularity: chartsGran });
@@ -106,11 +106,11 @@ export function useAnalytics(activeTab, endpoints = []) {
       if (analyticsMinutes) summaryQ.set('minutes', String(analyticsMinutes));
       // skipSummary（切换时间粒度触发）：跳过 summary，只刷图表+日志。
       const [sumRes, chartsRes, logsRes] = skipSummary
-        ? [undefined, await fetch(`/api/openai/analytics/charts?${chartsQ.toString()}`, { headers }),
+        ? [undefined, await fetch(`/api/modelhub/analytics/charts?${chartsQ.toString()}`, { headers }),
            await fetch(logsURL, { headers })]
         : await Promise.all([
-            fetch(`/api/openai/analytics/summary?${summaryQ.toString()}`, { headers }),
-            fetch(`/api/openai/analytics/charts?${chartsQ.toString()}`, { headers }),
+            fetch(`/api/modelhub/analytics/summary?${summaryQ.toString()}`, { headers }),
+            fetch(`/api/modelhub/analytics/charts?${chartsQ.toString()}`, { headers }),
             fetch(logsURL, { headers }),
           ]);
 
@@ -195,7 +195,7 @@ export function useAnalytics(activeTab, endpoints = []) {
       return true;
     };
     try {
-      source = new EventSource('/api/openai/analytics/stream');
+      source = new EventSource('/api/modelhub/analytics/stream');
       source.addEventListener('log', event => {
         try {
           const log = JSON.parse(event.data);
@@ -221,31 +221,31 @@ export function useAnalytics(activeTab, endpoints = []) {
 
   // 记住日志分页数量，下次进入自动沿用。
   useEffect(() => {
-    localStorage.setItem('openai_analytics_page_size', String(analyticsPageSize));
+    localStorage.setItem('modelhub_analytics_page_size', String(analyticsPageSize));
   }, [analyticsPageSize]);
 
   // 记住数据看板的时间粒度（小时/天/周）。
   useEffect(() => {
-    localStorage.setItem('openai_analytics_granularity', analyticsGranularity);
+    localStorage.setItem('modelhub_analytics_granularity', analyticsGranularity);
   }, [analyticsGranularity]);
 
   // 记住数据看板/网关日志的分析范围（天数）与时间粒度。
   useEffect(() => {
-    localStorage.setItem('openai_analytics_days', String(analyticsDays));
+    localStorage.setItem('modelhub_analytics_days', String(analyticsDays));
   }, [analyticsDays]);
 
   // 记住分钟级窗口（无则清掉，恢复「过去 N 天」默认）。
   useEffect(() => {
     if (analyticsMinutes) {
-      localStorage.setItem('openai_analytics_minutes', String(analyticsMinutes));
+      localStorage.setItem('modelhub_analytics_minutes', String(analyticsMinutes));
     } else {
-      localStorage.removeItem('openai_analytics_minutes');
+      localStorage.removeItem('modelhub_analytics_minutes');
     }
   }, [analyticsMinutes]);
 
   // 记住数据看板范围按钮文案，刷新后保持一致。
   useEffect(() => {
-    localStorage.setItem('openai_analytics_range_label', analyticsRangeLabel);
+    localStorage.setItem('modelhub_analytics_range_label', analyticsRangeLabel);
   }, [analyticsRangeLabel]);
 
   // 仪表盘同款时段选择器回调：更新分析范围（天数 + 可选分钟窗口），
@@ -264,7 +264,7 @@ export function useAnalytics(activeTab, endpoints = []) {
   const clearGatewayLogs = useCallback(async () => {
     if (!(await dialog.confirm('确认清除全部网关日志记录？数据看板历史保留。此操作不可恢复。'))) return;
     try {
-      const response = await fetch('/api/openai/analytics/clear', {
+      const response = await fetch('/api/modelhub/analytics/clear', {
         method: 'POST',
         headers: getAuthHeaders(),
       });
@@ -281,7 +281,7 @@ export function useAnalytics(activeTab, endpoints = []) {
   const clearDashboardHistory = useCallback(async () => {
     if (!(await dialog.confirm('确认清除全部数据看板历史？网关日志保留。此操作不可恢复。'))) return;
     try {
-      const response = await fetch('/api/openai/analytics/clear-history', {
+      const response = await fetch('/api/modelhub/analytics/clear-history', {
         method: 'POST',
         headers: getAuthHeaders(),
       });

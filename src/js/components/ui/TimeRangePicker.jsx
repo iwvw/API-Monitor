@@ -1,5 +1,5 @@
 // TimeRangePicker —— CF 风格时段选择器（完整复刻：自定义范围输入 + 快捷时段 + 日历 + 时区 + Apply）。
-// 仪表盘（TilesBoard）与模型网关数据看板（OpenAIPage）共用的时间粒度/范围切换控件。
+// 仪表盘（TilesBoard）与模型网关数据看板（ModelHubPage）共用的时间粒度/范围切换控件。
 import React, { useCallback, useMemo, useState } from 'react';
 import { Button, DatePicker, Input, Popover } from '@cloudflare/kumo';
 import { CalendarBlank } from '@phosphor-icons/react';

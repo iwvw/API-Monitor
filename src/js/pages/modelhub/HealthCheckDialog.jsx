@@ -5,7 +5,7 @@ import { AlertTriangle } from '../../components/Icons.jsx';
 import {
   DEFAULT_MODEL_HEALTH_CONCURRENCY,
   DEFAULT_MODEL_HEALTH_TIMEOUT_SECONDS,
-} from '../../modules/openaiModelHealth.js';
+} from '../../modules/modelhubModelHealth.js';
 
 export function HealthCheckDialog({ healthApi }) {
   const {

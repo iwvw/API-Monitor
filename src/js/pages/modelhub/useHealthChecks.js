@@ -9,14 +9,14 @@ import {
   modelHealthTargets,
   normalizeModelHealthRecord,
   resolveModelHealthConcurrency,
-} from '../../modules/openaiModelHealth.js';
+} from '../../modules/modelhubModelHealth.js';
 import { createHealthCheckProgress, getAuthHeaders } from './utils.js';
 
 // useHealthChecks：端点模型健康检测（单测/批量/进度/abort 管理）。
 export function useHealthChecks({ endpoints, selectedEndpointId }) {
-const [openaiModelHealth, setOpenaiModelHealth] = useState(() => {
+const [modelhubModelHealth, setModelhubModelHealth] = useState(() => {
   try {
-    const saved = localStorage.getItem('openai_model_health_cache');
+    const saved = localStorage.getItem('modelhub_model_health_cache');
     return saved ? JSON.parse(saved) : {};
   } catch {
     return {};
@@ -24,8 +24,8 @@ const [openaiModelHealth, setOpenaiModelHealth] = useState(() => {
 });
 
 useEffect(() => {
-  localStorage.setItem('openai_model_health_cache', JSON.stringify(openaiModelHealth));
-}, [openaiModelHealth]);
+  localStorage.setItem('modelhub_model_health_cache', JSON.stringify(modelhubModelHealth));
+}, [modelhubModelHealth]);
 
 const [modelHealthBatchLoading, setModelHealthBatchLoading] = useState(false);
 const [healthCheckProgress, setHealthCheckProgress] = useState(() => createHealthCheckProgress());
@@ -45,7 +45,7 @@ useEffect(() => {
   batchHealthAbortRef.current?.abort();
   batchHealthAbortRef.current = null;
   setModelHealthBatchLoading(false);
-  setOpenaiModelHealth(prev => {
+  setModelhubModelHealth(prev => {
     const next = {};
     for (const [key, record] of Object.entries(prev)) {
       next[key] = record?.loading ? { ...record, loading: false } : record;
@@ -56,7 +56,7 @@ useEffect(() => {
 
 const markModelsChecking = targets => {
   const checkedAt = Date.now();
-  setOpenaiModelHealth(prev => {
+  setModelhubModelHealth(prev => {
     const next = { ...prev };
     targets.forEach(({ endpointId, modelId }) => {
       next[modelHealthKey(endpointId, modelId)] = {
@@ -82,7 +82,7 @@ const applyEndpointHealthResults = (endpointId, modelIds, records, fallbackError
     normalizeModelHealthRecord(recordsByModel.get(modelId), fallbackError)
   );
 
-  setOpenaiModelHealth(prev => {
+  setModelhubModelHealth(prev => {
     const next = { ...prev };
     modelIds.forEach((modelId, index) => {
       next[modelHealthKey(endpointId, modelId)] = results[index];
@@ -101,7 +101,7 @@ const testModelHealth = async (model, targetEndpointId, silentToast = false) => 
   if (activeController) {
     activeController.abort();
     modelHealthAbortControllersRef.current.delete(healthKey);
-    setOpenaiModelHealth(prev => ({
+    setModelhubModelHealth(prev => ({
       ...prev,
       [healthKey]: {
         status: 'cancelled',
@@ -122,7 +122,7 @@ const testModelHealth = async (model, targetEndpointId, silentToast = false) => 
 
   try {
     const response = await fetch(
-      `/api/openai/endpoints/${encodeURIComponent(targetEndpointId)}/health-check`,
+      `/api/modelhub/endpoints/${encodeURIComponent(targetEndpointId)}/health-check`,
       {
         method: 'POST',
         headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
@@ -267,7 +267,7 @@ const openHealthCheckForEndpoint = async endpointId => {
   }
 };
   return {
-    openaiModelHealth, setOpenaiModelHealth,
+    modelhubModelHealth, setModelhubModelHealth,
     modelHealthBatchLoading, setModelHealthBatchLoading,
     healthCheckProgress, setHealthCheckProgress,
     healthCheckModal, setHealthCheckModal,

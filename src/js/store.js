@@ -29,11 +29,11 @@ export const MODULE_CONFIG = {
     icon: 'fa-cog',
     description: '全局偏好',
   },
-  openai: {
+  modelhub: {
     name: '模型网关',
     shortName: '模型',
     icon: 'fa-wand',
-    description: 'OpenAI 网关',
+    description: '模型网关',
   },
   subscription: {
     name: '订阅分发',
@@ -232,7 +232,7 @@ export const MODULE_GROUPS = [
     id: 'api-gateway',
     name: 'API 服务',
     icon: 'fa-bolt',
-    modules: ['openai', 'subscription', 'aiagent'],
+    modules: ['modelhub', 'subscription', 'aiagent'],
   },
   {
     id: 'system',
@@ -376,6 +376,7 @@ export const DEFAULT_CHANNEL_MODEL_PREFIX = {};
 
 const LEGACY_MODULE_ALIASES = {
   'self-h': 'scheduler',
+  openai: 'modelhub',
 };
 
 const normalizeModuleId = (moduleId) => LEGACY_MODULE_ALIASES[moduleId] || moduleId;

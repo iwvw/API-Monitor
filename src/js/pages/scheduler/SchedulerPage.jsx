@@ -108,13 +108,13 @@ function SchedulerPage({ onNavigate = () => {} }) {
 
   useEffect(() => {
     if (!taskDialogOpen) return undefined;
-    // AI 任务选项懒加载：模型选项来自对外 /v1 暴露的模型（/api/openai/models 与 /v1/models 同源，
+    // AI 任务选项懒加载：模型选项来自对外 /v1 暴露的模型（/api/modelhub/models 与 /v1/models 同源，
     // 已过滤禁用模型并应用映射去前缀），推送目标来自已启用 Telegram 频道
     let cancelled = false;
     (async () => {
       try {
         const [epRes, chRes, aiChRes] = await Promise.all([
-          fetch('/api/openai/models'),
+          fetch('/api/modelhub/models'),
           fetch('/api/notification/channels'),
           fetch('/api/admin-ai/channels'),
         ]);
