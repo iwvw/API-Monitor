@@ -297,7 +297,7 @@ func (s *Service) writeLinkedEndpointModels(ctx context.Context, names []string)
 	defer db.Close()
 	payload, _ := json.Marshal(names)
 	_, _ = db.ExecContext(ctx, `
-		UPDATE openai_endpoints SET models = ?, last_checked = ? WHERE id = ?`,
+		UPDATE modelhub_endpoints SET models = ?, last_checked = ? WHERE id = ?`,
 		string(payload), time.Now().UTC().Format(time.RFC3339), linkedEndpointID)
 }
 
@@ -482,7 +482,7 @@ func (s *Service) setModelsEnabled(ctx context.Context, ids []string, enabled bo
 		return err
 	}
 	// 关键：同步到已接入网关端点的 models/disabled_models 列。网关是按 disabled_models
-	// 拦截请求的（openai/relay.go 的 resolveEndpointModel → isModelDisabled），只写插件
+	// 拦截请求的（modelhub/relay.go 的 resolveEndpointModel → isModelDisabled），只写插件
 	// 自己的设置不会让网关侧停止把该模型路由过来；models 列则收敛为启用项，
 	// 与中继面 /v1/models 口径一致，避免首次加载显示全量目录。
 	s.syncLinkedEndpointModels(ctx)
@@ -507,7 +507,7 @@ func (s *Service) refreshLinkedEndpointModels(ctx context.Context, oldPrefix str
 
 	var mappingsRaw sql.NullString
 	_ = db.QueryRowContext(ctx, `
-		SELECT model_mappings FROM openai_endpoints WHERE id = ?`,
+		SELECT model_mappings FROM modelhub_endpoints WHERE id = ?`,
 		linkedEndpointID).Scan(&mappingsRaw)
 
 	mappings := map[string]string{}
@@ -521,7 +521,7 @@ func (s *Service) refreshLinkedEndpointModels(ctx context.Context, oldPrefix str
 	mappingsJSON, _ := json.Marshal(migratedMappings)
 
 	_, _ = db.ExecContext(ctx, `
-		UPDATE openai_endpoints SET model_mappings = ? WHERE id = ?`,
+		UPDATE modelhub_endpoints SET model_mappings = ? WHERE id = ?`,
 		string(mappingsJSON), linkedEndpointID)
 }
 

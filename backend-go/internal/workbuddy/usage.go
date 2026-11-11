@@ -5,7 +5,7 @@ package workbuddy
 // 「站点时区日期 × 账号 × 模型」聚合落库，供前端看"谁在烧额度"。
 //
 // 设计取舍：
-//   - **不写进网关的 openai_gateway_analytics**：那属于 openai 模块（列结构另有归属），
+//   - **不写进网关的 modelhub_gateway_analytics**：那属于 modelhub 模块（列结构另有归属），
 //     且它的统计维度是端点/key 而非"插件账号"。用量属于插件自己的域，落自己的表最干净。
 //   - **内存累加 + 定期落盘**：与既有 workbuddy_call_stats 同一套节拍（每分钟一次），
 //     避免每个请求一次写库。

@@ -26,7 +26,7 @@ func TestFindAPIRecallQuality(t *testing.T) {
 		{"创建一个 totp 账号", "/api/totp/accounts"},
 		{"查看备份列表", "/api/backup/configs"},
 		{"更新 DNS 记录", "/api/cloudflare/accounts/{accountId}/zones/{zoneId}/records/{recordId}"},
-		{"查看 openai 网关日志", "/api/openai/analytics/logs"},
+		{"查看 modelhub 网关日志", "/api/modelhub/analytics/logs"},
 		{"删除 cf 账号", "/api/cloudflare/accounts/{id}"},
 		{"查看 sftp 文件列表", "/api/server/sftp/list"},
 		{"查看定时任务列表", "/api/scheduler/tasks"},

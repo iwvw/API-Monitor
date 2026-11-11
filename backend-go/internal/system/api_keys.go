@@ -100,7 +100,7 @@ func apiKeyOverview(keys []apikeys.Key) map[string]interface{} {
 		"permissions": []map[string]string{
 			{"value": apikeys.ScopeTOTPRead, "label": "读取 TOTP 验证码"},
 			{"value": apikeys.ScopeAIMCP, "label": "调用 AI/MCP 工具"},
-			{"value": apikeys.ScopeOpenAIGateway, "label": "调用 OpenAI 兼容网关"},
+			{"value": apikeys.ScopeModelHubGateway, "label": "调用 OpenAI 兼容网关"},
 			{"value": apikeys.ScopeAPIRead, "label": "读取后台 API"},
 			{"value": apikeys.ScopeAPIWrite, "label": "修改后台 API"},
 		},

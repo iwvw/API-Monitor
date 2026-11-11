@@ -567,7 +567,7 @@ func TestRouteGroupsFollowSidebarModules(t *testing.T) {
 		prefix string
 		group  string
 	}{
-		{"/api/openai/endpoints", "模型网关"},
+		{"/api/modelhub/endpoints", "模型网关"},
 		{"/v1/chat/completions", "模型网关"},
 		{"/api/subscription/accounts", "订阅分发"},
 		{"/sub/{token}", "订阅分发"},

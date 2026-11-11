@@ -1588,7 +1588,7 @@ func TestInternalCronReadonlyWhitelist(t *testing.T) {
 		"/api/system/host-metrics",
 		"/api/server/s",
 		"/api/cloudflare/zones",
-		"/api/openai/analytics/summary",
+		"/api/modelhub/analytics/summary",
 		"/api/totp/accounts",
 		"/api/notification/channels",
 		"/api/drawio/documents",
@@ -1854,7 +1854,7 @@ func TestOpenAIServerRouting(t *testing.T) {
 	handler := testServer(t)
 
 	// 1. OpenAI endpoint CRUD requires session
-	req := httptest.NewRequest(http.MethodGet, "/api/openai/endpoints", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/modelhub/endpoints", nil)
 	res := httptest.NewRecorder()
 	handler.ServeHTTP(res, req)
 	if res.Code != http.StatusUnauthorized {
@@ -1862,7 +1862,7 @@ func TestOpenAIServerRouting(t *testing.T) {
 	}
 
 	cookie := loginServerForTest(t, handler)
-	req = httptest.NewRequest(http.MethodGet, "/api/openai/endpoints", nil)
+	req = httptest.NewRequest(http.MethodGet, "/api/modelhub/endpoints", nil)
 	req.AddCookie(cookie)
 	res = httptest.NewRecorder()
 	handler.ServeHTTP(res, req)
@@ -1878,7 +1878,7 @@ func TestOpenAIServerRouting(t *testing.T) {
 		t.Fatalf("v1 models without key status = %d body=%s", res.Code, res.Body.String())
 	}
 
-	req = httptest.NewRequest(http.MethodPost, "/api/openai/keys", strings.NewReader(`{"name":"test client"}`))
+	req = httptest.NewRequest(http.MethodPost, "/api/modelhub/keys", strings.NewReader(`{"name":"test client"}`))
 	req.AddCookie(cookie)
 	res = httptest.NewRecorder()
 	handler.ServeHTTP(res, req)
@@ -1892,7 +1892,7 @@ func TestOpenAIServerRouting(t *testing.T) {
 		t.Fatalf("decode gateway key: %v body=%s", err, res.Body.String())
 	}
 
-	req = httptest.NewRequest(http.MethodGet, "/api/openai/keys", nil)
+	req = httptest.NewRequest(http.MethodGet, "/api/modelhub/keys", nil)
 	req.AddCookie(cookie)
 	res = httptest.NewRecorder()
 	handler.ServeHTTP(res, req)
@@ -1914,7 +1914,7 @@ func TestOpenAIServerRouting(t *testing.T) {
 		t.Fatalf("v1 models with key status = %d body=%s", res.Code, res.Body.String())
 	}
 
-	req = httptest.NewRequest(http.MethodGet, "/api/openai/analytics/logs?days=1&page=1&pageSize=20", nil)
+	req = httptest.NewRequest(http.MethodGet, "/api/modelhub/analytics/logs?days=1&page=1&pageSize=20", nil)
 	req.AddCookie(cookie)
 	res = httptest.NewRecorder()
 	handler.ServeHTTP(res, req)
@@ -1936,7 +1936,7 @@ func TestOpenAIServerRouting(t *testing.T) {
 	}
 
 	// 7. key-check 路由：端点 API Key 批量检测需要会话鉴权。
-	req = httptest.NewRequest(http.MethodPost, "/api/openai/endpoints", strings.NewReader(`{
+	req = httptest.NewRequest(http.MethodPost, "/api/modelhub/endpoints", strings.NewReader(`{
 		"name":"key-check-test","baseUrl":"https://example.com/v1","apiKey":"sk-test-main"
 	}`))
 	req.AddCookie(cookie)
@@ -1960,7 +1960,7 @@ func TestOpenAIServerRouting(t *testing.T) {
 		createdEndpoint.ID = createdEnvelope.Endpoint.ID
 	}
 
-	req = httptest.NewRequest(http.MethodPost, "/api/openai/endpoints/"+createdEndpoint.ID+"/key-check", strings.NewReader(`{"keys":["sk-test-main","sk-test-backup"],"timeout":3000}`))
+	req = httptest.NewRequest(http.MethodPost, "/api/modelhub/endpoints/"+createdEndpoint.ID+"/key-check", strings.NewReader(`{"keys":["sk-test-main","sk-test-backup"],"timeout":3000}`))
 	req.AddCookie(cookie)
 	res = httptest.NewRecorder()
 	handler.ServeHTTP(res, req)

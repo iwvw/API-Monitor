@@ -1327,7 +1327,7 @@ func loadUserSettings(ctx context.Context, db *sql.DB) (map[string]interface{}, 
 	if errors.Is(err, sql.ErrNoRows) {
 		if _, insertErr := db.ExecContext(ctx, `
 			INSERT OR IGNORE INTO user_settings (id, custom_css, module_visibility, module_order)
-			VALUES (1, '', '{"openai":true,"dns":true,"server":true}', '["openai","dns","server"]')
+			VALUES (1, '', '{"modelhub":true,"dns":true,"server":true}', '["modelhub","dns","server"]')
 		`); insertErr != nil {
 			return nil, fmt.Errorf("create default user settings: %w", insertErr)
 		}
@@ -1338,9 +1338,9 @@ func loadUserSettings(ctx context.Context, db *sql.DB) (map[string]interface{}, 
 	}
 
 	visibility := parseObject(row.ModuleVisibility, map[string]interface{}{
-		"dns":    true,
-		"openai": true,
-		"server": true,
+		"dns":      true,
+		"modelhub": true,
+		"server":   true,
 	})
 	delete(visibility, "antigravity")
 	delete(visibility, "gemini-cli")
@@ -1363,7 +1363,7 @@ func loadUserSettings(ctx context.Context, db *sql.DB) (map[string]interface{}, 
 	delete(channelModelPrefix, "gemini-cli")
 	delete(channelModelPrefix, "qwen")
 
-	order := parseStringSlice(row.ModuleOrder, []string{"dns", "openai", "server"})
+	order := parseStringSlice(row.ModuleOrder, []string{"dns", "modelhub", "server"})
 	order = filterString(order, "antigravity")
 	order = filterString(order, "gemini-cli")
 	order = filterString(order, "qwen")
@@ -1374,6 +1374,19 @@ func loadUserSettings(ctx context.Context, db *sql.DB) (map[string]interface{}, 
 	}
 	order = uniqueStrings(order)
 	order = ensureBefore(order, "scheduler", "server")
+
+	// 模块改名兼容：历史设置里模块 id 为 openai（本次重命名为 modelhub）。
+	// 兼容已持久化的 module_visibility / module_order / channel_enabled / channel_model_prefix，
+	// 把旧 key 迁移到新 key（新 key 已存在则保留新值）。
+	renameLegacyModuleKey(visibility, "openai", "modelhub")
+	renameLegacyModuleKey(channelEnabled, "openai", "modelhub")
+	renameLegacyModuleKey(channelModelPrefix, "openai", "modelhub")
+	for i, item := range order {
+		if item == "openai" {
+			order[i] = "modelhub"
+		}
+	}
+	order = uniqueStrings(order)
 
 	// tileLayout 兼容两种格式：旧版直接是布局数组（桌面）；新版为 { desktop: [...], mobile: [...] } 双桶对象
 	var tileLayout interface{} = []interface{}{}
@@ -1666,6 +1679,22 @@ func ensureStringKey(target map[string]interface{}, key string, value string) {
 	if _, ok := target[key]; !ok {
 		target[key] = value
 	}
+}
+
+// renameLegacyModuleKey 把历史模块 id（oldKey）迁移为新 id（newKey）。
+// 若目标 key 已存在则以新值为准，避免覆盖用户显式设置。
+func renameLegacyModuleKey(target map[string]interface{}, oldKey, newKey string) {
+	if target == nil {
+		return
+	}
+	legacyValue, ok := target[oldKey]
+	if !ok {
+		return
+	}
+	if _, exists := target[newKey]; !exists {
+		target[newKey] = legacyValue
+	}
+	delete(target, oldKey)
 }
 
 func filterString(values []string, forbidden string) []string {
@@ -2151,7 +2180,7 @@ func intFromPayloadOrConfig(ctx context.Context, db *sql.DB, payload map[string]
 // 这些数据是仪表盘与报表的数据源，删除会丢失全部历史统计，
 // 因此不参与日志清理（只按独立长保留策略清理，见 enforceLogTableLimits）。
 var statisticsTables = map[string]bool{
-	"openai_gateway_analytics":    true,
+	"modelhub_gateway_analytics":  true,
 	"system_api_stats":            true,
 	"uptime_daily_stats":          true,
 	"github_repository_snapshots": true,
@@ -2440,8 +2469,8 @@ var logTableGroupColumns = map[string]string{
 	"uptime_heartbeats":           "monitor_id",
 	"server_metrics_history":      "server_id",
 	"server_monitor_logs":         "server_id",
-	"openai_health_history":       "endpoint_id",
-	"openai_gateway_analytics":    "endpoint_id",
+	"modelhub_health_history":     "endpoint_id",
+	"modelhub_gateway_analytics":  "endpoint_id",
 	"github_repository_snapshots": "repository_id",
 	"github_traffic_samples":      "repository_id",
 	"github_contributors":         "repository_id",

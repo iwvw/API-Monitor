@@ -22,11 +22,11 @@ import (
 )
 
 const (
-	ScopeTOTPRead      = "totp:read"
-	ScopeAIMCP         = "ai:mcp"
-	ScopeOpenAIGateway = "openai:gateway"
-	ScopeAPIRead       = "api:read"
-	ScopeAPIWrite      = "api:write"
+	ScopeTOTPRead        = "totp:read"
+	ScopeAIMCP           = "ai:mcp"
+	ScopeModelHubGateway = "modelhub:gateway"
+	ScopeAPIRead         = "api:read"
+	ScopeAPIWrite        = "api:write"
 )
 
 var (
@@ -124,7 +124,20 @@ func ensureSchema(ctx context.Context, db *sql.DB) error {
 		expires_at TEXT NOT NULL,
 		claimed_at TEXT
 	)`)
-	return err
+	if err != nil {
+		return err
+	}
+	// 模块改名兼容：历史 API Key 的 kind='openai' 与 scope 'openai:gateway' 迁移到
+	// modelhub，否则存量网关 Key 因 scope 不匹配而失效。
+	if _, err := db.ExecContext(ctx,
+		`UPDATE api_access_keys SET kind='modelhub' WHERE kind='openai'`); err != nil {
+		return err
+	}
+	if _, err := db.ExecContext(ctx,
+		`UPDATE api_access_keys SET scopes_json=REPLACE(scopes_json, '"openai:gateway"', '"modelhub:gateway"') WHERE scopes_json LIKE '%"openai:gateway"%'`); err != nil {
+		return err
+	}
+	return nil
 }
 
 func (m *Manager) List(ctx context.Context) ([]Key, error) {
@@ -387,8 +400,8 @@ func normalizeInput(input Input) (Input, error) {
 		input.Scopes = []string{ScopeTOTPRead}
 	case "ai":
 		input.Scopes = []string{ScopeAIMCP}
-	case "openai":
-		input.Scopes = []string{ScopeOpenAIGateway}
+	case "modelhub":
+		input.Scopes = []string{ScopeModelHubGateway}
 	case "api":
 		allowed := map[string]bool{ScopeAPIRead: true, ScopeAPIWrite: true}
 		clean := []string{}
@@ -425,7 +438,7 @@ func generateKey(kind string) (string, error) {
 	if _, err := rand.Read(buf); err != nil {
 		return "", err
 	}
-	prefix := map[string]string{"plugin": "akp_", "ai": "aka_", "openai": "ako_", "api": "ak_"}[kind]
+	prefix := map[string]string{"plugin": "akp_", "ai": "aka_", "modelhub": "akh_", "api": "ak_"}[kind]
 	return prefix + base64.RawURLEncoding.EncodeToString(buf), nil
 }
 

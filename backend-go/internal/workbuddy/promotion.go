@@ -21,7 +21,7 @@ package workbuddy
 //     "Aug 6 – Oct 31"，一旦过期就不该继续标免费（否则用户以为还免费）。
 //   - **必须按 enabled 过滤**：上游可能保留已停用的活动。
 //   - 同一模型被多条活动命中时取 priority 最高的一条（上游用它表达优先级）。
-//   - 折扣只影响「倍率展示」，不写进 openai_endpoints.pricing（那里是货币单价）。
+//   - 折扣只影响「倍率展示」，不写进 modelhub_endpoints.pricing（那里是货币单价）。
 
 import (
 	"strings"

@@ -127,7 +127,7 @@ func formatMessage(rule Rule, data map[string]interface{}, loc *time.Location) s
 	add("链接", data["htmlUrl"])
 	add("说明", firstNonEmpty(stringValue(data["message"]), stringValue(data["reason"])))
 
-	// 网关告警（openai 模块）字段
+	// 网关告警（modelhub 模块）字段
 	if rateVal, ok := data["error_rate"].(float64); ok {
 		add("错误率", fmt.Sprintf("%.1f%%", rateVal))
 	}

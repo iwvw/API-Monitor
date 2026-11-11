@@ -378,7 +378,7 @@ func buildRoutes() []Route {
 		{Prefix: "/api/bookmarks/public/all", Module: "bookmarks-public", Owner: OwnerGo, Auth: AuthPublic, ResponseMode: ResponseJSON, Description: "Public bookmarks aggregate page: every public group", MatchMode: MatchExact},
 		{Prefix: "/api/bookmarks/public/page-by-domain", Module: "bookmarks-public", Owner: OwnerGo, Auth: AuthPublic, ResponseMode: ResponseJSON, Description: "Public bookmarks group by custom domain", MatchMode: MatchExact},
 
-		{Prefix: "/api/openai", Module: "openai", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "OpenAI endpoint manager and proxy"},
+		{Prefix: "/api/modelhub", Module: "modelhub", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "ModelHub endpoint manager and proxy"},
 		{Prefix: "/api/proxypool", Module: "proxypool", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "独立出口代理池管理（端点与插件可复用）"},
 		{Prefix: "/api/antigravity", Module: "antigravity", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Antigravity 插件（Claude 订阅转 API）管理"},
 		{Prefix: "/api/antigravity/v1", Module: "antigravity-compatible", Owner: OwnerGo, Auth: AuthInternal, ResponseMode: ResponseStream, Description: "Antigravity 插件 Anthropic 兼容中继（仅本机内部网关调用）"},

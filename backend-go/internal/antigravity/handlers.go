@@ -792,7 +792,7 @@ func (s *Service) readLinkedEndpoint(ctx context.Context, db *sql.DB) *linkedEnd
 	var modelsRaw sql.NullString
 	err := db.QueryRowContext(ctx, `
 		SELECT id, name, base_url, enabled, COALESCE(models,'')
-		FROM openai_endpoints WHERE id = ?`, linkedEndpointID).Scan(&id, &name, &baseURL, &enabled, &modelsRaw)
+		FROM modelhub_endpoints WHERE id = ?`, linkedEndpointID).Scan(&id, &name, &baseURL, &enabled, &modelsRaw)
 	if err != nil {
 		return nil
 	}
@@ -839,7 +839,7 @@ func (s *Service) linkCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	defer db.Close()
 
-	if err := ensureOpenAIEndpointsTable(ctx, db); err != nil {
+	if err := ensureModelHubEndpointsTable(ctx, db); err != nil {
 		response.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -849,7 +849,7 @@ func (s *Service) linkCreate(w http.ResponseWriter, r *http.Request) {
 	now := time.Now().UTC().Format(time.RFC3339)
 
 	_, err = db.ExecContext(ctx, `
-		INSERT INTO openai_endpoints
+		INSERT INTO modelhub_endpoints
 			(id, name, base_url, api_key, headers, disabled_models, proxy_pool, proxy_batches,
 			 auto_switch, proxy_enabled, force_proxy, rate_limit_retry_enabled,
 			 rate_limit_retry_wait_seconds, protocol, status, enabled, models, created_at, last_checked, sort_order, plugin_id)
@@ -885,7 +885,7 @@ func (s *Service) linkDelete(w http.ResponseWriter, r *http.Request) {
 	}
 	defer db.Close()
 
-	if _, err := db.ExecContext(ctx, `DELETE FROM openai_endpoints WHERE id = ?`, linkedEndpointID); err != nil {
+	if _, err := db.ExecContext(ctx, `DELETE FROM modelhub_endpoints WHERE id = ?`, linkedEndpointID); err != nil {
 		response.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -900,7 +900,7 @@ func (s *Service) unlinkIfDisabled(ctx context.Context) {
 		return
 	}
 	defer db.Close()
-	_, _ = db.ExecContext(ctx, `DELETE FROM openai_endpoints WHERE id = ?`, linkedEndpointID)
+	_, _ = db.ExecContext(ctx, `DELETE FROM modelhub_endpoints WHERE id = ?`, linkedEndpointID)
 }
 
 // fetchModelNames 尝试从上游拉取模型名列表；失败时用内置默认模型名。
@@ -988,10 +988,10 @@ func defaultModelNames() []string {
 	}
 }
 
-// ensureOpenAIEndpointsTable 幂等确保 openai_endpoints 表存在（列定义与 openai 模块一致）。
-func ensureOpenAIEndpointsTable(ctx context.Context, db *sql.DB) error {
+// ensureModelHubEndpointsTable 幂等确保 modelhub_endpoints 表存在（列定义与 modelhub 模块一致）。
+func ensureModelHubEndpointsTable(ctx context.Context, db *sql.DB) error {
 	_, err := db.ExecContext(ctx, `
-		CREATE TABLE IF NOT EXISTS openai_endpoints (
+		CREATE TABLE IF NOT EXISTS modelhub_endpoints (
 			id TEXT PRIMARY KEY,
 			name TEXT NOT NULL,
 			base_url TEXT NOT NULL,

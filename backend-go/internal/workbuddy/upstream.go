@@ -1065,7 +1065,7 @@ func (s *Service) chatCompletions(ctx context.Context, w http.ResponseWriter, re
 // relayEmitsSSEFrame 报告中继面是否给 chunk 加 "data: " 分帧。
 // 参考实现（CPA ABI 插件）要按入口协议区分：原生 chat-completions 由宿主加分帧，
 // 跨协议翻译器只认已分帧 payload。本项目的中继面是**真实 HTTP 端点**、只说 OpenAI 协议，
-// 下游（模型网关）按标准 OpenAI SSE 消费（见 internal/openai/relay.go 的
+// 下游（模型网关）按标准 OpenAI SSE 消费（见 internal/modelhub/relay.go 的
 // `data: ` 前缀判定），因此恒为真，并在流末补 [DONE] 终止符。
 func relayEmitsSSEFrame() bool { return true }
 
@@ -1610,7 +1610,7 @@ func rewriteForUpstreamWithThinking(body []byte, model string, thinking *Thinkin
 }
 
 // cacheHitKeys 是各家上游对「缓存命中 token」的常见命名。网关只认标准形状
-// usage.prompt_tokens_details.cached_tokens（见 internal/openai/service.go 的
+// usage.prompt_tokens_details.cached_tokens（见 internal/modelhub/service.go 的
 // cachedTokensRegex 与 relay.go 对 prompt_tokens_details 的解析），
 // 因此这里把别名归一到标准字段，避免"上游明明报了、统计却是 0"。
 //
@@ -1819,7 +1819,7 @@ func isEmptyValue(v any) bool {
 //   - `stream: true`：上游对非流式对话直接回业务码 11101；
 //   - `stream_options.include_usage: true`：让上游在流末回完整的 usage
 //     （prompt/completion/total + `prompt_cache_hit_tokens` + `credit`）。
-//     网关不会自己带这个参数（internal/openai 里搜不到 stream_options），
+//     网关不会自己带这个参数（internal/modelhub 里搜不到 stream_options），
 //     而缺少 usage 会让缓存命中与用量统计全部为 0，所以由本层补上。
 //     已有的 stream_options 会被保留合并，不整体覆盖。
 func forceStreamBody(body []byte) []byte {

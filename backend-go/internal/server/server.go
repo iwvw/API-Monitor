@@ -36,9 +36,9 @@ import (
 	"github.com/iwvw/api-monitor/backend-go/internal/koyeb"
 	"github.com/iwvw/api-monitor/backend-go/internal/m365"
 	"github.com/iwvw/api-monitor/backend-go/internal/manifest"
+	"github.com/iwvw/api-monitor/backend-go/internal/modelhub"
 	"github.com/iwvw/api-monitor/backend-go/internal/notification"
 	"github.com/iwvw/api-monitor/backend-go/internal/onepanel"
-	"github.com/iwvw/api-monitor/backend-go/internal/openai"
 	"github.com/iwvw/api-monitor/backend-go/internal/oracle"
 	originpkg "github.com/iwvw/api-monitor/backend-go/internal/origin"
 	"github.com/iwvw/api-monitor/backend-go/internal/posthogcode"
@@ -81,7 +81,7 @@ type Server struct {
 	huawei      *huawei.Service
 	cf          *cloudflare.Service
 	m365        *m365.Service
-	openai      *openai.Service
+	modelhub    *modelhub.Service
 	antigravity *antigravity.Service
 	workbuddy   *workbuddy.Service
 	emailcode   *emailcode.Service
@@ -221,7 +221,7 @@ func newServer(cfg config.Config) (*Server, error) {
 		huawei:      huawei.New(cfg),
 		cf:          cloudflareService,
 		m365:        m365.New(cfg),
-		openai:      openai.New(cfg),
+		modelhub:    modelhub.New(cfg),
 		antigravity: antigravity.New(cfg),
 		workbuddy:   workbuddy.New(cfg),
 		emailcode:   emailcode.New(cfg),
@@ -256,14 +256,14 @@ func newServer(cfg config.Config) (*Server, error) {
 	server.warmupCancel = warmupCancel
 	// 资产到期扫描：每日按站点时区扫描并触发 asset_expiry 通知。
 	server.assets.StartExpiryScheduler(warmupCtx)
-	server.openai.SetNotifier(notifyService)
+	server.modelhub.SetNotifier(notifyService)
 	server.posthogcode.SetInbox(server.emailcode)
 	// 收件箱的可用域名来自 Cloudflare 的收件箱部署记录。
 	server.emailcode.SetDomainProvider(server.cf)
 	// 收件箱 TTL 清理：临时邮箱语义下邮件必须过期消失。
 	server.emailcode.StartCleanup(warmupCtx, 0)
 	// 注入独立代理池选择器：端点配置 proxy_pool_id 时复用插件管理的池与健康数据。
-	server.openai.SetProxyPoolSelector(server.proxypool)
+	server.modelhub.SetProxyPoolSelector(server.proxypool)
 	// Antigravity 插件可引用独立代理池作为出网出口。
 	server.antigravity.SetProxyPoolSelector(server.proxypool)
 	// Antigravity 插件配额刷新检测：上报事件走统一通知中心。
@@ -278,11 +278,11 @@ func newServer(cfg config.Config) (*Server, error) {
 	server.raccoon.SetProxyPoolSelector(server.proxypool)
 	// Cline / ZCode / AutoClaw 同样可引用独立代理池作为出网出口。
 	server.cline.SetProxyPoolSelector(server.proxypool)
-	server.openai.StartWarmup(warmupCtx)
+	server.modelhub.StartWarmup(warmupCtx)
 	// 启动网关健康告警监测（错误率过高/恢复触发通知）。
-	server.openai.StartAlertMonitor(warmupCtx)
+	server.modelhub.StartAlertMonitor(warmupCtx)
 	// 启动上游模型列表每小时自动刷新（后台默认开启，无需前端展示）。
-	server.openai.StartModelAutoRefresh(warmupCtx)
+	server.modelhub.StartModelAutoRefresh(warmupCtx)
 	// 启动 Antigravity 配额刷新检测（开关由前端控制，关闭时后台静默跳过）。
 	server.antigravity.StartQuotaMonitor(warmupCtx)
 	// Antigravity 客户端版本发现：从官方 Hub auto-updater 拉最新版本刷新 UA。
@@ -515,7 +515,7 @@ func (s *Server) authorizeGoRoute(w http.ResponseWriter, r *http.Request, route 
 		return false
 	}
 	if route.Auth == manifest.AuthAPIKey && (route.Module == "openai-compatible" || route.Module == "anthropic-compatible" || route.Module == "antigravity-compatible" || route.Module == "workbuddy-compatible") {
-		authorizedRequest, err := s.openai.AuthorizeGatewayRequest(r)
+		authorizedRequest, err := s.modelhub.AuthorizeGatewayRequest(r)
 		if err != nil {
 			response.JSON(w, http.StatusUnauthorized, map[string]interface{}{
 				"error": map[string]string{
@@ -678,8 +678,8 @@ func (s *Server) internalCronAllowsMethod(r *http.Request) bool {
 var internalCronReadonlyPrefixes = []string{
 	"/api/system",
 	"/api/cloudflare/zones",
-	"/api/openai/analytics",
-	"/api/openai/endpoints",
+	"/api/modelhub/analytics",
+	"/api/modelhub/endpoints",
 	"/api/totp",
 	"/api/notification",
 	"/api/scheduler",
@@ -1212,37 +1212,37 @@ func (s *Server) serveV1Route(w http.ResponseWriter, r *http.Request) {
 
 	// 2. Completions endpoint
 	if method == http.MethodPost && path == "/v1/chat/completions" {
-		s.openai.ServeHTTP(w, r)
+		s.modelhub.ServeHTTP(w, r)
 		return
 	}
 
 	// 3. Responses endpoint（OpenAI Responses API，/v1/responses）
 	if method == http.MethodPost && path == "/v1/responses" {
-		s.openai.ServeHTTP(w, r)
+		s.modelhub.ServeHTTP(w, r)
 		return
 	}
 
 	// 4. Anthropic Messages endpoint（/v1/messages）
 	if method == http.MethodPost && path == "/v1/messages" {
-		s.openai.ServeHTTP(w, r)
+		s.modelhub.ServeHTTP(w, r)
 		return
 	}
 
 	response.Error(w, http.StatusNotFound, "v1 endpoint not found")
-	s.openai.RecordAnalytics(r.Context(), strings.TrimPrefix(path, "/v1/"), "", "", http.StatusNotFound, time.Since(startedAt).Milliseconds(), 0, 0, 0, 0, 0, 0, 0, clientIP, "")
+	s.modelhub.RecordAnalytics(r.Context(), strings.TrimPrefix(path, "/v1/"), "", "", http.StatusNotFound, time.Since(startedAt).Milliseconds(), 0, 0, 0, 0, 0, 0, 0, clientIP, "")
 }
 
 func (s *Server) serveV1Models(w http.ResponseWriter, r *http.Request) int {
 	ctx := r.Context()
 	var mergedModels []map[string]interface{}
 
-	if oaiModels, err := s.openai.GetModelsList(ctx, true); err == nil {
+	if oaiModels, err := s.modelhub.GetModelsList(ctx, true); err == nil {
 		mergedModels = append(mergedModels, oaiModels...)
 	} else {
 		response.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return http.StatusInternalServerError
 	}
-	mergedModels = s.openai.FilterModelsListByKey(ctx, mergedModels)
+	mergedModels = s.modelhub.FilterModelsListByKey(ctx, mergedModels)
 
 	sort.Slice(mergedModels, func(i, j int) bool {
 		idI, _ := mergedModels[i]["id"].(string)

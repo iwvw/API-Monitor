@@ -809,7 +809,7 @@ func sortedGroupList(groups map[string]bool) []string {
 // 供纠偏提示中使用真实存在的模块代码。
 func providerCodeInIntent(intent string) (string, bool) {
 	lower := strings.ToLower(intent)
-	for _, code := range []string{"cf", "cloudflare", "aliyun", "tencent", "flyio", "koyeb", "github", "openai", "oracle", "m365", "onepanel"} {
+	for _, code := range []string{"cf", "cloudflare", "aliyun", "tencent", "flyio", "koyeb", "github", "modelhub", "oracle", "m365", "onepanel"} {
 		if strings.Contains(lower, code) {
 			return code, true
 		}

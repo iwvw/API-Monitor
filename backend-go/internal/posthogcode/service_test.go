@@ -560,11 +560,11 @@ func TestRefreshLinkedEndpointModelsSinglePrefix(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := ensureOpenAIEndpointsTable(ctx, db); err != nil {
+	if err := ensureModelHubEndpointsTable(ctx, db); err != nil {
 		db.Close()
 		t.Fatal(err)
 	}
-	_, err = db.ExecContext(ctx, `INSERT OR REPLACE INTO openai_endpoints
+	_, err = db.ExecContext(ctx, `INSERT OR REPLACE INTO modelhub_endpoints
 		(id, name, base_url, api_key, enabled, models, plugin_id)
 		VALUES (?, 'PostHog Code', 'http://127.0.0.1:3000/api/posthogcode/v1', 'k', 1, '[]', 'posthogcode')`, linkedEndpointID)
 	db.Close()
@@ -580,7 +580,7 @@ func TestRefreshLinkedEndpointModelsSinglePrefix(t *testing.T) {
 	}
 	defer db.Close()
 	var modelsRaw string
-	if err := db.QueryRowContext(ctx, "SELECT models FROM openai_endpoints WHERE id = ?", linkedEndpointID).Scan(&modelsRaw); err != nil {
+	if err := db.QueryRowContext(ctx, "SELECT models FROM modelhub_endpoints WHERE id = ?", linkedEndpointID).Scan(&modelsRaw); err != nil {
 		t.Fatal(err)
 	}
 	var models []string
@@ -608,11 +608,11 @@ func TestHandleSettingsDisableUnlinksEndpoint(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := ensureOpenAIEndpointsTable(ctx, db); err != nil {
+	if err := ensureModelHubEndpointsTable(ctx, db); err != nil {
 		db.Close()
 		t.Fatal(err)
 	}
-	_, err = db.ExecContext(ctx, `INSERT OR REPLACE INTO openai_endpoints
+	_, err = db.ExecContext(ctx, `INSERT OR REPLACE INTO modelhub_endpoints
 		(id, name, base_url, api_key, enabled, models, plugin_id)
 		VALUES (?, 'PostHog Code', 'http://127.0.0.1:3000/api/posthogcode/v1', 'k', 1, '[]', 'posthogcode')`, linkedEndpointID)
 	db.Close()
@@ -639,7 +639,7 @@ func TestHandleSettingsDisableUnlinksEndpoint(t *testing.T) {
 	}
 	defer db.Close()
 	var n int
-	if err := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM openai_endpoints WHERE id = ?", linkedEndpointID).Scan(&n); err != nil {
+	if err := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM modelhub_endpoints WHERE id = ?", linkedEndpointID).Scan(&n); err != nil {
 		t.Fatal(err)
 	}
 	if n != 0 {

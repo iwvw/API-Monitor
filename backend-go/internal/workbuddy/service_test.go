@@ -30,11 +30,11 @@ func seedLinkedEndpoint(t *testing.T, s *Service) {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	if err := ensureOpenAIEndpointsTable(ctx, db); err != nil {
+	if err := ensureModelHubEndpointsTable(ctx, db); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := db.ExecContext(ctx, `
-		INSERT INTO openai_endpoints (id, name, base_url, api_key, enabled, models, disabled_models, plugin_id)
+		INSERT INTO modelhub_endpoints (id, name, base_url, api_key, enabled, models, disabled_models, plugin_id)
 		VALUES (?, ?, ?, ?, 1, '[]', '[]', 'workbuddy')`,
 		linkedEndpointID, linkedEndpointName, s.linkBaseURL(), internalKey); err != nil {
 		t.Fatal(err)
@@ -50,7 +50,7 @@ func readLinkedDisabled(t *testing.T, s *Service) []string {
 	defer db.Close()
 	var raw string
 	if err := db.QueryRowContext(context.Background(),
-		`SELECT COALESCE(disabled_models,'') FROM openai_endpoints WHERE id = ?`,
+		`SELECT COALESCE(disabled_models,'') FROM modelhub_endpoints WHERE id = ?`,
 		linkedEndpointID).Scan(&raw); err != nil {
 		t.Fatal(err)
 	}
@@ -70,7 +70,7 @@ func readLinkedModels(t *testing.T, s *Service) []string {
 	defer db.Close()
 	var raw string
 	if err := db.QueryRowContext(context.Background(),
-		`SELECT COALESCE(models,'') FROM openai_endpoints WHERE id = ?`,
+		`SELECT COALESCE(models,'') FROM modelhub_endpoints WHERE id = ?`,
 		linkedEndpointID).Scan(&raw); err != nil {
 		t.Fatal(err)
 	}
@@ -159,7 +159,7 @@ func TestReconcileLinkedEndpointShrinksModelsColumn(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := db.ExecContext(context.Background(),
-		`UPDATE openai_endpoints SET models = '["hy3","glm-5.2"]' WHERE id = ?`,
+		`UPDATE modelhub_endpoints SET models = '["hy3","glm-5.2"]' WHERE id = ?`,
 		linkedEndpointID); err != nil {
 		db.Close()
 		t.Fatal(err)

@@ -8,7 +8,7 @@ import (
 )
 
 /**
- * 流式响应加固：与 `internal/openai/relay_chat.go` 的 sseStreamWriter 同一范式。
+ * 流式响应加固：与 `internal/modelhub/relay_chat.go` 的 sseStreamWriter 同一范式。
  *
  * ## 为什么 Antigravity 必须补上这三样
  *
@@ -35,7 +35,7 @@ import (
  *    周期性发 `: ping` 注释行（标准 SSE 客户端会忽略）即可穿透空闲超时。
  */
 
-// streamPingInterval 是流式响应期间的 ping 间隔。与 openai 包保持一致。
+// streamPingInterval 是流式响应期间的 ping 间隔。与 modelhub 包保持一致。
 const streamPingInterval = 15 * time.Second
 
 // streamWriteWindow 是单次写入允许的时间窗口；每次写前都会重新延长。

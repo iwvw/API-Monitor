@@ -140,7 +140,7 @@ func (s *Service) callLLMWithBody(ctx context.Context, reqBody map[string]interf
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
 
-	// 单次请求等待响应头上限 180s（与 openai 网关的 headerTimeout 一致，推理模型
+	// 单次请求等待响应头上限 180s（与 modelhub 网关的 headerTimeout 一致，推理模型
 	// 思考阶段可能超过 60s）；响应体时长不受限。整体执行时长仍由 runCtx 总预算管控。
 	client := &http.Client{Timeout: 180 * time.Second}
 	resp, err := client.Do(httpReq)

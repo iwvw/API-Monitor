@@ -44,7 +44,7 @@ func (s *Service) readLinkedEndpoint(ctx context.Context, db *sql.DB) *linkedEnd
 	var modelsRaw sql.NullString
 	err := db.QueryRowContext(ctx, `
 		SELECT id, name, base_url, enabled, COALESCE(models,'')
-		FROM openai_endpoints WHERE id = ?`, linkedEndpointID).Scan(&id, &name, &baseURL, &enabled, &modelsRaw)
+		FROM modelhub_endpoints WHERE id = ?`, linkedEndpointID).Scan(&id, &name, &baseURL, &enabled, &modelsRaw)
 	if err != nil {
 		return nil
 	}
@@ -91,7 +91,7 @@ func (s *Service) linkCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	defer db.Close()
 
-	if err := ensureOpenAIEndpointsTable(ctx, db); err != nil {
+	if err := ensureModelHubEndpointsTable(ctx, db); err != nil {
 		responseJSON(w, http.StatusInternalServerError, map[string]interface{}{"success": false, "error": err.Error()})
 		return
 	}
@@ -108,7 +108,7 @@ func (s *Service) linkCreate(w http.ResponseWriter, r *http.Request) {
 	now := time.Now().UTC().Format(time.RFC3339)
 
 	_, err = db.ExecContext(ctx, `
-		INSERT INTO openai_endpoints
+		INSERT INTO modelhub_endpoints
 			(id, name, base_url, api_key, headers, disabled_models, proxy_pool, proxy_batches,
 			 auto_switch, proxy_enabled, force_proxy, rate_limit_retry_enabled,
 			 rate_limit_retry_wait_seconds, protocol, status, enabled, models, model_names, created_at, last_checked, sort_order, plugin_id)
@@ -146,7 +146,7 @@ func (s *Service) linkDelete(w http.ResponseWriter, r *http.Request) {
 	}
 	defer db.Close()
 
-	if _, err := db.ExecContext(ctx, `DELETE FROM openai_endpoints WHERE id = ?`, linkedEndpointID); err != nil {
+	if _, err := db.ExecContext(ctx, `DELETE FROM modelhub_endpoints WHERE id = ?`, linkedEndpointID); err != nil {
 		responseJSON(w, http.StatusInternalServerError, map[string]interface{}{"success": false, "error": err.Error()})
 		return
 	}
@@ -160,7 +160,7 @@ func (s *Service) unlinkIfDisabled(ctx context.Context) {
 		return
 	}
 	defer db.Close()
-	_, _ = db.ExecContext(ctx, `DELETE FROM openai_endpoints WHERE id = ?`, linkedEndpointID)
+	_, _ = db.ExecContext(ctx, `DELETE FROM modelhub_endpoints WHERE id = ?`, linkedEndpointID)
 }
 
 // syncLinkedEndpointModels 把插件当前启用模型名单同步到已接入网关端点的
@@ -178,7 +178,7 @@ func (s *Service) syncLinkedEndpointModels(ctx context.Context) {
 	disabledPayload, _ := json.Marshal(disabled)
 	modelsPayload, _ := json.Marshal(s.enabledModelIDs())
 	_, _ = db.ExecContext(ctx, `
-		UPDATE openai_endpoints SET models = ?, disabled_models = ?, model_names = '{}' WHERE id = ?`,
+		UPDATE modelhub_endpoints SET models = ?, disabled_models = ?, model_names = '{}' WHERE id = ?`,
 		string(modelsPayload), string(disabledPayload), linkedEndpointID)
 }
 
@@ -187,10 +187,10 @@ func (s *Service) ReconcileLinkedEndpoint(ctx context.Context) {
 	s.syncLinkedEndpointModels(ctx)
 }
 
-// ensureOpenAIEndpointsTable 幂等确保 openai_endpoints 表存在。
-func ensureOpenAIEndpointsTable(ctx context.Context, db *sql.DB) error {
+// ensureModelHubEndpointsTable 幂等确保 modelhub_endpoints 表存在。
+func ensureModelHubEndpointsTable(ctx context.Context, db *sql.DB) error {
 	_, err := db.ExecContext(ctx, `
-		CREATE TABLE IF NOT EXISTS openai_endpoints (
+		CREATE TABLE IF NOT EXISTS modelhub_endpoints (
 			id TEXT PRIMARY KEY,
 			name TEXT NOT NULL,
 			base_url TEXT NOT NULL,

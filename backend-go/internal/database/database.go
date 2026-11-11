@@ -212,8 +212,8 @@ func ensureDefaultUserSettings(ctx context.Context, db *sql.DB) error {
 		) VALUES (
 			1,
 			'',
-			'{"openai":true,"dns":true,"server":true}',
-			'["openai","dns","server"]',
+			'{"modelhub":true,"dns":true,"server":true}',
+			'["modelhub","dns","server"]',
 			'{}',
 			'{}'
 		)

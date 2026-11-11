@@ -701,10 +701,10 @@ func (s *Service) handleExchange(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// ensureOpenAIEndpointsTable 幂等确保 openai_endpoints 表存在（列定义与 openai 模块一致）。
-func ensureOpenAIEndpointsTable(ctx context.Context, db *sql.DB) error {
+// ensureModelHubEndpointsTable 幂等确保 modelhub_endpoints 表存在（列定义与 modelhub 模块一致）。
+func ensureModelHubEndpointsTable(ctx context.Context, db *sql.DB) error {
 	_, err := db.ExecContext(ctx, `
-		CREATE TABLE IF NOT EXISTS openai_endpoints (
+		CREATE TABLE IF NOT EXISTS modelhub_endpoints (
 			id TEXT PRIMARY KEY,
 			name TEXT NOT NULL,
 			base_url TEXT NOT NULL,

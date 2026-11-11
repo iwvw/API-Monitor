@@ -410,7 +410,7 @@ func (s *Service) refreshLinkedEndpointModels(ctx context.Context, oldPrefix str
 	// 读取当前模型映射与禁用列表，做前缀迁移（别名 value 不受前缀影响，保留不动）。
 	var modelsRaw, mappingsRaw, disabledRaw sql.NullString
 	_ = db.QueryRowContext(ctx, `
-		SELECT models, model_mappings, disabled_models FROM openai_endpoints WHERE id = ?`,
+		SELECT models, model_mappings, disabled_models FROM modelhub_endpoints WHERE id = ?`,
 		linkedEndpointID).Scan(&modelsRaw, &mappingsRaw, &disabledRaw)
 
 	// 拉取失败且当前已有模型时：保留旧列表并迁移前缀，不清空也不写兜底。
@@ -446,7 +446,7 @@ func (s *Service) refreshLinkedEndpointModels(ctx context.Context, oldPrefix str
 	disabledJSON, _ := json.Marshal(migratedDisabled)
 
 	_, _ = db.ExecContext(ctx, `
-		UPDATE openai_endpoints SET models = ?, model_mappings = ?, disabled_models = ?, last_checked = ? WHERE id = ?`,
+		UPDATE modelhub_endpoints SET models = ?, model_mappings = ?, disabled_models = ?, last_checked = ? WHERE id = ?`,
 		string(modelsJSON), string(mappingsJSON), string(disabledJSON),
 		time.Now().UTC().Format(time.RFC3339), linkedEndpointID)
 }
@@ -1162,7 +1162,7 @@ func (s *Service) syncEndpointModels() {
 	modelsJSON, _ := json.Marshal(prefixed)
 	// 只更新 models 列，不动映射/禁用
 	_, _ = db.ExecContext(ctx, `
-		UPDATE openai_endpoints SET models = ?, last_checked = ? WHERE id = ?`,
+		UPDATE modelhub_endpoints SET models = ?, last_checked = ? WHERE id = ?`,
 		string(modelsJSON), time.Now().UTC().Format(time.RFC3339), linkedEndpointID)
 }
 

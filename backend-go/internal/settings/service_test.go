@@ -90,7 +90,7 @@ func TestUserSettingsReadPatchAndPost(t *testing.T) {
 	res = performSettingsRequest(service, http.MethodPost, "/api/settings", `{
 		"agentDownloadUrl":"https://example.com/agent",
 		"koyebRefreshInterval":45000,
-		"channelEnabled":{"openai":false}
+		"channelEnabled":{"modelhub":false}
 	}`)
 	if res.Code != http.StatusOK {
 		t.Fatalf("post settings status = %d body=%s", res.Code, res.Body.String())
@@ -105,7 +105,7 @@ func TestUserSettingsReadPatchAndPost(t *testing.T) {
 		t.Fatalf("post settings not persisted: %#v", payload.Data)
 	}
 	channelEnabled := payload.Data["channelEnabled"].(map[string]interface{})
-	if channelEnabled["openai"] != false {
+	if channelEnabled["modelhub"] != false {
 		t.Fatalf("channelEnabled not persisted: %#v", channelEnabled)
 	}
 }

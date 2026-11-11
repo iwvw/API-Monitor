@@ -814,7 +814,7 @@ func (s *Service) buildAPIDocs() map[string]interface{} {
 		},
 		"routes": items,
 		"aiAccess": map[string]interface{}{
-			"currentGateway": "/api/openai",
+			"currentGateway": "/api/modelhub",
 			"compatibleAPI":  "/v1",
 			"plannedModules": []map[string]string{
 				{"id": "providers", "name": "模型端点", "description": "统一管理 OpenAI 兼容端点、模型发现、健康检测与负载均衡"},
@@ -1336,7 +1336,7 @@ func routeGroup(route manifest.Route) string {
 	prefix := route.Prefix
 	switch {
 	// 模型网关
-	case strings.HasPrefix(prefix, "/api/openai"), strings.HasPrefix(prefix, "/api/chat"), strings.HasPrefix(prefix, "/v1"), strings.HasPrefix(prefix, "/api/emailcode"), strings.HasPrefix(prefix, "/api/posthogcode"):
+	case strings.HasPrefix(prefix, "/api/modelhub"), strings.HasPrefix(prefix, "/api/chat"), strings.HasPrefix(prefix, "/v1"), strings.HasPrefix(prefix, "/api/emailcode"), strings.HasPrefix(prefix, "/api/posthogcode"):
 		return "模型网关"
 	// AI Agent 管理
 	case strings.HasPrefix(prefix, "/api/aiagent"):
@@ -1487,7 +1487,7 @@ func routeDescription(route manifest.Route) string {
 		return "管理 Cloudflare 账号、DNS、Tunnel 和相关资源"
 	case strings.HasPrefix(prefix, "/api/server"), strings.HasPrefix(prefix, "/ws/ssh"), strings.HasPrefix(prefix, "/ws/agent-terminal"), strings.HasPrefix(prefix, "/socket.io"):
 		return "管理主机实例、SSH 终端和实时连接"
-	case strings.HasPrefix(prefix, "/api/openai"), strings.HasPrefix(prefix, "/v1"), strings.HasPrefix(prefix, "/api/chat"):
+	case strings.HasPrefix(prefix, "/api/modelhub"), strings.HasPrefix(prefix, "/v1"), strings.HasPrefix(prefix, "/api/chat"):
 		return "OpenAI 兼容模型代理、聊天和流式响应"
 	case strings.HasPrefix(prefix, "/api/aliyun"):
 		return "管理阿里云资源和云服务接口"
@@ -1560,7 +1560,7 @@ func inferRouteMethods(route manifest.Route) []string {
 	case "/api/aiagent/instances/{id}/lifecycle", "/api/aiagent/instances/batch":
 		return []string{"POST"}
 	// 操作型子路由：显式登记真实方法，避免 MatchPattern 默认推断 4 方法导致巡检/文档误报。
-	case "/api/openai/endpoints/{id}/proxy-state":
+	case "/api/modelhub/endpoints/{id}/proxy-state":
 		return []string{"GET"}
 	case "/api/prompts/entries/{id}/publish":
 		return []string{"POST"}
@@ -1742,7 +1742,7 @@ func (s *Service) apiStatsWindow(days, minutes int) (map[string]interface{}, err
 		}
 		s.mu.Unlock()
 
-		// 近 24 小时 / 近 N 分钟词元（openai_gateway_stats_hourly，UTC "2006-01-02 15:04:05"）
+		// 近 24 小时 / 近 N 分钟词元（modelhub_gateway_stats_hourly，UTC "2006-01-02 15:04:05"）
 		// 与流量（subscription_usage_hourly，RFC3339 UTC），按站点时区小时对齐。
 		var totalTokens, totalTraffic int64
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -1752,7 +1752,7 @@ func (s *Service) apiStatsWindow(days, minutes int) (map[string]interface{}, err
 			tokensByHour := map[string]int64{}
 			if rows, qErr := db.QueryContext(ctx, `
 				SELECT hour, COALESCE(SUM(total_tokens), 0)
-				FROM openai_gateway_stats_hourly
+				FROM modelhub_gateway_stats_hourly
 				WHERE hour >= ? AND route != 'models'
 				GROUP BY hour`, utcStart.Format("2006-01-02 15:04:05")); qErr == nil {
 				for rows.Next() {
@@ -1873,7 +1873,7 @@ func (s *Service) apiStatsWindow(days, minutes int) (map[string]interface{}, err
 	}
 	s.mu.Unlock()
 
-	// 汇总最近 days 天的词元用量（OpenAI 网关）与订阅实际用量（流量），并按天对齐趋势桶。
+	// 汇总最近 days 天的词元用量（模型网关）与订阅实际用量（流量），并按天对齐趋势桶。
 	var totalTokens, totalTraffic int64
 	nowUTC := time.Now().UTC()
 	tokensByDay, trafficByDay := systemUsageDaily(ctx, db, nowUTC, days)
@@ -1917,7 +1917,7 @@ func (s *Service) apiStatsWindow(days, minutes int) (map[string]interface{}, err
 	return payload, nil
 }
 
-// systemUsageDaily 按天汇总最近 days 天的 OpenAI 网关词元消耗与订阅实际流量（上传+下载字节）。
+// systemUsageDaily 按天汇总最近 days 天的模型网关词元消耗与订阅实际流量（上传+下载字节）。
 // now 须为 UTC：两表时间列均以 UTC 文本存储，直接与列比较可命中索引，
 // 避免 datetime() 函数包裹导致全表扫描。返回以 "2006-01-02"（UTC 日）为键的逐日用量表，缺失日期返回 0。
 func systemUsageDaily(ctx context.Context, db *sql.DB, now time.Time, days int) (map[string]int64, map[string]int64) {
@@ -1926,7 +1926,7 @@ func systemUsageDaily(ctx context.Context, db *sql.DB, now time.Time, days int) 
 	tokensByDay := make(map[string]int64)
 	if rows, err := db.QueryContext(ctx, `
 		SELECT strftime('%Y-%m-%d', hour) AS day, COALESCE(SUM(total_tokens), 0)
-		FROM openai_gateway_stats_hourly
+		FROM modelhub_gateway_stats_hourly
 		WHERE hour >= ? AND route != 'models'
 		GROUP BY day`, start); err != nil {
 		// 表可能尚未建好，返回空表即可。
