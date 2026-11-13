@@ -1223,8 +1223,9 @@ async fn run_client(
                                             )
                                             .await;
                                         });
-                                        successful = true;
-                                        res_data = "容器更新任务已启动".to_string();
+                                        // 后台更新由 handle_docker_container_update 发送真实进度与最终结果；
+                                        // 不在本处回执成功，否则后端会提前把任务判为完成，前端即刻显示“成功”。
+                                        return;
                                     }
                                     25 => {
                                         // DOCKER_RENAME_CONTAINER
