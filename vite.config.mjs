@@ -166,7 +166,6 @@ export default defineConfig(({ mode }) => {
       allowedHosts: true,
       hmr: {
         protocol: 'ws',
-        host: 'localhost',
       },
       // 文件系统访问控制：阻止 dev server 暴露后端源代码与敏感数据文件
       fs: {
