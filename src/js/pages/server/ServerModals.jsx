@@ -6,7 +6,7 @@ import { Button, LinkButton } from '@cloudflare/kumo/components/button';
 import { Badge } from '@cloudflare/kumo/components/badge';
 import { TagInput } from '@cloudflare/kumo/components/tag-input';
 import { SkeletonLine } from '@cloudflare/kumo/components/loader';
-import { ClipboardText, LayerCard, Meter, Tabs } from '@cloudflare/kumo';
+import { ClipboardText, Meter, Tabs } from '@cloudflare/kumo';
 import CodeEditor from '../../components/ui/CodeEditor.jsx';
 import { DateField } from '../../components/ui/DateField.jsx';
 import { AppCard } from '../../components/ui/AppPrimitives.jsx';
@@ -35,7 +35,6 @@ import {
 import { isWindowsAgentInstallOs, getAgentInstallExecutionHint } from '../../modules/agentInstall.js';
 import { getFlagCountry } from './utils.js';
 import { TOOL_TABS_PROPS } from '../../modules/kumoTabs.js';
-import { SERVER_SECTION_HEADER_CLASS } from './constants.js';
 
 export default function ServerModals(props) {
   const {
@@ -1346,11 +1345,11 @@ export default function ServerModals(props) {
           </LayerDialog.Title>
           <LayerDialog.Body>
             <div className="w-0 min-w-full text-xs text-kumo-default">
-              <div className="@container grid min-w-0 h-[min(64dvh,680px)] gap-3 overflow-hidden p-4 grid-cols-1 cq-md:grid-cols-[18rem_minmax(0,1fr)]">
-            <LayerCard className="flex min-h-0 flex-col overflow-hidden p-0">
-              <LayerCard.Secondary className={SERVER_SECTION_HEADER_CLASS}>
-                <span className="inline-flex min-w-0 items-center gap-2 text-xs font-semibold text-kumo-strong">
-                  <Settings className="h-4 w-4 shrink-0 text-brand" />
+              <div className="@container grid min-w-0 items-start gap-2 grid-cols-1 cq-md:grid-cols-[17rem_minmax(0,1fr)]">
+            <div className="flex min-h-0 flex-col overflow-hidden rounded-lg border border-kumo-line/70">
+              <div className="flex shrink-0 items-center justify-between gap-2 border-b border-kumo-line bg-kumo-recessed/40 px-2 py-1.5">
+                <span className="inline-flex min-w-0 items-center gap-1.5 text-xs font-semibold text-kumo-strong">
+                  <Settings className="h-3.5 w-3.5 shrink-0 text-brand" />
                   项目信息
                 </span>
                 <Badge
@@ -1359,40 +1358,44 @@ export default function ServerModals(props) {
                 >
                   {dockerComposeEditor?.status || '-'}
                 </Badge>
-              </LayerCard.Secondary>
-              <LayerCard.Primary className="flex flex-1 flex-col space-y-2 p-3">
-                <div className="rounded-md border border-kumo-line/70 bg-kumo-recessed/20 px-2 py-1.5">
-                  <div className="text-[10px] text-kumo-subtle">主机</div>
-                  <div className="mt-0.5 truncate text-sm font-semibold text-kumo-strong">
-                    {dockerComposeEditor?.serverName || '-'}
+              </div>
+              <div className="flex min-h-0 flex-1 flex-col gap-1.5 overflow-y-auto p-2">
+                <div className="grid grid-cols-2 items-start gap-1.5">
+                  <div className="min-w-0 rounded-md border border-kumo-line/70 bg-kumo-recessed/20 px-1.5 py-1">
+                    <div className="text-[10px] leading-none text-kumo-subtle">主机</div>
+                    <div
+                      className="mt-0.5 truncate text-xs font-semibold leading-tight text-kumo-strong"
+                      title={dockerComposeEditor?.serverName || '-'}
+                    >
+                      {dockerComposeEditor?.serverName || '-'}
+                    </div>
+                  </div>
+                  <div className="min-w-0 rounded-md border border-kumo-line/70 bg-kumo-recessed/20 px-1.5 py-1">
+                    <div className="text-[10px] leading-none text-kumo-subtle">项目</div>
+                    <div
+                      className="mt-0.5 truncate text-xs font-semibold leading-tight text-kumo-strong"
+                      title={dockerComposeEditor?.projectName || '-'}
+                    >
+                      {dockerComposeEditor?.projectName || '-'}
+                    </div>
                   </div>
                 </div>
-                <div className="rounded-md border border-kumo-line/70 bg-kumo-recessed/20 px-2 py-1.5">
-                  <div className="text-[10px] text-kumo-subtle">项目</div>
-                  <div className="mt-0.5 truncate text-sm font-semibold text-kumo-strong">
-                    {dockerComposeEditor?.projectName || '-'}
-                  </div>
-                </div>
-                <div className="rounded-md border border-kumo-line/70 bg-kumo-recessed/20 px-2 py-1.5">
-                  <div className="text-[10px] text-kumo-subtle">工作目录</div>
-                  <div
-                    className="mt-0.5 truncate font-mono text-[11px] text-kumo-strong"
-                    title={dockerComposeEditor?.workingDir}
-                  >
+                <div className="min-w-0 rounded-md border border-kumo-line/70 bg-kumo-recessed/20 px-1.5 py-1">
+                  <div className="text-[10px] leading-none text-kumo-subtle">工作目录</div>
+                  <div className="mt-0.5 break-all font-mono text-[11px] leading-tight text-kumo-strong">
                     {dockerComposeEditor?.workingDir || '-'}
                   </div>
                 </div>
-                <div className="rounded-md border border-kumo-line/70 bg-kumo-recessed/20 px-2 py-1.5">
-                  <div className="text-[10px] text-kumo-subtle">配置文件</div>
-                  <div className="mt-0.5 flex flex-col gap-1">
+                <div className="min-w-0 rounded-md border border-kumo-line/70 bg-kumo-recessed/20 px-1.5 py-1">
+                  <div className="text-[10px] leading-none text-kumo-subtle">配置文件</div>
+                  <div className="mt-0.5 flex flex-col gap-0.5">
                     {(dockerComposeEditor?.configFiles?.length
                       ? dockerComposeEditor.configFiles
                       : ['-']
                     ).map(path => (
                       <span
                         key={path}
-                        className="truncate font-mono text-[11px] text-kumo-strong"
-                        title={path}
+                        className="break-all font-mono text-[11px] leading-tight text-kumo-strong"
                       >
                         {path}
                       </span>
@@ -1407,13 +1410,13 @@ export default function ServerModals(props) {
                     onClick={() =>
                       setDockerComposeEditor(prev => (prev ? { ...prev, mode: 'edit' } : prev))
                     }
-                    className="w-full justify-center"
+                    className="mt-0.5 w-full justify-center"
                   >
                     修改配置
                   </Button>
                 )}
-              </LayerCard.Primary>
-            </LayerCard>
+              </div>
+            </div>
 
             <div className="flex min-h-0 min-w-0 flex-col gap-2">
               {dockerComposeEditor?.error && (
@@ -1431,8 +1434,7 @@ export default function ServerModals(props) {
                   setDockerComposeEditor(prev => (prev ? { ...prev, content } : prev))
                 }
                 readOnly={dockerComposeEditor?.mode !== 'edit' || dockerComposeEditor?.loading}
-                className="min-h-0 flex-1"
-                minHeight="0"
+                minHeight="16rem"
               />
               </div>
             </div>
