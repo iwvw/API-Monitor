@@ -13,7 +13,7 @@ import { TOOL_TABS_PROPS } from '../../modules/kumoTabs.js';
 import { isDockerImagePruneCandidate, summarizeDockerTaskMessage } from '../../modules/dockerTasks.js';
 import { asArray, buildDockerPairSeries, buildDockerStatSeries, formatComposeStatusLabel, getComposeConfigFiles, getComposePrimaryConfigFile, getComposeProjectName, getComposeStatus, getComposeWorkingDir, getDockerImageId, getDockerImageRepository, getDockerImageSize, getDockerImageTag, getDockerNetworkDriver, getDockerNetworkId, getDockerNetworkName, getDockerNetworkScope, getDockerTaskActionLabel, getDockerTaskStateLabel, getDockerVolumeDriver, getDockerVolumeName, getDockerVolumeScope, isComposeConfigMissing, isDockerOverviewHostVisible } from './serverHelpers.js';
 import { clampPercent, formatBytesValue, formatPercentAxis, toNumber } from './utils.js';
-import { SERVER_FAST_CHART_UPDATE_BEHAVIOR, SERVER_SECONDARY_BAR_CLASS, SERVER_SECONDARY_TABS_GROUP_CLASS, SERVER_SECTION_HEADER_CLASS } from './constants.js';
+import { SERVER_FAST_CHART_UPDATE_BEHAVIOR, SERVER_SECONDARY_TABS_GROUP_CLASS, SERVER_SECTION_HEADER_CLASS } from './constants.js';
 
 export default function ServerDockerConsole(props) {
   const {
@@ -94,8 +94,8 @@ export default function ServerDockerConsole(props) {
   return (
     <>
       {serverCurrentTab === 'docker' && (
-        <div className="flex flex-col gap-4">
-          <div className={SERVER_SECONDARY_BAR_CLASS}>
+        <>
+          <div className="-mt-3 -mb-3 -mx-[var(--app-canvas-gutter-x)] flex min-h-[46px] flex-wrap items-center gap-2 px-[var(--app-tab-gutter-x)] py-2 cq-lg:justify-between cq-sm:-mt-4 cq-sm:-mb-4">
             <div className={SERVER_SECONDARY_TABS_GROUP_CLASS}>
               <Tabs
                 {...TOOL_TABS_PROPS}
@@ -2292,7 +2292,7 @@ export default function ServerDockerConsole(props) {
                 })()}
             </div>
           )}
-        </div>
+        </>
       )}
 
     </>
