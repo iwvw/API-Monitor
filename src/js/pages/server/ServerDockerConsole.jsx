@@ -412,7 +412,9 @@ export default function ServerDockerConsole(props) {
                                       );
                                     }
                                   }}
-                                  className="flex min-h-[52px] cursor-pointer flex-wrap items-center justify-between gap-2 border-b border-kumo-line/70 px-3 py-3.5"
+                                  className={`flex min-h-[52px] cursor-pointer flex-wrap items-center justify-between gap-2 px-3 py-3.5 ${
+                                    isOpen ? 'border-b border-kumo-line/70' : ''
+                                  }`}
                                 >
                                   <div className="flex min-w-0 items-center gap-2">
                                     <Box className="h-4 w-4 shrink-0 text-brand" />
