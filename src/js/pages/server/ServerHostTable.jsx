@@ -12,7 +12,7 @@ import CountryFlag from '../../components/CountryFlag.jsx';
 import SiteFontTimeseriesChart from '../../components/SiteFontTimeseriesChart.jsx';
 import ServerLocationMap from '../../components/server/ServerLocationMap.jsx';
 import TileGrid from '../tiles/TileGrid.jsx';
-import { ChevronDown, ChevronUp, Globe, LayoutDashboard, Menu, Pause, Play, RefreshCw, RotateCw, Search, Upload } from '../../components/Icons.jsx';
+import { ChevronDown, ChevronUp, DragHandle, Globe, LayoutDashboard, Menu, Pause, Play, RefreshCw, RotateCw, Search, Upload } from '../../components/Icons.jsx';
 import { CompactExpandedRow } from './CompactExpandedRow.jsx';
 import { CompactMetricBar } from './CompactMetricBar.jsx';
 import { DenseDetailChip } from './DenseDetailChip.jsx';
@@ -251,9 +251,9 @@ export default function ServerHostTable(props) {
                             className={`!px-[2px] !py-2 text-center text-[10px] whitespace-nowrap ${column.id === 'actions' ? `!pl-[1px] !pr-[2px] ${COMPACT_STICKY_ACTION_CLASS}` : ''}`}
                           >
                             <div
-                              className={`mx-auto flex items-center ${HOST_COMPACT_HEADER_BOX_CLASS[column.id] || 'justify-center'}`}
+                              className={`${isCompactViewport && column.id === 'name' ? 'flex items-center justify-start' : `mx-auto flex items-center ${HOST_COMPACT_HEADER_BOX_CLASS[column.id] || 'justify-center'}`}`}
                             >
-                              {column.label}
+                              {isCompactViewport && column.id === 'status' ? null : column.label}
                             </div>
                           </Table.Head>
                         ))}
@@ -355,23 +355,37 @@ export default function ServerHostTable(props) {
                                   >
                                     {isCompactColumnVisible('status') && (
                                       <Table.Cell className="!px-[2px] !py-1.5 text-center whitespace-nowrap">
-                                        <Badge
-                                          variant={metricsHealth.variant}
-                                          appearance="dot"
-                                          title={
-                                            metricsHealth.stale
-                                              ? 'Agent 连接存在，但最近未收到有效指标上报'
-                                              : undefined
-                                          }
-                                        >
-                                          {metricsHealth.label}
-                                        </Badge>
+                                        {isCompactViewport ? (
+                                          <span
+                                            className="inline-flex h-2 w-2 rounded-full"
+                                            title={
+                                              metricsHealth.stale
+                                                ? 'Agent 连接存在，但最近未收到有效指标上报'
+                                                : (metricsHealth.label || '')
+                                            }
+                                            style={{ alignItems: 'center' }}
+                                          >
+                                            <span className={`inline-block h-2 w-2 rounded-full ${metricsHealth.dotClassName}`} />
+                                          </span>
+                                        ) : (
+                                          <Badge
+                                            variant={metricsHealth.variant}
+                                            appearance="dot"
+                                            title={
+                                              metricsHealth.stale
+                                                ? 'Agent 连接存在，但最近未收到有效指标上报'
+                                                : undefined
+                                            }
+                                          >
+                                            {metricsHealth.label}
+                                          </Badge>
+                                        )}
                                       </Table.Cell>
                                     )}
                                     {isCompactColumnVisible('name') && (
                                       <Table.Cell className="!px-[2px] !py-1.5 whitespace-nowrap">
                                         <div
-                                          className={`mx-auto flex w-[96px] items-center gap-2 ${rowMuted ? 'text-kumo-subtle' : ''}`}
+                                          className={`flex items-center gap-2 ${isCompactViewport ? 'w-full justify-start' : 'mx-auto w-[96px] justify-center'} ${rowMuted ? 'text-kumo-subtle' : ''}`}
                                         >
                                           <i
                                             className={`${getOSIconClass(server.info?.platform)} ${rowMuted ? 'opacity-60 grayscale' : ''}`}
@@ -916,7 +930,7 @@ export default function ServerHostTable(props) {
                   const isExpanded = overlay;
                   const cardBorderClass = overlay
                     ? 'rounded-none border-0'
-                    : `border rounded-lg ${isExpanded ? 'border-brand/70  ring-1 ring-brand/20' : 'border-kumo-line/90  hover:border-kumo-interact '}`;
+                    : `rounded-lg border ${isExpanded ? 'border-brand/70' : 'border-kumo-line/90 hover:border-kumo-interact '}`;
                   const isChartSeriesReady = chartSeriesReadyServers.includes(server.id);
                   const isDarkMode = theme === 'dark';
                   const {
@@ -1004,8 +1018,17 @@ export default function ServerHostTable(props) {
                   return (
                     <ContextMenu.Root key={server.id}>
                       <ContextMenu.Trigger
-                        className={`select-none flex ${overlay ? 'min-h-0' : 'h-full'} min-h-0 flex-col overflow-hidden bg-kumo-base ${!overlay && !isServerOnline(server) ? 'opacity-60 grayscale' : ''} ${cardBorderClass}`}
+                        className={`relative select-none flex ${overlay ? 'min-h-0' : 'h-full'} min-h-0 flex-col overflow-hidden bg-kumo-base ${!overlay && !isServerOnline(server) ? 'opacity-60 grayscale' : ''} ${cardBorderClass}`}
                       >
+                        {!overlay && !serverSearchText.trim() && serverStatusFilter === 'all' && (
+                          <div
+                            className="server-card-drag-handle absolute left-1/2 top-0 z-10 flex h-5 w-16 -translate-x-1/2 cursor-grab items-center justify-center gap-1 rounded-b-md border-x border-b border-kumo-line/70 bg-kumo-recessed/60 text-kumo-subtle select-none active:cursor-grabbing"
+                            title="拖拽排序"
+                            onClick={e => e.stopPropagation()}
+                          >
+                            <DragHandle className="h-3 w-3" />
+                          </div>
+                        )}
                         <div
                           onClick={
                             overlay
@@ -1894,7 +1917,7 @@ export default function ServerHostTable(props) {
 
                 return (
                   <div className="relative flex min-h-0 flex-1 flex-col">
-                    <div className="min-h-0 flex-1 overflow-y-auto scrollbar-thin">
+                    <div className="min-h-0 flex-1 overflow-y-auto scrollbar-thin max-sm:px-px">
                       <TileGrid
                         layout={serverCardLayout}
                         onLayoutChange={handleServerCardLayoutChange}
@@ -1902,6 +1925,7 @@ export default function ServerHostTable(props) {
                         rowHeight={isCompactViewport ? 104 : 58}
                         dragEnabled={!serverSearchText.trim() && serverStatusFilter === 'all'}
                         resizeEnabled={false}
+                        dragHandle=".server-card-drag-handle"
                         renderTile={item => {
                           const server = serverById(item);
                           return server ? renderServerCard(server) : null;
@@ -1910,7 +1934,7 @@ export default function ServerHostTable(props) {
                       </TileGrid>
                     </div>
                     {detailServer && (
-                      <div className="absolute inset-0 z-30 overflow-y-auto rounded-md border border-kumo-line bg-kumo-base scrollbar-thin">
+                      <div className="absolute inset-0 z-30 overflow-y-auto rounded-lg border border-kumo-line bg-kumo-base scrollbar-thin">
                         <div className="relative flex min-h-full w-full flex-col">
                           {renderServerCard(detailServer, { overlay: true })}
                         </div>

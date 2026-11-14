@@ -99,6 +99,7 @@ export default function TileGrid({
   rowHeight: rowHeightOverride,
   dragEnabled = true,
   resizeEnabled = true,
+  dragHandle = '.tile-header',
 }) {
   const { width, containerRef, mounted } = useContainerWidth();
   // 列数：外部 cols 优先（按断点固定，断点内宽度变化列数不变、布局稳定）；
@@ -287,7 +288,7 @@ export default function TileGrid({
           width={width}
           layout={fittedLayout}
           gridConfig={{ cols, rowHeight, margin: [12, 12], containerPadding: [0, 0] }}
-          dragConfig={{ enabled: dragEnabled, handle: '.tile-header', cancel: 'canvas, button, select, input, a, .tile-scroll', threshold: isCoarsePointer ? 15 : 3 }}
+          dragConfig={{ enabled: dragEnabled, handle: dragHandle, cancel: 'canvas, button, select, input, a, .tile-scroll', threshold: isCoarsePointer ? 15 : 3 }}
           resizeConfig={{ enabled: resizeEnabled, handles: ['se'], handleComponent: TileResizeHandle }}
           compactor={verticalCompactor}
           onLayoutChange={handleGridChange}

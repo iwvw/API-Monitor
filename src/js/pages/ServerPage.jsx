@@ -6220,9 +6220,32 @@ function ServerPage() {
     () => HOST_COMPACT_COLUMNS.filter(column => compactVisibleColumns.includes(column.id)),
     [compactVisibleColumns]
   );
+  // 移动端紧凑列表：名称列按内容宽度自适应（JS 测量最长名称，避免固定 112px 截断或浪费空白）。
+  // 名称单元格 = OS 图标(约16px) + gap-2(8px) + 名称文字(text-xs font-semibold) + cell横留白(2px*2)。
+  const compactNameColumnWidth = useMemo(() => {
+    if (!isCompactViewport) return HOST_COMPACT_COLUMN_WIDTHS.name;
+    const names = filteredServers.map(s => s.name).filter(Boolean);
+    if (!names.length || typeof document === 'undefined') return HOST_COMPACT_COLUMN_WIDTHS.name;
+    const probe = document.createElement('canvas');
+    const ctx = probe.getContext('2d');
+    if (ctx) {
+      // 与名称文字样式对齐（text-xs≈12px，font-semibold≈600），sans-serif 与 Kumo 字体栈接近
+      ctx.font = '600 12px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
+    }
+    const measured = ctx ? names.reduce((max, n) => Math.max(max, ctx.measureText(n).width), 0) : 0;
+    // 图标 + gap + 最长文字 + 左右留白，并给截断留一点余量
+    return Math.min(220, Math.ceil(measured) + 16 + 8 + 4 + 8);
+  }, [isCompactViewport, filteredServers]);
   const visibleCompactColumnWidths = useMemo(
-    () => visibleCompactColumnDefs.map(column => HOST_COMPACT_COLUMN_WIDTHS[column.id] || 120),
-    [visibleCompactColumnDefs]
+    () =>
+      visibleCompactColumnDefs.map(column => {
+        const base = HOST_COMPACT_COLUMN_WIDTHS[column.id] || 120;
+        // 移动端状态列只剩一个状态点：收窄到只容纳圆点，避免残留为文字预留的宽度
+        if (isCompactViewport && column.id === 'status') return 30;
+        if (isCompactViewport && column.id === 'name') return compactNameColumnWidth;
+        return base;
+      }),
+    [visibleCompactColumnDefs, isCompactViewport, compactNameColumnWidth]
   );
 
   const isCompactColumnVisible = columnId => compactVisibleColumns.includes(columnId);
