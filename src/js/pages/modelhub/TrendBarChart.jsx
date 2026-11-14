@@ -9,7 +9,7 @@ import {
   TooltipComponent,
 } from 'echarts/components';
 import { CanvasRenderer } from 'echarts/renderers';
-import { createSiteFontEcharts } from '../../chartFont.js';
+import { createSiteFontEcharts, hideOtherChartTips } from '../../chartFont.js';
 import { kumoHex } from './utils.js';
 
 echarts.use([
@@ -43,6 +43,7 @@ export const TrendBarChart = memo(function TrendBarChart({
       tooltip: {
         trigger: 'axis',
         axisPointer: { type: 'shadow' },
+        confine: true,
         appendTo: 'body',
         backgroundColor: kumoHex('--color-kumo-base'),
         textStyle: { color: axisColor, fontSize: 11 },
@@ -85,6 +86,20 @@ export const TrendBarChart = memo(function TrendBarChart({
       chart.hideLoading();
     }
   }, [loading]);
+
+  // 进入本图表时隐藏其它图表的 tooltip，避免多个 tooltip 并存（详见 chartFont.js）
+  useEffect(() => {
+    const chart = chartRef.current;
+    if (!chart) return;
+    const zr = chart.getZr();
+    const hideOthers = () => hideOtherChartTips(chart);
+    zr.on('mousemove', hideOthers);
+    zr.on('mousedown', hideOthers);
+    return () => {
+      zr.off('mousemove', hideOthers);
+      zr.off('mousedown', hideOthers);
+    };
+  }, [labels]);
 
   const hasData = !!(labels && labels.length > 0);
   if (!hasData && !loading) return null;

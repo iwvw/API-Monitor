@@ -9,7 +9,7 @@ import {
   TooltipComponent,
 } from 'echarts/components';
 import { CanvasRenderer } from 'echarts/renderers';
-import { createSiteFontEcharts } from '../../chartFont.js';
+import { createSiteFontEcharts, hideOtherChartTips } from '../../chartFont.js';
 import { kumoHex, formatCompact, formatTokensZh } from './utils.js';
 
 echarts.use([
@@ -70,7 +70,14 @@ export const ModelTrendChart = memo(function ModelTrendChart({ labels, series, i
     chartRef.current = chart;
     const observer = new ResizeObserver(() => chart.resize());
     observer.observe(el);
+    // 进入本图表时隐藏其它图表的 tooltip，避免多个 tooltip 并存
+    const zr = chart.getZr();
+    const hideOthers = () => hideOtherChartTips(chart);
+    zr.on('mousemove', hideOthers);
+    zr.on('mousedown', hideOthers);
     return () => {
+      zr.off('mousemove', hideOthers);
+      zr.off('mousedown', hideOthers);
       observer.disconnect();
       chart.dispose();
       chartRef.current = null;
@@ -87,9 +94,10 @@ export const ModelTrendChart = memo(function ModelTrendChart({ labels, series, i
         grid: { left: 8, right: 12, top: 8, bottom: 0, containLabel: true },
         tooltip: {
           trigger: 'axis',
+          confine: true,
           traceHigh: true,
           // 挂到 body：LayerCard 自带 overflow-hidden，悬浮框默认渲染在图表
-          // 容器内会被卡片裁剪遮挡。
+          // 容器内会被卡片裁剪遮挡。confine 保证长列表也不会溢出视口右侧被裁。
           appendTo: 'body',
           backgroundColor: kumoHex('--color-kumo-base'),
           textStyle: { color: axisColor, fontSize: 11 },

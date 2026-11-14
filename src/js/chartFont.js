@@ -61,6 +61,20 @@ export const refreshSiteChartFonts = () => {
   }
 };
 
+// 跨图表 tooltip 互斥：多个 echarts 实例各自维护 tooltip，切到另一个图表时
+// 前一个实例的 tooltip 不会自动消失（echarts 只保证实例内部互斥）。移动端点击
+// 后尤其明显，会出现两个 tooltip 并存。进入某个图表时主动隐藏其余实例的 tooltip。
+export const hideOtherChartTips = (activeChart) => {
+  for (const chart of liveChartInstances) {
+    if (chart === activeChart) continue;
+    try {
+      chart.dispatchAction({ type: 'hideTip' });
+    } catch {
+      // 实例可能已销毁
+    }
+  }
+};
+
 export const ensureSiteChartFont = () => {
   if (fontWatcherStarted || typeof window === 'undefined') return;
   fontWatcherStarted = true;
