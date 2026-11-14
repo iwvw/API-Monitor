@@ -2,6 +2,7 @@ import { sectionCardHeaderClass } from '../../components/ui/AppPrimitives.jsx';
 
 export const SERVER_LIST_VIEW_STORAGE_KEY = 'server_list_view_mode_v2';
 export const SERVER_COMPACT_COLUMNS_STORAGE_KEY = 'server_compact_visible_columns';
+export const SERVER_CARD_DRAG_STORAGE_KEY = 'server_card_drag_enabled';
 export const SERVER_STATUS_SYNC_INTERVAL_MS = 15000;
 
 export const HOST_COMPACT_COLUMNS = [
@@ -41,8 +42,8 @@ export const HOST_COMPACT_COLUMN_WIDTHS = {
 };
 export const HOST_COMPACT_ADAPTIVE_COLUMNS = new Set(['cpu', 'memory', 'disk', 'remaining', 'quotaRemaining']);
 export const HOST_COMPACT_HEADER_BOX_CLASS = {
-  status: 'w-[58px] justify-center',
-  name: 'w-[96px] justify-center',
+  status: 'w-[16px] justify-center',
+  name: 'w-full justify-center',
   country: 'w-[55px] justify-center',
   uptime: 'w-[55px] justify-center',
   load: 'w-[55px] justify-center',
@@ -66,6 +67,8 @@ export const MANAGEMENT_CARD_ICON_CLASS = 'h-3.5 w-3.5 shrink-0 text-brand';
 export const SERVER_MODULE_TAB_ICON_CLASS = 'h-3.5 w-3.5 shrink-0';
 export const COMPACT_EXPAND_EXIT_MS = 230;
 export const SERVER_CHART_SERIES_DEFER_MS = 44;
+export const SERVER_CARD_WIDE_MIN_REM = 46;
+export const SERVER_CARD_ROW_HEIGHT_REM = { narrow: 5.3125, wide: 3.125 };
 export const SERVER_CHART_RENDER_DEFER_MS = 88;
 export const SERVER_CHART_ANIMATION_MS = 90;
 export const SERVER_CHART_UPDATE_ANIMATION_MS = 70;

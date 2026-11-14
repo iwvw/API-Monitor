@@ -12,7 +12,7 @@ import CountryFlag from '../../components/CountryFlag.jsx';
 import SiteFontTimeseriesChart from '../../components/SiteFontTimeseriesChart.jsx';
 import ServerLocationMap from '../../components/server/ServerLocationMap.jsx';
 import TileGrid from '../tiles/TileGrid.jsx';
-import { ChevronDown, ChevronUp, Globe, LayoutDashboard, Menu, Pause, Play, RefreshCw, RotateCw, Search, Upload } from '../../components/Icons.jsx';
+import { ChevronDown, ChevronUp, DragHandle, Globe, LayoutDashboard, Menu, Pause, Play, RefreshCw, RotateCw, Search, Upload } from '../../components/Icons.jsx';
 import { CompactExpandedRow } from './CompactExpandedRow.jsx';
 import { CompactMetricBar } from './CompactMetricBar.jsx';
 import { DenseDetailChip } from './DenseDetailChip.jsx';
@@ -34,7 +34,7 @@ import { formatDateTime, parseSpeed } from '../../modules/utils.js';
 import { summarizeDockerContainers } from '../../modules/dockerSummary.js';
 import { TOOL_TABS_PROPS } from '../../modules/kumoTabs.js';
 import { buildNetworkQualitySeries, formatUptimeDaysOnly, getGpuModelText, getHostAddress, getPrimaryLoadValue, getServerCycleParts, getServerLifecycle, getServerMetricDisplay, getServerMonitorModeLabel, getTrafficQuota, isNetworkQualityUnsupportedError, isServerOnline } from './serverHelpers.js';
-import { clampPercent, formatBytesSpeed, formatCompactBytesSpeed, formatMetricTooltipValue, getCpuTemp, getExpandedCardSpanClassName, getExpandedInfoGridClassName, getExpandedTrendGridClassName, getFlagCountry, getGpuTemp, getLatestMetricValue, getOSIconClass, getServerLocationText, getServerLocationTitle, toNumber } from './utils.js';
+import { clampPercent, formatBytesSpeed, formatCompactBytesSpeed, formatMetricTooltipValue, getCpuTemp, getExpandedCardSpanClassName, getExpandedInfoGridClassName, getExpandedTrendGridClassName, getFlagCountry, getGpuTemp, getLatestMetricValue, getOSIconClass, getServerCardRowHeight, getServerLocationText, getServerLocationTitle, getServerTagBadgeVariant, toNumber } from './utils.js';
 import { COMPACT_ACTION_BUTTON_CLASS, COMPACT_INLINE_BOX_CLASS, COMPACT_STICKY_ACTION_CLASS, HOST_COMPACT_ADAPTIVE_COLUMNS, HOST_COMPACT_HEADER_BOX_CLASS, SERVER_CHART_RENDER_DEFER_MS, SERVER_FAST_CHART_UPDATE_BEHAVIOR, SERVER_SECONDARY_TABS_GROUP_CLASS } from './constants.js';
 
 export default function ServerHostTable(props) {
@@ -83,6 +83,7 @@ export default function ServerHostTable(props) {
     renderedCompactExpandedServers,
     resolveServerDisplayStatus,
     resolveServerMetricsHealth,
+    serverCardDragEnabled,
     serverCardLayout,
     serverCurrentTab,
     serverIpDisplayMode,
@@ -94,6 +95,7 @@ export default function ServerHostTable(props) {
     serverStatusFilter,
     setCardDetailServerId,
     setExpandedServers,
+    setServerCardDragEnabled,
     setServerListViewMode,
     setServerMapOpen,
     setServerSearchText,
@@ -153,14 +155,25 @@ export default function ServerHostTable(props) {
               />
               <Button
                 size="sm"
+                shape="square"
                 variant={serverMapOpen ? 'primary' : 'secondary'}
                 icon={<Globe className="h-3.5 w-3.5" />}
                 aria-label={serverMapOpen ? '切回主机列表' : '切换到主机地图'}
                 title={serverMapOpen ? '切回主机列表' : '切换到主机地图'}
                 onClick={() => setServerMapOpen(prev => !prev)}
-              >
-                地图
-              </Button>
+              />
+              {serverListViewMode === 'cards' && !serverMapOpen && (
+                <Button
+                  size="sm"
+                  shape="square"
+                  variant={serverCardDragEnabled ? 'primary' : 'secondary'}
+                  icon={<DragHandle className="h-3.5 w-3.5" />}
+                  aria-label={serverCardDragEnabled ? '完成排序' : '排序'}
+                  aria-pressed={serverCardDragEnabled}
+                  title={serverCardDragEnabled ? '完成排序' : '排序'}
+                  onClick={() => setServerCardDragEnabled(prev => !prev)}
+                />
+              )}
             </div>
 
             <ResponsiveSearchInput
@@ -231,29 +244,31 @@ export default function ServerHostTable(props) {
                     wrapperClassName="w-full max-w-full overflow-x-auto scrollbar-thin"
                   >
                     <colgroup>
-                      {visibleCompactColumnWidths.map((width, index) => (
-                        <col
-                          key={`${visibleCompactColumnDefs[index]?.id || index}-${width}`}
-                          style={
-                            HOST_COMPACT_ADAPTIVE_COLUMNS.has(visibleCompactColumnDefs[index]?.id)
-                              ? undefined
-                              : { width }
-                          }
-                        />
-                      ))}
+                      {visibleCompactColumnDefs
+                        .filter(column => column.id !== 'status')
+                        .map((column, index) => (
+                          <col
+                            key={`${column.id}-${visibleCompactColumnWidths[index]}`}
+                            style={
+                              HOST_COMPACT_ADAPTIVE_COLUMNS.has(column.id)
+                                ? undefined
+                                : { width: visibleCompactColumnWidths[index] }
+                            }
+                          />
+                        ))}
                     </colgroup>
                     <Table.Header sticky variant="compact">
                       <Table.Row onContextMenu={openCompactColumnMenu}>
-                        {visibleCompactColumnDefs.map(column => (
+                        {visibleCompactColumnDefs.filter(column => column.id !== 'status').map(column => (
                           <Table.Head
                             key={column.id}
-                            sticky={column.id === 'actions' ? 'right' : undefined}
+                            sticky={column.id === 'actions' ? 'right' : column.id === 'name' ? 'left' : undefined}
                             className={`!px-[2px] !py-2 text-center text-[10px] whitespace-nowrap ${column.id === 'actions' ? `!pl-[1px] !pr-[2px] ${COMPACT_STICKY_ACTION_CLASS}` : ''}`}
                           >
                             <div
-                              className={`${isCompactViewport && column.id === 'name' ? 'flex items-center justify-start' : `mx-auto flex items-center ${HOST_COMPACT_HEADER_BOX_CLASS[column.id] || 'justify-center'}`}`}
+                              className={`${column.id === 'name' ? 'flex items-center justify-start' : `mx-auto flex items-center ${HOST_COMPACT_HEADER_BOX_CLASS[column.id] || 'justify-center'}`}`}
                             >
-                              {isCompactViewport && column.id === 'status' ? null : column.label}
+                              {column.id === 'name' ? null : column.label}
                             </div>
                           </Table.Head>
                         ))}
@@ -353,40 +368,27 @@ export default function ServerHostTable(props) {
                                     className={`select-none border-b border-kumo-line/80 ${isExpanded ? '' : 'hover:bg-kumo-recessed/15'}`}
                                     onClick={() => toggleServerExpand(server.id)}
                                   >
-                                    {isCompactColumnVisible('status') && (
-                                      <Table.Cell className="!px-[2px] !py-1.5 text-center whitespace-nowrap">
-                                        {isCompactViewport ? (
-                                          <span
-                                            className="inline-flex h-2 w-2 rounded-full"
-                                            title={
-                                              metricsHealth.stale
-                                                ? 'Agent 连接存在，但最近未收到有效指标上报'
-                                                : (metricsHealth.label || '')
-                                            }
-                                            style={{ alignItems: 'center' }}
-                                          >
-                                            <span className={`inline-block h-2 w-2 rounded-full ${metricsHealth.dotClassName}`} />
-                                          </span>
-                                        ) : (
-                                          <Badge
-                                            variant={metricsHealth.variant}
-                                            appearance="dot"
-                                            title={
-                                              metricsHealth.stale
-                                                ? 'Agent 连接存在，但最近未收到有效指标上报'
-                                                : undefined
-                                            }
-                                          >
-                                            {metricsHealth.label}
-                                          </Badge>
-                                        )}
-                                      </Table.Cell>
-                                    )}
                                     {isCompactColumnVisible('name') && (
-                                      <Table.Cell className="!px-[2px] !py-1.5 whitespace-nowrap">
+                                      <Table.Cell
+                                        sticky="left"
+                                        className="!px-[2px] !py-1.5 whitespace-nowrap"
+                                      >
                                         <div
-                                          className={`flex items-center gap-2 ${isCompactViewport ? 'w-full justify-start' : 'mx-auto w-[96px] justify-center'} ${rowMuted ? 'text-kumo-subtle' : ''}`}
+                                          className={`flex items-center gap-2 w-full ${isCompactViewport ? 'justify-start' : 'justify-center'} ${rowMuted ? 'text-kumo-subtle' : ''}`}
                                         >
+                                          {isCompactColumnVisible('status') && (
+                                            <span
+                                              className="inline-flex h-2 w-2 shrink-0 rounded-full"
+                                              title={
+                                                metricsHealth.stale
+                                                  ? 'Agent 连接存在，但最近未收到有效指标上报'
+                                                  : (metricsHealth.label || '')
+                                              }
+                                              style={{ alignItems: 'center' }}
+                                            >
+                                              <span className={`inline-block h-2 w-2 rounded-full ${metricsHealth.dotClassName}`} />
+                                            </span>
+                                          )}
                                           <i
                                             className={`${getOSIconClass(server.info?.platform)} ${rowMuted ? 'opacity-60 grayscale' : ''}`}
                                           ></i>
@@ -586,7 +588,7 @@ export default function ServerHostTable(props) {
                             {shouldRenderExpandedRow && (
                               <CompactExpandedRow
                                 open={isExpanded}
-                                colSpan={visibleCompactColumnDefs.length}
+                                colSpan={visibleCompactColumnDefs.filter(column => column.id !== 'status').length}
                               >
                                 <div
                                   className={`flex flex-col ${isDenseViewport ? 'gap-1.5 p-1.5' : 'gap-2 p-2'}`}
@@ -929,7 +931,7 @@ export default function ServerHostTable(props) {
                   const locationText = getServerLocationText(server);
                   const isExpanded = overlay;
                   const cardBorderClass = overlay
-                    ? 'rounded-none border-0'
+                    ? 'rounded-lg border border-kumo-line/90 bg-kumo-base'
                     : `border rounded-lg ${isExpanded ? 'border-brand/70  ring-1 ring-brand/20' : 'border-kumo-line/90  hover:border-kumo-interact '}`;
                   const isChartSeriesReady = chartSeriesReadyServers.includes(server.id);
                   const isDarkMode = theme === 'dark';
@@ -1014,11 +1016,12 @@ export default function ServerHostTable(props) {
                       ));
                   const metricsHealth = resolveServerMetricsHealth(server);
                   const rowMuted = !isServerOnline(server);
+                  const detailDisabled = rowMuted || !server.info;
 
                   return (
                     <ContextMenu.Root key={server.id}>
                       <ContextMenu.Trigger
-                        className={`select-none flex ${overlay ? 'min-h-0' : 'h-full'} min-h-0 flex-col overflow-hidden bg-kumo-base ${!overlay && !isServerOnline(server) ? 'opacity-60 grayscale' : ''} ${cardBorderClass}`}
+                        className={`@container select-none flex ${overlay ? 'min-h-0' : 'h-full'} min-h-0 flex-col overflow-hidden bg-kumo-base ${cardBorderClass}`}
                       >
                         <div
                           onClick={
@@ -1027,14 +1030,17 @@ export default function ServerHostTable(props) {
                                   setExpandedServers(prev => prev.filter(id => id !== server.id));
                                   setCardDetailServerId(null);
                                 }
-                              : () => {
-                                  toggleServerExpand(server.id);
-                                  setCardDetailServerId(server.id);
-                                }
+                              : serverCardDragEnabled || detailDisabled
+                                ? undefined
+                                : () => {
+                                    toggleServerExpand(server.id);
+                                    setCardDetailServerId(server.id);
+                                  }
                           }
-                          className={`tile-header grid min-h-[56px] grid-cols-[minmax(0,1fr)_2.25rem] items-center gap-x-3 gap-y-2 px-3 py-2.5 ${overlay ? 'border-b border-kumo-line' : ''} cq-sm:flex cq-sm:flex-nowrap cq-sm:items-center cq-sm:justify-between cq-sm:gap-2.5 cq-sm:py-2`}
+                          title={!overlay && detailDisabled ? '离线或无监控数据，详情不可用' : undefined}
+                          className={`tile-header grid min-h-[48px] grid-cols-[minmax(0,1fr)_2.25rem] gap-x-2 gap-y-1.5 p-0 py-1.5 ${overlay ? 'shrink-0 border-b border-kumo-line' : ''} ${!overlay && serverCardDragEnabled ? 'cursor-move' : ''} ${!overlay && detailDisabled && !serverCardDragEnabled ? 'cursor-not-allowed' : ''} cq-card-wide:flex cq-card-wide:flex-nowrap cq-card-wide:items-center cq-card-wide:justify-between cq-card-wide:gap-2.5 cq-card-wide:py-1.5 cq-card-wide:pl-3 cq-card-wide:pr-1.5`}
                         >
-                          <div className="order-1 flex min-w-0 items-center gap-3">
+                          <div className="order-1 flex min-w-0 items-center gap-3 pl-3 pr-1.5 cq-card-wide:p-0">
                             <span className="relative flex h-2 w-2 rounded-full">
                               <span
                                 className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${metricsHealth.dotClassName}`}
@@ -1046,13 +1052,13 @@ export default function ServerHostTable(props) {
 
                             <div className="flex flex-col min-w-0 gap-1">
                               <div className="flex items-center gap-2 min-w-0">
-                                <i className={getOSIconClass(server.info?.platform)}></i>
+                                <i className={`${getOSIconClass(server.info?.platform)} ${rowMuted ? 'opacity-60 grayscale' : ''}`}></i>
                                 <span
                                   onDoubleClick={e => {
                                     e.stopPropagation();
                                     startRenameServer(server);
                                   }}
-                                  className="text-xs font-semibold text-kumo-strong truncate hover:text-brand"
+                                  className={`text-xs font-semibold truncate hover:text-brand ${rowMuted ? 'text-kumo-subtle' : 'text-kumo-strong'}`}
                                 >
                                   {country && (
                                     <CountryFlag
@@ -1066,12 +1072,14 @@ export default function ServerHostTable(props) {
                                   server.tags
                                     .filter(t => t !== 'Agent')
                                     .map(t => (
-                                      <span
+                                      <Badge
                                         key={t}
-                                        className="px-1.5 py-0.5 rounded text-[9px] font-semibold bg-kumo-recessed/60 text-kumo-subtle"
+                                        variant={getServerTagBadgeVariant(t)}
+                                        title={t}
+                                        className="text-[9px] font-semibold"
                                       >
                                         {t}
-                                      </span>
+                                      </Badge>
                                     ))}
                                 {metricsHealth.stale && (
                                   <Badge
@@ -1086,20 +1094,10 @@ export default function ServerHostTable(props) {
                             </div>
                           </div>
 
-                          <div className="contents cq-sm:order-2 cq-sm:ml-auto cq-sm:flex cq-sm:min-w-0 cq-sm:flex-nowrap cq-sm:items-center cq-sm:gap-2.5">
-                            <div className="order-3 col-span-2 grid w-full grid-cols-4 gap-1.5 text-[10px] font-semibold text-kumo-strong cq-sm:order-none cq-sm:col-span-1 cq-sm:flex cq-sm:h-9 cq-sm:w-auto cq-sm:items-center cq-sm:gap-2.5">
+                          <div className="contents cq-card-wide:order-2 cq-card-wide:ml-auto cq-card-wide:flex cq-card-wide:min-w-0 cq-card-wide:flex-nowrap cq-card-wide:items-center cq-card-wide:gap-2.5">
+                            <div className="order-3 col-span-2 grid w-full grid-cols-4 gap-1 px-1.5 text-[11px] font-semibold text-kumo-strong cq-card-wide:order-none cq-card-wide:col-span-1 cq-card-wide:flex cq-card-wide:w-auto cq-card-wide:items-center cq-card-wide:gap-2.5 cq-card-wide:p-0">
                               {server.info ? (
                                 <>
-                                {hasGpuData && (
-                                  <CompactMetricBar
-                                    label="GPU"
-                                    value={`${parseInt(server.info.gpu?.Usage || '0')}%`}
-                                    valueClassName="text-kumo-warning"
-                                    barClassName="bg-kumo-warning"
-                                    color={gpuColor}
-                                    width={server.info.gpu?.Usage || '0%'}
-                                  />
-                                )}
                                 <CompactMetricBar
                                   label="CPU"
                                   value={`${parseInt(server.info.cpu?.Usage || '0')}%`}
@@ -1107,6 +1105,7 @@ export default function ServerHostTable(props) {
                                   barClassName="bg-kumo-success"
                                   color={cpuColor}
                                   width={server.info.cpu?.Usage || '0%'}
+                                  muted={rowMuted}
                                 />
                                 <CompactMetricBar
                                   label="内存"
@@ -1115,6 +1114,7 @@ export default function ServerHostTable(props) {
                                   barClassName="bg-kumo-info"
                                   color={memColor}
                                   width={server.info.memory?.Usage || '0%'}
+                                  muted={rowMuted}
                                 />
                                 {server.info.disk?.[0] && (
                                   <CompactMetricBar
@@ -1124,9 +1124,10 @@ export default function ServerHostTable(props) {
                                     barClassName="bg-kumo-warning"
                                     color={diskColor}
                                     width={server.info.disk[0].usage || '0%'}
+                                    muted={rowMuted}
                                   />
                                 )}
-                                <div className="hidden cq-sm:block">
+                                <div className="hidden cq-card-wide:block">
                                   <CompactMetricBar
                                     label="余期"
                                     value={
@@ -1143,23 +1144,24 @@ export default function ServerHostTable(props) {
                                           : 'bg-kumo-success'
                                     }
                                     width={`${lifecycle.remainingPercent}%`}
+                                    muted={rowMuted}
                                   />
                                 </div>
-                                {!hasGpuData && server.info.network && (
-                                  <div className="flex min-w-0 flex-col justify-center rounded-md border border-kumo-line/70 bg-kumo-recessed/25 px-2 py-1 font-mono leading-[1.2] tabular-nums cq-sm:hidden">
-                                    <span className="truncate text-kumo-info">
+                                {server.info.network && (
+                                  <div className="flex min-w-0 flex-col justify-center gap-0.5 rounded-md border border-kumo-line/70 bg-kumo-recessed/25 px-1.5 py-0.5 font-mono leading-[1.2] tabular-nums cq-card-wide:hidden">
+                                    <span className={`truncate ${rowMuted ? 'text-kumo-subtle' : 'text-kumo-info'}`}>
                                       &uarr; {tx.num}
                                       {tx.unit}
                                     </span>
-                                    <span className="truncate text-kumo-success">
+                                    <span className={`truncate ${rowMuted ? 'text-kumo-subtle' : 'text-kumo-success'}`}>
                                       &darr; {rx.num}
                                       {rx.unit}
                                     </span>
                                   </div>
                                 )}
                                 {server.info.network && (
-                                  <div className="hidden h-8 w-[126px] shrink-0 flex-col justify-center gap-px rounded-md border border-kumo-line bg-kumo-recessed/35 px-[5px] py-0 text-[10px] font-semibold leading-[1.2] tabular-nums cq-sm:flex">
-                                    <span className="flex items-center justify-between whitespace-nowrap font-mono text-kumo-info">
+                                  <div className="hidden h-8 w-[126px] shrink-0 flex-col justify-center gap-px rounded-md border border-kumo-line bg-kumo-recessed/35 px-[5px] py-0 text-[10px] font-semibold leading-[1.2] tabular-nums cq-card-wide:flex">
+                                    <span className={`flex items-center justify-between whitespace-nowrap font-mono ${rowMuted ? 'text-kumo-subtle' : 'text-kumo-info'}`}>
                                       <span className="flex flex-1 items-center">
                                         <span className="w-2 text-center opacity-70">&uarr;</span>
                                         <span className="ml-1 w-[30px] text-right">{tx.num}</span>
@@ -1175,7 +1177,7 @@ export default function ServerHostTable(props) {
                                         {txTotal.unit}
                                       </span>
                                     </span>
-                                    <span className="flex items-center justify-between whitespace-nowrap font-mono text-kumo-success">
+                                    <span className={`flex items-center justify-between whitespace-nowrap font-mono ${rowMuted ? 'text-kumo-subtle' : 'text-kumo-success'}`}>
                                       <span className="flex flex-1 items-center">
                                         <span className="w-2 text-center opacity-70">&darr;</span>
                                         <span className="ml-1 w-[30px] text-right">{rx.num}</span>
@@ -1205,7 +1207,7 @@ export default function ServerHostTable(props) {
                               </div>
 
                             <div
-                              className="order-2 flex items-center justify-end gap-1.5 cq-sm:order-none"
+                              className="order-2 flex items-center justify-end gap-1.5 pr-1.5 cq-card-wide:order-none cq-card-wide:p-0"
                               onClick={e => e.stopPropagation()}
                             >
                               <ServerConnectionActions
@@ -1216,7 +1218,7 @@ export default function ServerHostTable(props) {
                                 }
                                 onOpenRemoteDesktop={() => openRemoteDesktop(server)}
                                 onOpenTerminal={() => openSSHTerminal(server)}
-                                buttonClassName="h-9 w-9 p-0 cq-sm:h-8 cq-sm:w-8"
+                                buttonClassName="h-7 w-7 p-0 cq-card-wide:h-8 cq-card-wide:w-8"
                               />
                             </div>
                           </div>
@@ -1908,13 +1910,13 @@ export default function ServerHostTable(props) {
 
                 return (
                   <div className="relative flex min-h-0 flex-1 flex-col">
-                    <div className="min-h-0 flex-1 overflow-y-auto scrollbar-thin">
+                    <div className="min-h-0 flex-1 overflow-y-auto p-px scrollbar-thin">
                       <TileGrid
                         layout={serverCardLayout}
                         onLayoutChange={handleServerCardLayoutChange}
                         cols={cardColumns}
-                        rowHeight={isCompactViewport ? 104 : 58}
-                        dragEnabled={!serverSearchText.trim() && serverStatusFilter === 'all'}
+                        rowHeight={getServerCardRowHeight}
+                        dragEnabled={serverCardDragEnabled && !serverSearchText.trim() && serverStatusFilter === 'all'}
                         resizeEnabled={false}
                         renderTile={item => {
                           const server = serverById(item);
@@ -1924,7 +1926,7 @@ export default function ServerHostTable(props) {
                       </TileGrid>
                     </div>
                     {detailServer && (
-                      <div className="absolute inset-0 z-30 overflow-y-auto rounded-lg border border-kumo-line bg-kumo-base scrollbar-thin">
+                      <div className="absolute inset-0 z-30 overflow-y-auto p-px scrollbar-thin">
                         <div className="relative flex min-h-full w-full flex-col">
                           {renderServerCard(detailServer, { overlay: true })}
                         </div>

@@ -106,8 +106,13 @@ export default function TileGrid({
   const cols = colsOverride ?? (mounted ? Math.min(maxCols, Math.max(2, Math.round(width / 250))) : 4);
   // 行高随当前列宽动态计算，使 1×1（h=2）在任何宽度下都是精确正方形：2*rowHeight + marginY = 列宽
   // containerPadding 归零：嵌入仪表盘时与页面 gutter（12px）对齐，避免网格内容额外内缩一圈
+  // rowHeight 支持传函数 ({ width, cols, colWidth }) => number：内容高度依赖图块自身宽度
+  // （卡片宽度跨断点后头部由单行变两行）时由调用方按列宽判定，而不是误用视口断点。
+  // 每次渲染都求值（不做 memo）：根字号缩放会同时改变容器查询断点的 rem 换算，需同步跟随
   const colWidth = (width - (cols - 1) * 12) / cols;
-  const rowHeight = rowHeightOverride ?? Math.max(72, Math.min(150, (colWidth - 12) / 2));
+  const rowHeight = typeof rowHeightOverride === 'function'
+    ? rowHeightOverride({ width, cols, colWidth })
+    : rowHeightOverride ?? Math.max(72, Math.min(150, (colWidth - 12) / 2));
 
   const onColsChangeRef = useRef(onColsChange);
   onColsChangeRef.current = onColsChange;

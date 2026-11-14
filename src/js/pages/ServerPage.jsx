@@ -178,6 +178,7 @@ import {
 import {
   SERVER_LIST_VIEW_STORAGE_KEY,
   SERVER_COMPACT_COLUMNS_STORAGE_KEY,
+  SERVER_CARD_DRAG_STORAGE_KEY,
   SERVER_STATUS_SYNC_INTERVAL_MS,
   HOST_COMPACT_COLUMNS,
   HOST_COMPACT_COLUMN_IDS,
@@ -203,6 +204,7 @@ import {
   normalizeServerStatusDomain,
   createFastTimeseriesEcharts,
   getInitialServerListViewMode,
+  getInitialServerCardDragEnabled,
   getInitialCompactVisibleColumns,
   getOSIconClass,
   toNumber,
@@ -452,6 +454,7 @@ function ServerPage() {
   const [serverSearchText, setServerSearchText] = useState('');
   const [serverStatusFilter, setServerStatusFilter] = useState('all');
   const [serverListViewMode, setServerListViewMode] = useState(getInitialServerListViewMode);
+  const [serverCardDragEnabled, setServerCardDragEnabled] = useState(getInitialServerCardDragEnabled);
   const [cardDetailServerId, setCardDetailServerId] = useState(null);
 
   useEffect(() => {
@@ -748,6 +751,12 @@ function ServerPage() {
       window.localStorage.setItem(SERVER_LIST_VIEW_STORAGE_KEY, serverListViewMode);
     }
   }, [serverListViewMode]);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem(SERVER_CARD_DRAG_STORAGE_KEY, serverCardDragEnabled ? '1' : '0');
+    }
+  }, [serverCardDragEnabled]);
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -6169,8 +6178,23 @@ function ServerPage() {
     return list;
   }, [serverList, serverStatusFilter, serverSearchText]);
 
+  // 详情浮层只属于「主机」tab 的卡片视图：切到表格视图 / 打开地图 / 切走 tab / 当前主机被搜索
+  // 或状态筛选排除时，浮层状态必须同步清空，否则切回卡片视图会重新弹出，或浮层静默消失但展开态残留
+  useEffect(() => {
+    if (!cardDetailServerId) return;
+    const stillVisible =
+      serverCurrentTab === 'list' &&
+      serverListViewMode === 'cards' &&
+      !serverMapOpen &&
+      filteredServers.some(server => String(server.id) === String(cardDetailServerId));
+    if (stillVisible) return;
+    setExpandedServers(prev => prev.filter(id => String(id) !== String(cardDetailServerId)));
+    setCardDetailServerId(null);
+  }, [cardDetailServerId, filteredServers, serverCurrentTab, serverListViewMode, serverMapOpen, setExpandedServers]);
+
   // 卡片视图网格布局：单列堆叠，由列表顺序派生（拖拽排序后重排列表，布局随之重建）
-  // 卡片视图自适应列数：≥768px 两列，窄屏单列（与卡片/紧凑视图切换断点一致）
+  // 卡片视图列数：视口 ≥1280px 两列，否则单列。卡片内部布局不跟这个断点走，
+  // 而是由卡片自身的容器查询（@container + cq-card-wide）判定。
   const isWideCardListView = useMediaQuery('(min-width: 1280px)');
   const cardColumns = isWideCardListView ? 2 : 1;
 
@@ -6220,10 +6244,9 @@ function ServerPage() {
     () => HOST_COMPACT_COLUMNS.filter(column => compactVisibleColumns.includes(column.id)),
     [compactVisibleColumns]
   );
-  // 移动端紧凑列表：名称列按内容宽度自适应（JS 测量最长名称，避免固定 112px 截断或浪费空白）。
-  // 名称单元格 = OS 图标(约16px) + gap-2(8px) + 名称文字(text-xs font-semibold) + cell横留白(2px*2)。
+  // 紧凑列表：名称列按内容宽度自适应（JS 测量最长名称，避免固定 112px 截断或浪费空白）。
+  // 名称单元格 = 状态点(8px) + gap-2(8px) + OS 图标(约16px) + gap-2(8px) + 名称文字 + cell横留白(2px*2)。
   const compactNameColumnWidth = useMemo(() => {
-    if (!isCompactViewport) return HOST_COMPACT_COLUMN_WIDTHS.name;
     const names = filteredServers.map(s => s.name).filter(Boolean);
     if (!names.length || typeof document === 'undefined') return HOST_COMPACT_COLUMN_WIDTHS.name;
     const probe = document.createElement('canvas');
@@ -6233,19 +6256,20 @@ function ServerPage() {
       ctx.font = '600 12px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
     }
     const measured = ctx ? names.reduce((max, n) => Math.max(max, ctx.measureText(n).width), 0) : 0;
-    // 图标 + gap + 最长文字 + 左右留白，并给截断留一点余量
-    return Math.min(220, Math.ceil(measured) + 16 + 8 + 4 + 8);
-  }, [isCompactViewport, filteredServers]);
+    const statusDot = compactVisibleColumns.includes('status') ? 8 + 8 : 0;
+    // 状态点 + 图标 + 间距 + 最长文字 + 左右留白，并给截断留一点余量
+    return Math.min(220, Math.ceil(measured) + statusDot + 16 + 8 + 4 + 8);
+  }, [filteredServers, compactVisibleColumns]);
   const visibleCompactColumnWidths = useMemo(
     () =>
-      visibleCompactColumnDefs.map(column => {
-        const base = HOST_COMPACT_COLUMN_WIDTHS[column.id] || 120;
-        // 移动端状态列只剩一个状态点：收窄到只容纳圆点，避免残留为文字预留的宽度
-        if (isCompactViewport && column.id === 'status') return 30;
-        if (isCompactViewport && column.id === 'name') return compactNameColumnWidth;
-        return base;
-      }),
-    [visibleCompactColumnDefs, isCompactViewport, compactNameColumnWidth]
+      visibleCompactColumnDefs
+        .filter(column => column.id !== 'status')
+        .map(column => {
+          const base = HOST_COMPACT_COLUMN_WIDTHS[column.id] || 120;
+          if (column.id === 'name') return compactNameColumnWidth;
+          return base;
+        }),
+    [visibleCompactColumnDefs, compactNameColumnWidth]
   );
 
   const isCompactColumnVisible = columnId => compactVisibleColumns.includes(columnId);
@@ -6892,6 +6916,7 @@ function ServerPage() {
         renderedCompactExpandedServers={renderedCompactExpandedServers}
         resolveServerDisplayStatus={resolveServerDisplayStatus}
         resolveServerMetricsHealth={resolveServerMetricsHealth}
+        serverCardDragEnabled={serverCardDragEnabled}
         serverCardLayout={serverCardLayout}
         serverCurrentTab={serverCurrentTab}
         serverIpDisplayMode={serverIpDisplayMode}
@@ -6902,6 +6927,7 @@ function ServerPage() {
         serverSearchText={serverSearchText}
         serverStatusFilter={serverStatusFilter}
         setCardDetailServerId={setCardDetailServerId}
+        setServerCardDragEnabled={setServerCardDragEnabled}
         setExpandedServers={setExpandedServers}
         setServerListViewMode={setServerListViewMode}
         setServerMapOpen={setServerMapOpen}

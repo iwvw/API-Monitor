@@ -19,6 +19,14 @@
 @custom-variant cq-xl (@container (width >= 80rem));
 @custom-variant cq-2xl (@container (width >= 96rem));
 @custom-variant cq-3xl (@container (width >= 120rem));
+/* 主机卡片单行头部（名称 + 指标条 + 流量块 + 连接按钮同一行）的可用阈值。
+   按代码里的固定最小宽度累加：左右内边距 24 + 5 个指标条（GPU 机型最多 5 个，min-w-14
+   即 56×5）+ 间距约 40 + 流量块 126 + 连接按钮 32 ≈ 542px，再给名称/标签留出
+   ≥ 190px 可读空间约 736px。低于此宽度切成两行紧凑头部（名称行 + 指标行），
+   否则右侧会被卡片 overflow-hidden 裁掉。阈值略偏保守：多占一行只有高度代价，
+   裁切会直接丢按钮。与 cq-sm 分开定义，是为了不把卡片内其他 cq-sm 断点一起抬高，
+   也便于与 getServerCardRowHeight 的阈值保持同一个数。 */
+@custom-variant cq-card-wide (@container (width >= 46rem));
 
 @font-face {
   font-family: 'Chakra Petch API Monitor';
