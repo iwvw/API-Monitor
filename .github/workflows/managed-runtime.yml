@@ -13,7 +13,7 @@ permissions:
 
 # 同一个 release 不可重复发布，concurrency 用 release 身份做分组。
 concurrency:
-  group: managed-runtime-v1.13.14-am2
+  group: managed-runtime-v1.13.14-am3
   cancel-in-progress: false
 
 env:
@@ -24,11 +24,11 @@ env:
   # API Monitor 自己的构建序号。换了工具链就必须换一个新的 release 身份
   # （release 不可变），-amN 后缀同时会写进 catalog 的 Version，
   # 各主机据此判断是否需要重新下载运行时。
-  RUNTIME_BUILD: am2
+  RUNTIME_BUILD: am3
   # 必须 >= backend-go/go.mod 的 go 指令（tools/go-version-governance.mjs 把守）。
   # 该产物是 TLS 出站客户端，受 CVE-2026-111943（GO-2026-6809, crypto/x509）
   # 直接影响，所以不能落后于主构建。
-  GO_VERSION: 1.27.3
+  GO_VERSION: 1.27.4
   BUILD_TAGS: with_v2ray_api,with_quic,with_utls,with_acme,with_clash_api
 
 jobs:
@@ -75,8 +75,8 @@ jobs:
           # 的 AMD64SHA256 / ARM64SHA256 必须一致（tools/runtime-catalog-governance.mjs 把守）。
           # 它们由 Go 1.27.3 构建 25a600db 得出，更换 Go 版本或 sing-box 提交都会失配，
           # 届时步骤失败、不发布，属预期行为。
-          echo '195070edb73143cb6629f7c041c3c155f6de81ce1c18f3817ddc6416e3b22c8c  sing-box-1.13.14-linux-amd64' | sha256sum --check --strict
-          echo 'b8623ffdfa55ac3a4f433365ac29c39eaff05e4786575fd0ea787dbb97658620  sing-box-1.13.14-linux-arm64' | sha256sum --check --strict
+          echo 'b32a35e9efb9e452b37612523052810a0350f0bbee395a627c746babef0cff66  sing-box-1.13.14-linux-amd64' | sha256sum --check --strict
+          echo 'bf6bc4472b6c61a8e6b33d59896bab7e7f8be072e5f351de6d0d979ea795a6fd  sing-box-1.13.14-linux-arm64' | sha256sum --check --strict
           chmod 0755 sing-box-*
           ./sing-box-1.13.14-linux-amd64 version | grep -F with_v2ray_api
           sha256sum sing-box-* > SHA256SUMS

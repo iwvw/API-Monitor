@@ -61,7 +61,7 @@ RUN if [ "$USE_PREBUILT_FRONTEND" = "true" ]; then \
 RUN node tools/precompress-dist.mjs /app/dist
 
 # 阶段 2: 构建 Go 后端 (Go Backend Builder)
-FROM --platform=$BUILDPLATFORM golang:1.27.3-alpine3.24 AS go-builder
+FROM --platform=$BUILDPLATFORM golang:1.27.4-alpine3.24 AS go-builder
 
 # 安装必要的构建工具
 RUN apk add --no-cache gcc musl-dev
