@@ -43,9 +43,6 @@ func shiftDay(date string, delta int) string {
 	return t.AddDate(0, 0, delta).Format(dayLayout)
 }
 
-// addDays 是 shiftDay 的可读别名。
-func addDays(date string, n int) string { return shiftDay(date, n) }
-
 // monthDay 把 YYYY-MM-DD 渲染成 MM-DD。
 func monthDay(date string) string {
 	t, err := time.ParseInLocation(dayLayout, date, cstZone)

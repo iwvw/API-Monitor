@@ -119,6 +119,41 @@ func TestUnknownAccountSubrouteIs404(t *testing.T) {
 	}
 }
 
+// TestRefreshStaleAccountsNoExpiresAtDoesNotLoop 守住：缺少 ExpiresAt 的旧账号
+// 不能每次扫描都续期一次。早期实现用 `tokenState != valid` 判定，unknown 也算
+// 需要续期，于是每 5 分钟对同一账号发一次换 token 请求（浪费配额、refresh_token
+// 轮换异常）。现在只有「进入 3 天续期窗口」或「已过期」才续期。
+func TestRefreshStaleAccountsNoExpiresAtDoesNotLoop(t *testing.T) {
+	var calls atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		_, _ = w.Write([]byte(`{"token":"t","refresh_token":"r","expires_in":3600}`))
+	}))
+	defer srv.Close()
+	withMockOpenAPI(t, srv)
+
+	s := newTestService(t)
+	ctx := context.Background()
+	// 无 ExpiresAt 且没有签发时刻：首次允许尝试一次。
+	_ = s.upsertAccount(ctx, Account{ID: "u1", AccessToken: "a", RefreshToken: "r"})
+	s.RefreshStaleAccounts(ctx)
+	if calls.Load() != 1 {
+		t.Fatalf("first scan should attempt refresh once, calls = %d", calls.Load())
+	}
+
+	// 续期成功后写回了 ExpsesAt/TokenIssuedAt，后续扫描不应再打上游。
+	acc, _ := s.findAccount("u1")
+	if acc.ExpiresAt == 0 || acc.TokenIssuedAt == 0 {
+		t.Fatalf("refresh should record timestamps: %+v", acc)
+	}
+	for i := 0; i < 3; i++ {
+		s.RefreshStaleAccounts(ctx)
+	}
+	if calls.Load() != 1 {
+		t.Fatalf("fresh token must not be refreshed repeatedly, calls = %d", calls.Load())
+	}
+}
+
 // TestRefreshStaleAccountsRespectsSwitch 守住「自动续期开关缺省开、显式关则不动」。
 func TestRefreshStaleAccountsRespectsSwitch(t *testing.T) {
 	var calls atomic.Int32

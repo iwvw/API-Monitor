@@ -84,7 +84,7 @@ func campaignWindowHint(windowDate, fallback string) string {
 	if windowDate == todayIn(cstZone) {
 		return fallback
 	}
-	next := addDays(windowDate, 1)
+	next := shiftDay(windowDate, 1)
 	if next == "" {
 		return fallback
 	}

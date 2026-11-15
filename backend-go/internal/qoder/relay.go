@@ -469,14 +469,23 @@ func (s *Service) RefreshStaleAccounts(ctx context.Context) {
 		if a.Disabled || a.RefreshToken == "" {
 			continue
 		}
-		// 剩余寿命充足则跳过（旧的 tokenState != valid 判定会把「即将过期」也
-		// 反复续期，且对没有 ExpiresAt 的旧账号永远发请求）。
+		// 按「剩余寿命是否进入续期窗口」判定，而不是按 tokenState：
+		// tokenState 的 valid 阈值是 30 分钟，比 3 天续期窗口小得多，
+		// 用它会等到最后半小时才续期，失去「提前换新」的意义。
+		//
+		// 刚续期过的账号必须跳过，否则短有效期 token（如上游只给
+		// expires_in=3600）会永远落在窗口内，每 5 分钟被续期一次。
+		if a.TokenIssuedAt > 0 && time.Since(time.Unix(a.TokenIssuedAt, 0)) < autoRefreshInterval {
+			continue
+		}
 		if a.ExpiresAt > 0 {
 			if time.Until(time.Unix(a.ExpiresAt, 0)) > refreshWindowDays*24*time.Hour {
 				continue
 			}
-		} else if tokenState(a) == "valid" {
-			continue
+		} else if a.TokenIssuedAt > 0 && tokenState(a) != "expired" {
+			if time.Since(time.Unix(a.TokenIssuedAt, 0)) < refreshWindowDays*24*time.Hour {
+				continue
+			}
 		}
 		acc := a
 		before := acc.AccessToken

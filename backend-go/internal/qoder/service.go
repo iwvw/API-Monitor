@@ -679,7 +679,7 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 func (s *Service) handleSettings(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
-		responseJSON(w, map[string]interface{}{"success": true, "settings": s.publicSettings()})
+		responseJSON(w, map[string]interface{}{"success": true, "settings": s.publicSettings(r.Context())})
 	case http.MethodPut, http.MethodPost:
 		var body Settings
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
@@ -697,16 +697,16 @@ func (s *Service) handleSettings(w http.ResponseWriter, r *http.Request) {
 		if !body.Enabled {
 			s.unlinkIfDisabled(r.Context())
 		}
-		responseJSON(w, map[string]interface{}{"success": true, "settings": s.publicSettings()})
+		responseJSON(w, map[string]interface{}{"success": true, "settings": s.publicSettings(r.Context())})
 	default:
 		responseJSON(w, http.StatusMethodNotAllowed, map[string]interface{}{"success": false, "error": "method not allowed"})
 	}
 }
 
 // publicSettings 返回可下发前端的设置（账号已脱敏）。
-func (s *Service) publicSettings() map[string]interface{} {
+func (s *Service) publicSettings(ctx context.Context) map[string]interface{} {
 	st := s.Settings()
-	views := s.accountViews(context.Background(), st.Accounts)
+	views := s.accountViews(ctx, st.Accounts)
 	return map[string]interface{}{
 		"enabled":                  st.Enabled,
 		"modelPrefix":              st.ModelPrefix,
