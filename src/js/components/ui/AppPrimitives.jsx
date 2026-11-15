@@ -620,10 +620,11 @@ export function AppTable({
 export function ScrollableTable({
   widths,
   wrapperClassName = 'min-w-0 max-w-full overflow-x-auto scrollbar-thin',
+  wrapperRef,
   ...props
 }) {
   return (
-    <div className={wrapperClassName}>
+    <div className={wrapperClassName} ref={wrapperRef}>
       <AppTable widths={widths} {...props} />
     </div>
   );

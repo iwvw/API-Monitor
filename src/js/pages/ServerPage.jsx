@@ -186,7 +186,6 @@ import {
   HOST_COMPACT_ADAPTIVE_COLUMNS,
   HOST_COMPACT_HEADER_BOX_CLASS,
   COMPACT_INLINE_BOX_CLASS,
-  COMPACT_STICKY_ACTION_CLASS,
   COMPACT_ACTION_BUTTON_CLASS,
   SERVER_SECTION_HEADER_CLASS,
   SERVER_SECONDARY_BAR_CLASS,
@@ -6257,19 +6256,61 @@ function ServerPage() {
     }
     const measured = ctx ? names.reduce((max, n) => Math.max(max, ctx.measureText(n).width), 0) : 0;
     const statusDot = compactVisibleColumns.includes('status') ? 8 + 8 : 0;
-    // 状态点 + 图标 + 间距 + 最长文字 + 左右留白，并给截断留一点余量
-    return Math.min(220, Math.ceil(measured) + statusDot + 16 + 8 + 4 + 8);
+    // 状态点 + 图标 + 间距 + 最长文字 + 左右留白(cell 左 10px + 右 2px)，并给截断留一点余量
+    return Math.min(220, Math.ceil(measured) + statusDot + 16 + 8 + 12 + 8);
   }, [filteredServers, compactVisibleColumns]);
+  // 位置/在线/负载列按内容宽度自适应：测量各列内容最大宽度，避免固定宽度浪费空白或截断。
+  // 返回 { country, uptime, load }，0 表示无需自适应（回退固定宽度）。
+  const compactAdaptiveColumnWidths = useMemo(() => {
+    const result = { country: 0, uptime: 0, load: 0 };
+    if (typeof document === 'undefined') return result;
+    const probe = document.createElement('canvas');
+    const ctx = probe.getContext('2d');
+    if (!ctx) return result;
+    const measureMax = (texts, font, extra) => {
+      if (!texts.length) return 0;
+      ctx.font = font;
+      let max = 0;
+      for (const t of texts) max = Math.max(max, ctx.measureText(t).width);
+      return Math.min(160, Math.ceil(max) + extra);
+    };
+    const sans = '600 12px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
+    const mono = '600 12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace';
+    const countryTexts = [];
+    const uptimeTexts = [];
+    const loadTexts = [];
+    for (const s of filteredServers) {
+      const loc = getServerLocationText(s);
+      // 位置单元格 = 国旗(w-5 ≈20px) + gap-1.5(6px) + 文本 + cell 横留白(2px*2)
+      if (loc) countryTexts.push({ loc });
+      uptimeTexts.push(formatUptimeDaysOnly(s.info?.uptime || s.info?.system?.Uptime));
+      loadTexts.push(getPrimaryLoadValue(s.info?.cpu?.Load));
+    }
+    result.country = measureMax(
+      countryTexts.map(({ loc }) => loc),
+      sans,
+      20 + 6 + 4 + 8
+    );
+    result.uptime = measureMax(uptimeTexts, sans, 4 + 8);
+    result.load = measureMax(loadTexts, mono, 16 + 2 + 4 + 8);
+    return result;
+  }, [filteredServers]);
   const visibleCompactColumnWidths = useMemo(
     () =>
       visibleCompactColumnDefs
         .filter(column => column.id !== 'status')
         .map(column => {
           const base = HOST_COMPACT_COLUMN_WIDTHS[column.id] || 120;
-          if (column.id === 'name') return compactNameColumnWidth;
+          if (column.id === 'name') {
+            // 名称列完全按内容自适应：测量最长名称 + 状态点/图标/留白，避免固定 112px 浪费空白或截断。
+            return compactNameColumnWidth;
+          }
+          if (column.id === 'country' || column.id === 'uptime' || column.id === 'load') {
+            return compactAdaptiveColumnWidths[column.id] || base;
+          }
           return base;
         }),
-    [visibleCompactColumnDefs, compactNameColumnWidth]
+    [visibleCompactColumnDefs, compactNameColumnWidth, compactAdaptiveColumnWidths]
   );
 
   const isCompactColumnVisible = columnId => compactVisibleColumns.includes(columnId);

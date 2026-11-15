@@ -44,9 +44,9 @@ export const HOST_COMPACT_ADAPTIVE_COLUMNS = new Set(['cpu', 'memory', 'disk', '
 export const HOST_COMPACT_HEADER_BOX_CLASS = {
   status: 'w-[16px] justify-center',
   name: 'w-full justify-center',
-  country: 'w-[55px] justify-center',
-  uptime: 'w-[55px] justify-center',
-  load: 'w-[55px] justify-center',
+  country: 'justify-center',
+  uptime: 'justify-center',
+  load: 'justify-center',
   speed: 'w-full min-w-[208px] justify-center',
   traffic: 'w-full min-w-[208px] justify-center',
   cpu: 'w-full min-w-[96px] justify-center',
@@ -58,7 +58,6 @@ export const HOST_COMPACT_HEADER_BOX_CLASS = {
 };
 export const COMPACT_INLINE_BOX_CLASS = 'border border-kumo-interact/70 shadow-none';
 export const COMPACT_INLINE_SUBBOX_CLASS = 'border border-kumo-interact/70 shadow-none';
-export const COMPACT_STICKY_ACTION_CLASS = 'border-l border-kumo-interact/60 before:!w-1 before:!-left-1';
 export const COMPACT_ACTION_BUTTON_CLASS = '!shadow-none';
 export const SERVER_SECTION_HEADER_CLASS = sectionCardHeaderClass;
 export const SERVER_SECONDARY_BAR_CLASS = 'flex min-h-[46px] flex-wrap items-center gap-2 rounded-md border border-kumo-line/90 bg-kumo-base px-3 py-2 cq-lg:justify-between';

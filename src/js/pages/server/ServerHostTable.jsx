@@ -35,7 +35,7 @@ import { summarizeDockerContainers } from '../../modules/dockerSummary.js';
 import { TOOL_TABS_PROPS } from '../../modules/kumoTabs.js';
 import { buildNetworkQualitySeries, formatUptimeDaysOnly, getGpuModelText, getHostAddress, getPrimaryLoadValue, getServerCycleParts, getServerLifecycle, getServerMetricDisplay, getServerMonitorModeLabel, getTrafficQuota, isNetworkQualityUnsupportedError, isServerOnline } from './serverHelpers.js';
 import { clampPercent, formatBytesSpeed, formatCompactBytesSpeed, formatMetricTooltipValue, getCpuTemp, getExpandedCardSpanClassName, getExpandedInfoGridClassName, getExpandedTrendGridClassName, getFlagCountry, getGpuTemp, getLatestMetricValue, getOSIconClass, getServerCardRowHeight, getServerLocationText, getServerLocationTitle, getServerTagBadgeVariant, toNumber } from './utils.js';
-import { COMPACT_ACTION_BUTTON_CLASS, COMPACT_INLINE_BOX_CLASS, COMPACT_STICKY_ACTION_CLASS, HOST_COMPACT_ADAPTIVE_COLUMNS, HOST_COMPACT_HEADER_BOX_CLASS, SERVER_CHART_RENDER_DEFER_MS, SERVER_FAST_CHART_UPDATE_BEHAVIOR, SERVER_SECONDARY_TABS_GROUP_CLASS } from './constants.js';
+import { COMPACT_ACTION_BUTTON_CLASS, COMPACT_INLINE_BOX_CLASS, HOST_COMPACT_ADAPTIVE_COLUMNS, HOST_COMPACT_HEADER_BOX_CLASS, SERVER_CHART_RENDER_DEFER_MS, SERVER_FAST_CHART_UPDATE_BEHAVIOR, SERVER_SECONDARY_TABS_GROUP_CLASS } from './constants.js';
 
 export default function ServerHostTable(props) {
   const {
@@ -110,6 +110,40 @@ export default function ServerHostTable(props) {
     visibleCompactColumnDefs,
     visibleCompactColumnWidths,
   } = props;
+  // 横向滚动位置感知：只在确实有内容被 sticky 列遮住时显示该侧渐变，避免未滚动时渐变遮住相邻列。
+  // 首列（sticky-left）→ scrollLeft>0 才有内容滑到它下面；末列（sticky-right）→ 未滚到最右才有。
+  const compactScrollRef = React.useRef(null);
+  const [compactFadeSide, setCompactFadeSide] = React.useState({ left: false, right: false });
+  React.useEffect(() => {
+    const node = compactScrollRef.current;
+    if (!node) return undefined;
+    let raf = 0;
+    const measure = () => {
+      const max = node.scrollWidth - node.clientWidth;
+      const left = max > 0 && node.scrollLeft > 0;
+      const right = max > 0 && node.scrollLeft < max - 1;
+      setCompactFadeSide(prev =>
+        prev.left === left && prev.right === right ? prev : { left, right }
+      );
+    };
+    const schedule = () => {
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(measure);
+    };
+    measure();
+    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(schedule) : null;
+    if (ro) ro.observe(node);
+    node.addEventListener('scroll', schedule, { passive: true });
+    window.addEventListener('resize', schedule);
+    return () => {
+      cancelAnimationFrame(raf);
+      if (ro) ro.disconnect();
+      node.removeEventListener('scroll', schedule);
+      window.removeEventListener('resize', schedule);
+    };
+  }, [filteredServers, serverListViewMode]);
+  const leftFadeClass = compactFadeSide.left ? '' : 'before:opacity-0';
+  const rightFadeClass = compactFadeSide.right ? '' : 'before:opacity-0';
   return (
     <>
       {serverCurrentTab === 'list' && (
@@ -240,6 +274,7 @@ export default function ServerHostTable(props) {
                   <ScrollableTable
                     layout="fixed"
                     widths={visibleCompactColumnWidths}
+                    wrapperRef={compactScrollRef}
                     className="text-xs [&_td]:border-kumo-interact/45 [&_th]:border-kumo-interact/50"
                     wrapperClassName="w-full max-w-full overflow-x-auto scrollbar-thin"
                   >
@@ -263,7 +298,7 @@ export default function ServerHostTable(props) {
                           <Table.Head
                             key={column.id}
                             sticky={column.id === 'actions' ? 'right' : column.id === 'name' ? 'left' : undefined}
-                            className={`!px-[2px] !py-2 text-center text-[10px] whitespace-nowrap ${column.id === 'actions' ? `!pl-[1px] !pr-[2px] ${COMPACT_STICKY_ACTION_CLASS}` : ''}`}
+                            className={`${column.id === 'name' ? `!pl-[10px] !z-[3] ${leftFadeClass}` : '!px-[2px]'} !py-2 text-center text-[10px] whitespace-nowrap ${column.id === 'actions' ? `!pl-[1px] !pr-[2px] !z-[3] ${rightFadeClass}` : ''}`}
                           >
                             <div
                               className={`${column.id === 'name' ? 'flex items-center justify-start' : `mx-auto flex items-center ${HOST_COMPACT_HEADER_BOX_CLASS[column.id] || 'justify-center'}`}`}
@@ -371,10 +406,10 @@ export default function ServerHostTable(props) {
                                     {isCompactColumnVisible('name') && (
                                       <Table.Cell
                                         sticky="left"
-                                        className="!px-[2px] !py-1.5 whitespace-nowrap"
+                                        className={`!pl-[10px] !py-1.5 !z-[2] whitespace-nowrap ${leftFadeClass}`}
                                       >
                                         <div
-                                          className={`flex items-center gap-2 w-full ${isCompactViewport ? 'justify-start' : 'justify-center'} ${rowMuted ? 'text-kumo-subtle' : ''}`}
+                                          className={`flex items-center gap-2 w-full justify-start ${rowMuted ? 'text-kumo-subtle' : ''}`}
                                         >
                                           {isCompactColumnVisible('status') && (
                                             <span
@@ -414,7 +449,7 @@ export default function ServerHostTable(props) {
                                     )}
                                     {isCompactColumnVisible('country') && (
                                       <Table.Cell className="!px-[2px] !py-1.5 text-center whitespace-nowrap">
-                                        <div className="mx-auto flex w-[55px] items-center justify-center gap-1.5">
+                                        <div className="mx-auto flex items-center justify-center gap-1.5">
                                           {locationText ? (
                                             <>
                                               {country && (
@@ -425,7 +460,7 @@ export default function ServerHostTable(props) {
                                                 />
                                               )}
                                               <span
-                                                className={`truncate font-semibold uppercase ${rowMuted ? 'text-kumo-subtle' : 'text-kumo-strong'}`}
+                                                className={`truncate max-w-full font-semibold uppercase ${rowMuted ? 'text-kumo-subtle' : 'text-kumo-strong'}`}
                                                 title={locationTitle}
                                               >
                                                 {locationText}
@@ -442,7 +477,7 @@ export default function ServerHostTable(props) {
                                     {isCompactColumnVisible('uptime') && (
                                       <Table.Cell className="!px-[2px] !py-1.5 text-center whitespace-nowrap">
                                         <span
-                                          className={`inline-flex w-[55px] justify-center font-semibold tabular-nums ${rowMuted ? 'text-kumo-subtle' : 'text-kumo-strong'}`}
+                                          className={`inline-flex justify-center font-semibold tabular-nums ${rowMuted ? 'text-kumo-subtle' : 'text-kumo-strong'}`}
                                         >
                                           {formatUptimeDaysOnly(
                                             server.info?.uptime || server.info?.system?.Uptime
@@ -560,7 +595,7 @@ export default function ServerHostTable(props) {
                                     {isCompactColumnVisible('actions') && (
                                       <Table.Cell
                                         sticky="right"
-                                        className={`!py-1.5 !pl-[1px] !pr-[2px] text-center whitespace-nowrap ${COMPACT_STICKY_ACTION_CLASS}`}
+                                        className={`!py-1.5 !pl-[1px] !pr-[2px] !z-[2] text-center whitespace-nowrap ${rightFadeClass}`}
                                       >
                                         <div
                                           className="flex items-center justify-center gap-1"
@@ -931,8 +966,8 @@ export default function ServerHostTable(props) {
                   const locationText = getServerLocationText(server);
                   const isExpanded = overlay;
                   const cardBorderClass = overlay
-                    ? 'rounded-lg border border-kumo-line/90 bg-kumo-base'
-                    : `border rounded-lg ${isExpanded ? 'border-brand/70  ring-1 ring-brand/20' : 'border-kumo-line/90  hover:border-kumo-interact '}`;
+                    ? 'rounded-lg bg-kumo-base ring ring-kumo-line'
+                    : `rounded-lg bg-kumo-base ${isExpanded ? 'ring ring-brand/70' : 'ring ring-kumo-line hover:ring-kumo-fill'}`;
                   const isChartSeriesReady = chartSeriesReadyServers.includes(server.id);
                   const isDarkMode = theme === 'dark';
                   const {
@@ -1910,7 +1945,7 @@ export default function ServerHostTable(props) {
 
                 return (
                   <div className="relative flex min-h-0 flex-1 flex-col">
-                    <div className="min-h-0 flex-1 overflow-y-auto p-px scrollbar-thin">
+                    <div className="min-h-0 flex-1 overflow-y-auto p-[2px] scrollbar-thin has-[.react-draggable-dragging]:overflow-visible">
                       <TileGrid
                         layout={serverCardLayout}
                         onLayoutChange={handleServerCardLayoutChange}
