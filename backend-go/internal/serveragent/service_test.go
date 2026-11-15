@@ -2897,6 +2897,20 @@ func TestAgentQuickInstallCreatesHostFromName(t *testing.T) {
 		!strings.Contains(resWin.Body.String(), `installation will continue in the background`) {
 		t.Fatalf("windows install script should detach before replacing a running Agent: %s", resWin.Body.String())
 	}
+	// 静默失败防护：后台安装必须写日志，且停进程失败要有 taskkill 兜底，否则升级失败用户完全无感。
+	if !strings.Contains(resWin.Body.String(), `Start-Transcript -Path $INSTALL_LOG`) ||
+		!strings.Contains(resWin.Body.String(), `$INSTALL_LOG = "$LOG_DIR\install.log"`) ||
+		!strings.Contains(resWin.Body.String(), `Install log: $INSTALL_LOG`) {
+		t.Fatalf("windows install script should tee the detached installer into a log file: %s", resWin.Body.String())
+	}
+	// 分离进程连不上服务器时脚本主体根本不会执行，因此父进程调度阶段就要重定向输出。
+	if !strings.Contains(resWin.Body.String(), `-RedirectStandardOutput $DISPATCH_LOG`) ||
+		!strings.Contains(resWin.Body.String(), `$DISPATCH_LOG = "$LOG_DIR\detached.log"`) {
+		t.Fatalf("windows install script should redirect detached process output so early failures are logged: %s", resWin.Body.String())
+	}
+	if !strings.Contains(resWin.Body.String(), `taskkill.exe /F /T /PID`) {
+		t.Fatalf("windows install script should fall back to taskkill when Stop-Process fails: %s", resWin.Body.String())
+	}
 	if !strings.Contains(resWin.Body.String(), `Move-Item -Path $TEMP_AGENT_PATH -Destination $AGENT_PATH -Force`) {
 		t.Fatalf("windows install script should atomically replace the agent binary: %s", resWin.Body.String())
 	}

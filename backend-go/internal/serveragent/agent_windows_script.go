@@ -47,6 +47,9 @@ $ErrorActionPreference = "Stop"
 
 $AGENT_VERSION = "latest"
 $INSTALL_DIR = "$env:ProgramFiles\APIMonitorAgent"
+$LOG_DIR = "$env:ProgramData\APIMonitorAgent"
+$INSTALL_LOG = "$LOG_DIR\install.log"
+$DISPATCH_LOG = "$LOG_DIR\detached.log"
 $SERVER_URL = "%s://%s"
 $AGENT_DOWNLOAD_BASE_URL = "%s"
 $SERVER_ID = "%s"
@@ -60,13 +63,36 @@ Write-Host "Server: $SERVER_URL"
 # A script launched inside the Agent terminal must outlive the Agent process
 # that it is about to replace. Start a hidden, independent PowerShell updater
 # before stopping the current Agent, then return from the terminal-bound copy.
+# The detached process writes its own transcript so a failure is diagnosable
+# instead of being silently swallowed.
 if ($env:API_MONITOR_AGENT_INSTALL_DETACHED -ne "1" -and (Get-Process -Name "api-monitor-agent" -ErrorAction SilentlyContinue)) {
     Write-Host "Detected a running Agent process. Scheduling detached installer..."
-    $DETACHED_COMMAND = '$env:API_MONITOR_AGENT_INSTALL_DETACHED = "1"; irm "' + $INSTALL_SCRIPT_URL + '" | iex'
+    if (!(Test-Path $LOG_DIR)) {
+        New-Item -ItemType Directory -Path $LOG_DIR -Force | Out-Null
+    }
+    $DETACHED_COMMAND = '$env:API_MONITOR_AGENT_INSTALL_DETACHED = "1"; $__src = $null; try { $__src = irm "' + $INSTALL_SCRIPT_URL + '" } catch { Write-Output ("Install failed while fetching the installer: " + $_.Exception.Message); exit 1 }; if ($__src) { $__src | iex }'
     $ENCODED_COMMAND = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($DETACHED_COMMAND))
-    Start-Process -FilePath "powershell.exe" -ArgumentList "-NoProfile", "-ExecutionPolicy", "Bypass", "-EncodedCommand", $ENCODED_COMMAND -WindowStyle Hidden
+    # Redirect the detached process's own stdout/stderr to the log dir. This covers
+    # failures that happen *before* the fetched script can start its own transcript
+    # (e.g. the server is unreachable), which would otherwise leave no trace at all.
+    Start-Process -FilePath "powershell.exe" -ArgumentList "-NoProfile", "-ExecutionPolicy", "Bypass", "-EncodedCommand", $ENCODED_COMMAND -WindowStyle Hidden -RedirectStandardOutput $DISPATCH_LOG -RedirectStandardError "$DISPATCH_LOG.err"
     Write-Host "Detached installer scheduled. The Agent terminal may disconnect; installation will continue in the background."
+    Write-Host "Install log: $INSTALL_LOG"
+    Write-Host "If the Agent does not come back online, open the log above (and $DISPATCH_LOG) for the failure reason."
     return
+}
+
+# Detached run: mirror all output to a log file so silent failures are visible
+# (the parent process has already exited and cannot report the child's exit code).
+if ($env:API_MONITOR_AGENT_INSTALL_DETACHED -eq "1") {
+    if (!(Test-Path $LOG_DIR)) {
+        New-Item -ItemType Directory -Path $LOG_DIR -Force | Out-Null
+    }
+    try {
+        Start-Transcript -Path $INSTALL_LOG -Force | Out-Null
+    } catch {
+        # Transcript is best-effort; never block installation on logging.
+    }
 }
 
 if (!(Test-Path $INSTALL_DIR)) {
@@ -96,8 +122,26 @@ if ($oldProcess) {
         }
     }
 
+    # Stop-Process can fail to terminate an Agent whose handle is held elsewhere
+    # (e.g. a stale process object or an elevated session). Fall back to taskkill
+    # before giving up, so an upgrade is not silently blocked.
+    if (!$stopped) {
+        Write-Host "Stop-Process did not terminate the Agent; retrying with taskkill..."
+        foreach ($p in @(Get-Process -Name "api-monitor-agent" -ErrorAction SilentlyContinue)) {
+            & taskkill.exe /F /T /PID $p.Id 2>&1 | Out-Host
+        }
+        for ($i = 0; $i -lt 10; $i++) {
+            Start-Sleep -Milliseconds 500
+            if (!(Get-Process -Name "api-monitor-agent" -ErrorAction SilentlyContinue)) {
+                $stopped = $true
+                break
+            }
+        }
+    }
+
     if (!$stopped) {
         Write-Host "Error: existing Agent process is still running"
+        Write-Host "Please stop it manually (Task Manager -> api-monitor-agent) and re-run the installer."
         exit 1
     }
 }
@@ -189,6 +233,10 @@ Write-Host "Uninstall:"
 Write-Host "  1. Run: reg delete HKCU\Software\Microsoft\Windows\CurrentVersion\Run /v APIMonitorAgent /f"
 Write-Host "  2. Delete: $INSTALL_DIR"
 Write-Host ""
+
+if ($env:API_MONITOR_AGENT_INSTALL_DETACHED -eq "1") {
+    try { Stop-Transcript | Out-Null } catch { }
+}
 `,
 		name, host, port,
 		time.Now().Format("2006-01-02 15:04:05"),
