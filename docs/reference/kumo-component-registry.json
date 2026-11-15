@@ -307,7 +307,7 @@
         "text-kumo-success",
         "text-kumo-warning"
       ],
-      "baseStyles": "inline-flex w-fit flex-none shrink-0 items-center justify-self-start gap-1 rounded-full px-2 py-0.5 text-xs font-medium whitespace-nowrap [a:hover_&]:ring [a:hover_&]:ring-current"
+      "baseStyles": "inline-flex w-fit flex-none shrink-0 items-center justify-self-start gap-1 rounded-full px-2 py-0.5 text-xs/4 font-medium whitespace-nowrap [a:hover_&]:ring [a:hover_&]:ring-current"
     },
     "Banner": {
       "name": "Banner",
@@ -743,7 +743,7 @@
           "classes": {
             "primary": "relative overflow-hidden bg-(--kumo-button-emphasis-bg) !text-white ring ring-(--kumo-button-emphasis-ring) focus:ring-(--kumo-button-emphasis-ring) focus-visible:ring-(--kumo-button-emphasis-ring) active:ring-(--kumo-button-emphasis-ring) disabled:opacity-50",
             "secondary": "bg-kumo-base !text-kumo-default ring not-disabled:hover:bg-kumo-tint disabled:bg-kumo-base/50 disabled:!text-kumo-default/70 ring-kumo-line data-[state=open]:bg-kumo-base",
-            "ghost": "text-kumo-default hover:bg-kumo-tint shadow-none bg-inherit",
+            "ghost": "text-kumo-default hover:bg-kumo-tint shadow-none",
             "destructive": "relative overflow-hidden bg-(--kumo-button-emphasis-bg) !text-white ring ring-(--kumo-button-emphasis-ring) focus:ring-(--kumo-button-emphasis-ring) focus-visible:ring-(--kumo-button-emphasis-ring) active:ring-(--kumo-button-emphasis-ring) disabled:opacity-50",
             "secondary-destructive": "bg-kumo-base !text-kumo-danger ring not-disabled:hover:!text-kumo-danger not-disabled:hover:ring-kumo-danger/30 disabled:bg-kumo-base/50 disabled:!text-kumo-danger/70 ring-kumo-line data-[state=open]:bg-kumo-base",
             "outline": "bg-transparent text-kumo-default ring ring-kumo-line transition-colors not-disabled:hover:text-kumo-strong not-disabled:hover:ring-kumo-focus/25"
@@ -5745,7 +5745,7 @@
         "render": {
           "type": "ReactNode",
           "optional": true,
-          "description": "Replaces the trigger element while preserving Select behavior."
+          "description": "Replaces the trigger element while preserving Select behavior. Set the trigger's `id` with Select's `id` prop: Base UI does not see an `id` set here, so clicking the label would not focus the trigger."
         },
         "size": {
           "type": "enum",

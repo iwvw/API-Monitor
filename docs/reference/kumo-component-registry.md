@@ -7941,7 +7941,7 @@ The function takes a `data` object parameter with the following properties:
 - `className`: string
   Additional CSS classes merged via `cn()`.
 - `render`: ReactNode
-  Replaces the trigger element while preserving Select behavior.
+  Replaces the trigger element while preserving Select behavior. Set the trigger's `id` with Select's `id` prop: Base UI does not see an `id` set here, so clicking the label would not focus the trigger.
 - `size`: enum [default: base]
   Size of the select trigger. Matches Input component sizes.
 - `label`: ReactNode
