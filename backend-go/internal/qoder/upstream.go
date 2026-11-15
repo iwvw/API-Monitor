@@ -106,9 +106,23 @@ type Account struct {
 	AccessToken string `json:"accessToken,omitempty"`
 	// ExpiresAt 是 access token 过期时刻（Unix 秒）。
 	ExpiresAt int64 `json:"expiresAt,omitempty"`
+	// TokenIssuedAt 是 access token 签发时刻（Unix 秒），用于估算 token 年龄与续期窗口。
+	TokenIssuedAt int64 `json:"tokenIssuedAt,omitempty"`
 
 	// Credits 是最近一次额度查询得到的剩余 Credits（签到/余额查询时回写）。
 	Credits float64 `json:"credits,omitempty"`
+
+	// StreakDays / TotalCheckinDays 是本地记账的连签天数与累计签到天数
+	// （登录重新授权时保留，不必回查历史表）。
+	StreakDays       int `json:"streakDays,omitempty"`
+	TotalCheckinDays int `json:"totalCheckinDays,omitempty"`
+
+	// CheckinFingerprint 是账号级「真实设备指纹」（官方客户端抓包取得，可选）。
+	// 两个用途：① 国际版签到必须携带真实 cosy 指纹，否则活动被服务端隐藏；
+	// ② 配置后该账号走新版推理协议（clienttype=10 / version=1.1.69），
+	// 才能拿到 Sonus / Cantus / Fast 三档模型。未配置时按账号稳定派生指纹并
+	// 保持旧协议，行为与历史一致。
+	CheckinFingerprint *CheckinFingerprint `json:"checkinFingerprint,omitempty"`
 
 	Disabled bool `json:"disabled,omitempty"`
 	// CreatedAt / LastRefreshAt / LastCheckinAt 为 RFC3339（UTC）。
@@ -140,6 +154,21 @@ type AccountView struct {
 	CallCount       int64  `json:"callCount"`
 	LastCheckinAt   string `json:"lastCheckinAt,omitempty"`
 	LastError       string `json:"lastError,omitempty"`
+	// 签到历史统计（本地记账，按活动窗口日期计算）。
+	LastCheckinWindow   string  `json:"lastCheckinWindow,omitempty"`
+	StreakDays          int     `json:"streakDays,omitempty"`
+	TotalCheckinDays    int     `json:"totalCheckinDays,omitempty"`
+	TotalCheckinCredits float64 `json:"totalCheckinCredits,omitempty"`
+	// TokenAgeDays 是 token 年龄（天）；-1 表示无法确定（无过期时刻）。
+	TokenAgeDays int `json:"tokenAgeDays"`
+	// LastRefreshAt 是最近一次成功续期时刻（RFC3339，UTC）。
+	LastRefreshAt string `json:"lastRefreshAt,omitempty"`
+	// NeedsReauth 表示凭据已彻底失效（refresh 也失败），需重新授权。
+	NeedsReauth bool `json:"needsReauth"`
+	// Fingerprint 表示该账号已配置真实设备指纹（国际版签到必需，且决定模型清单）。
+	Fingerprint bool `json:"fingerprint"`
+	// ModelsModern 表示该账号走新版推理协议（指纹已配置）。
+	ModelsModern bool `json:"modelsModern"`
 }
 
 // upstreamError 是分类后的上游错误。
@@ -223,8 +252,6 @@ type loginState struct {
 	nonce           string
 	verifier        string
 	challengeMethod string
-	machineToken    string
-	machineType     string
 	expires         time.Time
 
 	mu     sync.Mutex
@@ -440,6 +467,7 @@ func (s *Service) buildAccountFromDeviceToken(ctx context.Context, region string
 	}
 	_ = userPlan
 	acc.ExpiresAt = parseExpireTime(tok.ExpiresAt)
+	acc.TokenIssuedAt = time.Now().Unix()
 	return acc, nil
 }
 
@@ -492,6 +520,7 @@ func (s *Service) refreshAccessToken(ctx context.Context, acc *Account) error {
 		acc.ExpiresAt = time.Now().Add(time.Duration(tok.ExpiresIn) * time.Second).Unix()
 	}
 	acc.LastRefreshAt = time.Now().UTC().Format(time.RFC3339)
+	acc.TokenIssuedAt = time.Now().Unix()
 	acc.LastError = ""
 	return nil
 }
@@ -564,16 +593,21 @@ func checkWhitelistStatus(userStatus map[string]any) error {
 
 // legacySession 是一次对话会话所需的加密身份。
 type legacySession struct {
-	Identity     Account
-	TempKey      []byte
-	CosyKey      string
-	Info         string
-	MachineID    string
-	MachineToken string
-	MachineType  string
+	Identity Account
+	TempKey  []byte
+	CosyKey  string
+	Info     string
+	// Device 是本请求使用的设备身份（含 machine* 头与协议版本），
+	// 由 identityForAccount 统一派生，签到侧复用同一份。
+	Device deviceIdentity
 }
 
 // newLegacySession 为账号生成一次会话加密身份。
+//
+// 设备身份取 identityForAccount：配置了真实指纹的账号（国际版签到必需）走
+// 新版协议并复用同一套 machineid/machinetoken/machinetype；未配置的账号按
+// 账号稳定派生，保持旧协议行为不变。**不要把指纹随机化**——签名会话里的
+// 机器头必须跨请求稳定，否则上游看到的是「同一账号在多台设备上活动」。
 func newLegacySession(acc Account) (legacySession, error) {
 	tempKey := []byte(randomHex(16))
 	cosyKey, err := legacyRSAEncrypt(tempKey)
@@ -584,14 +618,13 @@ func newLegacySession(acc Account) (legacySession, error) {
 	if err != nil {
 		return legacySession{}, err
 	}
+	dev := identityForAccount(acc)
 	return legacySession{
-		Identity:     acc,
-		TempKey:      tempKey,
-		CosyKey:      cosyKey,
-		Info:         info,
-		MachineID:    randomUUID(),
-		MachineToken: randomMachineToken(),
-		MachineType:  randomHex(18),
+		Identity: acc,
+		TempKey:  tempKey,
+		CosyKey:  cosyKey,
+		Info:     info,
+		Device:   dev,
 	}, nil
 }
 
@@ -644,7 +677,8 @@ func legacyRSAEncrypt(plain []byte) (string, error) {
 }
 
 // legacyBuildPayloadB64 构造请求头里的 payload（base64）。
-func legacyBuildPayloadB64(info string) (string, error) {
+// cosyVersion 与该请求的 cosy-version 头必须一致（上游会交叉校验）。
+func legacyBuildPayloadB64(info, cosyVersion string) (string, error) {
 	payload := struct {
 		CosyVersion string `json:"cosyVersion"`
 		IdeVersion  string `json:"ideVersion"`
@@ -652,7 +686,7 @@ func legacyBuildPayloadB64(info string) (string, error) {
 		RequestID   string `json:"requestId"`
 		Version     string `json:"version"`
 	}{
-		CosyVersion: legacyCosyVersion,
+		CosyVersion: cosyVersion,
 		Info:        info,
 		RequestID:   randomUUID(),
 		Version:     "v1",
@@ -1117,7 +1151,7 @@ func (s *Service) ChatStream(ctx context.Context, acc Account, body []byte) (rc 
 		return nil, 0, nil, err
 	}
 	cosyDate := fmt.Sprintf("%d", time.Now().Unix())
-	payloadB64, err := legacyBuildPayloadB64(session.Info)
+	payloadB64, err := legacyBuildPayloadB64(session.Info, session.Device.Version)
 	if err != nil {
 		return nil, 0, nil, err
 	}
@@ -1127,25 +1161,12 @@ func (s *Service) ChatStream(ctx context.Context, acc Account, body []byte) (rc 
 	if err != nil {
 		return nil, 0, nil, err
 	}
-	req.Header.Set("cache-control", "no-cache")
-	req.Header.Set("cosy-data-policy", "AGREE")
 	req.Header.Set("accept", "text/event-stream")
-	req.Header.Set("accept-encoding", "identity")
 	req.Header.Set("authorization", "Bearer COSY."+payloadB64+"."+sig)
-	req.Header.Set("content-type", "application/json")
-	req.Header.Set("cosy-clienttype", "5")
-	req.Header.Set("cosy-clientip", "169.254.198.161")
-	req.Header.Set("cosy-date", cosyDate)
-	req.Header.Set("cosy-key", session.CosyKey)
-	req.Header.Set("cosy-machineid", session.MachineID)
-	req.Header.Set("cosy-machinetoken", session.MachineToken)
-	req.Header.Set("cosy-machinetype", session.MachineType)
 	req.Header.Set("cosy-user", acc.ID)
-	req.Header.Set("cosy-version", legacyCosyVersion)
-	req.Header.Set("login-version", "v2")
-	req.Header.Set("user-agent", "Go-http-client/2.0")
 	req.Header.Set("x-model-key", normalizeModelKey(modelOf(body)))
 	req.Header.Set("x-model-source", "system")
+	session.Device.applySignedHeaders(req, cosyDate, session.CosyKey)
 
 	resp, err := s.httpClientFor(acc.ID).Do(req)
 	if err != nil {
@@ -1716,14 +1737,6 @@ func randomHex(length int) string {
 		return fmt.Sprintf("%0*x", length, 0)
 	}
 	return fmt.Sprintf("%0*x", length, n)
-}
-
-func randomMachineToken() string {
-	raw := randomUUID() + randomUUID()
-	if len(raw) > 50 {
-		raw = raw[:50]
-	}
-	return base64.RawURLEncoding.EncodeToString([]byte(raw))
 }
 
 func bytesToUint16(b []byte) uint16 { return uint16(b[0])<<8 | uint16(b[1]) }

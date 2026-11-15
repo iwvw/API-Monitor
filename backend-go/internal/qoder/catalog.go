@@ -302,7 +302,7 @@ func (s *Service) fetchUpstreamCatalog(ctx context.Context, region string, acc A
 		return nil, err
 	}
 	cosyDate := fmt.Sprintf("%d", time.Now().Unix())
-	payloadB64, err := legacyBuildPayloadB64(sess.Info)
+	payloadB64, err := legacyBuildPayloadB64(sess.Info, sess.Device.Version)
 	if err != nil {
 		return nil, err
 	}
@@ -314,23 +314,10 @@ func (s *Service) fetchUpstreamCatalog(ctx context.Context, region string, acc A
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("cache-control", "no-cache")
-	req.Header.Set("cosy-data-policy", "AGREE")
 	req.Header.Set("accept", "application/json")
-	req.Header.Set("accept-encoding", "identity")
 	req.Header.Set("authorization", "Bearer COSY."+payloadB64+"."+sig)
-	req.Header.Set("content-type", "application/json")
-	req.Header.Set("cosy-clienttype", "5")
-	req.Header.Set("cosy-clientip", "169.254.198.161")
-	req.Header.Set("cosy-date", cosyDate)
-	req.Header.Set("cosy-key", sess.CosyKey)
-	req.Header.Set("cosy-machineid", sess.MachineID)
-	req.Header.Set("cosy-machinetoken", sess.MachineToken)
-	req.Header.Set("cosy-machinetype", sess.MachineType)
 	req.Header.Set("cosy-user", acc.ID)
-	req.Header.Set("cosy-version", legacyCosyVersion)
-	req.Header.Set("login-version", "v2")
-	req.Header.Set("user-agent", "Go-http-client/2.0")
+	sess.Device.applySignedHeaders(req, cosyDate, sess.CosyKey)
 
 	resp, err := s.httpClientFor(acc.ID).Do(req)
 	if err != nil {

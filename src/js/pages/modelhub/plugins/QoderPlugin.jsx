@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Button, Switch, Loader, Dialog, Input, Badge, Table, Toolbar, Select, Popover } from '@cloudflare/kumo';
+import { Button, Switch, Loader, Dialog, Input, Textarea, Badge, Table, Toolbar, Select, Popover } from '@cloudflare/kumo';
 import { SectionCard, FieldRow, EmptyState, AppTable } from '../../../components/ui/AppPrimitives.jsx';
 import { Rocket, Users, Layers, TrendingUp, RefreshCw, Plus, Trash, Edit, Clock, Upload, Download, QoderBrand } from '../../../components/Icons.jsx';
 import { toast } from '../../../modules/toast.js';
@@ -7,6 +7,23 @@ import { useConfirmPress } from '../../../hooks/useConfirmPress.js';
 import { getAuthHeaders, formatCompact } from '../utils.js';
 
 const API = '/api/qoder';
+
+// readJSONOrThrow 读取接口响应。后端旧版本缺少某个子接口时会返回 404/405，
+// 直接抛 "method not allowed" 无从下手；这里补一句「请重启后端」，指向真实原因。
+const readJSONOrThrow = async (res, fallback) => {
+  let data = null;
+  try {
+    data = await res.json();
+  } catch {
+    /* 非 JSON 响应（如网关错误页） */
+  }
+  if (res.ok && data?.success) return data;
+  const raw = data?.error || data?.message || '';
+  if (res.status === 404 || res.status === 405) {
+    throw new Error(`${raw || fallback}（后端可能是旧版本，请重启后端服务后重试）`);
+  }
+  throw new Error(raw || fallback);
+};
 
 const POLL_INTERVAL_MS = 2000;
 
@@ -53,6 +70,7 @@ const QODER_ACCOUNT_COLUMNS = [
   { id: 'account', role: 'primary', grow: 1 },
   { id: 'credits', role: 'meta', align: 'center' },
   { id: 'checkin', role: 'meta', align: 'center' },
+  { id: 'streak', role: 'meta', align: 'center' },
   { id: 'calls', role: 'count', align: 'center' },
   { id: 'token', role: 'status' },
   { id: 'actions', role: 'actions-lg' },
@@ -185,10 +203,19 @@ export function QoderPlugin() {
   const [editAccount, setEditAccount] = useState(null);
   const [editName, setEditName] = useState('');
   const [editRegion, setEditRegion] = useState('cn');
+  const [editFingerprint, setEditFingerprint] = useState('');
+  const [editFingerprintErr, setEditFingerprintErr] = useState('');
+  const [clearFingerprint, setClearFingerprint] = useState(false);
+  const [timesDraft, setTimesDraft] = useState(null);
+  const [refreshBusy, setRefreshBusy] = useState(false);
   const [quotaAccount, setQuotaAccount] = useState(null);
   const quotaSeqRef = useRef(0);
   const [quotaData, setQuotaData] = useState(null);
   const [quotaBusy, setQuotaBusy] = useState(false);
+  const [historyAccount, setHistoryAccount] = useState(null);
+  const historySeqRef = useRef(0);
+  const [historyData, setHistoryData] = useState(null);
+  const [historyBusy, setHistoryBusy] = useState(false);
   const [loginOpen, setLoginOpen] = useState(false);
   const [loginRegion, setLoginRegion] = useState('cn');
   const [login, setLogin] = useState({ phase: 'idle', state: '', url: '', error: '' });
@@ -321,9 +348,18 @@ export function QoderPlugin() {
     }
   };
 
+  // openLogin 只打开弹窗，**不**立即发起授权：授权页会新开标签并跳转，
+  // 若在点「添加账号」时就跳，用户还没选区域就已经被带去默认区域的登录页。
+  // 真正发起授权放在「选择区域」这一步（也是用户手势，不会触发弹窗拦截）。
   const openLogin = () => {
     setLoginOpen(true);
-    startLogin();
+    setLogin({ phase: 'idle', state: '', url: '', error: '' });
+  };
+
+  const chooseLoginRegion = region => {
+    setLoginRegion(region);
+    if (login.phase === 'success' || login.phase === 'loading') return;
+    void startLogin(region);
   };
 
   const handleLoginOpenChange = next => {
@@ -409,8 +445,10 @@ export function QoderPlugin() {
       const data = await res.json();
       if (!res.ok || !data?.success) throw new Error(data?.error || '签到失败');
       const result = data.result || {};
-      if (result.status === 'success') {
-        toast.success(result.gained ? `签到成功，积分 +${result.gained}` : '签到成功');
+      if (result.status === 'success' || result.status === 'already') {
+        toast.success(result.message || '签到成功');
+      } else if (result.status === 'need_fingerprint') {
+        toast.warning(result.message);
       } else {
         toast.warning(result.message || '本次没有可领取的签到');
       }
@@ -463,22 +501,117 @@ export function QoderPlugin() {
     }
   };
 
+  const openHistory = async account => {
+    setHistoryAccount(account);
+    setHistoryData(null);
+    setHistoryBusy(true);
+    const seq = ++historySeqRef.current;
+    try {
+      const res = await fetch(`${API}/accounts/${encodeURIComponent(account.id)}/checkin-history`, {
+        headers: getAuthHeaders(),
+      });
+      const data = await res.json();
+      if (seq !== historySeqRef.current) return;
+      if (!res.ok || !data?.success) throw new Error(data?.error || '查询失败');
+      setHistoryData(data);
+    } catch (e) {
+      if (seq === historySeqRef.current) toast.error(`签到历史加载失败：${e.message}`);
+    } finally {
+      if (seq === historySeqRef.current) setHistoryBusy(false);
+    }
+  };
+
   const saveEditAccount = async () => {
     if (!editAccount) return;
+    let fingerprint = null;
+    if (!clearFingerprint && editFingerprint.trim()) {
+      try {
+        fingerprint = JSON.parse(editFingerprint);
+      } catch {
+        setEditFingerprintErr('设备指纹不是合法 JSON');
+        return;
+      }
+      if (!fingerprint?.machine_token) {
+        setEditFingerprintErr('设备指纹至少需要 machine_token');
+        return;
+      }
+    }
+    setEditFingerprintErr('');
     try {
+      const payload = { nickname: editName.trim(), region: editRegion };
+      if (clearFingerprint) payload.clearFingerprint = true;
+      else if (fingerprint) payload.checkinFingerprint = fingerprint;
       const res = await fetch(`${API}/accounts/${encodeURIComponent(editAccount.id)}`, {
         method: 'PUT',
         headers: getAuthHeaders(),
-        body: JSON.stringify({ nickname: editName.trim(), region: editRegion }),
+        body: JSON.stringify(payload),
       });
       const data = await res.json();
       if (!res.ok || !data?.success) throw new Error(data?.error || '保存失败');
       toast.success('账号已更新');
       setEditAccount(null);
-      await loadAccounts();
+      await Promise.all([loadAccounts(), loadStatus(), loadModels()]);
     } catch (e) {
       toast.error(`保存失败：${e.message}`);
     }
+  };
+
+  const openEditAccount = account => {
+    setEditName(account.nickname || '');
+    setEditRegion(account.region === 'intl' ? 'intl' : 'cn');
+    setEditFingerprint('');
+    setEditFingerprintErr('');
+    setClearFingerprint(false);
+    setEditAccount(account);
+  };
+
+  const refreshAccount = async account => {
+    setBusyAccount(account.id);
+    try {
+      const res = await fetch(`${API}/accounts/${encodeURIComponent(account.id)}/refresh`, {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: '{}',
+      });
+      await readJSONOrThrow(res, '续期失败');
+      toast.success('token 已续期');
+      await Promise.all([loadAccounts(), loadStatus()]);
+    } catch (e) {
+      toast.error(`续期失败：${e.message}`);
+    } finally {
+      setBusyAccount('');
+    }
+  };
+
+  const refreshAllAccounts = async () => {
+    setRefreshBusy(true);
+    try {
+      const res = await fetch(`${API}/refresh`, {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: '{}',
+      });
+      const data = await readJSONOrThrow(res, '续期失败');
+      const results = data.results || [];
+      const ok = results.filter(r => r.success).length;
+      toast.success(`已续期 ${ok}/${results.length} 个账号`);
+      await Promise.all([loadAccounts(), loadStatus()]);
+    } catch (e) {
+      toast.error(`续期失败：${e.message}`);
+    } finally {
+      setRefreshBusy(false);
+    }
+  };
+
+  const commitCheckinTimes = () => {
+    const raw = String(timesDraft ?? '').trim();
+    setTimesDraft(null);
+    const next = raw
+      .split(/[,，\s]+/)
+      .map(s => s.trim())
+      .filter(Boolean);
+    const current = (settings?.autoCheckinTimes || []).join(',');
+    if (next.join(',') !== current) update({ autoCheckinTimes: next }, true);
   };
 
   const applyModels = next => {
@@ -611,8 +744,35 @@ export function QoderPlugin() {
               }}
             />
           </FieldRow>
-          <FieldRow title={<span title="站点时区 9 点与 21 点自动为全部账号签到（领取每日 100 Credits），并刷新余额。关闭后仅可手动签到">每日自动签到</span>}>
+          <FieldRow title={<span title="站点时区自动为全部账号签到（领取每日 100 Credits），并刷新余额。关闭后仅可手动签到">每日自动签到</span>}>
             <Switch checked={settings?.autoCheckin !== false} onCheckedChange={v => update({ autoCheckin: v })} />
+          </FieldRow>
+          <FieldRow
+            title={
+              <span title="自动签到的时刻，站点时区，HH:MM 逗号分隔（如 09:15,17:00），留空默认 10:00。支持多时段；每个账号在时刻点附近按固定偏移错峰，账号之间另有最小间隔，避免同秒批量签到被上游识别为自动化">
+                签到时刻
+              </span>
+            }
+          >
+            <Input
+              size="sm"
+              className="w-44"
+              placeholder="10:00"
+              aria-label="自动签到时刻"
+              value={timesDraft ?? (settings?.autoCheckinTimes || []).join(',')}
+              onChange={e => setTimesDraft(e.target.value)}
+              onBlur={commitCheckinTimes}
+              disabled={saving}
+            />
+          </FieldRow>
+          <FieldRow title={<span title="后台每 5 分钟检查一次，token 剩余寿命不足 3 天时用 refresh_token 主动续期，避免双 token 同时过期后账号静默失效">自动续期 token</span>}>
+            <Switch checked={settings?.autoRefreshToken !== false} onCheckedChange={v => update({ autoRefreshToken: v })} />
+          </FieldRow>
+          <FieldRow title={<span title="签到时携带完整机器头（cosy-machinetoken / machinetype / machinecode / machineos / machinehostname）。国际版按真实设备身份下发活动，缺少这些头会被服务端隐藏（no_campaign）；个别场景带全量头反而被判非官方客户端时可关闭">签到完整设备头</span>}>
+            <Switch
+              checked={settings?.checkinFullDeviceHeaders !== false}
+              onCheckedChange={v => update({ checkinFullDeviceHeaders: v })}
+            />
           </FieldRow>
           <FieldRow title={<span title="给本插件对外暴露的所有模型名统一加前缀（如 qoder-），便于在网关端点列表区分来源；请求转发时自动剥掉前缀还原到原模型，留空表示不加">模型前缀</span>}>
             <Input
@@ -724,6 +884,9 @@ export function QoderPlugin() {
               <Button size="sm" variant="outline" disabled={checkinBusy} onClick={checkinAll}>
                 <Clock className="h-3.5 w-3.5" /> 全部签到
               </Button>
+              <Button size="sm" variant="outline" disabled={refreshBusy} onClick={refreshAllAccounts}>
+                <RefreshCw className={`h-3.5 w-3.5 ${refreshBusy ? 'animate-spin' : ''}`} /> 续期 token
+              </Button>
               <Button size="sm" variant="primary" onClick={openLogin}>
                 <Plus className="h-3.5 w-3.5" /> 添加账号
               </Button>
@@ -741,6 +904,9 @@ export function QoderPlugin() {
                     <Table.Head className="!px-2 !py-1.5 text-center">积分</Table.Head>
                     <Table.Head className="!px-2 !py-1.5 text-center">
                       <span title="最近一次签到时刻；点击查看额度明细">签到</span>
+                    </Table.Head>
+                    <Table.Head className="!px-2 !py-1.5 text-center">
+                      <span title="本地记账的连续签到 / 累计签到天数与累计积分（按活动窗口日期计算）">连签</span>
                     </Table.Head>
                     <Table.Head className="!px-2 !py-1.5 text-center">调用</Table.Head>
                     <Table.Head className="!px-2 !py-1.5 text-center">token</Table.Head>
@@ -843,6 +1009,21 @@ export function QoderPlugin() {
                                         <span className="text-[0.85em] text-kumo-subtle">{quotaData.quota.userType}</span>
                                       </div>
                                     ) : null}
+                                    {(quotaData.quota.packages || []).length ? (
+                                      <div className="mt-1.5 border-t border-kumo-line pt-1.5">
+                                        <div className="text-[0.85em] text-kumo-subtle">专属资源包（活动奖励，单独计额度）</div>
+                                        {quotaData.quota.packages.map(p => (
+                                          <div key={p.id || p.name} className="mt-1 flex items-center justify-between gap-3">
+                                            <span className="min-w-0 truncate text-xs text-kumo-strong" title={p.description || p.name}>
+                                              {p.name || p.id}
+                                            </span>
+                                            <span className="shrink-0 font-mono text-xs text-kumo-subtle">
+                                              {fmtCredits(p.remaining)}/{fmtCredits(p.total)}
+                                            </span>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    ) : null}
                                   </div>
                                 ) : (
                                   <div className="py-3 text-center text-xs text-kumo-subtle">暂无额度数据</div>
@@ -857,6 +1038,21 @@ export function QoderPlugin() {
                           </span>
                         </Table.Cell>
                         <Table.Cell className="!px-2 !py-1.5 text-center">
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="ghost"
+                            className="mx-auto flex flex-col items-center gap-0 font-mono text-xs focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0"
+                            title="点击查看签到历史（连续天数 / 累计天数 / 累计积分）"
+                            onClick={() => openHistory(a)}
+                          >
+                            <span className="text-kumo-strong">{a.streakDays ? `${a.streakDays}天` : '—'}</span>
+                            {a.totalCheckinDays ? (
+                              <span className="text-[10px] font-normal text-kumo-subtle">累计 {a.totalCheckinDays} 天</span>
+                            ) : null}
+                          </Button>
+                        </Table.Cell>
+                        <Table.Cell className="!px-2 !py-1.5 text-center">
                           <span className="font-mono text-xs text-kumo-strong" title="该账号累计转发次数">{a.callCount ?? 0}</span>
                         </Table.Cell>
                         <Table.Cell className="!px-2 !py-1.5 text-center">
@@ -865,6 +1061,28 @@ export function QoderPlugin() {
                               {meta.label}
                               {a.tokenState === 'expiring' && a.expiresInSeconds ? ` ${fmtLeft(a.expiresInSeconds)}` : ''}
                             </Badge>
+                            {a.needsReauth ? (
+                              <Badge variant="danger" className="text-xs" title="凭据已失效且无可用 refresh token，需要重新授权">
+                                需重授权
+                              </Badge>
+                            ) : null}
+                            {a.fingerprint ? (
+                              <Badge
+                                variant="success"
+                                className="text-xs"
+                                title="已配置真实设备指纹：国际版签到可用，且走新版推理协议（含 Sonus / Cantus / Fast）"
+                              >
+                                指纹
+                              </Badge>
+                            ) : a.region === 'intl' ? (
+                              <Badge
+                                variant="warning"
+                                className="text-xs"
+                                title="国际版签到需真实设备指纹（官方客户端抓包）；缺指纹时上游不下发每日签到活动"
+                              >
+                                缺指纹
+                              </Badge>
+                            ) : null}
                             {a.cooling ? (
                               <Badge
                                 variant="warning"
@@ -897,12 +1115,20 @@ export function QoderPlugin() {
                               size="sm"
                               shape="square"
                               variant="outline"
+                              aria-label={`续期 token ${a.id}`}
+                              title="立即续期 token（用 refresh_token 换新 token）"
+                              disabled={busyAccount === a.id}
+                              onClick={() => refreshAccount(a)}
+                            >
+                              <RefreshCw className="h-3 w-3" />
+                            </Button>
+                            <Button
+                              size="sm"
+                              shape="square"
+                              variant="outline"
                               aria-label={`编辑 ${a.id}`}
-                              onClick={() => {
-                                setEditName(a.nickname || '');
-                                setEditRegion(a.region === 'intl' ? 'intl' : 'cn');
-                                setEditAccount(a);
-                              }}
+                              title="编辑备注名 / 区域 / 设备指纹"
+                              onClick={() => openEditAccount(a)}
                             >
                               <Edit className="h-3 w-3" />
                             </Button>
@@ -1217,7 +1443,7 @@ export function QoderPlugin() {
           <div className="shrink-0 px-6 pt-5">
             <Dialog.Title className="mb-1 text-sm font-semibold text-kumo-strong">登录 Qoder</Dialog.Title>
             <Dialog.Description className="mb-4 text-sm text-kumo-subtle">
-              选择区域后在新标签页打开 Qoder 授权页面并完成登录，授权成功后会自动加入账号列表。国内版（qoder.cn）签到不需要真实机器身份，多账号可各自领取；国际版（qoder.com）需真实机器身份且同机器每日仅一个账号可领。
+              选择区域后在新标签页打开 Qoder 授权页面并完成登录，授权成功后会自动加入账号列表。国内版（qoder.cn）签到不需要真实机器身份，多账号可各自领取；国际版（qoder.com）按真实设备身份下发活动，缺指纹时上游不下发每日签到。
             </Dialog.Description>
           </div>
           <div className="min-h-0 flex-1 overflow-y-auto px-6 py-3 scrollbar-thin">
@@ -1229,18 +1455,21 @@ export function QoderPlugin() {
                   size="sm"
                   className="w-32"
                   value={loginRegion}
-                  onValueChange={v => {
-                    setLoginRegion(v);
-                    if (login.phase !== 'success') startLogin(v);
-                  }}
+                  onValueChange={chooseLoginRegion}
                   items={[
                     { value: 'cn', label: '国内版' },
                     { value: 'intl', label: '国际版' },
                   ]}
-                  disabled={login.phase === 'success'}
+                  disabled={login.phase === 'success' || login.phase === 'loading'}
                 />
               </div>
-              {login.phase === 'loading' ? (
+              {login.phase === 'idle' ? (
+                <div className="flex min-h-[96px] w-full items-center justify-center rounded border border-kumo-line px-4 text-center text-xs">
+                  <span className="text-kumo-subtle">
+                    选择上方的账号区域后，才会打开 Qoder 授权页面并开始等待登录。
+                  </span>
+                </div>
+              ) : login.phase === 'loading' ? (
                 <div className="flex h-[96px] w-full items-center justify-center rounded border border-kumo-line">
                   <Loader size="lg" />
                 </div>
@@ -1272,9 +1501,16 @@ export function QoderPlugin() {
           </div>
           <div className="flex shrink-0 items-center justify-end gap-3 border-t border-kumo-line px-6 py-4">
             <Dialog.Close render={props => <Button size="sm" variant="secondary" {...props}>关闭</Button>} />
-            <Button size="sm" variant="secondary" disabled={login.phase === 'success'} onClick={() => startLogin()}>
-              重新打开授权页
-            </Button>
+            {login.phase !== 'idle' ? (
+              <Button
+                size="sm"
+                variant="secondary"
+                disabled={login.phase === 'success' || login.phase === 'loading'}
+                onClick={() => startLogin()}
+              >
+                重新打开授权页
+              </Button>
+            ) : null}
           </div>
         </Dialog>
       </Dialog.Root>
@@ -1288,18 +1524,113 @@ export function QoderPlugin() {
             </Dialog.Description>
           </div>
           <div className="min-h-0 flex-1 overflow-y-auto px-6 py-3 scrollbar-thin">
-            <Input
-              size="sm"
-              label="备注名"
-              type="text"
-              className="w-full"
-              value={editName}
-              onChange={e => setEditName(e.target.value)}
-            />
+            <div className="flex flex-col gap-3">
+              <Input
+                size="sm"
+                label="备注名"
+                type="text"
+                className="w-full"
+                value={editName}
+                onChange={e => setEditName(e.target.value)}
+              />
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-xs text-kumo-subtle">区域</span>
+                <Select
+                  alignItemWithTrigger
+                  size="sm"
+                  className="w-32"
+                  value={editRegion}
+                  onValueChange={setEditRegion}
+                  items={[
+                    { value: 'cn', label: '国内版' },
+                    { value: 'intl', label: '国际版' },
+                  ]}
+                />
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs text-kumo-subtle">签到设备指纹</span>
+                  <div className="flex items-center gap-1.5 text-xs text-kumo-subtle">
+                    <span>清除</span>
+                    <Switch size="sm" checked={clearFingerprint} onCheckedChange={setClearFingerprint} aria-label="清除设备指纹" />
+                  </div>
+                </div>
+                <Textarea
+                  size="sm"
+                  className="w-full font-mono text-xs"
+                  rows={5}
+                  placeholder={
+                    editAccount?.fingerprint
+                      ? '已配置指纹（不回显）。留空表示不修改；要替换请粘贴新的 JSON。'
+                      : '未配置。国际版签到与 Sonus/Cantus/Fast 模型需要真实指纹，从官方客户端抓包取得，例如\n{"machine_id":"…","machine_token":"…","machine_type":"…","version":"0.4.4"}'
+                  }
+                  aria-label="签到设备指纹 JSON"
+                  value={editFingerprint}
+                  onChange={e => setEditFingerprint(e.target.value)}
+                  disabled={clearFingerprint}
+                />
+                {editFingerprintErr ? (
+                  <span className="text-xs text-kumo-warning">{editFingerprintErr}</span>
+                ) : (
+                  <span className="text-[11px] leading-4 text-kumo-subtle">
+                    国际版（qoder.com）签到活动按真实设备身份下发，缺指纹时上游不下发每日签到（表现为「暂无可领取权益」）。
+                    自造指纹无效；也可在官方客户端手动领取一次后转为懒下发。配置指纹同时启用新版推理协议（多出 Sonus / Cantus / Fast）。
+                  </span>
+                )}
+              </div>
+            </div>
           </div>
           <div className="flex shrink-0 items-center justify-end gap-3 border-t border-kumo-line px-6 py-4">
             <Dialog.Close render={props => <Button size="sm" variant="secondary" {...props}>取消</Button>} />
             <Button size="sm" variant="primary" onClick={saveEditAccount}>保存</Button>
+          </div>
+        </Dialog>
+      </Dialog.Root>
+
+      <Dialog.Root open={!!historyAccount} onOpenChange={open => !open && setHistoryAccount(null)}>
+        <Dialog className="flex max-h-[min(calc(100dvh-2rem),40rem)] !w-[min(28rem,calc(100vw-2rem))] !max-w-[min(28rem,calc(100vw-2rem))] flex-col overflow-hidden !p-0">
+          <div className="shrink-0 px-6 pt-5">
+            <Dialog.Title className="mb-1 text-sm font-semibold text-kumo-strong">签到历史</Dialog.Title>
+            <Dialog.Description className="mb-4 text-sm text-kumo-subtle">
+              {historyAccount ? `${historyAccount.nickname || historyAccount.id} · 按活动窗口日期（10:00 → 次日 09:59，UTC+8）记账` : ''}
+            </Dialog.Description>
+          </div>
+          <div className="min-h-0 flex-1 overflow-y-auto px-6 py-3 scrollbar-thin">
+            {historyBusy ? (
+              <div className="flex h-24 w-full items-center justify-center">
+                <Loader size="sm" />
+              </div>
+            ) : historyData?.records?.length ? (
+              <>
+                <div className="mb-3 grid grid-cols-3 gap-2">
+                  <div className="rounded border border-kumo-line px-2 py-1.5 text-center">
+                    <div className="text-base font-semibold text-kumo-strong">{historyData.streakDays}</div>
+                    <div className="text-[10px] text-kumo-subtle">连续天数</div>
+                  </div>
+                  <div className="rounded border border-kumo-line px-2 py-1.5 text-center">
+                    <div className="text-base font-semibold text-kumo-strong">{historyData.totalDays}</div>
+                    <div className="text-[10px] text-kumo-subtle">累计天数</div>
+                  </div>
+                  <div className="rounded border border-kumo-line px-2 py-1.5 text-center">
+                    <div className="text-base font-semibold text-kumo-strong">{fmtCredits(historyData.totalCredits)}</div>
+                    <div className="text-[10px] text-kumo-subtle">累计积分</div>
+                  </div>
+                </div>
+                <div className="divide-y divide-kumo-line">
+                  {historyData.records.map(r => (
+                    <div key={r.date} className="flex items-center justify-between gap-3 py-1.5 text-xs">
+                      <span className="font-mono text-kumo-strong">{r.date}</span>
+                      <span className="font-mono text-kumo-subtle">+{fmtCredits(r.amount)}</span>
+                    </div>
+                  ))}
+                </div>
+              </>
+            ) : (
+              <div className="py-8 text-center text-xs text-kumo-subtle">暂无签到记录</div>
+            )}
+          </div>
+          <div className="flex shrink-0 items-center justify-end gap-3 border-t border-kumo-line px-6 py-4">
+            <Dialog.Close render={props => <Button size="sm" variant="secondary" {...props}>关闭</Button>} />
           </div>
         </Dialog>
       </Dialog.Root>

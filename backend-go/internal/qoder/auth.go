@@ -16,6 +16,7 @@ import (
 
 // toAccountView 把账号脱敏成可下发前端的视图（不下发任何 token）。
 func (s *Service) toAccountView(a Account) AccountView {
+	ident := identityForAccount(a)
 	view := AccountView{
 		ID:            a.ID,
 		Nickname:      a.Nickname,
@@ -29,19 +30,107 @@ func (s *Service) toAccountView(a Account) AccountView {
 		Cooling:       s.inCooldown(a.ID, time.Now()),
 		CallCount:     s.callDisplay(a.ID),
 		LastCheckinAt: a.LastCheckinAt,
+		LastRefreshAt: a.LastRefreshAt,
 		LastError:     a.LastError,
-	}
-	if until, cooled := s.cooldownUntilOf(a.ID, time.Now()); cooled {
-		if left := int64(time.Until(until).Seconds()); left > 0 {
-			view.CooldownSeconds = left
-		}
+		TokenAgeDays:  -1,
+		Fingerprint:   ident.Real,
+		ModelsModern:  ident.modernProtocol(),
+		NeedsReauth:   needsReauth(a),
 	}
 	if a.ExpiresAt > 0 {
 		if left := a.ExpiresAt - time.Now().Unix(); left > 0 {
 			view.ExpiresInSeconds = left
 		}
 	}
+	// TokenAgeDays：以「签发时刻」为基准；未记录签发时刻时为 -1（无法判断）。
+	if a.TokenIssuedAt > 0 {
+		view.TokenAgeDays = int(time.Since(time.Unix(a.TokenIssuedAt, 0)).Hours() / 24)
+	}
+	if until, cooled := s.cooldownUntilOf(a.ID, time.Now()); cooled {
+		if left := int64(time.Until(until).Seconds()); left > 0 {
+			view.CooldownSeconds = left
+		}
+	}
 	return view
+}
+
+// accountView 构造单个账号视图并补上该账号的签到统计（单账号接口用）。
+func (s *Service) accountView(ctx context.Context, a Account) AccountView {
+	view := s.toAccountView(a)
+	view.StreakDays, view.TotalCheckinDays, view.TotalCheckinCredits = s.localCheckinStats(ctx, a.ID)
+	if recs := s.loadCheckinHistory(ctx, a.ID); len(recs) > 0 {
+		view.LastCheckinWindow = recs[len(recs)-1].Date
+	}
+	return view
+}
+
+// accountStats 是一次批量查询得到的签到统计。
+type accountStats struct {
+	streak   int
+	total    int
+	credits  float64
+	lastDate string
+}
+
+// allAccountStats 一次查询取出全部账号的签到统计（避免面板为每个账号各开一次 DB）。
+func (s *Service) allAccountStats(ctx context.Context) map[string]accountStats {
+	out := map[string]accountStats{}
+	db, err := s.open(ctx)
+	if err != nil {
+		return out
+	}
+	defer db.Close()
+	rows, err := db.QueryContext(ctx, `SELECT account_id, window_date, amount FROM qoder_checkin_history`)
+	if err != nil {
+		return out
+	}
+	defer rows.Close()
+	grouped := map[string][]checkinRecord{}
+	for rows.Next() {
+		var id string
+		var r checkinRecord
+		if rows.Scan(&id, &r.Date, &r.Amount) == nil {
+			grouped[id] = append(grouped[id], r)
+		}
+	}
+	for id, recs := range grouped {
+		streak, total, credits := calcLocalCheckinStats(recs)
+		stat := accountStats{streak: streak, total: total, credits: credits}
+		if len(recs) > 0 {
+			stat.lastDate = recs[len(recs)-1].Date
+		}
+		out[id] = stat
+	}
+	return out
+}
+
+// accountViews 批量构造账号视图：签到统计只查一次库。
+func (s *Service) accountViews(ctx context.Context, accounts []Account) []AccountView {
+	stats := s.allAccountStats(ctx)
+	out := make([]AccountView, 0, len(accounts))
+	for _, a := range accounts {
+		view := s.toAccountView(a)
+		if stat, ok := stats[a.ID]; ok {
+			view.StreakDays = stat.streak
+			view.TotalCheckinDays = stat.total
+			view.TotalCheckinCredits = stat.credits
+			view.LastCheckinWindow = stat.lastDate
+		}
+		out = append(out, view)
+	}
+	return out
+}
+
+// needsReauth 报告账号凭据是否需要重新授权：无 access token，
+// 或 token 已过期且没有可用的 refresh token。
+func needsReauth(a Account) bool {
+	if strings.TrimSpace(a.AccessToken) == "" {
+		return true
+	}
+	if tokenState(a) == "expired" && strings.TrimSpace(a.RefreshToken) == "" {
+		return true
+	}
+	return false
 }
 
 // tokenState 依据过期时刻给出 token 状态。
@@ -144,6 +233,17 @@ func (s *Service) finishLogin(ctx context.Context, w http.ResponseWriter, acc Ac
 	if acc.CreatedAt == "" {
 		acc.CreatedAt = time.Now().UTC().Format(time.RFC3339)
 	}
+	// 重新授权必须保留同一账号已有的真实设备指纹（否则国际版签到失效、
+	// Sonus/Cantus/Fast 三档模型从清单消失——账号会被上游当成换了设备）。
+	if prev, ok := s.findAccount(acc.ID); ok {
+		acc.CheckinFingerprint = prev.CheckinFingerprint
+		acc.StreakDays = prev.StreakDays
+		acc.TotalCheckinDays = prev.TotalCheckinDays
+		acc.LastCheckinAt = prev.LastCheckinAt
+		if acc.CreatedAt == "" {
+			acc.CreatedAt = prev.CreatedAt
+		}
+	}
 	// 登录后立即拉一次额度，让前端马上看到余额。
 	if q, err := s.FetchQuota(ctx, acc); err == nil {
 		acc.Credits = q.Remaining
@@ -155,7 +255,7 @@ func (s *Service) finishLogin(ctx context.Context, w http.ResponseWriter, acc Ac
 	responseJSON(w, map[string]interface{}{
 		"success": true,
 		"status":  "success",
-		"account": s.toAccountView(acc),
+		"account": s.accountView(ctx, acc),
 	})
 }
 
@@ -170,10 +270,7 @@ func (s *Service) handleAccounts(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	st := s.Settings()
-	out := make([]AccountView, 0, len(st.Accounts))
-	for _, a := range st.Accounts {
-		out = append(out, s.toAccountView(a))
-	}
+	out := s.accountViews(r.Context(), st.Accounts)
 	responseJSON(w, map[string]interface{}{"success": true, "accounts": out})
 }
 
@@ -195,16 +292,21 @@ func (s *Service) handleDeleteAccount(w http.ResponseWriter, r *http.Request, id
 	responseJSON(w, map[string]interface{}{"success": true})
 }
 
-// handleUpdateAccount 修改账号备注名（昵称）与区域。
+// handleUpdateAccount 修改账号备注名（昵称）、区域与签到设备指纹。
 // region 为空表示不修改；非空时归一化为 cn/intl。
+// checkinFingerprint 语义：字段缺省表示不修改；显式 null 表示清空（回落派生指纹）。
 func (s *Service) handleUpdateAccount(w http.ResponseWriter, r *http.Request, id string) {
 	if r.Method != http.MethodPut {
 		responseJSON(w, http.StatusMethodNotAllowed, map[string]interface{}{"success": false, "error": "method not allowed"})
 		return
 	}
 	var body struct {
-		Nickname string `json:"nickname"`
-		Region   string `json:"region"`
+		Nickname           *string             `json:"nickname"`
+		Region             string              `json:"region"`
+		CheckinFingerprint *CheckinFingerprint `json:"checkinFingerprint"`
+		// ClearFingerprint 为 true 时显式清空指纹（JSON 里很难表达「显式 null vs 缺省」，
+		// 用独立布尔避免误清）。
+		ClearFingerprint bool `json:"clearFingerprint"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		responseJSON(w, http.StatusBadRequest, map[string]interface{}{"success": false, "error": "请求体解析失败"})
@@ -216,18 +318,37 @@ func (s *Service) handleUpdateAccount(w http.ResponseWriter, r *http.Request, id
 		responseJSON(w, http.StatusNotFound, map[string]interface{}{"success": false, "error": "账号不存在"})
 		return
 	}
-	acc.Nickname = strings.TrimSpace(body.Nickname)
+	if body.Nickname != nil {
+		acc.Nickname = strings.TrimSpace(*body.Nickname)
+	}
 	if strings.TrimSpace(body.Region) != "" {
 		acc.Region = normalizeRegion(body.Region)
 		acc.Domain = regionConfigFor(acc.Region).website
 		// 区域变更后 token 需在新区域重新验证，清空历史错误。
 		acc.LastError = ""
 	}
+	switch {
+	case body.ClearFingerprint:
+		acc.CheckinFingerprint = nil
+	case body.CheckinFingerprint != nil:
+		fp := *body.CheckinFingerprint
+		fp.MachineID = strings.TrimSpace(fp.MachineID)
+		fp.MachineToken = strings.TrimSpace(fp.MachineToken)
+		fp.MachineType = strings.TrimSpace(fp.MachineType)
+		if fp.MachineToken == "" {
+			responseJSON(w, http.StatusBadRequest, map[string]interface{}{
+				"success": false,
+				"error":   "设备指纹至少需要 machine_token（国际版签到与新版推理协议依赖它）",
+			})
+			return
+		}
+		acc.CheckinFingerprint = &fp
+	}
 	if err := s.upsertAccount(r.Context(), acc); err != nil {
 		responseJSON(w, http.StatusInternalServerError, map[string]interface{}{"success": false, "error": err.Error()})
 		return
 	}
-	responseJSON(w, map[string]interface{}{"success": true, "account": s.toAccountView(acc)})
+	responseJSON(w, map[string]interface{}{"success": true, "account": s.accountView(r.Context(), acc)})
 }
 
 // handleToggleAccount 启用/停用账号（停用即摘出转发与自动刷新）。
@@ -352,7 +473,7 @@ func (s *Service) handleCheckinAll(w http.ResponseWriter, r *http.Request) {
 	responseJSON(w, map[string]interface{}{"success": true, "results": results})
 }
 
-// runCheckin 执行签到并回写账号状态（余额 + 最近签到时间 + 错误）。
+// runCheckin 执行签到并回写账号状态（余额 + 最近签到时间 + 错误 + 本地连签统计）。
 func (s *Service) runCheckin(ctx context.Context, acc Account) (CheckinResult, error) {
 	if err := s.ensureToken(ctx, &acc); err != nil {
 		s.persistAccountError(ctx, acc, err)
@@ -367,7 +488,16 @@ func (s *Service) runCheckin(ctx context.Context, acc Account) (CheckinResult, e
 		acc.Credits = q.Remaining
 	}
 	acc.LastError = ""
-	acc.LastCheckinAt = time.Now().UTC().Format(time.RFC3339)
+	// 只有真正领取/已领取才更新「最近签到时刻」；none / need_fingerprint 不算签到成功。
+	if result.Status == "success" || result.Status == "already" {
+		acc.LastCheckinAt = time.Now().UTC().Format(time.RFC3339)
+	}
+	if result.StreakDays > 0 {
+		acc.StreakDays = result.StreakDays
+	}
+	if result.TotalDays > 0 {
+		acc.TotalCheckinDays = result.TotalDays
+	}
 	_ = s.upsertAccount(ctx, acc)
 	return result, nil
 }
@@ -376,6 +506,101 @@ func (s *Service) runCheckin(ctx context.Context, acc Account) (CheckinResult, e
 func (s *Service) persistAccountError(ctx context.Context, acc Account, err error) {
 	acc.LastError = err.Error()
 	_ = s.upsertAccount(ctx, acc)
+}
+
+// handleAccountCheckinHistory 返回单账号的签到历史（最近 N 条 + 统计）。
+func (s *Service) handleAccountCheckinHistory(w http.ResponseWriter, r *http.Request, id string) {
+	if r.Method != http.MethodGet {
+		responseJSON(w, http.StatusMethodNotAllowed, map[string]interface{}{"success": false, "error": "method not allowed"})
+		return
+	}
+	acc, ok := s.findAccount(strings.TrimSpace(id))
+	if !ok {
+		responseJSON(w, http.StatusNotFound, map[string]interface{}{"success": false, "error": "账号不存在"})
+		return
+	}
+	recs := s.loadCheckinHistory(r.Context(), acc.ID)
+	streak, total, credits := calcLocalCheckinStats(recs)
+	// 只回传最近 60 条，避免历史过长把面板撑爆。
+	const limit = 60
+	if len(recs) > limit {
+		recs = recs[len(recs)-limit:]
+	}
+	out := make([]map[string]interface{}, 0, len(recs))
+	for i := len(recs) - 1; i >= 0; i-- {
+		out = append(out, map[string]interface{}{"date": recs[i].Date, "amount": recs[i].Amount})
+	}
+	responseJSON(w, map[string]interface{}{
+		"success":      true,
+		"accountId":    acc.ID,
+		"streakDays":   streak,
+		"totalDays":    total,
+		"totalCredits": credits,
+		"records":      out,
+	})
+}
+
+// handleAccountRefresh 手动续期该账号 token。body {"force": true} 忽略年龄窗口。
+func (s *Service) handleAccountRefresh(w http.ResponseWriter, r *http.Request, id string) {
+	if r.Method != http.MethodPost {
+		responseJSON(w, http.StatusMethodNotAllowed, map[string]interface{}{"success": false, "error": "method not allowed"})
+		return
+	}
+	acc, ok := s.findAccount(strings.TrimSpace(id))
+	if !ok {
+		responseJSON(w, http.StatusNotFound, map[string]interface{}{"success": false, "error": "账号不存在"})
+		return
+	}
+	var body struct {
+		Force bool `json:"force"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&body)
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	defer cancel()
+	// force 目前无差别续期：手动续期本身就是用户明确要求「现在就换」，
+	// 不需要再按 token 年龄过滤（自动续期那条路径才按窗口判断）。
+	_ = body.Force
+	if strings.TrimSpace(acc.RefreshToken) == "" {
+		responseJSON(w, http.StatusBadRequest, map[string]interface{}{
+			"success": false,
+			"error":   "账号缺少 refresh_token，无法续期，需要重新授权",
+		})
+		return
+	}
+	if err := s.refreshAccessToken(ctx, &acc); err != nil {
+		acc.LastError = err.Error()
+		_ = s.upsertAccount(ctx, acc)
+		responseJSON(w, http.StatusBadGateway, map[string]interface{}{"success": false, "error": err.Error()})
+		return
+	}
+	_ = s.upsertAccount(ctx, acc)
+	responseJSON(w, map[string]interface{}{"success": true, "account": s.accountView(r.Context(), acc)})
+}
+
+// handleRefreshAll 手动续期全部账号（体量小，逐个同步执行）。
+func (s *Service) handleRefreshAll(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		responseJSON(w, http.StatusMethodNotAllowed, map[string]interface{}{"success": false, "error": "method not allowed"})
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Minute)
+	defer cancel()
+	results := make([]map[string]interface{}, 0)
+	for _, a := range s.Settings().Accounts {
+		item := map[string]interface{}{"accountId": a.ID, "nickname": a.Nickname}
+		acc := a
+		if err := s.refreshAccessToken(ctx, &acc); err != nil {
+			acc.LastError = err.Error()
+			_ = s.upsertAccount(ctx, acc)
+			item["success"] = false
+			item["error"] = err.Error()
+		} else {
+			_ = s.upsertAccount(ctx, acc)
+			item["success"] = true
+		}
+		results = append(results, item)
+	}
+	responseJSON(w, map[string]interface{}{"success": true, "results": results})
 }
 
 // -----------------------------------------------------------------------------

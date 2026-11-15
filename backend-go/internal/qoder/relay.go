@@ -437,8 +437,8 @@ func (s *Service) recordUsageMap(accountID, model string, usage map[string]inter
 	s.recordUsage(accountID, model, prompt, completion, cached)
 }
 
-// StartAutoRefresh 启动 access token 自动刷新：定期把即将过期/已过期的账号
-// 提前换成新 token，避免转发时才发现失效。ctx 取消时退出。
+// StartAutoRefresh 启动 access token 自动续期：定期检查临期/过期账号，
+// 开关（AutoRefreshToken，缺省开启）关闭时静默跳过。ctx 取消时退出。
 func (s *Service) StartAutoRefresh(ctx context.Context) {
 	go func() {
 		ticker := time.NewTicker(autoRefreshInterval)
@@ -454,14 +454,28 @@ func (s *Service) StartAutoRefresh(ctx context.Context) {
 	}()
 }
 
+// refreshWindowDays 是「提前续期」的触发窗口（天）：token 剩余寿命低于它即续期。
+// Qoder 的 access token 有效期实测约 15 天，留 3 天余量。
+const refreshWindowDays = 3
+
 // RefreshStaleAccounts 刷新所有「未停用、有 refresh token、剩余寿命低于提前量」的账号。
 // 单个账号失败不影响其它账号，失败原因写回 LastError 便于前端排障。
 func (s *Service) RefreshStaleAccounts(ctx context.Context) {
-	for _, a := range s.Settings().Accounts {
+	st := s.Settings()
+	if !st.autoRefreshEnabled() {
+		return
+	}
+	for _, a := range st.Accounts {
 		if a.Disabled || a.RefreshToken == "" {
 			continue
 		}
-		if state := tokenState(a); state == "valid" {
+		// 剩余寿命充足则跳过（旧的 tokenState != valid 判定会把「即将过期」也
+		// 反复续期，且对没有 ExpiresAt 的旧账号永远发请求）。
+		if a.ExpiresAt > 0 {
+			if time.Until(time.Unix(a.ExpiresAt, 0)) > refreshWindowDays*24*time.Hour {
+				continue
+			}
+		} else if tokenState(a) == "valid" {
 			continue
 		}
 		acc := a

@@ -361,7 +361,7 @@
       "version": "1",
       "status": "installed",
       "kind": "engine-plugin",
-      "summary": "Qoder（qoder.com）转 OpenAI 兼容 API：设备登录（nonce + PKCE 轮询换取 device token）、token 自动刷新（/api/v1/deviceToken/refresh）、加密 SSE 对话转发（身份 AES-CBC + RSA 包裹 + MD5 签名，POST api3.qoder.sh agent_chat_generation）、余额检测（/api/v2/quota/usage）、每日自动签到（/sash/api/v1/me/campaigns 列出并领取 CLAIM_BENEFIT，每日 100 Credits）、账号失败冷却与多账号选号策略（固定首个（默认）/ 轮询，选号原语复用 internal/accountpick）、用量统计、网关端点一键接入。协议参考开源反代 qoder2api（jyao0708/qoder2api）原生实现。",
+      "summary": "Qoder（qoder.cn / qoder.com）转 OpenAI 兼容 API：设备登录（nonce + PKCE 轮询换取 device token）、token 主动续期（/api/v1/deviceToken/refresh，剩余寿命 <3 天自动换新，支持单账号/全量手动续期与需重授权标记）、加密 SSE 对话转发（身份 AES-CBC + RSA 包裹 + MD5 签名，POST agent_chat_generation）、余额与专属资源包检测（/api/v2/quota/usage，SOTA 等专用额度单独成桶）、每日自动签到（/sash/api/v1/me/campaigns 领取 CLAIM_BENEFIT，国内版与国际版双区域：国内不发机器头、国际版必须携带真实设备指纹）、可配置签到时刻 + 账号错峰防风控 + 漏签重试、本地连签统计（按活动窗口日期记账）、账号失败冷却与多账号选号策略（固定首个（默认）/ 轮询，复用 internal/accountpick）、用量统计、网关端点一键接入。设备指纹（identity.go）同时决定推理协议版本：配置真实指纹后切 clienttype=10 / version=1.1.69 并解锁 Sonus/Cantus/Fast。协议参考开源反代 qoder2api（Zhengyuuuui/qoder2api）原生实现。",
       "backendDirs": [
         "backend-go/internal/qoder/"
       ],
@@ -393,7 +393,8 @@
       "dbTables": [
         "qoder_settings",
         "qoder_call_stats",
-        "qoder_usage_daily"
+        "qoder_usage_daily",
+        "qoder_checkin_history"
       ],
       "dbColumnAdds": [],
       "frontend": {
@@ -419,7 +420,8 @@
         "github.com/robfig/cron/v3"
       ],
       "systemContracts": [
-        "上游协议事实见 docs/standards/模型网关插件-qoder方案.md；协议层集中在 backend-go/internal/qoder/upstream.go，签到与余额在 billing.go"
+        "上游协议事实见 docs/standards/模型网关插件-qoder方案.md；协议层集中在 backend-go/internal/qoder/upstream.go，签到与余额在 billing.go，设备身份在 identity.go",
+        "国际版签到指纹可用 tools/qoder-fingerprint.ps1 从本机 Qoder 客户端的 umid 组件（runtime-info.exe）直接提取，无需抓包"
       ],
       "docs": [
         "docs/standards/模型网关插件-qoder方案.md",
@@ -430,7 +432,7 @@
         "manifest.go：删除 /api/qoder 与 /api/qoder/v1 前缀行",
         "server.go：删除 import、qoder 字段、qoder.New(cfg)、SetProxyPoolSelector 注入、StartCallStatsFlush、StartAutoRefresh、StartCheckinScheduler、/api/qoder case，以及 apiKeyRequiresSession 的 /api/qoder/accounts 前缀",
         "go mod tidy（robfig/cron 若仍被其它模块使用则保留）",
-        "DB：DROP TABLE qoder_usage_daily; DROP TABLE qoder_call_stats; DROP TABLE qoder_settings;",
+        "DB：DROP TABLE qoder_usage_daily; DROP TABLE qoder_call_stats; DROP TABLE qoder_checkin_history; DROP TABLE qoder_settings;",
         "DB：DELETE FROM modelhub_endpoints WHERE id = 'qoder-internal';",
         "删除 src/js/pages/modelhub/plugins/QoderPlugin.jsx",
         "OpenAIPluginsPanel.jsx：移除 qoder 注册条目（含 QoderBrand 图标 import 与组件 import）",
