@@ -356,11 +356,22 @@ func (s *Service) importEndpointsRoute(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if !req.Overwrite {
-			var exists int
-			_ = tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM modelhub_endpoints WHERE base_url = ?", ep.BaseURL).Scan(&exists)
-			if exists > 0 {
-				skippedCount++
-				continue
+			// 按 id upsert:带 id 且库中已存在同 id 时允许覆盖(这样导入自己导出的
+			// 配置可以更新既有端点,而不是被 base_url 去重全部跳过);库中无此 id
+			// 或未带 id 时,再按 base_url 去重跳过,避免同上游重复入库。
+			matched := false
+			if ep.ID != "" {
+				var byID int
+				_ = tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM modelhub_endpoints WHERE id = ?", ep.ID).Scan(&byID)
+				matched = byID > 0
+			}
+			if !matched {
+				var exists int
+				_ = tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM modelhub_endpoints WHERE base_url = ?", ep.BaseURL).Scan(&exists)
+				if exists > 0 {
+					skippedCount++
+					continue
+				}
 			}
 		}
 

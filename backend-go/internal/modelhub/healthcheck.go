@@ -32,10 +32,9 @@ func (s *Service) testEndpointChat(w http.ResponseWriter, r *http.Request, id st
 		Model string `json:"model"`
 	}
 	_ = json.NewDecoder(r.Body).Decode(&req)
-	modelName := req.Model
-	if modelName == "" {
-		modelName = "gpt-3.5-turbo"
-	}
+	// 探针模型:调用方未指定时不再写死 gpt-3.5-turbo(对不含该模型的上游会误报
+	// 失败),改为在该端点已发现的模型里取第一个作默认;解析见下方端点读取之后。
+	modelName := strings.TrimSpace(req.Model)
 
 	ctx := r.Context()
 	// 端点测试使用独立短超时，避免上游无响应时拖住整个操作。
@@ -50,8 +49,8 @@ func (s *Service) testEndpointChat(w http.ResponseWriter, r *http.Request, id st
 	defer db.Close()
 
 	var baseURL, apiKey string
-	var headersRaw, proxyRaw, upstreamTypeRaw sql.NullString
-	err = db.QueryRowContext(ctx, "SELECT base_url, api_key, headers, proxy_pool, upstream_type FROM modelhub_endpoints WHERE id = ?", id).Scan(&baseURL, &apiKey, &headersRaw, &proxyRaw, &upstreamTypeRaw)
+	var headersRaw, proxyRaw, upstreamTypeRaw, modelsRaw sql.NullString
+	err = db.QueryRowContext(ctx, "SELECT base_url, api_key, headers, proxy_pool, upstream_type, models FROM modelhub_endpoints WHERE id = ?", id).Scan(&baseURL, &apiKey, &headersRaw, &proxyRaw, &upstreamTypeRaw, &modelsRaw)
 	if err != nil {
 		response.JSON(w, http.StatusNotFound, map[string]string{"error": "端点不存在"})
 		return
@@ -59,6 +58,20 @@ func (s *Service) testEndpointChat(w http.ResponseWriter, r *http.Request, id st
 	apiKey = secure.SecureDecrypt(apiKey)
 	pool := decodeProxyPool(proxyRaw)
 	upstreamType := normalizeUpstreamType(upstreamTypeRaw.String)
+
+	// 调用方未指定 model 时,用该端点已发现的第一个模型做探针;仍无模型才退回默认,
+	// 避免对不含 gpt-3.5-turbo 的上游把「探针选了不存在的模型」误报成连通性失败。
+	if modelName == "" {
+		var models []string
+		if modelsRaw.Valid && modelsRaw.String != "" {
+			_ = json.Unmarshal([]byte(modelsRaw.String), &models)
+		}
+		if len(models) > 0 {
+			modelName = models[0]
+		} else {
+			modelName = "gpt-3.5-turbo"
+		}
+	}
 
 	// Touch endpoint
 	_, _ = db.ExecContext(ctx, "UPDATE modelhub_endpoints SET last_used = ? WHERE id = ?", time.Now().Format(time.RFC3339), id)

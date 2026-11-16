@@ -843,6 +843,16 @@ func (s *Service) updateEndpoint(w http.ResponseWriter, r *http.Request, id stri
 			response.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 			return
 		}
+	} else if req.APIKeys != nil {
+		// 只提交了扩展 key(apiKeys)时走这里:apiKeys 没有独立的变更标志,
+		// 若并进上面的「局部字段」分支,会把未提交的其它字段(headers/proxy/开关等)
+		// 写回默认值;若落到最后的 else,则只更新 name 而丢弃 apiKeys(旧行为)。
+		// 这里单独只更新 name + api_keys,既不触发上游验证也不动其它字段。
+		_, err = db.ExecContext(ctx, "UPDATE modelhub_endpoints SET name = ?, api_keys = ? WHERE id = ?", req.Name, string(apiKeysJSON), id)
+		if err != nil {
+			response.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			return
+		}
 	} else {
 		_, err = db.ExecContext(ctx, "UPDATE modelhub_endpoints SET name = ? WHERE id = ?", req.Name, id)
 		if err != nil {
