@@ -381,10 +381,41 @@ func (s *Service) relayLoop(p relayLoopParams) *relayLoopResult {
 		// （或由 pickKey 耗尽后切换端点）。
 		// 不消耗代理切换次数，因为 key 问题是凭据级非代理级。
 		if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
+			// 观测:上游 401/403 此前完全不留痕(既不写 analytics 也不写 relay-errors),
+			// 导致「偶发 403 透传」无法定位是哪个端点/key/真实模型返回的。这里补记
+			// 一条失败事件(含端点、真实模型名、key 序号、出口),便于排查。
+			// 纯观测副作用,不改变 key 轮询与后续 failover 行为。
+			s.recordRelayError(RelayErrorRecord{
+				Route: p.route, Kind: "upstream_auth",
+				Endpoint: selected.Name, EndpointID: selected.ID,
+				KeyIndex: currentKeyIndex,
+				Model:    p.model, Stream: stream, Proxy: hostFromProxyURL(currentProxy),
+				ClientIP: p.clientIP, Attempts: attempt + 1,
+				ElapsedMs:  time.Since(p.requestStarted).Milliseconds(),
+				StatusCode: resp.StatusCode,
+				Error:      fmt.Sprintf("上游返回 %d(端点 %s,模型 %s,key #%d)", resp.StatusCode, selected.Name, p.realModel, currentKeyIndex),
+			})
 			triedKeys[currentKey]++
 			resp.Body.Close()
 			cancel()
-			continue
+			// key 级鉴权失败:若还有其它 key 未达单请求尝试上限,换 key 继续重试;
+			// 否则本端点已无可用凭据,标记端点耗尽,交给端点级 failover 尝试下一个
+			// 候选端点。绝不把「body 已关闭的 401/403」当作该端点最终响应透传——
+			// 旧行为会据此产生「流式空 body 403」或「非流式 502 read on closed body」。
+			remainingKey := false
+			for _, k := range cleanKeyList(keys) {
+				if triedKeys[k] < keyMaxTries {
+					remainingKey = true
+					break
+				}
+			}
+			if remainingKey && attempt+1 < maxProxyAttempts {
+				continue
+			}
+			res.endpointExhausted = true
+			lastErr = fmt.Errorf("端点 %s 上游 %d 鉴权失败,全部 API Key 尝试已用尽", selected.Name, resp.StatusCode)
+			lastProxy = currentProxy
+			break
 		}
 
 		// 非流式：读取正文判断限流或 5xx，失败时在循环内重试。
