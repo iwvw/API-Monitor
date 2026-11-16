@@ -47,6 +47,7 @@ func ensureSchema(ctx context.Context, db *sql.DB) error {
 		"message_id":     "TEXT NOT NULL DEFAULT ''",
 		"from_domain":    "TEXT NOT NULL DEFAULT ''",
 		"text_body":      "TEXT NOT NULL DEFAULT ''",
+		"raw":            "TEXT NOT NULL DEFAULT ''",
 		"extract_status": "TEXT NOT NULL DEFAULT ''",
 		"consumed_by":    "TEXT NOT NULL DEFAULT ''",
 	}

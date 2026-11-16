@@ -1562,6 +1562,12 @@ func inferRouteMethods(route manifest.Route) []string {
 	// 操作型子路由：显式登记真实方法，避免 MatchPattern 默认推断 4 方法导致巡检/文档误报。
 	case "/api/modelhub/endpoints/{id}/proxy-state":
 		return []string{"GET"}
+	// 邮箱收件箱:wait / clear / consume / ingest 真实只接受 POST。这些路径只登记了
+	// 请求契约、描述里也没有方法关键词,此前退化 GET,误导调用方按 GET 调用得到 405。
+	case "/api/emailcode/wait", "/api/emailcode/clear",
+		"/api/emailcode/messages/{id}/consume", "/api/emailcode/ingest",
+		"/api/emailcode/messages/batch", "/api/emailcode/messages/fetch", "/api/emailcode/messages/consume":
+		return []string{"POST"}
 	case "/api/prompts/entries/{id}/publish":
 		return []string{"POST"}
 	case "/api/server/agent/auto-install/{id}":

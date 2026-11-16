@@ -507,6 +507,20 @@ func init() {
 	})
 	routeRequestContracts["/api/emailcode/messages/{id}/consume"] = obj(nil, map[string]prop{})
 	routeRequestContracts["/api/emailcode/clear"] = obj(nil, map[string]prop{})
+	routeRequestContracts["/api/emailcode/messages/batch"] = obj([]string{"mailboxes"}, map[string]prop{
+		"mailboxes":       {t: "array", req: true, d: "收件人邮箱数组,最多 50 个"},
+		"domain":          {t: "string", d: "收件域名精确过滤"},
+		"fromDomain":      {t: "string", d: "发件人域名过滤(支持后缀匹配主域/子域)"},
+		"includeConsumed": {t: "boolean", d: "是否包含已消费邮件"},
+		"limit":           {t: "integer", d: "每个邮箱返回上限,默认 50,最大 200"},
+	})
+	routeRequestContracts["/api/emailcode/messages/fetch"] = obj([]string{"ids"}, map[string]prop{
+		"ids": {t: "array", req: true, d: "邮件 id 数组,最多 50 个;返回含 MIME 原文 raw"},
+	})
+	routeRequestContracts["/api/emailcode/messages/consume"] = obj([]string{"ids"}, map[string]prop{
+		"ids":      {t: "array", req: true, d: "邮件 id 数组,最多 50 个"},
+		"consumer": {t: "string", d: "认领方标识,默认 batch"},
+	})
 	routeRequestContracts["/api/posthogcode/signup/start"] = obj(nil, map[string]prop{
 		"region":    {t: "string", d: "区域 us/eu，默认 us"},
 		"prefix":    {t: "string", d: "邮箱前缀，默认 probe"},

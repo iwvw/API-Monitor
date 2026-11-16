@@ -3,6 +3,7 @@ package emailcode
 import (
 	"crypto/subtle"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -24,6 +25,12 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.handleDomains(w, r)
 	case path == "/messages":
 		s.handleMessages(w, r)
+	case path == "/messages/batch":
+		s.handleBatchList(w, r)
+	case path == "/messages/fetch":
+		s.handleBatchFetch(w, r)
+	case path == "/messages/consume":
+		s.handleBatchConsume(w, r)
 	case path == "/stats":
 		s.handleStats(w, r)
 	case strings.HasPrefix(path, "/messages/"):
@@ -95,6 +102,7 @@ func (s *Service) handleIngest(w http.ResponseWriter, r *http.Request) {
 		Code:       strings.TrimSpace(body.Code),
 		Link:       strings.TrimSpace(body.Link),
 		Snippet:    strings.TrimSpace(body.Snippet),
+		Raw:        strings.TrimSpace(body.Raw),
 		ReceivedAt: strings.TrimSpace(body.Received),
 	}
 
@@ -156,16 +164,18 @@ func (s *Service) handleDomains(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleMessages 查询收件箱列表。
-// GET /api/emailcode/messages?mailbox=&includeConsumed=1&limit=50
+// GET /api/emailcode/messages?mailbox=&domain=&fromDomain=&includeConsumed=1&limit=50
 func (s *Service) handleMessages(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		response.Error(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
 	mailbox := strings.TrimSpace(r.URL.Query().Get("mailbox"))
+	domain := strings.TrimSpace(r.URL.Query().Get("domain"))
+	fromDomain := strings.TrimSpace(r.URL.Query().Get("fromDomain"))
 	includeConsumed := r.URL.Query().Get("includeConsumed") == "1"
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
-	messages, err := s.List(r.Context(), mailbox, includeConsumed, limit)
+	messages, err := s.ListFiltered(r.Context(), mailbox, domain, fromDomain, includeConsumed, limit)
 	if err != nil {
 		response.Error(w, http.StatusInternalServerError, err.Error())
 		return
@@ -319,6 +329,118 @@ func (s *Service) handleWait(w http.ResponseWriter, r *http.Request) {
 }
 
 // verifyWorkerSecret 校验邮件 Worker 的共享密钥。
+// emailcodeBatchMax 是批量接口单次允许的最大收件人/邮件数。
+const emailcodeBatchMax = 50
+
+// handleBatchList 批量按 mailbox 列出收件箱(一次最多 emailcodeBatchMax 个收件人)。
+// POST /api/emailcode/messages/batch
+// body: {mailboxes:[...], domain?, fromDomain?, includeConsumed?, limit?}
+func (s *Service) handleBatchList(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		response.Error(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	var body struct {
+		Mailboxes       []string `json:"mailboxes"`
+		Domain          string   `json:"domain"`
+		FromDomain      string   `json:"fromDomain"`
+		IncludeConsumed bool     `json:"includeConsumed"`
+		Limit           int      `json:"limit"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 256<<10)).Decode(&body); err != nil {
+		response.Error(w, http.StatusBadRequest, "请求体解析失败")
+		return
+	}
+	if len(body.Mailboxes) == 0 {
+		response.Error(w, http.StatusBadRequest, "mailboxes 不能为空")
+		return
+	}
+	if len(body.Mailboxes) > emailcodeBatchMax {
+		response.Error(w, http.StatusBadRequest, fmt.Sprintf("mailboxes 最多 %d 个", emailcodeBatchMax))
+		return
+	}
+	results := make([]map[string]interface{}, 0, len(body.Mailboxes))
+	for _, mb := range body.Mailboxes {
+		mailbox := strings.TrimSpace(mb)
+		if mailbox == "" {
+			results = append(results, map[string]interface{}{"mailbox": mb, "messages": []Message{}})
+			continue
+		}
+		msgs, err := s.ListFiltered(r.Context(), mailbox, body.Domain, body.FromDomain, body.IncludeConsumed, body.Limit)
+		if err != nil {
+			results = append(results, map[string]interface{}{"mailbox": mailbox, "error": err.Error()})
+			continue
+		}
+		results = append(results, map[string]interface{}{"mailbox": mailbox, "messages": msgs})
+	}
+	response.OK(w, map[string]interface{}{"results": results})
+}
+
+// handleBatchFetch 按 id 批量取邮件详情(含 MIME 原文 raw)。顺序与请求 ids 一致。
+// POST /api/emailcode/messages/fetch  body: {ids:[...]}
+func (s *Service) handleBatchFetch(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		response.Error(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	var body struct {
+		IDs []int64 `json:"ids"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 256<<10)).Decode(&body); err != nil {
+		response.Error(w, http.StatusBadRequest, "请求体解析失败")
+		return
+	}
+	if len(body.IDs) == 0 {
+		response.Error(w, http.StatusBadRequest, "ids 不能为空")
+		return
+	}
+	if len(body.IDs) > emailcodeBatchMax {
+		response.Error(w, http.StatusBadRequest, fmt.Sprintf("ids 最多 %d 个", emailcodeBatchMax))
+		return
+	}
+	msgs, err := s.GetMany(r.Context(), body.IDs)
+	if err != nil {
+		response.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	response.OK(w, map[string]interface{}{"messages": msgs})
+}
+
+// handleBatchConsume 按 id 批量标记已消费。
+// POST /api/emailcode/messages/consume  body: {ids:[...], consumer?}
+func (s *Service) handleBatchConsume(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		response.Error(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	var body struct {
+		IDs      []int64 `json:"ids"`
+		Consumer string  `json:"consumer"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 256<<10)).Decode(&body); err != nil {
+		response.Error(w, http.StatusBadRequest, "请求体解析失败")
+		return
+	}
+	if len(body.IDs) == 0 {
+		response.Error(w, http.StatusBadRequest, "ids 不能为空")
+		return
+	}
+	if len(body.IDs) > emailcodeBatchMax {
+		response.Error(w, http.StatusBadRequest, fmt.Sprintf("ids 最多 %d 个", emailcodeBatchMax))
+		return
+	}
+	consumer := strings.TrimSpace(body.Consumer)
+	if consumer == "" {
+		consumer = "batch"
+	}
+	n, err := s.ConsumeMany(r.Context(), body.IDs, consumer)
+	if err != nil {
+		response.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	response.OK(w, map[string]interface{}{"consumed": n})
+}
+
 func verifyWorkerSecret(r *http.Request) bool {
 	expected := WorkerSecret()
 	got := strings.TrimSpace(r.Header.Get("X-Worker-Secret"))

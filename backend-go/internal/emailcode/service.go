@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/iwvw/api-monitor/backend-go/internal/config"
 	"github.com/iwvw/api-monitor/backend-go/internal/database"
@@ -24,6 +25,10 @@ const defaultRetention = 7 * 24 * time.Hour
 // maxBodyRunes 限制入库正文长度，避免单封邮件撑爆存储。
 const maxBodyRunes = 64 * 1024
 
+// maxRawBytes 限制入库的 MIME 原文长度(Worker 侧原始投递上限为 512KB)。
+// 原文按字节截断到合法 UTF-8 边界,超长部分丢弃,避免单封邮件拖垮 SQLite。
+const maxRawBytes = 256 * 1024
+
 // WorkerSecret 返回下发给邮件 Worker 的握手密钥：优先环境变量，否则从加密根密钥派生。
 func WorkerSecret() string {
 	if v := strings.TrimSpace(os.Getenv(workerSecretEnv)); v != "" {
@@ -34,17 +39,20 @@ func WorkerSecret() string {
 
 // Message 是一封被收件箱捕获的邮件。
 type Message struct {
-	ID            int64  `json:"id"`
-	MessageID     string `json:"messageId,omitempty"`
-	Mailbox       string `json:"mailbox"`
-	Domain        string `json:"domain"`
-	Sender        string `json:"sender"`
-	FromDomain    string `json:"fromDomain"`
-	Subject       string `json:"subject"`
-	Code          string `json:"code"`
-	Link          string `json:"link"`
-	Snippet       string `json:"snippet"`
-	TextBody      string `json:"textBody,omitempty"`
+	ID         int64  `json:"id"`
+	MessageID  string `json:"messageId,omitempty"`
+	Mailbox    string `json:"mailbox"`
+	Domain     string `json:"domain"`
+	Sender     string `json:"sender"`
+	FromDomain string `json:"fromDomain"`
+	Subject    string `json:"subject"`
+	Code       string `json:"code"`
+	Link       string `json:"link"`
+	Snippet    string `json:"snippet"`
+	TextBody   string `json:"textBody,omitempty"`
+	// Raw 是邮件 MIME 原文(截断到 maxRawBytes),仅在单封详情/批量取回时返回,
+	// 列表不返回以免响应过大。
+	Raw           string `json:"raw,omitempty"`
 	ExtractStatus string `json:"extractStatus"`
 	ReceivedAt    string `json:"receivedAt"`
 	ConsumedAt    string `json:"consumedAt,omitempty"`
@@ -156,6 +164,7 @@ func (s *Service) Ingest(ctx context.Context, msg Message) (int64, error) {
 	msg.Link = truncate(msg.Link, 4096)
 	msg.Snippet = truncate(msg.Snippet, 1024)
 	msg.TextBody = truncate(msg.TextBody, maxBodyRunes)
+	msg.Raw = truncateBytes(msg.Raw, maxRawBytes)
 
 	db, err := s.open(ctx)
 	if err != nil {
@@ -174,10 +183,10 @@ func (s *Service) Ingest(ctx context.Context, msg Message) (int64, error) {
 	}
 
 	res, err := db.ExecContext(ctx, `INSERT INTO emailcode_messages
-		(message_id, mailbox, domain, sender, from_domain, subject, code, link, snippet, text_body, extract_status, received_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		(message_id, mailbox, domain, sender, from_domain, subject, code, link, snippet, text_body, raw, extract_status, received_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		msg.MessageID, msg.Mailbox, msg.Domain, msg.Sender, msg.FromDomain, msg.Subject,
-		msg.Code, msg.Link, msg.Snippet, msg.TextBody, msg.ExtractStatus, msg.ReceivedAt)
+		msg.Code, msg.Link, msg.Snippet, msg.TextBody, msg.Raw, msg.ExtractStatus, msg.ReceivedAt)
 	if err != nil {
 		return 0, err
 	}
@@ -345,8 +354,14 @@ func (s *Service) findMatch(ctx context.Context, db *sql.DB, sel Selector) (Mess
 	return msg, true
 }
 
-// List 返回收件箱最近邮件。
+// List 返回收件箱最近邮件(仅按收件人过滤)。
 func (s *Service) List(ctx context.Context, mailbox string, includeConsumed bool, limit int) ([]Message, error) {
+	return s.ListFiltered(ctx, mailbox, "", "", includeConsumed, limit)
+}
+
+// ListFiltered 在 List 的基础上增加 domain(收件域名,精确)与 fromDomain(发件人
+// 域名,支持后缀匹配,便于用主域命中子域)过滤,与 Wait/findMatch 的口径保持一致。
+func (s *Service) ListFiltered(ctx context.Context, mailbox, domain, fromDomain string, includeConsumed bool, limit int) ([]Message, error) {
 	if limit <= 0 || limit > 200 {
 		limit = 50
 	}
@@ -361,6 +376,15 @@ func (s *Service) List(ctx context.Context, mailbox string, includeConsumed bool
 	if mailbox != "" {
 		query += ` AND lower(mailbox) = ?`
 		args = append(args, mailboxKey(mailbox))
+	}
+	if domain != "" {
+		query += ` AND lower(domain) = ?`
+		args = append(args, strings.ToLower(strings.TrimSpace(domain)))
+	}
+	if fromDomain != "" {
+		query += ` AND (lower(from_domain) = ? OR lower(from_domain) LIKE ?)`
+		d := strings.ToLower(strings.TrimSpace(fromDomain))
+		args = append(args, d, "%."+d)
 	}
 	if !includeConsumed {
 		query += ` AND consumed_at IS NULL`
@@ -390,9 +414,50 @@ func (s *Service) Get(ctx context.Context, id int64) (Message, error) {
 		return Message{}, err
 	}
 	defer db.Close()
-	row := db.QueryRowContext(ctx, `SELECT id, message_id, mailbox, domain, sender, from_domain, subject, code, link, snippet, text_body, extract_status, received_at, COALESCE(consumed_at, ''), consumed_by
+	row := db.QueryRowContext(ctx, `SELECT id, message_id, mailbox, domain, sender, from_domain, subject, code, link, snippet, text_body, raw, extract_status, received_at, COALESCE(consumed_at, ''), consumed_by
 		FROM emailcode_messages WHERE id = ?`, id)
-	return scanMessage(row)
+	return scanMessageWithRaw(row)
+}
+
+// GetMany 按 id 批量取邮件详情(含 MIME 原文 raw),返回顺序与输入一致,缺失的 id 跳过。
+func (s *Service) GetMany(ctx context.Context, ids []int64) ([]Message, error) {
+	if len(ids) == 0 {
+		return []Message{}, nil
+	}
+	db, err := s.open(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer db.Close()
+	placeholders := strings.TrimSuffix(strings.Repeat("?,", len(ids)), ",")
+	args := make([]interface{}, 0, len(ids))
+	for _, id := range ids {
+		args = append(args, id)
+	}
+	rows, err := db.QueryContext(ctx, `SELECT id, message_id, mailbox, domain, sender, from_domain, subject, code, link, snippet, text_body, raw, extract_status, received_at, COALESCE(consumed_at, ''), consumed_by
+		FROM emailcode_messages WHERE id IN (`+placeholders+`)`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	byID := map[int64]Message{}
+	for rows.Next() {
+		msg, err := scanMessageWithRaw(rows)
+		if err != nil {
+			return nil, err
+		}
+		byID[msg.ID] = msg
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	out := make([]Message, 0, len(ids))
+	for _, id := range ids {
+		if msg, ok := byID[id]; ok {
+			out = append(out, msg)
+		}
+	}
+	return out, nil
 }
 
 // Consume 标记一封邮件为已消费（供人工在界面取用）。
@@ -405,6 +470,30 @@ func (s *Service) Consume(ctx context.Context, id int64, consumer string) error 
 	_, err = db.ExecContext(ctx, `UPDATE emailcode_messages SET consumed_at = ?, consumed_by = ?
 		WHERE id = ? AND consumed_at IS NULL`, time.Now().UTC().Format(time.RFC3339), consumer, id)
 	return err
+}
+
+// ConsumeMany 批量标记邮件为已消费,返回本次真正被标记(此前未消费)的条数。
+func (s *Service) ConsumeMany(ctx context.Context, ids []int64, consumer string) (int64, error) {
+	if len(ids) == 0 {
+		return 0, nil
+	}
+	db, err := s.open(ctx)
+	if err != nil {
+		return 0, err
+	}
+	defer db.Close()
+	placeholders := strings.TrimSuffix(strings.Repeat("?,", len(ids)), ",")
+	args := make([]interface{}, 0, len(ids)+2)
+	args = append(args, time.Now().UTC().Format(time.RFC3339), consumer)
+	for _, id := range ids {
+		args = append(args, id)
+	}
+	res, err := db.ExecContext(ctx, `UPDATE emailcode_messages SET consumed_at = ?, consumed_by = ?
+		WHERE consumed_at IS NULL AND id IN (`+placeholders+`)`, args...)
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
 }
 
 // Delete 删除一封邮件。
@@ -532,6 +621,18 @@ func truncate(s string, max int) string {
 	return string(r[:max])
 }
 
+// truncateBytes 按字节上限截断,并回退到合法 UTF-8 边界,避免切出半个字符。
+func truncateBytes(s string, max int) string {
+	if len(s) <= max {
+		return s
+	}
+	cut := max
+	for cut > 0 && !utf8.RuneStart(s[cut]) {
+		cut--
+	}
+	return s[:cut]
+}
+
 // rowScanner 兼容 *sql.Row 与 *sql.Rows。
 type rowScanner interface {
 	Scan(dest ...interface{}) error
@@ -541,6 +642,18 @@ func scanMessage(row rowScanner) (Message, error) {
 	var msg Message
 	err := row.Scan(&msg.ID, &msg.MessageID, &msg.Mailbox, &msg.Domain, &msg.Sender, &msg.FromDomain,
 		&msg.Subject, &msg.Code, &msg.Link, &msg.Snippet, &msg.TextBody, &msg.ExtractStatus,
+		&msg.ReceivedAt, &msg.ConsumedAt, &msg.ConsumedBy)
+	if err != nil {
+		return Message{}, err
+	}
+	return msg, nil
+}
+
+// scanMessageWithRaw 对应包含 raw 列的完整查询(Get / GetMany)。
+func scanMessageWithRaw(row rowScanner) (Message, error) {
+	var msg Message
+	err := row.Scan(&msg.ID, &msg.MessageID, &msg.Mailbox, &msg.Domain, &msg.Sender, &msg.FromDomain,
+		&msg.Subject, &msg.Code, &msg.Link, &msg.Snippet, &msg.TextBody, &msg.Raw, &msg.ExtractStatus,
 		&msg.ReceivedAt, &msg.ConsumedAt, &msg.ConsumedBy)
 	if err != nil {
 		return Message{}, err

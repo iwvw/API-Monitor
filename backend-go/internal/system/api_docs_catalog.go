@@ -1026,6 +1026,28 @@ var apiDocSeeds = []apiDocSeed{
 	{Route: manifest.Route{Prefix: "/api/m365/registrations", Module: "m365-public", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "M365 registrations list/clear", MatchMode: manifest.MatchExact},
 		Docs: apiRouteDocs{Methods: []string{"GET", "DELETE"}}},
 
+	// ---- 邮箱收件箱补缺(读取与批量接口此前未进清单,Agent 找不到)----
+	{Route: manifest.Route{Prefix: "/api/emailcode/domains", Module: "emailcode", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "收件箱可用收件域名列表", MatchMode: manifest.MatchExact},
+		Docs: apiRouteDocs{Methods: []string{"GET"}}},
+	{Route: manifest.Route{Prefix: "/api/emailcode/messages", Module: "emailcode", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "收件箱邮件列表", MatchMode: manifest.MatchExact},
+		Docs: apiRouteDocs{Methods: []string{"GET"}, QueryParams: []apiDocParameter{
+			{Name: "mailbox", In: "query", Description: "收件人邮箱(精确)"},
+			{Name: "domain", In: "query", Description: "收件域名(精确)"},
+			{Name: "fromDomain", In: "query", Description: "发件人域名(精确或后缀匹配主域/子域)"},
+			{Name: "includeConsumed", In: "query", Description: "1=包含已消费邮件"},
+			{Name: "limit", In: "query", Description: "返回上限,默认 50,最大 200"},
+		}}},
+	{Route: manifest.Route{Prefix: "/api/emailcode/messages/{id}", Module: "emailcode", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "单封邮件详情(含正文与 MIME 原文 raw)/删除", MatchMode: manifest.MatchPattern},
+		Docs: apiRouteDocs{Methods: []string{"GET", "DELETE"}}},
+	{Route: manifest.Route{Prefix: "/api/emailcode/messages/batch", Module: "emailcode", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "按 mailbox 批量列出收件箱(最多 50 个收件人)", MatchMode: manifest.MatchExact},
+		Docs: apiRouteDocs{Methods: []string{"POST"}}},
+	{Route: manifest.Route{Prefix: "/api/emailcode/messages/fetch", Module: "emailcode", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "按 id 批量取邮件详情(含 MIME 原文,最多 50)", MatchMode: manifest.MatchExact},
+		Docs: apiRouteDocs{Methods: []string{"POST"}}},
+	{Route: manifest.Route{Prefix: "/api/emailcode/messages/consume", Module: "emailcode", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "按 id 批量标记已消费(最多 50)", MatchMode: manifest.MatchExact},
+		Docs: apiRouteDocs{Methods: []string{"POST"}}},
+	{Route: manifest.Route{Prefix: "/api/emailcode/stats", Module: "emailcode", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "收件箱提取统计", MatchMode: manifest.MatchExact},
+		Docs: apiRouteDocs{Methods: []string{"GET"}}},
+
 	// ---- 模型网关修正与补缺 ----
 	{Route: manifest.Route{Prefix: "/api/modelhub/endpoints/{id}/key-check", Module: "modelhub", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "Endpoint API key check", MatchMode: manifest.MatchPattern},
 		Docs: apiRouteDocs{Methods: []string{"POST"}}},
