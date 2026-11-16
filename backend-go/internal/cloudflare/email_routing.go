@@ -274,27 +274,16 @@ func (s *Service) emailRoutingDeleteRule(w http.ResponseWriter, r *http.Request,
 }
 
 // resolveZoneID 解析要操作的域名：优先用 URL 查询参数 zoneId，
-// 未指定时回退到账号下第一个 zone。失败时写入错误响应并返回 false。
+// 缺失时返回 400,避免静默落到账号下的某个 zone 造成视图歧义。
 func (s *Service) resolveZoneID(w http.ResponseWriter, r *http.Request, auth map[string]string) (string, bool) {
 	if z := strings.TrimSpace(r.URL.Query().Get("zoneId")); z != "" {
 		return z, true
 	}
-	return s.firstZoneID(w, r, auth)
-}
-
-// firstZoneID 返回账号下第一个 zone 的 id；失败时写入错误响应并返回 false。
-func (s *Service) firstZoneID(w http.ResponseWriter, r *http.Request, auth map[string]string) (string, bool) {
-	zones, _, err := s.listZones(r.Context(), auth, url.Values{})
-	if err != nil || len(zones) == 0 {
-		response.JSON(w, http.StatusInternalServerError, map[string]interface{}{"error": "无法获取该账号下的域名列表"})
-		return "", false
-	}
-	zoneID := stringValue(objectValue(zones[0])["id"], "")
-	if zoneID == "" {
-		response.JSON(w, http.StatusInternalServerError, map[string]interface{}{"error": "域名缺少 zone id"})
-		return "", false
-	}
-	return zoneID, true
+	// 本接口是域名(zone)级。此前缺 zoneId 会静默回退到「账号下第一个 zone」,
+	// 与显式指定 zone 的查询结果不一致(看起来像账号级视图互相矛盾),容易误判。
+	// 改为显式报错,强制调用方传 zoneId。
+	response.JSON(w, http.StatusBadRequest, map[string]interface{}{"error": "缺少 zoneId:该接口为域名(zone)级,请传入目标域名的 zoneId"})
+	return "", false
 }
 
 // mapEmailRule 把 Cloudflare Email Routing rule 映射为前端友好结构。
