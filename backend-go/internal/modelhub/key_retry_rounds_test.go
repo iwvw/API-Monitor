@@ -19,7 +19,7 @@ func TestPickKeyCountsPerKeyTries(t *testing.T) {
 	tried := map[string]int{}
 	picks := []string{}
 	for {
-		k, _ := s.pickKey("ep-1", keys, tried, 2)
+		k, _ := s.pickKey(Endpoint{ID: "ep-1"}, keys, tried, 2)
 		if k == "" {
 			break
 		}
@@ -43,7 +43,7 @@ func TestPickKeyCountsPerKeyTries(t *testing.T) {
 	tried1 := map[string]int{}
 	picks1 := []string{}
 	for {
-		k, _ := s.pickKey("ep-2", keys, tried1, 1)
+		k, _ := s.pickKey(Endpoint{ID: "ep-2"}, keys, tried1, 1)
 		if k == "" {
 			break
 		}
@@ -269,5 +269,149 @@ func TestKeyRetryRoundsPersistsThroughUpdate(t *testing.T) {
 	}
 	if got := list().KeyRetryRounds; got != 5 {
 		t.Fatalf("explicit keyRetryRounds=5 should persist, got %d", got)
+	}
+}
+
+// TestPickKeyRandomStrategy 验证「完全随机」策略：多次选取各 key 最终都被命中，
+// 且不因单请求尝试次数(1)提前耗尽。
+func TestPickKeyRandomStrategy(t *testing.T) {
+	s := newOpenAIService(t)
+	ep := Endpoint{ID: "ep-random", KeyStrategy: keyStrategyRandom}
+	keys := []string{"a", "b", "c"}
+	seen := map[string]int{}
+	for i := 0; i < 300; i++ {
+		k, _ := s.pickKey(ep, keys, nil, 1)
+		if k == "" {
+			t.Fatalf("random strategy unexpectedly exhausted at iteration %d", i)
+		}
+		seen[k]++
+	}
+	for _, k := range keys {
+		if seen[k] == 0 {
+			t.Fatalf("random strategy should eventually hit key %q, got %v", k, seen)
+		}
+	}
+}
+
+// TestPickKeyRandomSurvivor 验证「错误时随机抽剩余」：本轮已失败的 key（tried>0）
+// 在仍存在存活 key 时绝不被选中，只从尚未失败者中随机。
+func TestPickKeyRandomSurvivor(t *testing.T) {
+	s := newOpenAIService(t)
+	ep := Endpoint{ID: "ep-survivor", KeyStrategy: keyStrategyRandomSurvivor}
+	keys := []string{"a", "b", "c"}
+	tried := map[string]int{"a": 1}
+	for i := 0; i < 200; i++ {
+		if k, _ := s.pickKey(ep, keys, tried, 2); k == "a" {
+			t.Fatalf("random_survivor picked failed key a while survivors remain (i=%d)", i)
+		}
+	}
+}
+
+// TestPickKeyCooldownAvoidance 验证「429/401 短期回避冷却」：
+//   - 个别 key 冷却期间被跳过（有可用 key 时绝不返回冷却中的 key）；
+//   - 全部 key 冷却但未耗尽时回退为全候选，不因冷却误返回空。
+func TestPickKeyCooldownAvoidance(t *testing.T) {
+	s := newOpenAIService(t)
+	ep := Endpoint{ID: "ep-cool", KeyStrategy: keyStrategyRoundRobin, KeyCooldownSeconds: 3600}
+	keys := []string{"a", "b", "c"}
+	s.armKeyCooldown("ep-cool", "b", 3600)
+	for i := 0; i < 200; i++ {
+		if k, _ := s.pickKey(ep, keys, nil, 1); k == "b" {
+			t.Fatalf("cooled key b should be avoided while a/c available (i=%d)", i)
+		}
+	}
+	// 全部冷却且未耗尽：应回退到全候选，不能返回空。
+	all := Endpoint{ID: "ep-cool-all", KeyStrategy: keyStrategyRoundRobin, KeyCooldownSeconds: 3600}
+	for _, k := range keys {
+		s.armKeyCooldown("ep-cool-all", k, 3600)
+	}
+	if k, _ := s.pickKey(all, keys, nil, 1); k == "" {
+		t.Fatal("all-cooled but not exhausted should still return a key (fallback)")
+	}
+	// 全部冷却 → markKeySuccess 解除冷却后恢复可选。
+	if s.keyCooledAt("ep-cool-all", "a").IsZero() {
+		t.Fatal("expected key a to be cooled after armKeyCooldown")
+	}
+	s.markKeySuccess("ep-cool-all", "a")
+	if !s.keyCooledAt("ep-cool-all", "a").IsZero() {
+		t.Fatal("markKeySuccess should clear cooldown")
+	}
+}
+
+// TestNormalizeKeyStrategy 验证策略规整：空/未知回退顺序轮询。
+func TestNormalizeKeyStrategy(t *testing.T) {
+	if got := normalizeKeyStrategy(""); got != keyStrategyRoundRobin {
+		t.Fatalf("empty strategy should be round_robin, got %q", got)
+	}
+	if got := normalizeKeyStrategy("random"); got != keyStrategyRandom {
+		t.Fatalf("'random' should map to random, got %q", got)
+	}
+	if got := normalizeKeyStrategy("random_survivor"); got != keyStrategyRandomSurvivor {
+		t.Fatalf("'random_survivor' should map to random_survivor, got %q", got)
+	}
+	if got := normalizeKeyStrategy("bogus"); got != keyStrategyRoundRobin {
+		t.Fatalf("unknown strategy should fall back to round_robin, got %q", got)
+	}
+}
+
+// TestNormalizeKeyCooldown 验证回避冷却秒数规整：负值按 0（关闭）。
+func TestNormalizeKeyCooldown(t *testing.T) {
+	if got := normalizeKeyCooldownSeconds(-5); got != 0 {
+		t.Fatalf("negative cooldown should be 0, got %d", got)
+	}
+	if got := normalizeKeyCooldownSeconds(120); got != 120 {
+		t.Fatalf("positive cooldown should be kept, got %d", got)
+	}
+}
+
+// TestMultiKey429SwitchesToHealthyKey 回归验证「多 key 端点遇 429 自动切下一把 key」：
+// 即使 autoSwitch=false、无代理、keyRetryRounds=1，只要还有未耗尽的 key，
+// 429 应立即换 key 重试而不是只试一把就 failover/直接报错。
+// 对应 Token Harbor 场景：只有少量 key 周额度/限流(429)，其余 key 正常。
+func TestMultiKey429SwitchesToHealthyKey(t *testing.T) {
+	var hits int32
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		n := atomic.AddInt32(&hits, 1)
+		// 仅主 key k1 处于 429：其余 key 正常。
+		if auth := r.Header.Get("Authorization"); auth != "Bearer k1" {
+			okHandler(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusTooManyRequests)
+		fmt.Fprintf(w, `{"error":{"message":"free allowance exhausted (hit %d)"}}`, n)
+	}))
+	t.Cleanup(upstream.Close)
+
+	service := newOpenAIService(t)
+	wCreate := httptest.NewRecorder()
+	rCreate, _ := http.NewRequest("POST", "/api/modelhub/endpoints", strings.NewReader(fmt.Sprintf(
+		`{"name":"TH","baseUrl":"%s","apiKey":"k1","apiKeys":["k2","k3"],"keyRetryRounds":1,"autoSwitch":false,"skipVerify":true}`,
+		upstream.URL)))
+	service.ServeHTTP(wCreate, rCreate)
+	if wCreate.Code != http.StatusOK {
+		t.Fatalf("create status = %d body=%s", wCreate.Code, wCreate.Body.String())
+	}
+	var createRes struct {
+		Endpoint Endpoint `json:"endpoint"`
+	}
+	mustDecode(t, wCreate.Body.String(), &createRes)
+
+	db, err := service.open(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`UPDATE modelhub_endpoints SET models = ? WHERE id = ?`, `["gpt-4"]`, createRes.Endpoint.ID); err != nil {
+		db.Close()
+		t.Fatal(err)
+	}
+	db.Close()
+
+	w := chatRequest(t, service, createRes.Endpoint.ID, false, "")
+	if w.Code != http.StatusOK {
+		t.Fatalf("should succeed by switching to a healthy key, got %d body=%s", w.Code, w.Body.String())
+	}
+	if got := atomic.LoadInt32(&hits); got < 2 {
+		t.Fatalf("expected >=2 upstream hits (k1 429 then a healthy key 200), got %d", got)
 	}
 }

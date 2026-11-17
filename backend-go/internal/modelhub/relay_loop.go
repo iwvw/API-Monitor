@@ -300,7 +300,7 @@ func (s *Service) relayLoop(p relayLoopParams) *relayLoopResult {
 		// 多 API Key 选择：轮询选一个 key（key 永不冻结，未达单请求最大尝试次数的
 		// key 会被继续选中，已耗尽的 key 被跳过）。
 		keys := selected.AllKeys()
-		currentKey, currentKeyIndex := s.pickKey(selected.ID, keys, triedKeys, keyMaxTries)
+		currentKey, currentKeyIndex := s.pickKey(selected, keys, triedKeys, keyMaxTries)
 		res.stepKeyIndex = currentKeyIndex
 		if currentKey == "" {
 			// 本轮全部 key 均已达到单请求最大尝试次数：本端点不可用，标记该端点后尝试下一个候选端点。
@@ -396,6 +396,11 @@ func (s *Service) relayLoop(p relayLoopParams) *relayLoopResult {
 				Error:      fmt.Sprintf("上游返回 %d(端点 %s,模型 %s,key #%d)", resp.StatusCode, selected.Name, p.realModel, currentKeyIndex),
 			})
 			triedKeys[currentKey]++
+			// 401/403 = 凭据级失败：按端点配置让该 key 进入短期回避冷却，规避废 key
+			// 反复尝试拖慢对话（冷却期内 pickKey 优先绕开它）。
+			if selected.KeyCooldownSeconds > 0 {
+				s.armKeyCooldown(selected.ID, currentKey, selected.KeyCooldownSeconds)
+			}
 			resp.Body.Close()
 			cancel()
 			// key 级鉴权失败:若还有其它 key 未达单请求尝试上限,换 key 继续重试;
@@ -418,6 +423,31 @@ func (s *Service) relayLoop(p relayLoopParams) *relayLoopResult {
 			break
 		}
 
+		// 多 key 端点遇到 429 时优先切到下一把 key 重试（独立于 autoSwitch/代理）。
+		// 上游可能按 key/账号维度限流或配额耗尽（如 Token Harbor 的周免费额度用光）：
+		// 只有少数 key 超限、其余 key 正常时，换 key 即可继续，而不是直接失败。
+		// 仅当本请求内已无「未耗尽(maxTries)」的 key 时才落到后续的代理切换/端点级 failover。
+		// 已尝试的 429 key 计入 triedKeys（配合 keyRetryRounds 保证每 key 至多试对应次数），
+		// 并在开启回避冷却时让该 key 进入短期冷却，规避后续跨请求反复命中废 key。
+		if len(cleanKeyList(keys)) > 1 && isRateLimitResponse(resp, nil) && attempt+1 < maxProxyAttempts {
+			keyRemain := false
+			for _, k := range cleanKeyList(keys) {
+				if triedKeys[k] < keyMaxTries {
+					keyRemain = true
+					break
+				}
+			}
+			if keyRemain {
+				triedKeys[currentKey]++
+				if selected.KeyCooldownSeconds > 0 {
+					s.armKeyCooldown(selected.ID, currentKey, selected.KeyCooldownSeconds)
+				}
+				resp.Body.Close()
+				cancel()
+				continue
+			}
+		}
+
 		// 非流式：读取正文判断限流或 5xx，失败时在循环内重试。
 		// 上游限流/5xx 不是代理的错：只切换出口重试，不惩罚代理（不冷却），
 		// 避免上游故障污染整个代理池。但限流（429）会累计计数，
@@ -433,6 +463,10 @@ func (s *Service) relayLoop(p relayLoopParams) *relayLoopResult {
 				is429 := isRateLimitResponse(resp, bodyBytesRead)
 				if is429 {
 					res.retryBody = bodyBytesRead
+					// 429 通常意味着该 key 配额/限流：按配置让其进入短期回避冷却。
+					if selected.KeyCooldownSeconds > 0 {
+						s.armKeyCooldown(selected.ID, currentKey, selected.KeyCooldownSeconds)
+					}
 					s.markProxy429(selected.ID, currentProxy, retryAfterFromHeader(resp))
 					// 随机换出口：已试出口与组冻结出口都会跳过，绝不重复打同一 IP。
 					if bump429(currentProxy) {
@@ -485,6 +519,10 @@ func (s *Service) relayLoop(p relayLoopParams) *relayLoopResult {
 		if stream && selected.AutoSwitch && attempt+1 < maxProxyAttempts && isRetryableUpstreamResponse(resp, nil) {
 			is429 := isRateLimitResponse(resp, nil)
 			if is429 {
+				// 429 通常意味着该 key 配额/限流：按配置让其进入短期回避冷却。
+				if selected.KeyCooldownSeconds > 0 {
+					s.armKeyCooldown(selected.ID, currentKey, selected.KeyCooldownSeconds)
+				}
 				s.markProxy429(selected.ID, currentProxy, retryAfterFromHeader(resp))
 			}
 			resp.Body.Close()
@@ -696,6 +734,13 @@ func (s *Service) relayLoop(p relayLoopParams) *relayLoopResult {
 	}
 	// 最后一次尝试（无重试机会）返回限流：同样累计计数，供 429 熔断使用。
 	if resp != nil && isRateLimitResponse(resp, nil) {
+		// 429 通常意味着该 key 配额/限流：按端点配置让最后命中的 key 进入短期回避冷却。
+		if selected.KeyCooldownSeconds > 0 && res.stepKeyIndex >= 0 {
+			finalKeys := cleanKeyList(selected.AllKeys())
+			if res.stepKeyIndex < len(finalKeys) {
+				s.armKeyCooldown(selected.ID, finalKeys[res.stepKeyIndex], selected.KeyCooldownSeconds)
+			}
+		}
 		// 读取 429 正文以解析 Google RetryInfo/ErrorInfo 延迟（仅非流式；流式
 		// 错误体不读，避免消耗流）。读取后重建 body，保证调用方仍可消费。
 		if !stream {

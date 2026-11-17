@@ -200,11 +200,12 @@ func weightedEndpointPickWeighted(latencies []int64, known []bool, weights []int
 // keyHealthEntry 记录单 API Key 的独立健康状态。key 永不冻结，但保留
 // 连续失败计数与最近失败原因/时间，供排障接口与前端展示。
 type keyHealthEntry struct {
-	failCount   int       // 连续失败次数（成功转发后清零）
-	lastStatus  int       // 最近一次失败状态码（0=尚无失败）
-	lastError   string    // 最近一次失败原因（脱敏）
-	lastFailAt  time.Time // 最近一次失败时间
-	lastSuccess time.Time // 最近一次成功转发时间
+	failCount     int       // 连续失败次数（成功转发后清零）
+	lastStatus    int       // 最近一次失败状态码（0=尚无失败）
+	lastError     string    // 最近一次失败原因（脱敏）
+	lastFailAt    time.Time // 最近一次失败时间
+	lastSuccess   time.Time // 最近一次成功转发时间
+	cooldownUntil time.Time // 冷却截止（401/403/429 后生效，成功则清除；用于短期回避）
 }
 
 // keyHealthByEndpoint 返回指定端点全部 API Key 的健康快照（key → 健康记录）。
@@ -253,7 +254,7 @@ func (s *Service) markKeyFailure(endpointID, key string, status int, reason stri
 	entry.lastFailAt = time.Now()
 }
 
-// markKeySuccess 记录某个 key 的一次成功转发，清零连续失败计数。
+// markKeySuccess 记录某个 key 的一次成功转发，清零连续失败计数并解除回避冷却。
 func (s *Service) markKeySuccess(endpointID, key string) {
 	if key == "" {
 		return
@@ -267,7 +268,51 @@ func (s *Service) markKeySuccess(endpointID, key string) {
 	if entry, ok := state.health[key]; ok {
 		entry.failCount = 0
 		entry.lastSuccess = time.Now()
+		entry.cooldownUntil = time.Time{}
 	}
+}
+
+// armKeyCooldown 让某 key 进入短期回避冷却：未来 cooldownSeconds 秒内 pickKey
+// 会降低/跳过该 key。仅当 cooldownSeconds>0（即端点上「回避冷却」开启）时生效。
+// 用于 429/401/403 之后规避废 key 反复拉长对话；成功（markKeySuccess）即清除。
+func (s *Service) armKeyCooldown(endpointID, key string, cooldownSeconds int) {
+	if key == "" || cooldownSeconds <= 0 {
+		return
+	}
+	s.keyMu.Lock()
+	defer s.keyMu.Unlock()
+	state, ok := s.keyStateByEndpoint[endpointID]
+	if !ok {
+		state = newEndpointKeyState()
+		s.keyStateByEndpoint[endpointID] = state
+	}
+	if state.health == nil {
+		state.health = make(map[string]*keyHealthEntry)
+	}
+	entry, ok := state.health[key]
+	if !ok {
+		entry = &keyHealthEntry{}
+		state.health[key] = entry
+	}
+	until := time.Now().Add(time.Duration(cooldownSeconds) * time.Second)
+	// 已有更长的冷却则保留，避免更短的探测窗口把等待时间缩短。
+	if until.After(entry.cooldownUntil) {
+		entry.cooldownUntil = until
+	}
+}
+
+// keyCooledAt 返回某 key 的冷却截止时间（零值表示无冷却）。
+func (s *Service) keyCooledAt(endpointID, key string) time.Time {
+	s.keyMu.Lock()
+	defer s.keyMu.Unlock()
+	state, ok := s.keyStateByEndpoint[endpointID]
+	if !ok {
+		return time.Time{}
+	}
+	if entry, ok := state.health[key]; ok {
+		return entry.cooldownUntil
+	}
+	return time.Time{}
 }
 
 // proxySinkThreshold 是代理在探活/转发中被判定为「坏代理」的连续失败阈值。

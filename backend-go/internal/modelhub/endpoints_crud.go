@@ -104,7 +104,7 @@ func (s *Service) listEndpoints(w http.ResponseWriter, r *http.Request) {
 	}
 	defer db.Close()
 
-	rows, err := db.QueryContext(ctx, "SELECT id, name, base_url, api_key, api_keys, headers, disabled_models, proxy_pool, proxy_batches, auto_switch, proxy_enabled, force_proxy, rate_limit_retry_enabled, rate_limit_retry_wait_seconds, protocol, status, enabled, models, pricing, models_url, created_at, last_used, last_checked, model_mappings, model_names, sort_order, priority, weight, key_retry_rounds, plugin_id, proxy_pool_id, upstream_type FROM modelhub_endpoints ORDER BY priority DESC, weight DESC, sort_order ASC, created_at ASC")
+	rows, err := db.QueryContext(ctx, "SELECT id, name, base_url, api_key, api_keys, headers, disabled_models, proxy_pool, proxy_batches, auto_switch, proxy_enabled, force_proxy, rate_limit_retry_enabled, rate_limit_retry_wait_seconds, protocol, status, enabled, models, pricing, models_url, created_at, last_used, last_checked, model_mappings, model_names, sort_order, priority, weight, key_retry_rounds, plugin_id, proxy_pool_id, upstream_type, key_strategy, key_cooldown_seconds FROM modelhub_endpoints ORDER BY priority DESC, weight DESC, sort_order ASC, created_at ASC")
 	if err != nil {
 		response.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
@@ -114,11 +114,11 @@ func (s *Service) listEndpoints(w http.ResponseWriter, r *http.Request) {
 	endpoints := []Endpoint{}
 	for rows.Next() {
 		var ep Endpoint
-		var headersRaw, modelsRaw, disabledRaw, proxyRaw, batchesRaw, mappingsRaw, modelNamesRaw, protocolRaw, apiKeysRaw, pricingRaw, modelsUrlRaw, pluginIDRaw, proxyPoolIDRaw, upstreamTypeRaw sql.NullString
+		var headersRaw, modelsRaw, disabledRaw, proxyRaw, batchesRaw, mappingsRaw, modelNamesRaw, protocolRaw, apiKeysRaw, pricingRaw, modelsUrlRaw, pluginIDRaw, proxyPoolIDRaw, upstreamTypeRaw, keyStrategyRaw sql.NullString
 		var created, used, checked sql.NullString
-		var enabledInt, autoSwitchInt, proxyEnabledInt, forceProxyInt, rateLimitRetryInt, rateLimitRetryWaitSeconds, sortOrder, priority, weight, keyRetryRounds int
+		var enabledInt, autoSwitchInt, proxyEnabledInt, forceProxyInt, rateLimitRetryInt, rateLimitRetryWaitSeconds, sortOrder, priority, weight, keyRetryRounds, keyCooldownSeconds int
 
-		err := rows.Scan(&ep.ID, &ep.Name, &ep.BaseURL, &ep.APIKey, &apiKeysRaw, &headersRaw, &disabledRaw, &proxyRaw, &batchesRaw, &autoSwitchInt, &proxyEnabledInt, &forceProxyInt, &rateLimitRetryInt, &rateLimitRetryWaitSeconds, &protocolRaw, &ep.Status, &enabledInt, &modelsRaw, &pricingRaw, &modelsUrlRaw, &created, &used, &checked, &mappingsRaw, &modelNamesRaw, &sortOrder, &priority, &weight, &keyRetryRounds, &pluginIDRaw, &proxyPoolIDRaw, &upstreamTypeRaw)
+		err := rows.Scan(&ep.ID, &ep.Name, &ep.BaseURL, &ep.APIKey, &apiKeysRaw, &headersRaw, &disabledRaw, &proxyRaw, &batchesRaw, &autoSwitchInt, &proxyEnabledInt, &forceProxyInt, &rateLimitRetryInt, &rateLimitRetryWaitSeconds, &protocolRaw, &ep.Status, &enabledInt, &modelsRaw, &pricingRaw, &modelsUrlRaw, &created, &used, &checked, &mappingsRaw, &modelNamesRaw, &sortOrder, &priority, &weight, &keyRetryRounds, &pluginIDRaw, &proxyPoolIDRaw, &upstreamTypeRaw, &keyStrategyRaw, &keyCooldownSeconds)
 		if err != nil {
 			response.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 			return
@@ -138,6 +138,8 @@ func (s *Service) listEndpoints(w http.ResponseWriter, r *http.Request) {
 		ep.Priority = priority
 		ep.Weight = weight
 		ep.KeyRetryRounds = keyRetryRounds
+		ep.KeyStrategy = normalizeKeyStrategy(keyStrategyRaw.String)
+		ep.KeyCooldownSeconds = normalizeKeyCooldownSeconds(keyCooldownSeconds)
 		ep.CreatedAt = created.String
 		if used.Valid {
 			v := used.String
@@ -205,6 +207,8 @@ func (s *Service) createEndpoint(w http.ResponseWriter, r *http.Request) {
 		RateLimitRetryEnabled     *bool        `json:"rateLimitRetryEnabled"`
 		RateLimitRetryWaitSeconds *int         `json:"rateLimitRetryWaitSeconds"`
 		KeyRetryRounds            *int         `json:"keyRetryRounds"`
+		KeyStrategy               string       `json:"keyStrategy"`
+		KeyCooldownSeconds        int          `json:"keyCooldownSeconds"`
 		Protocol                  string       `json:"protocol"`
 		UpstreamType              string       `json:"upstreamType"`
 		SkipVerify                bool         `json:"skipVerify"`
@@ -259,6 +263,8 @@ func (s *Service) createEndpoint(w http.ResponseWriter, r *http.Request) {
 	if req.KeyRetryRounds != nil && *req.KeyRetryRounds >= 1 {
 		keyRetryRounds = *req.KeyRetryRounds
 	}
+	keyStrategy := normalizeKeyStrategy(req.KeyStrategy)
+	keyCooldownSeconds := normalizeKeyCooldownSeconds(req.KeyCooldownSeconds)
 	protocol := normalizeProtocol(req.Protocol)
 	upstreamType := normalizeUpstreamType(req.UpstreamType)
 
@@ -318,9 +324,9 @@ func (s *Service) createEndpoint(w http.ResponseWriter, r *http.Request) {
 	}
 	proxyPoolID := strings.TrimSpace(req.ProxyPoolID)
 	_, err = db.ExecContext(ctx, `
-		INSERT INTO modelhub_endpoints (id, name, base_url, models_url, api_key, api_keys, headers, disabled_models, proxy_pool, proxy_batches, auto_switch, proxy_enabled, force_proxy, rate_limit_retry_enabled, rate_limit_retry_wait_seconds, protocol, status, enabled, models, pricing, created_at, last_checked, sort_order, proxy_pool_id, key_retry_rounds, upstream_type)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		id, req.Name, normalizedURL, strings.TrimSpace(req.ModelsURL), encryptedKey, encryptedAPIKeys, string(headersJSON), "[]", string(proxyJSON), string(batchesJSON), autoSwitchInt, boolToInt(req.ProxyEnabled), boolToInt(req.ForceProxy), rateLimitRetryInt, rateLimitRetryWaitSeconds, protocol, status, 1, string(modelsJSON), string(pricingJSON), createdAt, lastCheckedVal, time.Now().UnixMilli(), proxyPoolID, keyRetryRounds, upstreamType)
+		INSERT INTO modelhub_endpoints (id, name, base_url, models_url, api_key, api_keys, headers, disabled_models, proxy_pool, proxy_batches, auto_switch, proxy_enabled, force_proxy, rate_limit_retry_enabled, rate_limit_retry_wait_seconds, protocol, status, enabled, models, pricing, created_at, last_checked, sort_order, proxy_pool_id, key_retry_rounds, upstream_type, key_strategy, key_cooldown_seconds)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		id, req.Name, normalizedURL, strings.TrimSpace(req.ModelsURL), encryptedKey, encryptedAPIKeys, string(headersJSON), "[]", string(proxyJSON), string(batchesJSON), autoSwitchInt, boolToInt(req.ProxyEnabled), boolToInt(req.ForceProxy), rateLimitRetryInt, rateLimitRetryWaitSeconds, protocol, status, 1, string(modelsJSON), string(pricingJSON), createdAt, lastCheckedVal, time.Now().UnixMilli(), proxyPoolID, keyRetryRounds, upstreamType, keyStrategy, keyCooldownSeconds)
 	if err != nil {
 		response.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
@@ -345,6 +351,8 @@ func (s *Service) createEndpoint(w http.ResponseWriter, r *http.Request) {
 		RateLimitRetryEnabled:     rateLimitRetryInt == 1,
 		RateLimitRetryWaitSeconds: rateLimitRetryWaitSeconds,
 		KeyRetryRounds:            keyRetryRounds,
+		KeyStrategy:               keyStrategy,
+		KeyCooldownSeconds:        keyCooldownSeconds,
 		Protocol:                  protocol,
 		UpstreamType:              upstreamType,
 		ProxyPoolID:               proxyPoolID,

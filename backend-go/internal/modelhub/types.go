@@ -51,6 +51,14 @@ type Endpoint struct {
 	// 多 key 轮询时，每个 key 在「同一请求」内最多被尝试 KeyRetryRounds 次
 	// （0/负值回退默认 2），而不是只试一次即换端点。单 key 端点不受影响（仍只试一次）。
 	KeyRetryRounds int `json:"keyRetryRounds,omitempty"`
+	// KeyStrategy 是单端点多 API Key 的命中策略：""/"round_robin"(顺序轮询,默认)、
+	// "random"(完全随机)、"random_survivor"(错误时随机抽剩余)。
+	// 只影响「该选哪把 key」的顺序，不改变每 key 单请求尝试次数(keyRetryRounds)。
+	KeyStrategy string `json:"keyStrategy,omitempty"`
+	// KeyCooldownSeconds 是某 key 近期 401/403/429 后的回避冷却秒数（默认 60）。
+	// 冷却期内 pickKey 降低/跳过该 key 命中；0 表示关闭冷却。用于规避「周限耗尽
+	// 持续 429」的废 key 反复拉长对话时间——冷却窗口本质是周期性的廉价探测间隔。
+	KeyCooldownSeconds int `json:"keyCooldownSeconds,omitempty"`
 	// Priority 是端点优先级档位：值越大越优先被选中（同模型多端点时先高优先级）。
 	// Weight 是同档位内的加权因子：值越大在该档位内被选中的概率越高。
 	Priority     int     `json:"priority,omitempty"`

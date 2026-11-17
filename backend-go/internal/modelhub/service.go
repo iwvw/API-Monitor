@@ -267,7 +267,9 @@ func ensureSchema(ctx context.Context, db *sql.DB) error {
 			priority INTEGER DEFAULT 0,
 			weight INTEGER DEFAULT 100,
 			key_retry_rounds INTEGER DEFAULT 2,
-			upstream_type TEXT DEFAULT 'openai'
+			upstream_type TEXT DEFAULT 'openai',
+			key_strategy TEXT DEFAULT 'round_robin',
+			key_cooldown_seconds INTEGER DEFAULT 0
 		)`,
 		`CREATE TABLE IF NOT EXISTS modelhub_health_history (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -502,6 +504,12 @@ func ensureSchema(ctx context.Context, db *sql.DB) error {
 	if err := ensureSQLiteColumn(ctx, db, "modelhub_endpoints", "upstream_type", "TEXT"); err != nil {
 		return err
 	}
+	if err := ensureSQLiteColumn(ctx, db, "modelhub_endpoints", "key_strategy", "TEXT"); err != nil {
+		return err
+	}
+	if err := ensureSQLiteColumn(ctx, db, "modelhub_endpoints", "key_cooldown_seconds", "INTEGER DEFAULT 0"); err != nil {
+		return err
+	}
 	// model_names 是纯展示用的「模型 id → 可读名称」映射（JSON 对象），
 	// 由插件写入；不参与路由（路由只认 models / model_mappings）。
 	if err := ensureSQLiteColumn(ctx, db, "modelhub_endpoints", "model_names", "TEXT"); err != nil {
@@ -586,6 +594,8 @@ func (s *Service) updateEndpoint(w http.ResponseWriter, r *http.Request, id stri
 		RateLimitRetryEnabled     *bool         `json:"rateLimitRetryEnabled"`
 		RateLimitRetryWaitSeconds *int          `json:"rateLimitRetryWaitSeconds"`
 		KeyRetryRounds            *int          `json:"keyRetryRounds"`
+		KeyStrategy               *string       `json:"keyStrategy"`
+		KeyCooldownSeconds        *int          `json:"keyCooldownSeconds"`
 		Protocol                  *string       `json:"protocol"`
 		// UpstreamType 端点上游协议类型（openai/gemini）；nil 表示未变更。
 		UpstreamType *string `json:"upstreamType"`
@@ -606,10 +616,10 @@ func (s *Service) updateEndpoint(w http.ResponseWriter, r *http.Request, id stri
 	defer db.Close()
 
 	var currentBaseURL, currentAPIKey string
-	var currentModelsURLRaw, currentProxyPoolIDRaw, currentUpstreamTypeRaw sql.NullString
-	var currentKeyRetryRounds int
+	var currentModelsURLRaw, currentProxyPoolIDRaw, currentUpstreamTypeRaw, currentKeyStrategyRaw sql.NullString
+	var currentKeyRetryRounds, currentKeyCooldownSeconds int
 	// models_url 为 NULL（插件注册等历史行）时按空串处理，避免 NULL→string 扫描报错误判「端点不存在」。
-	err = db.QueryRowContext(ctx, "SELECT base_url, models_url, api_key, proxy_pool_id, key_retry_rounds, upstream_type FROM modelhub_endpoints WHERE id = ?", id).Scan(&currentBaseURL, &currentModelsURLRaw, &currentAPIKey, &currentProxyPoolIDRaw, &currentKeyRetryRounds, &currentUpstreamTypeRaw)
+	err = db.QueryRowContext(ctx, "SELECT base_url, models_url, api_key, proxy_pool_id, key_retry_rounds, upstream_type, key_strategy, key_cooldown_seconds FROM modelhub_endpoints WHERE id = ?", id).Scan(&currentBaseURL, &currentModelsURLRaw, &currentAPIKey, &currentProxyPoolIDRaw, &currentKeyRetryRounds, &currentUpstreamTypeRaw, &currentKeyStrategyRaw, &currentKeyCooldownSeconds)
 	if err != nil {
 		response.JSON(w, http.StatusNotFound, map[string]string{"error": "端点不存在"})
 		return
@@ -749,6 +759,19 @@ func (s *Service) updateEndpoint(w http.ResponseWriter, r *http.Request, id stri
 	if keyRetryRoundsChanged {
 		targetKeyRetryRounds = keyRetryRounds
 	}
+	// 命中策略与回避冷却：未提交时保留存量（同 key_retry_rounds），全量/局部一致。
+	keyStrategy := normalizeKeyStrategy(currentKeyStrategyRaw.String)
+	keyStrategyChanged := false
+	if req.KeyStrategy != nil {
+		keyStrategy = normalizeKeyStrategy(*req.KeyStrategy)
+		keyStrategyChanged = true
+	}
+	keyCooldownSeconds := normalizeKeyCooldownSeconds(currentKeyCooldownSeconds)
+	keyCooldownChanged := false
+	if req.KeyCooldownSeconds != nil {
+		keyCooldownSeconds = normalizeKeyCooldownSeconds(*req.KeyCooldownSeconds)
+		keyCooldownChanged = true
+	}
 	protocol := ""
 	protocolChanged := false
 	if req.Protocol != nil {
@@ -829,16 +852,16 @@ func (s *Service) updateEndpoint(w http.ResponseWriter, r *http.Request, id stri
 
 		_, err = db.ExecContext(ctx, `
 			UPDATE modelhub_endpoints
-			SET name = ?, base_url = ?, models_url = ?, api_key = ?, api_keys = ?, headers = ?, proxy_pool = ?, proxy_batches = ?, auto_switch = ?, proxy_enabled = ?, force_proxy = ?, rate_limit_retry_enabled = ?, rate_limit_retry_wait_seconds = ?, protocol = ?, status = ?, models = ?, pricing = ?, last_checked = ?, proxy_pool_id = ?, key_retry_rounds = ?, upstream_type = ?
+			SET name = ?, base_url = ?, models_url = ?, api_key = ?, api_keys = ?, headers = ?, proxy_pool = ?, proxy_batches = ?, auto_switch = ?, proxy_enabled = ?, force_proxy = ?, rate_limit_retry_enabled = ?, rate_limit_retry_wait_seconds = ?, protocol = ?, status = ?, models = ?, pricing = ?, last_checked = ?, proxy_pool_id = ?, key_retry_rounds = ?, upstream_type = ?, key_strategy = ?, key_cooldown_seconds = ?
 			WHERE id = ?`,
-			req.Name, targetBaseURL, targetModelsURL, encryptedKey, string(apiKeysJSON), string(headersJSON), string(proxyJSON), string(batchesJSON), autoSwitchInt, proxyEnabledInt, forceProxyInt, rateLimitRetryInt, rateLimitRetryWaitSeconds, protocol, status, string(modelsJSON), string(pricingJSON), lastChecked, proxyPoolID, targetKeyRetryRounds, upstreamType, id)
+			req.Name, targetBaseURL, targetModelsURL, encryptedKey, string(apiKeysJSON), string(headersJSON), string(proxyJSON), string(batchesJSON), autoSwitchInt, proxyEnabledInt, forceProxyInt, rateLimitRetryInt, rateLimitRetryWaitSeconds, protocol, status, string(modelsJSON), string(pricingJSON), lastChecked, proxyPoolID, targetKeyRetryRounds, upstreamType, keyStrategy, keyCooldownSeconds, id)
 		if err != nil {
 			response.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 			return
 		}
-	} else if headersChanged || proxyChanged || batchesChanged || autoSwitchChanged || proxyEnabledChanged || forceProxyChanged || protocolChanged || rateLimitRetryChanged || rateLimitRetryWaitChanged || proxyPoolIDChanged || keyRetryRoundsChanged || upstreamTypeChanged {
-		_, err = db.ExecContext(ctx, "UPDATE modelhub_endpoints SET name = ?, api_keys = ?, headers = ?, proxy_pool = ?, proxy_batches = ?, auto_switch = ?, proxy_enabled = ?, force_proxy = ?, rate_limit_retry_enabled = ?, rate_limit_retry_wait_seconds = ?, protocol = ?, proxy_pool_id = ?, key_retry_rounds = ?, upstream_type = ? WHERE id = ?",
-			req.Name, string(apiKeysJSON), string(headersJSON), string(proxyJSON), string(batchesJSON), autoSwitchInt, proxyEnabledInt, forceProxyInt, rateLimitRetryInt, rateLimitRetryWaitSeconds, protocol, proxyPoolID, targetKeyRetryRounds, upstreamType, id)
+	} else if headersChanged || proxyChanged || batchesChanged || autoSwitchChanged || proxyEnabledChanged || forceProxyChanged || protocolChanged || rateLimitRetryChanged || rateLimitRetryWaitChanged || proxyPoolIDChanged || keyRetryRoundsChanged || upstreamTypeChanged || keyStrategyChanged || keyCooldownChanged {
+		_, err = db.ExecContext(ctx, "UPDATE modelhub_endpoints SET name = ?, api_keys = ?, headers = ?, proxy_pool = ?, proxy_batches = ?, auto_switch = ?, proxy_enabled = ?, force_proxy = ?, rate_limit_retry_enabled = ?, rate_limit_retry_wait_seconds = ?, protocol = ?, proxy_pool_id = ?, key_retry_rounds = ?, upstream_type = ?, key_strategy = ?, key_cooldown_seconds = ? WHERE id = ?",
+			req.Name, string(apiKeysJSON), string(headersJSON), string(proxyJSON), string(batchesJSON), autoSwitchInt, proxyEnabledInt, forceProxyInt, rateLimitRetryInt, rateLimitRetryWaitSeconds, protocol, proxyPoolID, targetKeyRetryRounds, upstreamType, keyStrategy, keyCooldownSeconds, id)
 		if err != nil {
 			response.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 			return
