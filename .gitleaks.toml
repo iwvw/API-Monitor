@@ -217,3 +217,21 @@ paths = [
   '''^public/js/store\.js$''',
   '''^src/js/store\.js$''',
 ]
+
+# ---------------------------------------------------------------------------
+# Removed TokenHarbor plugin module (history only).
+#
+# The TokenHarbor plugin was added and then fully reverted; no files under these
+# paths exist on `dev` at HEAD (verified). The reverted commit hard-coded the
+# TokenHarbor project's **Supabase anon** key -- the public client key shipped
+# inside their frontend, not a service-role secret -- and the weekly full-history
+# scan still surfaces it. Same class as the public OAuth application credentials
+# allowlisted above. Scoped by path prefix so reintroducing the value in live
+# code still trips the gate.
+# ---------------------------------------------------------------------------
+[[allowlists]]
+description = "Removed TokenHarbor plugin module holding the public Supabase anon key (history only)."
+paths = [
+  '''^backend-go/internal/tokenharbor/''',
+  '''^src/js/pages/modelhub/plugins/TokenHarborPlugin\.jsx$''',
+]
