@@ -128,13 +128,13 @@ jobs:
   # ==========================================
   ci-backend:
     runs-on: ubuntu-latest
-    # 测试按包轮转分 4 片并行:整套 go test 串行跑要 7-8 分钟,是镜像构建提速后
+    # 测试按包轮转分 6 片并行:整套 go test 串行跑要 7-8 分钟,是镜像构建提速后
     # 新的最长环节(merge-docker 要等它)。每片仍用 -p 1,避免并发包在 Linux 上
     # 撞 t.TempDir 句柄的偶发失败。公开仓库 Actions 分钟数免费,多分片不增加成本。
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4]
+        shard: [1, 2, 3, 4, 5, 6]
     steps:
       - name: Checkout code
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.0.0
@@ -145,7 +145,7 @@ jobs:
           go-version-file: backend-go/go.mod
           cache-dependency-path: backend-go/go.sum
 
-      - name: Run Go Tests (shard ${{ matrix.shard }}/4)
+      - name: Run Go Tests (shard ${{ matrix.shard }}/6)
         working-directory: backend-go
         # -p 1 串行运行各包：避免多个包的后台 goroutine（预热/采集循环）
         # 在 Linux 上并发持有 TempDir 文件句柄，导致 t.TempDir 清理报
@@ -154,7 +154,7 @@ jobs:
         # 连续两次失败才中断（真失败不会被掩盖）。
         # -v 已去掉:全量 verbose 日志量很大且拖慢上传,失败用例仍会照常打印。
         run: |
-          SHARDS=4   # 必须与上面 matrix.shard 的长度一致
+          SHARDS=6   # 必须与上面 matrix.shard 的长度一致
           mapfile -t PKGS < <(go list ./... | awk -v s=${{ matrix.shard }} -v n=$SHARDS 'NR % n == (s - 1)')
           echo "shard ${{ matrix.shard }}/$SHARDS: ${#PKGS[@]} packages"
           go test -p 1 -coverprofile=coverage.out "${PKGS[@]}" || {
