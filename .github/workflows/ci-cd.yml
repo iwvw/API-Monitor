@@ -177,6 +177,44 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
 
   # ==========================================
+  # ==========================================
+  # 阶段 2: 编译 Go 后端二进制(每架构一个,镜像直接复用)
+  # ==========================================
+  # 放在镜像构建之外并行跑:前者只做 checkout + 编译 + 上传,后者不必再等
+  # go mod download / go build。编译环境与 Dockerfile 的 go-builder 完全一致
+  # (同一 golang:1.27.4-alpine3.24 + gcc/musl-dev),避免产物行为漂移。
+  build-go-binary:
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.0.0
+
+      - name: Build backend binary (musl, CGO on)
+        run: |
+          docker run --rm -v "$PWD:/src" -w /src/backend-go \
+            -e CGO_ENABLED=1 -e GOOS=linux -e GOARCH=${{ matrix.arch }} \
+            golang:1.27.4-alpine3.24 sh -c '
+              apk add --no-cache gcc musl-dev >/dev/null &&
+              go build -trimpath -ldflags="-s -w" -o api-monitor ./cmd/api-monitor &&
+              ls -lh api-monitor
+            '
+
+      - name: Upload backend artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: api-monitor-${{ matrix.arch }}
+          path: backend-go/api-monitor
+          retention-days: 1
+
+
 
   # ==========================================
   # 阶段 2: 多架构 Docker 镜像分平台构建 (仅 push 触发)
@@ -185,11 +223,12 @@ jobs:
     # Agent 二进制已从镜像剥离:由 .github/workflows/agent-release.yml 单独构建并
     # 发布到本仓库 release(public,可匿名直链),这里只注入下载基址(AGENT_DOWNLOAD_URL),
     # 主机安装与自升级都走该 release 的匿名直链(.sha256 校验)。
-    needs: [ci-frontend]
+    needs: [ci-frontend, build-go-binary]
     if: >-
       always() &&
       (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
-      needs.ci-frontend.result != 'failure'
+      needs.ci-frontend.result != 'failure' &&
+      needs.build-go-binary.result != 'failure'
     strategy:
       fail-fast: false
       matrix:
@@ -211,6 +250,18 @@ jobs:
         with:
           name: frontend-dist
           path: frontend-dist
+
+      # 复用 build-go-binary 编好的 musl 二进制,镜像内不再编译 Go
+      - name: Download prebuilt backend binary
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: api-monitor-${{ matrix.suffix }}
+          path: backend-go
+
+      - name: Verify prebuilt backend binary
+        run: |
+          ls -lh backend-go/api-monitor
+          test -x backend-go/api-monitor
 
       - name: Verify prebuilt frontend dist
         run: |
@@ -270,6 +321,7 @@ jobs:
           cache-to: type=gha,mode=min,ignore-error=true,scope=${{ matrix.platform }}
           build-args: |
             NODE_ENV=production
+            USE_PREBUILT_BACKEND=true
             INCLUDE_AGENTS=false
             AGENT_DOWNLOAD_URL=https://github.com/iwvw/API-Monitor/releases/download/built-agents
             USE_PREBUILT_FRONTEND=true

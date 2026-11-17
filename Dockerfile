@@ -22,6 +22,10 @@ RUN if [ "$USE_PREBUILT_FRONTEND" != "true" ]; then \
 
 WORKDIR /app
 
+# CI 可复用独立 job 编译好的 musl 二进制(与这里同版本 Go + musl 工具链),
+# 跳过 go mod download 与 go build;本地构建/发布默认仍在本阶段编译。
+ARG USE_PREBUILT_BACKEND=false
+
 # 1. 复制依赖定义
 COPY package.json package-lock.json ./
 
@@ -66,23 +70,33 @@ FROM --platform=$BUILDPLATFORM golang:1.27.4-alpine3.24 AS go-builder
 # 安装必要的构建工具
 RUN apk add --no-cache gcc musl-dev
 
+# CI 可复用独立 job 编译好的 musl 二进制(同版本 Go + musl 工具链),
+# 跳过 go mod download 与 go build;本地构建/正式发布默认仍在本阶段编译。
+ARG USE_PREBUILT_BACKEND=false
+
 WORKDIR /app/backend-go
 
-# 1. 复制依赖定义并下载依赖（缓存优化）
+# 1. 复制依赖定义并下载依赖(缓存优化)
 COPY backend-go/go.mod backend-go/go.sum ./
-RUN go mod download
+RUN if [ "$USE_PREBUILT_BACKEND" != "true" ]; then go mod download; fi
 
-# 2. 复制源码
+# 2. 复制源码(USE_PREBUILT_BACKEND=true 时同时带进 CI 产物 backend-go/api-monitor)
 COPY backend-go/ ./
 
 # 3. 构建 Go 后端
 # CGO_ENABLED=1 用于 SQLite3 支持
 ARG TARGETOS
 ARG TARGETARCH
-RUN CGO_ENABLED=1 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
-    go build -v -trimpath \
-    -ldflags="-s -w" \
-    -o api-monitor ./cmd/api-monitor
+RUN if [ "$USE_PREBUILT_BACKEND" = "true" ]; then \
+        test -s ./api-monitor || { echo "USE_PREBUILT_BACKEND=true 但缺少 backend-go/api-monitor 产物" >&2; exit 1; }; \
+        echo "reuse prebuilt backend binary"; \
+    else \
+        CGO_ENABLED=1 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
+        go build -v -trimpath \
+        -ldflags="-s -w" \
+        -o api-monitor ./cmd/api-monitor; \
+    fi
+
 
 # 阶段 3: Agent 二进制(可选,默认不打包)
 # 默认镜像不再分发 Agent:三平台二进制托管在本仓库(public)的 release 里,
