@@ -1384,6 +1384,42 @@ samp {
   max-height: calc(100dvh - 2rem);
 }
 
+/* 模型中心「编辑/添加 API 端点」弹窗：Kumo LayerDialog.Content 不接受 className，
+   且 size 上限只有 xl(sm:max-w-3xl = 768px)。LayerDialog 的宽度落在 DrawerPopup 上
+   （该元素带 sm:max-w-3xl，其内部含 data-drawer-content），因此用未分层组件类
+   （优先级高于 utilities layer）+ :has(标记类) 从弹层内容反向接管弹框宽度，
+   窄屏仍按 calc(100vw - 2rem) 两侧各留 1rem，与全局 Dialog 上限一致。
+   限定在 Kumo 桌面断点（min-width: 640px）：移动端弹窗是 bottom sheet 且始终全宽，
+   不能被此规则压窄。 */
+@media (min-width: 640px) {
+  [class~='sm:max-w-3xl']:has([data-drawer-content] .endpoint-form-dialog) {
+    width: min(56rem, calc(100vw - 2rem));
+    max-width: min(56rem, calc(100vw - 2rem));
+  }
+}
+
+/* API Key 列表滚动区的上下虚化渐变：仅当该方向存在未显示内容（可滚动）时出现，
+   JS 在滚动/尺寸变化时写 --scroll-fade-top/bottom 为实际可滚距离（px），
+   这里用 min(20px, …) 把渐变收敛到 20px 内；无溢出时两值都为 0，
+   上下两端退化为硬边（fully visible），不产生常驻淡出。
+   -webkit- 在前、标准 mask-image 在后（构建期 lightningcss 会折叠，顺序反了会丢标准属性）。 */
+.key-list-fade {
+  -webkit-mask-image: linear-gradient(
+    180deg,
+    transparent 0,
+    black min(20px, var(--scroll-fade-top, 0px)),
+    black calc(100% - min(20px, var(--scroll-fade-bottom, 0px))),
+    transparent 100%
+  );
+  mask-image: linear-gradient(
+    180deg,
+    transparent 0,
+    black min(20px, var(--scroll-fade-top, 0px)),
+    black calc(100% - min(20px, var(--scroll-fade-bottom, 0px))),
+    transparent 100%
+  );
+}
+
 /* 旧版 Dialog 的 Popup 是 fixed top-8 left-1/2 -translate-x-1/2（无 bottom、无自身
    max-height），内容超高时会溢出屏幕，这条全局上界是为它补的。
    必须排除 LayerDialog：新版 LayerDialog 的 role="dialog" 元素是 base-ui 的

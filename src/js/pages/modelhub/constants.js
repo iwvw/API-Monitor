@@ -19,6 +19,16 @@ export const GEMINI_DEFAULT_BASE_URL = 'https://generativelanguage.googleapis.co
 // https://{区域}-aiplatform.googleapis.com/v1/publishers/google。
 export const VERTEX_DEFAULT_BASE_URL = 'https://aiplatform.googleapis.com/v1/publishers/google';
 
+// 多 API Key 命中策略（后端 pickKey 按此选择 key）：
+//  round_robin       顺序轮询（默认）：持久游标循环。
+//  random            完全随机：各 key 等概率。
+//  random_survivor   错误时随机抽剩余：本轮请求内优先在尚未失败(存活)的 key 中随机。
+export const KEY_STRATEGY_OPTIONS = [
+  { value: 'round_robin', label: '顺序轮询' },
+  { value: 'random', label: '完全随机' },
+  { value: 'random_survivor', label: '错误时随机抽剩余' },
+];
+
 // 大代理池（文件批量导入可达数千条）在表单/管理弹窗中只预览前 N 条，避免渲染卡顿。
 export const PROXY_PREVIEW_LIMIT = 120;
 

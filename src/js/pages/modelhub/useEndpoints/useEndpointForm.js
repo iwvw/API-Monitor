@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from '../../../modules/toast.js';
 import { formatDateTime } from '../../../modules/utils.js';
 import { getAuthHeaders } from '../utils.js';
@@ -21,57 +21,13 @@ export function useEndpointForm({ loadEndpoints, loadAllModels, confirmState }) 
     rateLimitRetryEnabled: true,
     rateLimitRetryWaitSeconds: 10,
     keyRetryRounds: 2,
+    keyStrategy: 'round_robin',
+    keyCooldownSeconds: 60,
     protocol: 'auto',
   });
   const [endpointFormError, setEndpointFormError] = useState('');
   const [endpointSaving, setEndpointSaving] = useState(false);
-  // 端点编辑弹窗中的多 key 状态：数组下标与 key 行对齐（0=主 key/K1，n=备用 key/K(n+1)）。
-  const [endpointKeyChecks, setEndpointKeyChecks] = useState([]);
-  const [endpointKeyChecking, setEndpointKeyChecking] = useState(false);
   const [endpointKeyEpoch, setEndpointKeyEpoch] = useState(0);
-
-  // 对端点多 key 逐个做有效性检测（调后端 GET /models 判定）。keysArray 与弹窗行对齐：
-  // 第 0 项=主 key（K1），后续项=备用 key（K2...），空值行跳过但仍占据对应下标。
-  const checkEndpointKeys = useCallback(async (keysArray, endpointId) => {
-    const rows = keysArray.map(k => (k || '').trim());
-    const entries = rows
-      .map((key, rowIndex) => ({ rowIndex, key }))
-      .filter(e => e.key !== '');
-    if (!endpointId) {
-      return;
-    }
-    if (entries.length === 0) {
-      setEndpointKeyChecks(Array(rows.length).fill(null));
-      return;
-    }
-    setEndpointKeyChecking(true);
-    setEndpointKeyChecks(rows.map(() => ({ status: 'checking' })));
-    try {
-      const response = await fetch(`/api/modelhub/endpoints/${endpointId}/key-check`, {
-        method: 'POST',
-        headers: getAuthHeaders(),
-        body: JSON.stringify({
-          keys: entries.map(e => e.key),
-          timeout: 10000,
-        }),
-      });
-      const data = await response.json();
-      if (!response.ok) {
-        throw new Error(data.error || '检测失败');
-      }
-      const next = Array(rows.length).fill(null);
-      (data.results || []).forEach((result, idx) => {
-        const rowIndex = entries[idx]?.rowIndex;
-        if (rowIndex != null) next[rowIndex] = result;
-      });
-      setEndpointKeyChecks(next);
-    } catch (error) {
-      setEndpointKeyChecks(rows.map(() => ({ status: 'error', message: error.message })));
-      toast.error(`Key 检测失败：${error.message}`);
-    } finally {
-      setEndpointKeyChecking(false);
-    }
-  }, [getAuthHeaders]);
 
   const openAddEndpointModal = () => {
     setEditingEndpoint(null);
@@ -90,13 +46,14 @@ export function useEndpointForm({ loadEndpoints, loadAllModels, confirmState }) 
       rateLimitRetryEnabled: true,
       rateLimitRetryWaitSeconds: 10,
       keyRetryRounds: 2,
+      keyStrategy: 'round_robin',
+      keyCooldownSeconds: 60,
       protocol: 'auto',
       upstreamType: 'openai',
       proxyPoolId: '',
     });
     setEndpointFormError('');
     setEndpointFormOpen(true);
-    setEndpointKeyChecks([]);
   };
 
   const openEditEndpointModal = endpoint => {
@@ -116,17 +73,14 @@ export function useEndpointForm({ loadEndpoints, loadAllModels, confirmState }) 
       rateLimitRetryEnabled: endpoint.rateLimitRetryEnabled !== false,
       rateLimitRetryWaitSeconds: endpoint.rateLimitRetryWaitSeconds || 10,
       keyRetryRounds: endpoint.keyRetryRounds || 2,
+      keyStrategy: endpoint.keyStrategy || 'round_robin',
+      keyCooldownSeconds: endpoint.keyCooldownSeconds ?? 60,
       protocol: endpoint.protocol || 'auto',
       upstreamType: endpoint.upstreamType || 'openai',
       proxyPoolId: endpoint.proxyPoolId || '',
     });
     setEndpointFormError('');
     setEndpointFormOpen(true);
-    setEndpointKeyChecks([]);
-    checkEndpointKeys(
-      [endpoint.apiKey || '', ...(Array.isArray(endpoint.apiKeys) ? endpoint.apiKeys : [])],
-      endpoint.id
-    );
   };
 
   const updateEndpointProxy = (index, value) => {
@@ -515,7 +469,6 @@ export function useEndpointForm({ loadEndpoints, loadAllModels, confirmState }) 
       ...current,
       apiKeys: [...(current.apiKeys || []), ''],
     }));
-    setEndpointKeyChecks(prev => [...prev, null]);
   };
 
   const keyDeleteConfirmActive = rowIndex =>
@@ -533,11 +486,6 @@ export function useEndpointForm({ loadEndpoints, loadAllModels, confirmState }) 
         apiKeys: keys.slice(1),
       };
     });
-    setEndpointKeyChecks(prev => {
-      const next = [...prev];
-      next.splice(rowIndex, 1);
-      return next;
-    });
   };
 
   const deleteEndpointConfirmActive = id =>
@@ -554,10 +502,6 @@ export function useEndpointForm({ loadEndpoints, loadAllModels, confirmState }) 
     setEndpointFormError,
     endpointSaving,
     setEndpointSaving,
-    endpointKeyChecks,
-    setEndpointKeyChecks,
-    endpointKeyChecking,
-    setEndpointKeyChecking,
     openAddEndpointModal,
     openEditEndpointModal,
     updateEndpointProxy,
@@ -603,7 +547,6 @@ export function useEndpointForm({ loadEndpoints, loadAllModels, confirmState }) 
     addEndpointHeader,
     removeEndpointHeader,
     saveEndpoint,
-    checkEndpointKeys,
     appendEndpointKey,
     removeEndpointKey,
     keyDeleteConfirmActive,

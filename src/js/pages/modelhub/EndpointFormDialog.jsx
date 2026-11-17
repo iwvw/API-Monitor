@@ -1,31 +1,27 @@
+import { useLayoutEffect, useRef, useState } from 'react';
 import { Button } from '@cloudflare/kumo/components/button';
 import { LayerDialog } from '@cloudflare/kumo/components/layer-dialog';
-import { Input } from '@cloudflare/kumo/components/input';
+import { Input, Textarea } from '@cloudflare/kumo/components/input';
 import { Select } from '@cloudflare/kumo/components/select';
 import { Switch } from '@cloudflare/kumo/components/switch';
-import { Badge, Label } from '@cloudflare/kumo';
-import { cx } from '../../components/ui/AppPrimitives.jsx';
-import { Plus, Trash, RotateCw, Sliders } from '../../components/Icons.jsx';
-import { KeyStatusBadge } from './KeyStatusBadge.jsx';
+import { Badge, Dialog, Label } from '@cloudflare/kumo';
+import { Plus, Trash, Sliders } from '../../components/Icons.jsx';
 import {
   ENDPOINT_PROTOCOL_OPTIONS,
   ENDPOINT_UPSTREAM_OPTIONS,
   GEMINI_DEFAULT_BASE_URL,
   VERTEX_DEFAULT_BASE_URL,
+  KEY_STRATEGY_OPTIONS,
 } from './constants.js';
 
 export function EndpointFormDialog({ endpointsApi, proxypoolPools }) {
   const {
     endpointFormOpen, setEndpointFormOpen,
-    setEndpointKeyChecks,
     editingEndpoint,
     endpointForm, setEndpointForm,
     appendEndpointKey,
-    endpointKeyChecking,
-    checkEndpointKeys,
     keyDeleteConfirmActive,
     removeEndpointKey,
-    endpointKeyChecks,
     addEndpointHeader,
     updateEndpointHeader,
     removeEndpointHeader,
@@ -35,12 +31,54 @@ export function EndpointFormDialog({ endpointsApi, proxypoolPools }) {
     endpointSaving,
     saveEndpoint,
   } = endpointsApi;
+  const [endpointKeyBatchOpen, setEndpointKeyBatchOpen] = useState(false);
+  const [endpointKeyBatchText, setEndpointKeyBatchText] = useState('');
+
+  const openEndpointKeyBatch = () => {
+    const keys = [
+      endpointForm.apiKey,
+      ...(endpointForm.apiKeys || []),
+    ];
+    setEndpointKeyBatchText(keys.filter(k => k && k.trim()).join('\n'));
+    setEndpointKeyBatchOpen(true);
+  };
+
+  const applyEndpointKeyBatch = () => {
+    const keys = endpointKeyBatchText
+      .split('\n')
+      .map(k => k.trim())
+      .filter(Boolean);
+    setEndpointForm(current => ({
+      ...current,
+      apiKey: keys[0] || '',
+      apiKeys: keys.slice(1),
+    }));
+    setEndpointKeyBatchOpen(false);
+    setEndpointKeyBatchText('');
+  };
+
+  const keyListRef = useRef(null);
+  useLayoutEffect(() => {
+    const el = keyListRef.current;
+    if (!el) return;
+    const update = () => {
+      el.style.setProperty('--scroll-fade-top', `${el.scrollTop}px`);
+      el.style.setProperty(
+        '--scroll-fade-bottom',
+        `${Math.max(0, el.scrollHeight - el.scrollTop - el.clientHeight)}px`
+      );
+    };
+    el.addEventListener('scroll', update);
+    update();
+    return () => el.removeEventListener('scroll', update);
+  });
+
   return (
+    <>
       <LayerDialog.Root
         open={endpointFormOpen}
         onOpenChange={open => {
           setEndpointFormOpen(open);
-          if (!open) setEndpointKeyChecks([]);
         }}
       >
         <LayerDialog.Content size="xl">
@@ -55,17 +93,16 @@ export function EndpointFormDialog({ endpointsApi, proxypoolPools }) {
             <div className="grid grid-cols-1 gap-x-5 gap-y-4 sm:grid-cols-2">
               {/* ====== 左列：基本信息 ====== */}
               <div className="space-y-4">
-                <Input
-                  size="sm"
-                  label="名称"
-                  type="text"
-                  value={endpointForm.name}
-                  onChange={e => setEndpointForm({ ...endpointForm, name: e.target.value })}
-                  placeholder="如：DeepSeek 官方"
-                  className="w-full text-kumo-strong text-sm font-sans"
-                />
-
-                <div className="grid grid-cols-1 items-stretch gap-2 sm:grid-cols-[auto_minmax(0,1fr)] sm:items-end">
+                <div className="grid grid-cols-1 items-stretch gap-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
+                  <Input
+                    size="sm"
+                    label="名称"
+                    type="text"
+                    value={endpointForm.name}
+                    onChange={e => setEndpointForm({ ...endpointForm, name: e.target.value })}
+                    placeholder="如：DeepSeek 官方"
+                    className="w-full text-kumo-strong text-sm font-sans"
+                  />
                   <Select alignItemWithTrigger
                     size="sm"
                     label="上游协议"
@@ -88,24 +125,15 @@ export function EndpointFormDialog({ endpointsApi, proxypoolPools }) {
                     items={ENDPOINT_UPSTREAM_OPTIONS}
                     className="w-full sm:w-40"
                   />
-                  <Input
-                    size="sm"
-                    label="Base URL"
-                    type="text"
-                    value={endpointForm.baseUrl}
-                    onChange={e => setEndpointForm({ ...endpointForm, baseUrl: e.target.value })}
-                    placeholder="https://api.openai.com/v1"
-                    className="w-full text-kumo-strong text-[0.9em] font-mono"
-                  />
                 </div>
 
                 <Input
                   size="sm"
-                  label="模型列表 API（可选）"
+                  label="Base URL"
                   type="text"
-                  value={endpointForm.modelsUrl || ''}
-                  onChange={e => setEndpointForm({ ...endpointForm, modelsUrl: e.target.value })}
-                  placeholder="模型列表不在标准路径时在此填完整地址"
+                  value={endpointForm.baseUrl}
+                  onChange={e => setEndpointForm({ ...endpointForm, baseUrl: e.target.value })}
+                  placeholder="https://api.openai.com/v1"
                   className="w-full text-kumo-strong text-[0.9em] font-mono"
                 />
 
@@ -116,34 +144,27 @@ export function EndpointFormDialog({ endpointsApi, proxypoolPools }) {
                       <Button
                         size="xs"
                         variant="outline"
+                        onClick={openEndpointKeyBatch}
+                        title="一次粘贴/编辑所有 Key（每行一个）"
+                      >
+                        批量编辑
+                      </Button>
+                      <Button
+                        size="xs"
+                        variant="outline"
                         onClick={appendEndpointKey}
                         icon={<Plus className="h-3.5 w-3.5" />}
                       >
                         Key
                       </Button>
-                      <Button
-                        size="xs"
-                        variant="secondary"
-                        type="button"
-                        disabled={endpointKeyChecking || !editingEndpoint}
-                        onClick={() =>
-                          checkEndpointKeys(
-                            [endpointForm.apiKey, ...(endpointForm.apiKeys || [])],
-                            editingEndpoint?.id
-                          )
-                        }
-                      >
-                        <RotateCw className={cx(endpointKeyChecking && 'animate-spin')} size={14} />
-                        {endpointKeyChecking ? '检测中' : '检测'}
-                      </Button>
                     </div>
                   </div>
 
-                  <div className="space-y-1.5">
+                  <div ref={keyListRef} className="key-list-fade max-h-64 space-y-1.5 overflow-y-auto py-1.5">
                     {[endpointForm.apiKey, ...(endpointForm.apiKeys || [])].map((key, rowIndex) => (
                       <div
                         key={rowIndex}
-                        className="grid grid-cols-[2rem_minmax(0,1fr)_1.75rem_auto] items-center gap-1.5"
+                        className="grid grid-cols-[2rem_minmax(0,1fr)_1.75rem] items-center gap-1.5"
                       >
                         <Badge
                           variant="outline"
@@ -168,11 +189,6 @@ export function EndpointFormDialog({ endpointsApi, proxypoolPools }) {
                                   j === rowIndex - 1 ? value : k
                                 ),
                               };
-                            });
-                            setEndpointKeyChecks(prev => {
-                              const next = [...prev];
-                              next[rowIndex] = null;
-                              return next;
                             });
                           }}
                           placeholder="sk-xxxxxxxxxxxxxxxxxxxxxxxx"
@@ -201,32 +217,64 @@ export function EndpointFormDialog({ endpointsApi, proxypoolPools }) {
                           }
                           icon={<Trash className="h-3.5 w-3.5" />}
                         />
-                        <KeyStatusBadge check={endpointKeyChecks?.[rowIndex]} />
                       </div>
                     ))}
                   </div>
                 </div>
 
-                <div className="flex min-h-8 flex-wrap items-center gap-2">
-                  <span className="text-xs text-kumo-strong">多 Key 单请求重试次数</span>
-                  <div className="flex min-w-0 flex-1 items-center justify-end gap-1">
-                    <Input
-                      size="xs"
-                      className="w-20"
-                      type="number"
-                      min={1}
-                      max={5}
-                      aria-label="多 Key 单请求重试次数"
-                      value={endpointForm.keyRetryRounds ?? 2}
-                      onChange={e => {
-                        const value = parseInt(e.target.value, 10);
-                        setEndpointForm(current => ({
-                          ...current,
-                          keyRetryRounds: Number.isNaN(value) || value < 1 ? 1 : value,
-                        }));
-                      }}
-                    />
-                    <span className="text-xs text-kumo-subtle">次</span>
+                <div className="space-y-1.5">
+                  <Label>Key 策略</Label>
+                  <div className="rounded-lg border border-kumo-line/70 bg-kumo-recessed/20 p-3">
+                    <div className="flex items-start gap-3">
+                    <div className="flex min-w-0 flex-1 flex-col gap-1">
+                      <span className="text-[11px] leading-none text-kumo-subtle">命中策略</span>
+                      <Select
+                        size="sm"
+                        aria-label="命中策略"
+                        value={endpointForm.keyStrategy || 'round_robin'}
+                        onValueChange={value => setEndpointForm(current => ({ ...current, keyStrategy: value }))}
+                        items={KEY_STRATEGY_OPTIONS}
+                        className="w-full"
+                      />
+                    </div>
+                    <div className="flex flex-col gap-1">
+                      <span className="text-[11px] leading-none text-kumo-subtle">重试(次)</span>
+                      <Input
+                        size="sm"
+                        className="w-20"
+                        type="number"
+                        min={1}
+                        max={5}
+                        aria-label="每 key 单请求重试次数"
+                        value={endpointForm.keyRetryRounds ?? 2}
+                        onChange={e => {
+                          const value = parseInt(e.target.value, 10);
+                          setEndpointForm(current => ({
+                            ...current,
+                            keyRetryRounds: Number.isNaN(value) || value < 1 ? 1 : value,
+                          }));
+                        }}
+                      />
+                    </div>
+                    <div className="flex flex-col gap-1">
+                      <span className="text-[11px] leading-none text-kumo-subtle" title="0=关闭冷却；某 key 近期 429/401 后在冷却期内降低其命中，规避废 key 反复拉长对话">冷却(秒)</span>
+                      <Input
+                        size="sm"
+                        className="w-20"
+                        type="number"
+                        min={0}
+                        aria-label="回避冷却秒数"
+                        value={endpointForm.keyCooldownSeconds ?? 60}
+                        onChange={e => {
+                          const value = parseInt(e.target.value, 10);
+                          setEndpointForm(current => ({
+                            ...current,
+                            keyCooldownSeconds: Number.isNaN(value) || value < 0 ? 0 : value,
+                          }));
+                        }}
+                      />
+                    </div>
+                    </div>
                   </div>
                 </div>
 
@@ -301,6 +349,16 @@ export function EndpointFormDialog({ endpointsApi, proxypoolPools }) {
 
               {/* ====== 右列：连接与代理 ====== */}
               <div className="space-y-4">
+                <Input
+                  size="sm"
+                  label="模型列表 API（可选）"
+                  type="text"
+                  value={endpointForm.modelsUrl || ''}
+                  onChange={e => setEndpointForm({ ...endpointForm, modelsUrl: e.target.value })}
+                  placeholder="模型列表不在标准路径时在此填完整地址"
+                  className="w-full text-kumo-strong text-[0.9em] font-mono"
+                />
+
                 <div className="space-y-1.5">
                   <div className="flex min-w-0 items-center justify-between gap-2">
                     <Label>
@@ -466,5 +524,48 @@ export function EndpointFormDialog({ endpointsApi, proxypoolPools }) {
           </LayerDialog.Actions>
         </LayerDialog.Content>
       </LayerDialog.Root>
+
+      <Dialog.Root open={endpointKeyBatchOpen} onOpenChange={setEndpointKeyBatchOpen}>
+        <Dialog className="flex max-h-[min(calc(100dvh-2rem),36rem)] !w-[min(40rem,calc(100vw-2rem))] !max-w-[min(40rem,calc(100vw-2rem))] flex-col overflow-hidden !p-0">
+          <div className="shrink-0 px-6 pt-5">
+            <Dialog.Title className="mb-1 text-sm font-semibold text-kumo-strong">
+              批量编辑 API Key
+            </Dialog.Title>
+            <Dialog.Description className="mb-4 text-sm text-kumo-subtle">
+              每行一个 API Key，保存后将替换当前全部 Key。
+            </Dialog.Description>
+          </div>
+
+          <div className="min-h-0 flex-1 overflow-y-auto px-6 py-3">
+            <Textarea
+              size="sm"
+              value={endpointKeyBatchText}
+              onChange={e => setEndpointKeyBatchText(e.target.value)}
+              placeholder={'每行一个 API Key\n如：\nsk-xxxxx-1\nsk-xxxxx-2'}
+              spellCheck={false}
+              autoComplete="off"
+              data-1p-ignore
+              data-lpignore="true"
+              data-bwignore="true"
+              rows={10}
+              className="w-full font-mono text-[0.85em]"
+            />
+          </div>
+
+          <div className="flex shrink-0 items-center justify-end gap-3 border-t border-kumo-line px-6 py-4">
+            <Dialog.Close
+              render={props => (
+                <Button size="sm" {...props} variant="ghost">
+                  取消
+                </Button>
+              )}
+            />
+            <Button size="sm" variant="primary" onClick={applyEndpointKeyBatch}>
+              应用
+            </Button>
+          </div>
+        </Dialog>
+      </Dialog.Root>
+    </>
   );
 }
