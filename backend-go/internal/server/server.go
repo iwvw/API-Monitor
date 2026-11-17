@@ -54,6 +54,7 @@ import (
 	systemmetrics "github.com/iwvw/api-monitor/backend-go/internal/system"
 	"github.com/iwvw/api-monitor/backend-go/internal/systemlogs"
 	"github.com/iwvw/api-monitor/backend-go/internal/tencent"
+	"github.com/iwvw/api-monitor/backend-go/internal/tokenharbor"
 	"github.com/iwvw/api-monitor/backend-go/internal/totp"
 	"github.com/iwvw/api-monitor/backend-go/internal/uptime"
 	"github.com/iwvw/api-monitor/backend-go/internal/workbuddy"
@@ -89,6 +90,7 @@ type Server struct {
 	qoder       *qoder.Service
 	raccoon     *raccoon.Service
 	cline       *cline.Service
+	tokenharbor *tokenharbor.Service
 	proxypool   *proxypool.Service
 	server      *serveragent.Service
 	backup      *backup.Service
@@ -229,6 +231,7 @@ func newServer(cfg config.Config) (*Server, error) {
 		qoder:       qoder.New(cfg),
 		raccoon:     raccoon.New(cfg),
 		cline:       cline.New(cfg),
+		tokenharbor: tokenharbor.New(cfg),
 		proxypool:   proxypool.New(cfg),
 		server:      serverAgentService,
 		backup:      backupService,
@@ -278,6 +281,8 @@ func newServer(cfg config.Config) (*Server, error) {
 	server.raccoon.SetProxyPoolSelector(server.proxypool)
 	// Cline / ZCode / AutoClaw 同样可引用独立代理池作为出网出口。
 	server.cline.SetProxyPoolSelector(server.proxypool)
+	// TokenHarbor 插件可引用独立代理池作为出网出口。
+	server.tokenharbor.SetProxyPoolSelector(server.proxypool)
 	server.modelhub.StartWarmup(warmupCtx)
 	// 启动网关健康告警监测（错误率过高/恢复触发通知）。
 	server.modelhub.StartAlertMonitor(warmupCtx)
@@ -331,6 +336,11 @@ func newServer(cfg config.Config) (*Server, error) {
 	server.cline.StartModelRefresh(warmupCtx)
 	server.cline.StartLoginSweep(warmupCtx)
 	server.cline.ReconcileLinkedEndpoint(warmupCtx)
+	// TokenHarbor 插件:调用次数与用量落盘、Supabase 会话续期、会话绑定清理、端点对账。
+	server.tokenharbor.StartCallStatsFlush(warmupCtx)
+	server.tokenharbor.StartAutoRefresh(warmupCtx)
+	server.tokenharbor.StartSessionSweep(warmupCtx)
+	server.tokenharbor.ReconcileLinkedEndpoint(warmupCtx)
 	// 启动（系统更新/重启）后自动清理一次废弃表：只删规则匹配且不再被使用的表，
 	// 有候选时先备份再 DROP；活跃插件的表已被规则豁免，不会误删。
 	server.settings.StartupCleanupDeprecatedTables(warmupCtx)
@@ -601,6 +611,8 @@ func apiKeyRequiresSession(path string) bool {
 		"/api/raccoon/accounts/import",
 		"/api/cline/accounts/export",
 		"/api/cline/accounts/import",
+		"/api/tokenharbor/accounts/export",
+		"/api/tokenharbor/accounts/import",
 		"/api/antigravity/accounts/export",
 	}
 	for _, prefix := range protectedPrefixes {

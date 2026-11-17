@@ -89,6 +89,8 @@ var moduleHandlers = map[string]routeHandler{
 	"raccoon-compatible":         func(s *Server, w http.ResponseWriter, r *http.Request) { s.raccoon.ServeHTTP(w, r) },
 	"cline":                      func(s *Server, w http.ResponseWriter, r *http.Request) { s.cline.ServeHTTP(w, r) },
 	"cline-compatible":           func(s *Server, w http.ResponseWriter, r *http.Request) { s.cline.ServeHTTP(w, r) },
+	"tokenharbor":                func(s *Server, w http.ResponseWriter, r *http.Request) { s.tokenharbor.ServeHTTP(w, r) },
+	"tokenharbor-compatible":     func(s *Server, w http.ResponseWriter, r *http.Request) { s.tokenharbor.ServeHTTP(w, r) },
 	"prompts":                    func(s *Server, w http.ResponseWriter, r *http.Request) { s.prompts.ServeHTTP(w, r) },
 	"prompts-collections":        func(s *Server, w http.ResponseWriter, r *http.Request) { s.prompts.ServeHTTP(w, r) },
 	"prompts-drafts":             func(s *Server, w http.ResponseWriter, r *http.Request) { s.prompts.ServeHTTP(w, r) },
