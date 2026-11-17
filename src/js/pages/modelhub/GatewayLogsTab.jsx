@@ -93,7 +93,7 @@ export function GatewayLogsTab({ analytics, endpoints }) {
               </StatusBadge>
             )}
             <span
-              className={`min-w-0 truncate font-mono ${actionable ? 'text-kumo-danger' : 'text-kumo-strong'}`}
+              className={`min-w-0 truncate font-mono text-[11px] ${actionable ? 'text-kumo-danger' : 'text-kumo-strong'}`}
               title={log.model}
             >
               {log.model}
@@ -110,6 +110,9 @@ export function GatewayLogsTab({ analytics, endpoints }) {
           >
             <FailoverPathBadge path={log.failoverPath} endpointName={log.endpointName} />
           </span>
+          <StatusBadge tone={log.stream ? 'info' : 'warning'}>
+            {log.stream ? '流式' : '非流'}
+          </StatusBadge>
           <span className="shrink-0 text-kumo-subtle">{(log.latencyMs / 1000).toFixed(1)}s</span>
           <span className="shrink-0 text-kumo-subtle">
             {log.ttfbMs > 0 ? `${(log.ttfbMs / 1000).toFixed(1)}s` : '—'}
