@@ -4299,3 +4299,35 @@ func TestNormalizeRecordedAtRejectsGarbage(t *testing.T) {
 		t.Fatalf("归一化结果 = %#v, want 2026-11-06 01:02:03", v)
 	}
 }
+
+// TestAgentDownloadBaseURLFallbackOrder 覆盖 Agent 下载源的优先级:
+// 用户设置 > 构建期 AGENT_DOWNLOAD_URL(镜像不再内置二进制)> 面板自身 /agent。
+func TestAgentDownloadBaseURLFallbackOrder(t *testing.T) {
+	service, db := testService(t)
+	ctx := context.Background()
+	panel := "https://panel.example.com"
+
+	// 1) 未配置时使用构建期注入的公开 release 地址（末尾斜杠应被裁掉）。
+	service.cfg.AgentDownloadURL = "https://github.com/iwvw/api-monitor-agent/releases/download/built-agents/"
+	want := "https://github.com/iwvw/api-monitor-agent/releases/download/built-agents"
+	if got := service.resolveAgentDownloadBaseURL(ctx, db, panel); got != want {
+		t.Fatalf("build-time base = %q, want %q", got, want)
+	}
+
+	// 2) 用户设置优先于构建期默认。
+	if _, err := db.ExecContext(ctx, `UPDATE user_settings SET agent_download_url = 'https://cdn.example.com/agents' WHERE id = 1`); err != nil {
+		t.Fatalf("set agent_download_url: %v", err)
+	}
+	if got := service.resolveAgentDownloadBaseURL(ctx, db, panel); got != "https://cdn.example.com/agents" {
+		t.Fatalf("user setting should win, got %q", got)
+	}
+
+	// 3) 两者都为空时回退到面板自身的 /agent（本地离线/老镜像）。
+	if _, err := db.ExecContext(ctx, `UPDATE user_settings SET agent_download_url = '' WHERE id = 1`); err != nil {
+		t.Fatalf("clear agent_download_url: %v", err)
+	}
+	service.cfg.AgentDownloadURL = ""
+	if got := service.resolveAgentDownloadBaseURL(ctx, db, panel); got != panel+"/agent" {
+		t.Fatalf("fallback = %q, want %q", got, panel+"/agent")
+	}
+}

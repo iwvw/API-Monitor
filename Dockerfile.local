@@ -12,6 +12,9 @@ ARG RUNTIME_BASE=iwvw/api-monitor:dev
 FROM ${RUNTIME_BASE}
 
 ARG APP_VERSION=dev-local
+# Agent 默认下载源(镜像不再内置三平台二进制;这里指向公开产物仓库)。
+ARG AGENT_DOWNLOAD_URL="https://github.com/iwvw/API-Monitor/releases/download/built-agents"
+ENV AGENT_DOWNLOAD_URL=${AGENT_DOWNLOAD_URL}
 LABEL org.opencontainers.image.version="${APP_VERSION}"
 
 # 覆盖为本机编译的产物（Go 静态二进制 + 前端 dist + Agent 三平台）

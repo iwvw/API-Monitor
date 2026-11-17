@@ -222,6 +222,16 @@ func (s *Service) resolveAgentDownloadBaseURL(ctx context.Context, db *sql.DB, s
 			return proto + "://" + host + path
 		}
 	}
+	// 构建期注入的默认下载源(镜像里已不再附带 Agent 二进制)。
+	// 放在用户设置之后、面板自身静态目录之前:设置可覆盖,
+	// 而未注入的本地构建/离线部署仍回退到面板自己的 /agent。
+	if raw := strings.TrimRight(strings.TrimSpace(s.cfg.AgentDownloadURL), "/"); raw != "" {
+		if proto, host, ok := parseInstallBaseURL(raw); ok {
+			parsed, _ := url.Parse(raw)
+			path := strings.TrimRight(parsed.EscapedPath(), "/")
+			return proto + "://" + host + path
+		}
+	}
 	return strings.TrimRight(strings.TrimSpace(serverBaseURL), "/") + "/agent"
 }
 

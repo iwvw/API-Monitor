@@ -39,6 +39,9 @@ func (s *Service) getAgentInstallCommand(w http.ResponseWriter, r *http.Request,
 	installScriptURL := appendInstallProtocol(fmt.Sprintf("%s/api/server/agent/install/linux/%s/%s", baseURL, accountID, agentKey), proto)
 	winInstallURL := appendInstallProtocol(fmt.Sprintf("%s/api/server/agent/install/win/%s/%s", baseURL, accountID, agentKey), proto)
 
+	// Agent 二进制下载基址:优先用户设置,其次构建期注入的公开 release,
+	// 最后才回退到面板自身 /agent(镜像已不再内置二进制)。
+	agentDownloadURL := s.resolveAgentDownloadBaseURL(r.Context(), db, baseURL)
 	installCommand := fmt.Sprintf(`curl -fsSL %s | bash`, installScriptURL)
 	winInstallCommand := fmt.Sprintf(`powershell -c "irm %s | iex"`, winInstallURL)
 	manualCommand := fmt.Sprintf(`# Download and run Agent
@@ -56,6 +59,7 @@ sudo ./install-agent.sh`, installScriptURL)
 			"agentKey":          agentKey,
 			"baseUrl":           baseURL,
 			"apiUrl":            baseURL,
+			"agentDownloadUrl":  agentDownloadURL,
 			"installScriptUrl":  installScriptURL,
 			"installCommand":    installCommand,
 			"winInstallCommand": winInstallCommand,

@@ -84,58 +84,35 @@ RUN CGO_ENABLED=1 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
     -ldflags="-s -w" \
     -o api-monitor ./cmd/api-monitor
 
-# 阶段 3: 构建 Rust Agent 二进制 (Agent Builder) - 优化为基于 TARGETARCH 进行条件式本机编译，以最大化编译性能并防止复杂的跨平台交叉编译错误
-FROM rust:slim AS agent-builder
-ARG USE_PREBUILT_AGENT=false
-RUN if [ "$USE_PREBUILT_AGENT" != "true" ]; then \
-        apt-get update && apt-get install -y --no-install-recommends \
-            musl-tools \
-            gcc \
-        && rm -rf /var/lib/apt/lists/*; \
-    fi
-
-ARG TARGETARCH
-RUN if [ "$USE_PREBUILT_AGENT" != "true" ]; then \
-        if [ "$TARGETARCH" = "amd64" ]; then \
-            rustup target add x86_64-unknown-linux-musl; \
-        elif [ "$TARGETARCH" = "arm64" ]; then \
-            rustup target add aarch64-unknown-linux-musl; \
-        fi; \
-    fi
-
-WORKDIR /app/agent-rust
-COPY agent-rust/ ./
-# CI downloads prebuilt agent artifacts before docker build. Local builds still
-# fall back to compiling the target Linux agent when the artifact is absent.
-RUN if [ "$TARGETARCH" = "amd64" ]; then \
-        if [ ! -f "./agent-linux-amd64" ] || [ ! -s "./agent-linux-amd64" ]; then \
-            if [ "$USE_PREBUILT_AGENT" = "true" ]; then \
-                echo "agent-linux-amd64 artifact is required when USE_PREBUILT_AGENT=true" >&2; \
+# 阶段 3: Agent 二进制(可选,默认不打包)
+# 默认镜像不再分发 Agent:三平台二进制托管在本仓库(public)的 release 里,
+# 面板构建期通过 AGENT_DOWNLOAD_URL 注入直链,主机安装与自升级都从那里下载
+# (每个文件都有 .sha256 sidecar 校验)。
+# INCLUDE_AGENTS=true 用于离线/内网部署:需要预先把三平台产物放到 agent-rust/
+# (该目录下的 agent-* 已在 .gitignore 中),否则构建直接失败而不是静默缺文件。
+FROM alpine:3.24.1 AS agents
+ARG INCLUDE_AGENTS=false
+COPY agent-rust/ /src-bundle/
+RUN set -eu; mkdir -p /out; \
+    if [ "$INCLUDE_AGENTS" = "true" ]; then \
+        for f in agent-linux-amd64 agent-linux-arm64 agent-windows-amd64.exe; do \
+            if [ ! -s "/src-bundle/$f" ]; then \
+                echo "INCLUDE_AGENTS=true 但缺少 agent-rust/$f —— 请先把三平台产物放好" >&2; \
                 exit 1; \
             fi; \
-            cargo build --release --target x86_64-unknown-linux-musl && \
-            cp target/x86_64-unknown-linux-musl/release/api-monitor-agent ./agent-linux-amd64; \
-        fi && \
-        if [ ! -f "./agent-linux-arm64" ]; then touch ./agent-linux-arm64; fi && \
-        if [ ! -f "./agent-windows-amd64.exe" ]; then touch ./agent-windows-amd64.exe; fi; \
-    elif [ "$TARGETARCH" = "arm64" ]; then \
-        if [ ! -f "./agent-linux-arm64" ] || [ ! -s "./agent-linux-arm64" ]; then \
-            if [ "$USE_PREBUILT_AGENT" = "true" ]; then \
-                echo "agent-linux-arm64 artifact is required when USE_PREBUILT_AGENT=true" >&2; \
-                exit 1; \
-            fi; \
-            cargo build --release --target aarch64-unknown-linux-musl && \
-            cp target/aarch64-unknown-linux-musl/release/api-monitor-agent ./agent-linux-arm64; \
-        fi && \
-        if [ ! -f "./agent-linux-amd64" ]; then touch ./agent-linux-amd64; fi && \
-        if [ ! -f "./agent-windows-amd64.exe" ]; then touch ./agent-windows-amd64.exe; fi; \
-    fi && \
-    chmod +x ./agent-linux-amd64 ./agent-linux-arm64 || true
+            cp "/src-bundle/$f" "/out/$f"; \
+            (cd /out && sha256sum "$f" | awk '{print $1}' > "$f.sha256"); \
+        done; \
+    fi; \
+    touch /out/.empty
 
-# 注意：deps-builder 阶段已移除，Go 后端不需要 Node.js 依赖
 
 # 阶段 4: 运行时镜像 (Runner) - 纯净的运行环境
 FROM alpine:3.24.1 AS runner
+ARG INCLUDE_AGENTS=false
+ARG AGENT_DOWNLOAD_URL=""
+# 默认 Agent 下载源(公开 release 直链);用户设置 agent_download_url 可覆盖。
+ENV AGENT_DOWNLOAD_URL=${AGENT_DOWNLOAD_URL}
 
 LABEL org.opencontainers.image.title="API Monitor"
 LABEL org.opencontainers.image.description="API聚合监控面板"
@@ -172,14 +149,9 @@ RUN test -f /app/dist/index.html && test -d /app/dist/assets
 # 2. 从 go-builder 复制 Go 后端二进制文件
 COPY --from=go-builder --chown=appuser:appuser /app/backend-go/api-monitor /app/
 
-# 3. 将 Rust Agent 二进制文件放入 dist/agent 目录以便静态服务
-COPY --from=agent-builder --chown=appuser:appuser /app/agent-rust/agent-linux-amd64 /app/dist/agent/
-COPY --from=agent-builder --chown=appuser:appuser /app/agent-rust/agent-linux-arm64 /app/dist/agent/
-COPY --from=agent-builder --chown=appuser:appuser /app/agent-rust/agent-windows-amd64.exe /app/dist/agent/
-RUN cd /app/dist/agent && \
-    sha256sum agent-linux-amd64 | awk '{print $1}' > agent-linux-amd64.sha256 && \
-    sha256sum agent-linux-arm64 | awk '{print $1}' > agent-linux-arm64.sha256 && \
-    sha256sum agent-windows-amd64.exe | awk '{print $1}' > agent-windows-amd64.exe.sha256
+# Agent 二进制:INCLUDE_AGENTS=true 时来自 agents 阶段,否则是空目录(走远端直链)。
+COPY --from=agents --chown=appuser:appuser /out/ /app/dist/agent/
+RUN rm -f /app/dist/agent/.empty && ls -la /app/dist/agent
 
 # 4. 复制 2FA 浏览器插件目录
 COPY --chown=appuser:appuser plugin /app/plugin

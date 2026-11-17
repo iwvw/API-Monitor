@@ -138,6 +138,7 @@ npm run backend-go:build
 | `API_MONITOR_AGENT_METRICS_PERSIST_INTERVAL_MS` | 可选 | - | Agent 指标持久化间隔（毫秒） |
 | `API_MONITOR_AGENT_NETWORK_QUALITY_PERSIST_INTERVAL_MS` | 可选 | - | Agent 网络质量采集持久化间隔（毫秒） |
 | `API_MONITOR_AGENT_FILE_ROOTS` | 可选 | - | 下发给 Agent 的额外文件白名单根目录（逗号分隔）；生成安装脚本时注入为 `API_MONITOR_FILE_ROOTS`。面板的 Compose 配置编辑/文件管理读写主机真实路径，需把 compose 目录（如 `/opt/1panel/docker/compose`）加进来，否则会被拒绝 |
+| `AGENT_DOWNLOAD_URL` | 可选 | 镜像构建期注入(指向本仓库 release) | Agent 二进制默认下载源,如 `https://github.com/iwvw/API-Monitor/releases/download/built-agents`。镜像不再内置 Agent;面板设置里的「Agent 下载地址」优先于此值;留空则回退到面板自身 `/agent`(仅适用于 `INCLUDE_AGENTS=true` 的离线镜像) |
 | `API_MONITOR_PPROF` | 可选 | `0` | 设为 `1` 开启 pprof 性能剖析（仅排查性能问题时使用） |
 
 ### 开发工具脚本（可选）

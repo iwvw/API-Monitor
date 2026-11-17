@@ -13,7 +13,7 @@ API Monitor —— 自托管 API / 云资源 / 主机监控面板。前端 React
 - 快速审计：`npm run audit:fast`（`icons:generate` → `governance:check` → `ui:governance` → `kumo:registry:check` → `docs:check` → `lint` → `test`）。完整审计：`npm run audit:full`（另含 Go 测试、路由清单、后端冒烟，需运行中的 Go 后端在 `API_MONITOR_BASE_URL` 或 `http://127.0.0.1:3000`）。
 - 安卓客户端 `mobile-android/`（Kotlin + Compose 骨架）吃同一 Go 后端接口，但**不受 Kumo-only 与 `ui:governance` 约束**（那套规则只作用于 `src/js`）；不参与 `audit:fast`/`audit:full`，构建需本地 Android SDK（`npm run android:assemble` / `android:test`）。
 - `governance:check` = 三侧治理 + 时区治理 + motion 治理 + Agent 版本治理，四个独立脚本（`tools/*-governance*.mjs`）。改路由/`agent-rust`/时间/动画前先看对应脚本的判定。
-- 本地 `backend-go:dev` 会从根 `.env` 读 `ENCRYPTION_KEY` 注入环境（在 `backend-go/` 下直接 `go run` 不会自动读到）。
+- `npm run backend-go:dev` 由 `tools/dev-backend.mjs` 跨平台启动(Windows/macOS/Linux 同一条命令):先读根 `.env` → `.env.local` 注入尚未设置的变量,再在 `backend-go/` 下执行 `go run ./cmd/api-monitor`。Go 侧 `internal/config/dotenv.go` 也会加载 `.env`(进程环境优先),但**不读** `.env.local`。
 
 ## 路由是「两处」不是一处
 
@@ -47,8 +47,9 @@ API Monitor —— 自托管 API / 云资源 / 主机监控面板。前端 React
 ## 版本与发布
 
 - `package.json` 的 `version` 是**唯一**正式版本来源；Git tag/Release 加 `v` 前缀（`v2.0.1`）。不要在 `dev` 手动改版本或以 tag 代替源码版本。
-- 发布链路全自动：合并 `dev`→`main` → `Bump Main Version` 工作流递增 → Release 工作流建 tag、编译各平台 Agent、多架构 Docker 镜像，全绿后才把草稿转公开。发失败保留草稿。
-- `dev` 分支推送触发 `ci-cd.yml`：前端 lint/test/build + Go 测试 + 三平台 Agent（仅 `agent-rust/**` 变更时重编，否则复用滚动 release `built-agents`）+ 多架构镜像，镜像 tag `dev`。Agent 产物按「三平台一组」发布，不可只发部分平台。
+- 发布链路全自动:合并 `dev`→`main` → `Bump Main Version` 工作流递增 → Release 工作流建 tag、多架构 Docker 镜像,全绿后才把草稿转公开。发失败保留草稿。
+- **Agent 与镜像解耦**:Agent 二进制不再打进镜像。`agent-release.yml` 单独构建三平台并发布到**本仓库**的 release(仓库为 public,可匿名直链;dev 用滚动 tag `built-agents`,正式发布用 `agent-v<Cargo.toml 版本>`;产物按「三平台一组」上传,含 `.sha256`)。镜像构建期注入 `AGENT_DOWNLOAD_URL` 指向该 release,主机安装与 Agent 自升级都走匿名直链;离线/内网部署可用 `--build-arg INCLUDE_AGENTS=true` 把三平台产物(预置在 `agent-rust/` 下)重新打进镜像。
+- `dev` 分支推送触发 `ci-cd.yml`:前端 lint/test/build + Go 测试(按包分 2 片并行)+ 多架构镜像,镜像 tag `dev`。发布 Agent 用默认 `GITHUB_TOKEN`(`contents: write`),不需要额外 secret。
 
 ## 多窗口 / 多 Agent 协作
 

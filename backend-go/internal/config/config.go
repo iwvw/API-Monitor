@@ -38,6 +38,11 @@ type Config struct {
 	// 可与默认沙箱一并被面板文件管理访问；为空时不注入，保持历史行为。
 	// 环境变量 API_MONITOR_AGENT_FILE_ROOTS 配置。
 	AgentFileRoots []string
+	// AgentDownloadURL 是 Agent 二进制的默认下载源(如公开 release 的
+	// .../releases/download/<tag>)。镜像不再内置 Agent 二进制,构建期通过
+	// AGENT_DOWNLOAD_URL 注入;用户设置里的 agent_download_url 仍优先。
+	// 为空时回退到「面板自身 /agent」(老镜像/本地离线场景)。
+	AgentDownloadURL string
 	// PublicCORS 控制「无需凭据的文档类接口」是否回显任意 Origin 的 CORS 头。
 	// 打开后 /api/openapi.json、/api/system/openapi.json、/health 可被外部
 	// AI 连接器 / Postman Web / 浏览器端工具直接读取；这些接口都不依赖会话
@@ -68,6 +73,7 @@ func Load(version string) Config {
 		RequestDecompressMaxBytes: int64(envInt("REQUEST_DECOMPRESS_MAX_MB", 32)) * 1024 * 1024,
 		AgentFileRoots:            envList("API_MONITOR_AGENT_FILE_ROOTS"),
 		PublicCORS:                envBool("API_MONITOR_PUBLIC_CORS", true),
+		AgentDownloadURL:          envString("AGENT_DOWNLOAD_URL", ""),
 	}
 }
 

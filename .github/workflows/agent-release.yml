@@ -1,0 +1,208 @@
+# ===================================
+# Agent 产物构建与发布(与面板镜像解耦)
+# ===================================
+# Agent 二进制不再打进面板镜像:统一发布到**本仓库**的 release(仓库为 public,
+# 主机与 Agent 自升级可匿名直链下载)。面板构建期把该 release 的下载基址注入成
+# AGENT_DOWNLOAD_URL,安装与升级都走该直链(附带 .sha256 sidecar 校验)。
+#
+# 触发:
+#  - dev 分支推送且 agent-rust/** 或 vendor/** 变化 → 覆盖滚动 release(built-agents)
+#  - release.yml 通过 workflow_call(versioned=true)调用 → 发布 agent-v<Cargo 版本>
+#  - workflow_dispatch → 手动指定 tag
+#
+# 权限:contents: write(创建/覆盖 release 与上传附件)。
+
+name: Agent Release
+
+on:
+  push:
+    branches: [dev]
+    paths:
+      - "agent-rust/**"
+      - "vendor/**"
+      - ".github/workflows/agent-release.yml"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "发布 tag(默认覆盖滚动 release built-agents)"
+        required: false
+        default: "built-agents"
+  workflow_call:
+    inputs:
+      versioned:
+        description: "true 时用 agent-v<Cargo.toml 版本> 作发布 tag(正式发布)"
+        required: false
+        type: boolean
+        default: false
+      tag:
+        description: "显式指定发布 tag(优先于 versioned)"
+        required: false
+        type: string
+        default: ""
+
+permissions:
+  contents: write
+
+concurrency:
+  group: agent-release-${{ inputs.tag || (inputs.versioned && 'versioned') || 'built-agents' }}
+  cancel-in-progress: true
+
+env:
+  AGENTS_REPO: ${{ github.repository }}
+
+jobs:
+  # ==========================================
+  # 编译三平台 Agent
+  # ==========================================
+  build-agent:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-musl
+            os: ubuntu-latest
+            output_name: agent-linux-amd64
+            # 单元测试与三平台编译解耦:只跑一次,省掉 Windows/arm64 各一次
+            # debug 全量编译(Windows 上这一步曾是整条流水线最长环节)。
+            run_tests: "true"
+          - target: aarch64-unknown-linux-musl
+            os: ubuntu-24.04-arm
+            output_name: agent-linux-arm64
+            run_tests: "false"
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+            output_name: agent-windows-amd64.exe
+            run_tests: "false"
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.0.0
+
+      - name: Set up Rust
+        uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
+        with:
+          target: ${{ matrix.target }}
+          cache-workspaces: agent-rust
+
+      - name: Install musl-tools (Linux)
+        if: matrix.target != 'x86_64-pc-windows-msvc'
+        run: |
+          sudo find /etc/apt/sources.list.d -maxdepth 1 -type f \( -iname '*microsoft*' -o -iname '*azure*' \) -delete
+          sudo sed -i.bak '/packages\.microsoft\.com/d' /etc/apt/sources.list /etc/apt/sources.list.d/* 2>/dev/null || true
+          sudo apt-get update
+          sudo apt-get install -y musl-tools
+
+      - name: Remove cargo mirror config in CI
+        shell: bash
+        run: rm -f agent-rust/.cargo/config.toml
+
+      - name: Run Agent Tests
+        if: matrix.run_tests == 'true'
+        working-directory: agent-rust
+        shell: bash
+        run: cargo test
+
+      - name: Build Agent
+        working-directory: agent-rust
+        shell: bash
+        run: cargo build --target ${{ matrix.target }} --release
+
+      - name: Copy & Rename Binary
+        shell: bash
+        run: |
+          mkdir -p dist
+          if [[ "${{ matrix.target }}" == *"windows"* ]]; then
+            cp agent-rust/target/${{ matrix.target }}/release/api-monitor-agent.exe dist/${{ matrix.output_name }}
+          else
+            cp agent-rust/target/${{ matrix.target }}/release/api-monitor-agent dist/${{ matrix.output_name }}
+          fi
+          if command -v sha256sum >/dev/null 2>&1; then
+            (cd dist && sha256sum "${{ matrix.output_name }}" | awk '{print $1}' > "${{ matrix.output_name }}.sha256")
+          else
+            (cd dist && shasum -a 256 "${{ matrix.output_name }}" | awk '{print $1}' > "${{ matrix.output_name }}.sha256")
+          fi
+
+      - name: Upload agent artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: agent-${{ matrix.output_name }}
+          path: |
+            dist/${{ matrix.output_name }}
+            dist/${{ matrix.output_name }}.sha256
+          retention-days: 3
+
+  # ==========================================
+  # 发布 Agent 产物
+  # ==========================================
+  publish-agent:
+    needs: build-agent
+    runs-on: ubuntu-latest
+    env:
+      # 同仓库发布:GITHUB_TOKEN 即可(contents: write),无需额外 secret。
+      GH_TOKEN: ${{ github.token }}
+      INPUT_TAG: ${{ inputs.tag }}
+      VERSIONED: ${{ inputs.versioned && 'true' || 'false' }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.0.0
+
+      - name: Download built agents
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          path: agent-assets
+          pattern: agent-*
+          merge-multiple: true
+
+      - name: Verify completeness
+        shell: bash
+        run: |
+          set -euo pipefail
+          fail=0
+          for name in agent-linux-amd64 agent-linux-arm64 agent-windows-amd64.exe; do
+            for f in "$name" "$name.sha256"; do
+              if [ ! -s "agent-assets/$f" ]; then
+                echo "::error::缺少产物 agent-assets/$f —— 拒绝发布不完整的 release"
+                fail=1
+              fi
+            done
+          done
+          [ "$fail" -eq 0 ] || exit 1
+          ls -lh agent-assets
+
+      - name: Resolve agent version
+        id: version
+        shell: bash
+        run: |
+          VERSION="$(grep -m1 '^version = ' agent-rust/Cargo.toml | cut -d'"' -f2)"
+          # 发布 tag 解析:显式 tag > versioned(agent-v<Cargo 版本>)> 滚动 built-agents。
+          # Agent 版本与面板版本是两套版本号(见 AGENTS.md「Agent 版本绑定」),
+          # 用 agent-v 前缀既能表达归属,也不会被 release.yml 的
+          # `git describe --match 'v[0-9]*'` 当成面板版本 tag。
+          if [ -n "${INPUT_TAG}" ]; then
+            TAG="${INPUT_TAG}"
+          elif [ "${VERSIONED}" = "true" ]; then
+            TAG="agent-v${VERSION}"
+          else
+            TAG="built-agents"
+          fi
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "agent version: ${VERSION} -> release tag: ${TAG}"
+
+      - name: Publish agent assets to release
+        shell: bash
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          RELEASE_TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          set -euo pipefail
+          NOTES="agent v${VERSION} —— $(git rev-parse --short HEAD) 构建的 Agent 三平台产物,供面板与主机匿名直链下载。"
+          if ! gh release view "$RELEASE_TAG" --repo "$AGENTS_REPO" >/dev/null 2>&1; then
+            gh release create "$RELEASE_TAG" --repo "$AGENTS_REPO" --target main \
+              --title "Agent ${RELEASE_TAG}" --notes "$NOTES"
+          fi
+          gh release upload "$RELEASE_TAG" --repo "$AGENTS_REPO" agent-assets/* --clobber
+          # 说明里保留 vX.Y.Z:面板/工具据此判断产物对应哪个 Agent 版本。
+          gh release edit "$RELEASE_TAG" --repo "$AGENTS_REPO" --notes "$NOTES"
+          gh release view "$RELEASE_TAG" --repo "$AGENTS_REPO" --json assets --jq '.assets[].name'
