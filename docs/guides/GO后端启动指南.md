@@ -1,6 +1,6 @@
 # Go 后端启动指南
 
-最后更新：2026-09-08
+最后更新：2026-11-17
 
 当前默认运行架构是 Go 后端。路由清单由 `backend-go/internal/manifest/manifest.go` 管理，当前 route inventory 为 369 条 Go-owned 路由。旧 Node sidecar 资料仅作为迁移历史，不作为日常启动路径。
 
@@ -20,14 +20,16 @@ npm run dev
 npm run backend-go:dev
 ```
 
-或：
+该命令走 `tools/dev-backend.mjs`,Windows / macOS / Linux 通用:启动前按 `.env` → `.env.local` 顺序注入尚未设置的变量,再在 `backend-go/` 下执行 `go run`,因此把 `PORT` 写进 `.env.local` 即可改端口(Vite 开发代理同样读取 `.env.local` 的 `PORT`)。
+
+也可以手动启动,但这样不会读 `.env.local`(Go 自身只加载 `.env`):
 
 ```bash
 cd backend-go
 go run ./cmd/api-monitor
 ```
 
-默认监听：
+默认监听(可被 `PORT` / `GO_PORT` 覆盖):
 
 ```text
 http://localhost:3000
