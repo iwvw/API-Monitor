@@ -160,13 +160,6 @@ export function PostHogCodePlugin() {
     }
   };
 
-  // 轮询回调里只取最新函数引用：load 系列函数每次渲染重建，
-  // 直接进 effect deps 会让输入框打字等无关重渲染也重建定时器。
-  const pollFnsRef = useRef({});
-  useEffect(() => {
-    pollFnsRef.current = { load, loadStatus, loadModels, loadUsage };
-  }, [load, loadStatus, loadModels, loadUsage]);
-
   const refreshAll = async () => {
     setRefreshing(true);
     try {
@@ -383,7 +376,7 @@ export function PostHogCodePlugin() {
       if (data.status === 'awaiting_code') {
         setAutoLoginSessionId(data.sessionId);
         setAutoLoginPhase('code');
-        setAutoLoginDetail('已向邮箱发送 6 位验证码，正在自动接收...');
+        setAutoLoginDetail('已向邮箱发送验证码,请到「DNS → 邮件」收件箱查看后填写');
       } else if (data.status === 'awaiting_totp') {
         setAutoLoginSessionId(data.sessionId);
         setAutoLoginPhase('totp');
@@ -402,33 +395,6 @@ export function PostHogCodePlugin() {
       setAutoLoginBusy(false);
     }
   };
-
-  // 等待验证码阶段：后端在后台从邮件收件箱自动取码完成登录，前端轮询状态获取结果。
-  useEffect(() => {
-    if (!autoLoginOpen || autoLoginPhase !== 'code' || !autoLoginSessionId) return undefined;
-    const { load, loadStatus, loadModels, loadUsage } = pollFnsRef.current;
-    let cancelled = false;
-    const timer = setInterval(async () => {
-      try {
-        const res = await fetch(`${API}/autologin/status?sessionId=${encodeURIComponent(autoLoginSessionId)}`, {
-          headers: getAuthHeaders(),
-        });
-        const data = await res.json();
-        if (cancelled || !data?.success) return;
-        if (data.status === 'logged_in') {
-          toast.success('已自动完成登录授权');
-          setAutoLoginOpen(false);
-          await Promise.all([load(), loadStatus(), loadModels(), loadUsage()]);
-        } else if (data.status === 'failed') {
-          setAutoLoginPhase('form');
-          toast.error(data.error || '自动接收验证码失败，请手动输入');
-        }
-      } catch {
-        // 轮询失败不打断，等待下次
-      }
-    }, 2000);
-    return () => { cancelled = true; clearInterval(timer); };
-  }, [autoLoginOpen, autoLoginPhase, autoLoginSessionId, getAuthHeaders]);
 
   // 提交邮箱验证码/TOTP → 完成登录并授权落库。
   const verifyAutoLogin = async () => {
@@ -1101,12 +1067,12 @@ export function PostHogCodePlugin() {
             ) : (
               <div className="flex flex-col gap-3">
                 <div className="rounded border border-kumo-line p-3 text-xs leading-relaxed text-kumo-subtle">
-                  <div className="mb-1 text-kumo-strong">{autoLoginPhase === 'totp' ? '输入两步验证码' : '正在自动接收邮箱验证码'}</div>
+                  <div className="mb-1 text-kumo-strong">{autoLoginPhase === 'totp' ? '输入两步验证码' : '输入邮箱验证码'}</div>
                   <div>{autoLoginDetail}</div>
                 </div>
                 <Input
                   size="sm"
-                  label={autoLoginPhase === 'totp' ? '两步验证码' : '邮箱验证码（可手动输入）'}
+                  label={autoLoginPhase === 'totp' ? '两步验证码' : '邮箱验证码'}
                   className="w-full text-center font-mono text-base tracking-widest"
                   placeholder="6 位数字"
                   value={autoLoginCode}

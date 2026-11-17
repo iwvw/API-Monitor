@@ -16,7 +16,7 @@ import { Table } from '@cloudflare/kumo/components/table';
 import useStore from '../../store.js';
 import useTableResize from '../../composables/useTableResize.js';
 import { MODULE_TABS_PROPS } from '../../modules/kumoTabs.js';
-import { PageStack, SectionCard, TabBarOverflowActions, stickyTabsBaseClass } from '../../components/ui/AppPrimitives.jsx';
+import { PageStack, SectionCard, TabBarOverflowActions, stickyTabsBelowHeaderClass } from '../../components/ui/AppPrimitives.jsx';
 import { Cloud, RefreshCw } from '../../components/Icons.jsx';
 import { toast } from '../../modules/toast.js';
 import { dialog } from '../../modules/dialog.js';
@@ -1784,7 +1784,7 @@ function DnsPage() {
 
   return (
     <PageStack viewport className="dns-workspace min-h-full max-w-full">
-      <div className={`${stickyTabsBaseClass} justify-between gap-2 border-b border-kumo-line [&>*]:min-w-0`}>
+      <div className={`${stickyTabsBelowHeaderClass} justify-between gap-2 border-b border-kumo-line [&>*]:min-w-0`}>
         <Tabs
           {...MODULE_TABS_PROPS}
           value={activeTab}
@@ -1844,7 +1844,7 @@ function DnsPage() {
 
           {activeTab === 'dns' && (
             <div className="dns-split grid min-w-0 gap-3">
-              <section className="flex min-w-0 flex-col gap-2 cq-lg:sticky cq-lg:top-[70px] cq-lg:max-h-[calc(100vh-82px)] cq-lg:overflow-y-auto cq-lg:overscroll-contain cq-lg:self-start">
+              <section className="flex min-w-0 flex-col gap-2 cq-lg:sticky cq-lg:top-[132px] cq-lg:max-h-[calc(100dvh-144px)] cq-lg:overflow-y-auto cq-lg:overscroll-contain cq-lg:self-start">
                 <ZoneListPanel
                   loading={loading}
                   zones={zones}

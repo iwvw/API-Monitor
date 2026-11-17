@@ -938,7 +938,7 @@ export default function ServerModals(props) {
                         <LinkButton
                           size="sm"
                           variant="secondary"
-                          href={`${getAgentBaseApiUrl() || agentModalData.apiUrl}/agent/agent-linux-amd64`}
+                          href={`${agentModalData.agentDownloadUrl || `${getAgentBaseApiUrl() || agentModalData.apiUrl}/agent`}/agent-linux-amd64`}
                           target="_blank"
                           rel="noreferrer"
                           external
@@ -949,7 +949,7 @@ export default function ServerModals(props) {
                         <LinkButton
                           size="sm"
                           variant="secondary"
-                          href={`${getAgentBaseApiUrl() || agentModalData.apiUrl}/agent/agent-windows-amd64.exe`}
+                          href={`${agentModalData.agentDownloadUrl || `${getAgentBaseApiUrl() || agentModalData.apiUrl}/agent`}/agent-windows-amd64.exe`}
                           target="_blank"
                           rel="noreferrer"
                           external

@@ -7,10 +7,11 @@ import { Table } from '@cloudflare/kumo/components/table';
 import { SkeletonLine } from '@cloudflare/kumo/components/loader';
 import { SectionCard, EmptyState, AppTable } from '../../components/ui/AppPrimitives.jsx';
 import { useConfirmPress } from '../../hooks/useConfirmPress.js';
-import { Mail, Plus, Trash, RefreshCw, Key, Copy, Inbox, Eye, GitBranch } from '../../components/Icons.jsx';
+import { Mail, Plus, Trash, RefreshCw, Key, Inbox, GitBranch } from '../../components/Icons.jsx';
 import { toast } from '../../modules/toast.js';
 import { formatDate } from './utils.jsx';
 import { LayerDialog } from '@cloudflare/kumo/components/layer-dialog';
+import { ContextMenu } from '@cloudflare/kumo/primitives/context-menu';
 
 // emailcode 收件箱接口不在 /api/cloudflare 前缀下，直接走原生 fetch。
 const emailcodeApi = async (path, options = {}) => {
@@ -27,6 +28,9 @@ const emailcodeApi = async (path, options = {}) => {
 };
 
 // 转发策略：收件与转发本可独立，三种组合各有取舍。
+// 与后端 emailcode.maxRetentionDays 保持一致。
+const MAX_RETENTION_DAYS = 90;
+
 const FORWARD_STRATEGIES = [
   { value: 'inbox_and_forward', label: '收件 + 续转（推荐）' },
   { value: 'inbox_only', label: '只收件，不外发' },
@@ -44,22 +48,6 @@ const EMAIL_ADDRESS_COLUMNS = [
   { id: 'actions', role: 'actions-sm' },
 ];
 
-const EMAIL_RULE_COLUMNS = [
-  { id: 'matcher', role: 'primary', minWidth: 224 },
-  { id: 'actionDetail', role: 'content', grow: 1 },
-  { id: 'enabled', role: 'status' },
-  { id: 'actions', role: 'actions-sm' },
-];
-
-const EMAIL_MESSAGE_COLUMNS = [
-  { id: 'code', role: 'meta' },
-  { id: 'mailbox', role: 'identifier' },
-  { id: 'subject', role: 'content', grow: 1, verticalAlign: 'middle' },
-  { id: 'receivedAt', role: 'datetime' },
-  { id: 'status', role: 'status' },
-  { id: 'actions', role: 'actions-lg' },
-];
-
 // 邮件 Tab：管理 Cloudflare Email Routing。
 // 左侧域名列表选择要管理的 zone；右侧展示该域名的开关、收件箱 Worker、目的地地址与路由规则。
 // settings / rules / inbox 是 zone 级接口，addresses 是 account 级。
@@ -68,15 +56,16 @@ function EmailRoutingPanel({ selectedAccountId, cfApi }) {
   const [zones, setZones] = useState([]);
   const [zoneId, setZoneId] = useState('');
   const [loading, setLoading] = useState(false);
-  const [settings, setSettings] = useState(null);
   const [addresses, setAddresses] = useState([]);
   const [rules, setRules] = useState([]);
   const [inboxState, setInboxState] = useState(null);
   const [messages, setMessages] = useState([]);
+  const [retentionDays, setRetentionDays] = useState(7);
+  const [savedRetentionDays, setSavedRetentionDays] = useState(7);
+  const [retentionSaving, setRetentionSaving] = useState(false);
   const [busy, setBusy] = useState(false);
   const [addrLoading, setAddrLoading] = useState(false);
   const [newAddress, setNewAddress] = useState('');
-  const [stats, setStats] = useState(null);
   const [detail, setDetail] = useState(null);
   const [strategy, setStrategy] = useState('inbox_and_forward');
 
@@ -105,7 +94,6 @@ function EmailRoutingPanel({ selectedAccountId, cfApi }) {
         cfApi(`${base}/rules${zoneQuery}`),
         cfApi(`${base}/inbox${zoneQuery}`),
       ]);
-      setSettings(s || null);
       setRules(r?.rules || []);
       setInboxState(inbox || null);
       if (inbox?.strategy) setStrategy(inbox.strategy);
@@ -133,8 +121,8 @@ function EmailRoutingPanel({ selectedAccountId, cfApi }) {
     }
   }, [selectedAccountId, base, cfApi]);
 
-  // 默认包含已消费：验证码被自动消费后才是正常工作的表现，
-  // 若默认隐藏，用户会误以为「邮件没发出来」。
+  // 默认包含已消费:被 API 消费者(如长轮询)认领过的邮件仍保留在视图中,
+  // 若默认隐藏,用户会误以为邮件没收到。
   const loadMessages = useCallback(async () => {
     try {
       const data = await emailcodeApi('/messages?limit=30&includeConsumed=1');
@@ -144,15 +132,41 @@ function EmailRoutingPanel({ selectedAccountId, cfApi }) {
     }
   }, []);
 
-  // 提码率是模板变更的早期信号：突降说明某站点改了邮件格式。
-  const loadStats = useCallback(async () => {
+  // 保留天数由后端 emailcode_settings 持久化(全域名共用,默认 7 天)。
+  const loadRetention = useCallback(async () => {
     try {
-      const data = await emailcodeApi('/stats?days=14');
-      setStats(data || null);
+      const data = await emailcodeApi('/settings');
+      const days = Number(data?.retentionDays) || 7;
+      setRetentionDays(days);
+      setSavedRetentionDays(days);
     } catch {
-      setStats(null);
+      // 读取失败时保留默认 7 天,不打断收件箱展示。
     }
   }, []);
+
+  const saveRetention = async () => {
+    const days = Number(retentionDays);
+    if (!Number.isInteger(days) || days < 1 || days > MAX_RETENTION_DAYS) {
+      setRetentionDays(savedRetentionDays);
+      toast.warning(`保留天数需在 1-${MAX_RETENTION_DAYS} 之间`);
+      return;
+    }
+    if (days === savedRetentionDays) return;
+    setRetentionSaving(true);
+    try {
+      const data = await emailcodeApi('/settings', { method: 'PUT', body: JSON.stringify({ retentionDays: days }) });
+      const saved = Number(data?.retentionDays) || days;
+      setRetentionDays(saved);
+      setSavedRetentionDays(saved);
+      toast.success(`保留期已设为 ${saved} 天,超期邮件已清理`);
+      await loadMessages();
+    } catch (e) {
+      setRetentionDays(savedRetentionDays);
+      toast.error(`保存保留期失败:${e.message}`);
+    } finally {
+      setRetentionSaving(false);
+    }
+  };
 
   const openDetail = async (msg) => {
     try {
@@ -165,7 +179,8 @@ function EmailRoutingPanel({ selectedAccountId, cfApi }) {
 
   useEffect(() => { loadZones(); loadAddresses(); }, [loadZones, loadAddresses]);
   useEffect(() => { load(); }, [load]);
-  useEffect(() => { if (inboxState?.deployed) { loadMessages(); loadStats(); } }, [inboxState?.deployed, loadMessages, loadStats]);
+  // 收件箱是全域名汇总,与当前所选域名是否部署 Worker 无关,直接加载。
+  useEffect(() => { loadMessages(); loadRetention(); }, [loadMessages, loadRetention]);
 
   if (!selectedAccountId) {
     return (
@@ -177,9 +192,6 @@ function EmailRoutingPanel({ selectedAccountId, cfApi }) {
       />
     );
   }
-
-  const currentZone = zones.find(z => z.id === zoneId);
-  const zoneName = currentZone?.name || settings?.name || '';
 
   const addAddress = async () => {
     const email = newAddress.trim();
@@ -246,16 +258,6 @@ function EmailRoutingPanel({ selectedAccountId, cfApi }) {
     } finally { setBusy(false); }
   };
 
-  const consumeMessage = async (msg) => {
-    try {
-      await emailcodeApi(`/messages/${msg.id}/consume`, { method: 'POST' });
-      setMessages(prev => prev.filter(m => m.id !== msg.id));
-      toast.success('已标记为已取用');
-    } catch (e) {
-      toast.error(`操作失败：${e.message}`);
-    }
-  };
-
   const deleteMessage = async (msg) => {
     if (!confirmPress(`email-msg:${msg.id}`, `删除邮件「${msg.subject || msg.mailbox}」`)) return;
     try {
@@ -267,22 +269,22 @@ function EmailRoutingPanel({ selectedAccountId, cfApi }) {
     }
   };
 
-  // 清理：默认只清已取用的，避免误删还没用的验证码。
+  // 清理:默认只清已取用的,避免误删未读邮件。
   const clearInbox = async () => {
     if (!confirmPress('email-clear', '清理已取用的邮件')) return;
     setBusy(true);
     try {
       const res = await emailcodeApi('/clear?onlyConsumed=1', { method: 'POST' });
       toast.success(`已清理 ${res?.deleted ?? 0} 封已取用邮件`);
-      await Promise.all([loadMessages(), loadStats()]);
+      await loadMessages();
     } catch (e) {
       toast.error(`清理失败：${e.message}`);
     } finally { setBusy(false); }
   };
 
   return (
-    <div className="grid min-w-0 items-start gap-3 grid-cols-1 cq-lg:grid-cols-3">
-      {/* 左侧：域名列表（域名 + 是否启用转发） */}
+    <div className="grid min-w-0 items-start gap-3 grid-cols-1 cq-lg:grid-cols-[minmax(0,30rem)_minmax(0,1fr)]">
+      {/* 左列:域名 / 目的地地址 / 邮件路由 / 路由规则,随页面自由滚动 */}
       <div className="flex min-w-0 flex-col gap-2 cq-lg:self-start">
         <div className="dns-table-frame flex max-w-full">
           <div className="dns-table-scroll scrollbar-thin">
@@ -366,8 +368,10 @@ function EmailRoutingPanel({ selectedAccountId, cfApi }) {
                         ? <Badge variant="success" className="text-xs">已验证</Badge>
                         : <Badge variant="warning" className="text-xs">待验证</Badge>}
                     </Table.Cell>
-                    <Table.Cell className="!px-2 !py-1.5 text-center">
-                      <Button size="sm" shape="square" variant={isArmed(`email-addr:${a.id}`) ? 'destructive' : 'secondary-destructive'} disabled={busy} onClick={() => deleteAddress(a)} aria-label={`删除 ${a.email}`} title="删除"><Trash className="h-3 w-3" /></Button>
+                    <Table.Cell className="!px-2 !py-1.5">
+                      <div className="mx-auto flex items-center justify-center">
+                        <Button size="sm" shape="square" variant={isArmed(`email-addr:${a.id}`) ? 'destructive' : 'secondary-destructive'} disabled={busy} onClick={() => deleteAddress(a)} aria-label={`删除 ${a.email}`} title="删除"><Trash className="h-3 w-3" /></Button>
+                      </div>
                     </Table.Cell>
                   </Table.Row>
                 ))}
@@ -380,10 +384,6 @@ function EmailRoutingPanel({ selectedAccountId, cfApi }) {
           </div>
         )}
         </SectionCard>
-      </div>
-
-      {/* 右侧：所选域名的邮件路由详情 */}
-      <div className="flex min-w-0 flex-col gap-3 cq-lg:col-span-2">
         <SectionCard
           title="邮件路由"
           icon={<Mail className="h-4 w-4 text-brand" />}
@@ -394,22 +394,11 @@ function EmailRoutingPanel({ selectedAccountId, cfApi }) {
             </Button>
           }
         >
-          <div className="flex min-w-0 flex-wrap items-center gap-2 px-4 py-3">
-            <span className="min-w-0 truncate font-mono text-sm font-semibold text-kumo-strong" title={zoneName}>{zoneName || '—'}</span>
-            {settings?.enabled
-              ? <Badge variant="success" className="text-xs">已启用</Badge>
-              : <Badge variant="error" className="text-xs">未启用</Badge>}
-            <span className="ml-auto text-xs text-kumo-subtle">{addresses.length} 个地址 · {rules.length} 条规则</span>
-          </div>
-          <div className="flex min-w-0 flex-wrap items-center gap-2 border-t border-kumo-line px-4 py-3 text-xs text-kumo-subtle">
-            <Key className="h-3.5 w-3.5 shrink-0 text-brand" />
-            <span className="min-w-0 flex-1" title="收件与转发互相独立，可选三种组合">
-              发往 <span className="font-mono text-kumo-strong">{zoneName || '本域名'}</span> 的邮件按所选策略处理。
-            </span>
+          <div className="flex min-w-0 flex-wrap items-center gap-2 px-4 py-3 text-xs text-kumo-subtle">
             {inboxState?.deployed ? (
-              <Badge variant="success" className="text-xs">已部署</Badge>
+              <Badge variant="success" className="ml-auto text-xs">已部署</Badge>
             ) : (
-              <Badge variant="secondary" className="text-xs">未部署</Badge>
+              <Badge variant="secondary" className="ml-auto text-xs">未部署</Badge>
             )}
             <Select
               size="sm"
@@ -433,7 +422,13 @@ function EmailRoutingPanel({ selectedAccountId, cfApi }) {
         <SectionCard title="路由规则" icon={<GitBranch className="h-4 w-4 text-brand" />} bodyPadding="none">
           {loading || rules.length ? (
             <div className="min-w-0 overflow-x-auto overscroll-x-contain scrollbar-thin">
-              <AppTable tableId="email-rules" columns={EMAIL_RULE_COLUMNS} className="w-full min-w-[38rem] text-xs">
+              <AppTable tableId="email-rules" className="w-full min-w-[26rem] text-xs">
+                <colgroup>
+                  <col />
+                  <col />
+                  <col style={{ width: 72 }} />
+                  <col style={{ width: 56 }} />
+                </colgroup>
                 <Table.Header variant="compact">
                   <Table.Row className="h-8">
                     <Table.Head className="!px-2.5 !py-1.5">匹配条件</Table.Head>
@@ -448,15 +443,17 @@ function EmailRoutingPanel({ selectedAccountId, cfApi }) {
                   ) : rules.map(ru => (
                     <Table.Row key={ru.id} className="h-10">
                       <Table.Cell className="!px-2.5 !py-1.5">
-                        <div className="text-kumo-strong">{ru.matcher}</div>
-                        {ru.matcherValue ? <div className="truncate font-mono text-kumo-subtle" title={ru.matcherValue}>{ru.matcherValue}</div> : null}
+                        <div className="max-w-[18rem] truncate text-kumo-strong" title={ru.matcher}>{ru.matcher}</div>
+                        {ru.matcherValue ? <div className="max-w-[18rem] truncate font-mono text-kumo-subtle" title={ru.matcherValue}>{ru.matcherValue}</div> : null}
                       </Table.Cell>
-                      <Table.Cell className="!px-2.5 !py-1.5 text-kumo-subtle">{ru.actions?.join('；')}</Table.Cell>
+                      <Table.Cell className="!px-2.5 !py-1.5"><span className="block max-w-[14rem] truncate text-kumo-subtle" title={ru.actions?.join('；')}>{ru.actions?.join('；')}</span></Table.Cell>
                       <Table.Cell className="!px-2 !py-1.5 text-center">
                         {ru.enabled ? <Badge variant="success" className="text-xs">开启</Badge> : <Badge variant="secondary" className="text-xs">关闭</Badge>}
                       </Table.Cell>
-                      <Table.Cell className="!px-2 !py-1.5 text-center">
-                        <Button size="sm" shape="square" variant={isArmed(`email-rule:${ru.id}`) ? 'destructive' : 'secondary-destructive'} disabled={busy} onClick={() => deleteRule(ru)} aria-label={`删除规则 ${ru.matcher}`} title="删除"><Trash className="h-3 w-3" /></Button>
+                      <Table.Cell className="!px-2 !py-1.5">
+                        <div className="mx-auto flex items-center justify-center">
+                          <Button size="sm" shape="square" variant={isArmed(`email-rule:${ru.id}`) ? 'destructive' : 'secondary-destructive'} disabled={busy} onClick={() => deleteRule(ru)} aria-label={`删除规则 ${ru.matcher}`} title="删除"><Trash className="h-3 w-3" /></Button>
+                        </div>
                       </Table.Cell>
                     </Table.Row>
                   ))}
@@ -470,105 +467,136 @@ function EmailRoutingPanel({ selectedAccountId, cfApi }) {
           )}
         </SectionCard>
 
-        {inboxState?.deployed && inboxState.strategy !== 'forward' ? (
-          <SectionCard
-            title="收件箱"
-            icon={<Inbox className="h-4 w-4 text-brand" />}
-            bodyPadding="none"
-            actions={
-              <div className="flex items-center gap-2">
-                {stats ? (
-                  <span className="text-xs text-kumo-subtle" title="近 14 天：收到的邮件数与成功提取验证码的比例">
-                    近 14 天收 {stats.received} · 提码 {stats.extracted} · 成功率 {Math.round((stats.rate || 0) * 100)}%
-                  </span>
-                ) : null}
-                <Button size="sm" variant="outline" disabled={busy} onClick={() => { loadMessages(); loadStats(); }} title="刷新收件箱与统计" icon={<RefreshCw className="h-3.5 w-3.5" />}>刷新</Button>
-                <Button
-                  size="sm"
-                  variant={isArmed('email-clear') ? 'destructive' : 'secondary-destructive'}
-                  disabled={busy}
-                  onClick={clearInbox}
-                  title="清理已取用的邮件（未取用的会保留）"
-                  icon={<Trash className="h-3.5 w-3.5" />}
-                >
-                  清理
-                </Button>
-              </div>
-            }
-          >
-            {messages.length ? (
-              <div className="min-w-0 overflow-x-auto overscroll-x-contain scrollbar-thin">
-                <AppTable tableId="email-messages" columns={EMAIL_MESSAGE_COLUMNS} className="w-full min-w-[48rem] text-xs">
-                  <Table.Header variant="compact">
-                    <Table.Row className="h-8">
-                      <Table.Head className="!px-2.5 !py-1.5">验证码</Table.Head>
-                      <Table.Head className="!px-2.5 !py-1.5">收件人</Table.Head>
-                      <Table.Head className="!px-2.5 !py-1.5">主题 / 发件人</Table.Head>
-                      <Table.Head className="!px-2 !py-1.5">收件时间</Table.Head>
-                      <Table.Head className="!px-2 !py-1.5 text-center">状态</Table.Head>
-                      <Table.Head className="!px-2 !py-1.5 text-center">操作</Table.Head>
-                    </Table.Row>
-                  </Table.Header>
-                  <Table.Body>
-                    {messages.map(m => (
-                      <Table.Row key={m.id} className="h-10">
-                        <Table.Cell className="!px-2.5 !py-1.5">
-                          <span className="font-mono font-semibold tracking-widest text-kumo-strong">{m.code || '—'}</span>
-                        </Table.Cell>
-                        <Table.Cell className="!px-2.5 !py-1.5"><span className="truncate font-mono text-kumo-subtle" title={m.mailbox}>{m.mailbox}</span></Table.Cell>
-                        <Table.Cell className="!px-2.5 !py-1.5">
-                          <div className="truncate text-kumo-strong" title={m.subject}>{m.subject || '—'}</div>
-                          <div className="truncate font-mono text-kumo-subtle" title={m.sender}>{m.sender || ''}</div>
-                        </Table.Cell>
-                        <Table.Cell className="!px-2 !py-1.5 whitespace-nowrap text-kumo-subtle">{formatDate(m.receivedAt) || '—'}</Table.Cell>
-                        <Table.Cell className="!px-2 !py-1.5 text-center">
-                          <div className="flex flex-col items-center gap-0.5">
-                            {m.extractStatus === 'ok'
-                              ? <Badge variant="success" className="text-xs">已提取</Badge>
-                              : m.extractStatus === 'ambiguous'
-                                ? <Badge variant="warning" className="text-xs">多候选</Badge>
-                                : <Badge variant="secondary" className="text-xs">无验证码</Badge>}
-                            {m.consumedAt ? <span className="text-[10px] text-kumo-subtle" title={`取用方 ${m.consumedBy || ''}`}>已被取用</span> : null}
-                          </div>
-                        </Table.Cell>
-                        <Table.Cell className="!px-2 !py-1.5 text-center">
-                          <div className="flex items-center justify-center gap-1">
-                            <Button size="sm" shape="square" variant="secondary" disabled={busy} onClick={() => openDetail(m)} aria-label="查看正文" title="查看正文"><Eye className="h-3 w-3" /></Button>
-                            <Button size="sm" shape="square" variant="secondary" disabled={busy} onClick={() => consumeMessage(m)} aria-label="标记已取用" title="标记已取用"><Copy className="h-3 w-3" /></Button>
-                            <Button size="sm" shape="square" variant={isArmed(`email-msg:${m.id}`) ? 'destructive' : 'secondary-destructive'} disabled={busy} onClick={() => deleteMessage(m)} aria-label="删除邮件" title="删除"><Trash className="h-3 w-3" /></Button>
-                          </div>
-                        </Table.Cell>
-                      </Table.Row>
-                    ))}
-                  </Table.Body>
-                </AppTable>
-              </div>
-            ) : (
-              <div className="p-4">
-                <EmptyState card={false} title="收件箱为空" description="该域名收到的验证码邮件会显示在这里。" />
-              </div>
-            )}
-          </SectionCard>
-        ) : null}
       </div>
 
+      {/* 右列:仅收件箱(全域名汇总),吸顶全高、列表内部滚动 */}
+      <section className="flex min-w-0 flex-col gap-2 cq-lg:sticky cq-lg:top-[132px] cq-lg:h-[calc(100dvh-144px)]">
+        <SectionCard
+          title="收件箱"
+          icon={<Inbox className="h-4 w-4 text-brand" />}
+          bodyPadding="none"
+          className="min-h-0 cq-lg:flex-1"
+          bodyClassName="min-h-0 cq-lg:flex-1"
+          actions={
+            <div className="flex items-center gap-2">
+              <span className="flex items-center gap-1 text-xs text-kumo-subtle" title="邮件保存时间:超期邮件会在保存时与每小时清理时删除">
+                保留
+                <Input
+                  size="sm"
+                  type="number"
+                  min="1"
+                  max={MAX_RETENTION_DAYS}
+                  step="1"
+                  className="w-16"
+                  aria-label="邮件保留天数"
+                  value={retentionDays}
+                  disabled={retentionSaving}
+                  onChange={e => setRetentionDays(Number(e.target.value))}
+                  onBlur={saveRetention}
+                  onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); e.currentTarget.blur(); } }}
+                />
+                天
+              </span>
+              <Button size="sm" variant="outline" disabled={busy} onClick={() => loadMessages()} title="刷新收件箱" icon={<RefreshCw className="h-3.5 w-3.5" />}>刷新</Button>
+              <Button
+                size="sm"
+                variant={isArmed('email-clear') ? 'destructive' : 'secondary-destructive'}
+                disabled={busy}
+                onClick={clearInbox}
+                title="清理已取用的邮件（未取用的会保留）"
+                icon={<Trash className="h-3.5 w-3.5" />}
+              >
+                清理
+              </Button>
+            </div>
+          }
+        >
+          {messages.length ? (
+            <div className="min-h-0 min-w-0 flex-1 overflow-auto overscroll-contain scrollbar-thin">
+              <AppTable tableId="email-messages" className="w-full min-w-[32rem] text-xs">
+                <colgroup>
+                  <col />
+                  <col />
+                  <col style={{ width: 160 }} />
+                </colgroup>
+                <Table.Header variant="compact">
+                  <Table.Row className="h-8">
+                    <Table.Head className="!px-2.5 !py-1.5">收件人</Table.Head>
+                    <Table.Head className="!px-2.5 !py-1.5">主题 / 发件人</Table.Head>
+                    <Table.Head className="!px-2 !py-1.5">收件时间</Table.Head>
+                  </Table.Row>
+                </Table.Header>
+                <Table.Body>
+                  {messages.map(m => (
+                    <ContextMenu.Root key={m.id}>
+                      <ContextMenu.Trigger
+                        render={
+                          <Table.Row
+                            className="h-10 cursor-pointer"
+                            tabIndex={0}
+                            onClick={() => openDetail(m)}
+                            onKeyDown={event => {
+                              if (event.key === 'Enter' || event.key === ' ') {
+                                event.preventDefault();
+                                openDetail(m);
+                              }
+                            }}
+                          />
+                        }
+                      >
+                        <Table.Cell className="!px-2.5 !py-1.5"><span className="block max-w-[18rem] truncate font-mono text-sm text-kumo-strong" title={m.mailbox}>{m.mailbox}</span></Table.Cell>
+                        <Table.Cell className="!px-2.5 !py-1.5">
+                          <div className="max-w-[32rem] truncate text-kumo-strong" title={m.subject}>{m.subject || '—'}</div>
+                          <div className="max-w-[32rem] truncate font-mono text-kumo-subtle" title={m.sender}>{m.sender || ''}</div>
+                        </Table.Cell>
+                        <Table.Cell className="!px-2 !py-1.5 whitespace-nowrap text-kumo-subtle">{formatDate(m.receivedAt) || '—'}</Table.Cell>
+                      </ContextMenu.Trigger>
+                      <ContextMenu.Portal>
+                        <ContextMenu.Positioner sideOffset={6}>
+                          <ContextMenu.Popup className="z-50 min-w-40 overflow-hidden rounded-lg border border-kumo-line bg-kumo-control p-1.5 text-kumo-default outline-none">
+                            <ContextMenu.Item
+                              className="relative flex cursor-default items-center gap-2 rounded-md px-2 py-1.5 text-sm outline-hidden select-none data-highlighted:bg-kumo-overlay"
+                              onClick={event => { event.stopPropagation(); openDetail(m); }}
+                            >
+                              查看正文
+                            </ContextMenu.Item>
+                            <ContextMenu.Item
+                              className="relative flex cursor-default items-center gap-2 rounded-md px-2 py-1.5 text-sm outline-hidden select-none data-highlighted:bg-kumo-overlay"
+                              onClick={event => { event.stopPropagation(); deleteMessage(m); }}
+                            >
+                              删除
+                            </ContextMenu.Item>
+                          </ContextMenu.Popup>
+                        </ContextMenu.Positioner>
+                      </ContextMenu.Portal>
+                    </ContextMenu.Root>
+                  ))}
+                </Table.Body>
+              </AppTable>
+            </div>
+          ) : (
+            <div className="p-4">
+              <EmptyState card={false} title="收件箱为空" description="各域名收到的邮件都汇总在这里(与左侧选中的域名无关),点击行查看正文。" />
+            </div>
+          )}
+        </SectionCard>
+      </section>
+
       <LayerDialog.Root open={!!detail} onOpenChange={open => { if (!open) setDetail(null); }}>
-        <LayerDialog.Content size="lg">
+        <LayerDialog.Content size="xl">
           <LayerDialog.Title>{detail?.subject || '邮件详情'}</LayerDialog.Title>
           <LayerDialog.Description>
             <span className="font-mono">{detail?.sender || ''}</span>
             {detail?.receivedAt ? <span className="ml-2">{formatDate(detail.receivedAt)}</span> : null}
           </LayerDialog.Description>
           <LayerDialog.Body>
-            <div className="flex flex-col gap-3">
-              <div className="flex flex-wrap items-center gap-2 text-xs text-kumo-subtle">
-                <span className="font-mono">收件人 {detail?.mailbox || '—'}</span>
-                {detail?.code ? <Badge variant="success" className="text-xs">验证码 {detail.code}</Badge> : null}
-                {detail?.link ? (
-                  <a className="truncate text-brand hover:underline" href={detail.link} target="_blank" rel="noreferrer">{detail.link}</a>
-                ) : null}
+            {/* w-0 min-w-full:让内容按弹窗宽度铺满,而不是被正文内容撑开/压缩
+                (与「部署 Agent」弹窗同款修复,见 ServerModals.jsx)。 */}
+            <div className="flex w-0 min-w-full flex-col gap-3 text-xs text-kumo-default">
+              <div className="flex min-w-0 flex-wrap items-center gap-2 text-xs text-kumo-subtle">
+                <span className="truncate font-mono">收件人 {detail?.mailbox || '—'}</span>
               </div>
-              <div className="whitespace-pre-wrap break-words rounded border border-kumo-line p-3 font-mono text-xs leading-relaxed text-kumo-strong">
+              <div className="min-w-0 whitespace-pre-wrap break-words rounded border border-kumo-line p-3 font-mono text-xs leading-relaxed text-kumo-strong">
                 {detail?.textBody || '（无正文）'}
               </div>
             </div>

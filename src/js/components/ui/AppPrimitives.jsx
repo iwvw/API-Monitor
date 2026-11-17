@@ -17,6 +17,9 @@ export const pageToolbarClass =
   'flex min-w-0 flex-col items-stretch gap-3 border-b border-kumo-line pb-3 cq-sm:flex-row cq-sm:flex-wrap cq-sm:items-center cq-sm:justify-between [&>*]:min-w-0';
 export const stickyTabsBaseClass =
   'sticky top-0 z-30 flex min-h-(--app-header-height) items-center bg-[var(--app-main-surface)] px-[var(--app-tab-gutter-x)] -mx-[var(--app-canvas-gutter-x)]';
+// 顶栏(面包屑)自身吸顶的页面用这个:Tab 行吸在顶栏下沿,而不是压在面包屑上。
+export const stickyTabsBelowHeaderClass =
+  'sticky top-(--app-header-height) z-20 flex min-h-(--app-header-height) items-center bg-[var(--app-main-surface)] px-[var(--app-tab-gutter-x)] -mx-[var(--app-canvas-gutter-x)]';
 export const sectionCardHeaderClass =
   'flex min-h-[52px] items-center justify-between gap-3 border-b border-kumo-line bg-kumo-recessed px-4 py-2.5 cq-sm:min-h-[56px] cq-sm:flex-row cq-sm:flex-wrap cq-sm:items-center cq-sm:py-3.5';
 export const sectionCardTitleClass =
