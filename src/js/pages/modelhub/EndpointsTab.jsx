@@ -32,7 +32,6 @@ import { EndpointRoutingEditor } from './EndpointRoutingEditor.jsx';
 import { toast } from '../../modules/toast.js';
 import {
   MobileCard,
-  MobileCardActions,
   MobileCardEmpty,
   MobileCardList,
   MobileCardSkeleton,
@@ -461,6 +460,61 @@ export function EndpointsTab({
                           </div>
                         )}
                       </div>
+                      <div className="flex shrink-0 items-center gap-1">
+                        <Button
+                          shape="square"
+                          size="sm"
+                          variant={canStopHealthCheck ? 'secondary-destructive' : 'secondary'}
+                          aria-label={
+                            canStopHealthCheck ? `停止检测 ${modelId}` : `检测 ${modelId}`
+                          }
+                          onClick={() => testModelHealth({ id: modelId }, endpoint.id)}
+                          disabled={modelHealthBatchLoading}
+                          title={
+                            health?.error ||
+                            (canStopHealthCheck
+                              ? '停止检测'
+                              : health?.loading
+                                ? '检测中'
+                                : '检测模型')
+                          }
+                          icon={
+                            health?.loading ? (
+                              <Loader size="sm" />
+                            ) : (
+                              <Activity className="h-3.5 w-3.5" />
+                            )
+                          }
+                        />
+                        <Button
+                          shape="square"
+                          size="sm"
+                          variant="secondary"
+                          aria-label={`复制 ${modelId}`}
+                          onClick={() => {
+                            navigator.clipboard.writeText(modelId);
+                            toast.success('已复制模型名称');
+                          }}
+                          title="复制模型名称"
+                          icon={<Copy className="h-3.5 w-3.5" />}
+                        />
+                      </div>
+                    </div>
+                    <div className="mt-2 flex min-w-0 items-center gap-1.5 text-[11px] leading-normal">
+                      <span className="shrink-0 text-kumo-subtle">映射</span>
+                      <div className="min-w-0 flex-1">
+                        <MappingValue
+                          endpoint={endpoint}
+                          modelId={modelId}
+                          idleText="未设置"
+                          tapToEdit
+                          mappingEditKey={mappingEditKey}
+                          mappingDraft={mappingDraft}
+                          setMappingDraft={setMappingDraft}
+                          setMappingEditKey={setMappingEditKey}
+                          saveEndpointMapping={saveEndpointMapping}
+                        />
+                      </div>
                       <div className="shrink-0">
                         {health?.status !== 'healthy' && health?.status !== 'degraded' ? (
                           <StatusBadge tone={healthTone}>{healthLabel}</StatusBadge>
@@ -479,61 +533,6 @@ export function EndpointsTab({
                         )}
                       </div>
                     </div>
-                    <div className="mt-2 flex min-w-0 items-center gap-1.5 text-[11px] leading-normal">
-                      <span className="shrink-0 text-kumo-subtle">映射</span>
-                      <div className="min-w-0 flex-1">
-                        <MappingValue
-                          endpoint={endpoint}
-                          modelId={modelId}
-                          idleText="未设置"
-                          tapToEdit
-                          mappingEditKey={mappingEditKey}
-                          mappingDraft={mappingDraft}
-                          setMappingDraft={setMappingDraft}
-                          setMappingEditKey={setMappingEditKey}
-                          saveEndpointMapping={saveEndpointMapping}
-                        />
-                      </div>
-                    </div>
-                    <MobileCardActions>
-                      <Button
-                        shape="square"
-                        size="sm"
-                        variant={canStopHealthCheck ? 'secondary-destructive' : 'secondary'}
-                        aria-label={
-                          canStopHealthCheck ? `停止检测 ${modelId}` : `检测 ${modelId}`
-                        }
-                        onClick={() => testModelHealth({ id: modelId }, endpoint.id)}
-                        disabled={modelHealthBatchLoading}
-                        title={
-                          health?.error ||
-                          (canStopHealthCheck
-                            ? '停止检测'
-                            : health?.loading
-                              ? '检测中'
-                              : '检测模型')
-                        }
-                        icon={
-                          health?.loading ? (
-                            <Loader size="sm" />
-                          ) : (
-                            <Activity className="h-3.5 w-3.5" />
-                          )
-                        }
-                      />
-                      <Button
-                        shape="square"
-                        size="sm"
-                        variant="secondary"
-                        aria-label={`复制 ${modelId}`}
-                        onClick={() => {
-                          navigator.clipboard.writeText(modelId);
-                          toast.success('已复制模型名称');
-                        }}
-                        title="复制模型名称"
-                        icon={<Copy className="h-3.5 w-3.5" />}
-                      />
-                    </MobileCardActions>
                   </MobileCard>
                 );
               };
