@@ -557,7 +557,7 @@ export function EndpointsTab({
                     <MobileCardList>
                       {endpoints.map(renderEndpointCard)}
                     </MobileCardList>
-                    <LayerCard className="hidden min-h-64 min-w-0 flex-1 flex-col overflow-hidden p-0 shadow-none cq-md:flex">
+                    <LayerCard className="hidden min-h-64 min-h-0 min-w-0 flex-1 flex-col overflow-hidden p-0 shadow-none cq-md:flex">
                       <div className="min-h-0 min-w-0 flex-1 overflow-auto overscroll-x-contain scrollbar-thin">
                         <AppTable tableId="endpoints-list" columns={ENDPOINT_LIST_COLUMNS} className="w-full min-w-[420px] text-xs">
                           <Table.Header sticky variant="compact">
@@ -851,7 +851,7 @@ export function EndpointsTab({
                         <MobileCardEmpty>暂无模型数据,可刷新端点获取</MobileCardEmpty>
                       )}
                     </MobileCardList>
-                    <LayerCard className="hidden min-h-64 min-w-0 flex-1 flex-col overflow-hidden p-0 shadow-none cq-md:flex">
+                    <LayerCard className="hidden min-h-64 min-h-0 min-w-0 flex-1 flex-col overflow-hidden p-0 shadow-none cq-md:flex">
                       <div className="min-h-0 min-w-0 flex-1 overflow-auto overscroll-x-contain scrollbar-thin">
                         <AppTable tableId="endpoint-models" columns={ENDPOINT_MODEL_COLUMNS} className="min-w-[820px] text-xs">
                           <Table.Header sticky variant="compact">
