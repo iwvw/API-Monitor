@@ -1,10 +1,8 @@
-import { useState } from 'react';
 import { Button } from '@cloudflare/kumo/components/button';
 import { Input } from '@cloudflare/kumo/components/input';
 import { Switch } from '@cloudflare/kumo/components/switch';
 import { SkeletonLine } from '@cloudflare/kumo/components/loader';
 import { ClipboardText, LayerCard, Loader, Popover, Table, Badge } from '@cloudflare/kumo';
-import { LayerDialog } from '@cloudflare/kumo/components/layer-dialog';
 import {
   AppCard,
   AppTable,
@@ -141,89 +139,6 @@ function MappingValue({
   );
 }
 
-function DetailRow({ label, children }) {
-  return (
-    <div className="flex min-w-0 items-center justify-between gap-3">
-      <span className="shrink-0 text-kumo-subtle">{label}</span>
-      <span className="min-w-0 truncate text-right text-kumo-strong">{children}</span>
-    </div>
-  );
-}
-
-function ModelDetailDialog({
-  modelId,
-  endpoint,
-  health,
-  onClose,
-  mappingEditKey,
-  mappingDraft,
-  setMappingDraft,
-  setMappingEditKey,
-  saveEndpointMapping,
-}) {
-  const modelName = modelId ? endpoint?.modelNames?.[modelId] : '';
-  const mappedName = modelId ? endpoint?.modelMappings?.[modelId] : '';
-  const { tone, label } = healthMeta(health);
-  const healthy = health?.status === 'healthy' || health?.status === 'degraded';
-  return (
-    <LayerDialog.Root open={!!modelId} onOpenChange={open => !open && onClose()}>
-      <LayerDialog.Content size="md">
-        <LayerDialog.Title>模型详情</LayerDialog.Title>
-        <LayerDialog.Description>
-          {mappedName || modelName || modelId || ''}
-        </LayerDialog.Description>
-        <LayerDialog.Body>
-          {modelId && endpoint && (
-            <div className="flex flex-col gap-3 text-xs">
-              <div className="grid gap-1.5">
-                <DetailRow label="上游模型">
-                  <span className="font-mono">{modelId}</span>
-                </DetailRow>
-                {modelName && modelName !== modelId && (
-                  <DetailRow label="上游名称">{modelName}</DetailRow>
-                )}
-                <DetailRow label="健康状态">
-                  {healthy ? (
-                    <span
-                      className={
-                        health.status === 'healthy' ? 'text-kumo-success' : 'text-kumo-warning'
-                      }
-                    >
-                      {label}
-                      {health?.latency != null ? ` · ${health.latency} ms` : ''}
-                    </span>
-                  ) : (
-                    <StatusBadge tone={tone}>{label}</StatusBadge>
-                  )}
-                </DetailRow>
-              </div>
-              <div className="flex flex-col gap-1.5">
-                <span className="text-kumo-subtle">对外映射</span>
-                <MappingValue
-                  endpoint={endpoint}
-                  modelId={modelId}
-                  idleText="未设置"
-                  tapToEdit
-                  mappingEditKey={mappingEditKey}
-                  mappingDraft={mappingDraft}
-                  setMappingDraft={setMappingDraft}
-                  setMappingEditKey={setMappingEditKey}
-                  saveEndpointMapping={saveEndpointMapping}
-                />
-              </div>
-              {health?.error && <p className="break-all text-kumo-danger">{health.error}</p>}
-            </div>
-          )}
-        </LayerDialog.Body>
-        <LayerDialog.Actions dismissLabel="关闭">
-          <LayerDialog.Action type="button" onClick={onClose}>
-            关闭
-          </LayerDialog.Action>
-        </LayerDialog.Actions>
-      </LayerDialog.Content>
-    </LayerDialog.Root>
-  );
-}
 
 function copyTextHelper(value, label = '内容') {
   const text = String(value || '').trim();
@@ -310,8 +225,6 @@ export function EndpointsTab({
     openHealthCheckForEndpoint,
   } = healthApi;
   const { defaultGatewayKey } = keysApi;
-
-  const [detailModelId, setDetailModelId] = useState(null);
 
   return (
         <div className="flex min-h-0 flex-1 flex-col gap-2.5">
@@ -522,7 +435,6 @@ export function EndpointsTab({
                 const mappedName = endpoint.modelMappings?.[modelId];
                 const displayName = mappedName || modelName || modelId;
                 const enabled = modelEnabledForEndpoint(endpoint, modelId);
-                const openDetail = () => setDetailModelId(modelId);
                 return (
                   <MobileCard key={`mobile:${endpoint.id}:${modelId}`}>
                     <div className="flex min-w-0 items-start gap-2">
@@ -535,41 +447,12 @@ export function EndpointsTab({
                           disabled={!!modelSwitchLoading[`${endpoint.id}:${modelId}`]}
                         />
                       </div>
-                      <div
-                        className="min-w-0 flex-1 cursor-pointer"
-                        role="button"
-                        tabIndex={0}
-                        aria-label={`查看 ${displayName} 详情`}
-                        onClick={openDetail}
-                        onKeyDown={event => {
-                          if (event.key === 'Enter' || event.key === ' ') {
-                            event.preventDefault();
-                            openDetail();
-                          }
-                        }}
-                      >
+                      <div className="min-w-0 flex-1">
                         <div
                           className="truncate text-sm font-medium leading-5 text-kumo-strong"
                           title={displayName}
                         >
                           {displayName}
-                        </div>
-                        <div className="mt-0.5 flex min-w-0 items-center gap-1.5 text-[11px] leading-normal">
-                          {health?.status !== 'healthy' && health?.status !== 'degraded' ? (
-                            <StatusBadge tone={healthTone}>{healthLabel}</StatusBadge>
-                          ) : (
-                            health?.latency != null && (
-                              <span
-                                className={`font-mono font-semibold ${
-                                  health?.status === 'healthy'
-                                    ? 'text-kumo-success'
-                                    : 'text-kumo-warning'
-                                }`}
-                              >
-                                {health.latency} ms
-                              </span>
-                            )
-                          )}
                         </div>
                       </div>
                       <div className="flex shrink-0 items-center gap-1">
@@ -610,6 +493,39 @@ export function EndpointsTab({
                           title="复制模型名称"
                           icon={<Copy className="h-3.5 w-3.5" />}
                         />
+                      </div>
+                    </div>
+                    <div className="mt-2 flex min-w-0 items-center gap-1.5 border-t border-kumo-line pt-2 text-[11px] leading-normal">
+                      <span className="shrink-0 text-kumo-subtle">映射</span>
+                      <div className="min-w-0 flex-1">
+                        <MappingValue
+                          endpoint={endpoint}
+                          modelId={modelId}
+                          idleText="未设置"
+                          tapToEdit
+                          mappingEditKey={mappingEditKey}
+                          mappingDraft={mappingDraft}
+                          setMappingDraft={setMappingDraft}
+                          setMappingEditKey={setMappingEditKey}
+                          saveEndpointMapping={saveEndpointMapping}
+                        />
+                      </div>
+                      <div className="shrink-0">
+                        {health?.status !== 'healthy' && health?.status !== 'degraded' ? (
+                          <StatusBadge tone={healthTone}>{healthLabel}</StatusBadge>
+                        ) : (
+                          health?.latency != null && (
+                            <span
+                              className={`font-mono text-xs font-semibold ${
+                                health?.status === 'healthy'
+                                  ? 'text-kumo-success'
+                                  : 'text-kumo-warning'
+                              }`}
+                            >
+                              {health.latency} ms
+                            </span>
+                          )
+                        )}
                       </div>
                     </div>
                   </MobileCard>
@@ -1167,21 +1083,6 @@ export function EndpointsTab({
               );
             })()
           )}
-          <ModelDetailDialog
-            modelId={detailModelId}
-            endpoint={selectedEndpoint}
-            health={
-              detailModelId && selectedEndpoint
-                ? modelhubModelHealth[modelHealthKey(selectedEndpoint.id, detailModelId)]
-                : null
-            }
-            onClose={() => setDetailModelId(null)}
-            mappingEditKey={mappingEditKey}
-            mappingDraft={mappingDraft}
-            setMappingDraft={setMappingDraft}
-            setMappingEditKey={setMappingEditKey}
-            saveEndpointMapping={saveEndpointMapping}
-          />
         </div>
   );
 }
