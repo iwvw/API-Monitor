@@ -162,6 +162,8 @@ RUN test -f /app/dist/index.html && test -d /app/dist/assets
 
 # 2. 从 go-builder 复制 Go 后端二进制文件
 COPY --from=go-builder --chown=appuser:appuser /app/backend-go/api-monitor /app/
+# 兜底可执行位:CI 复用 artifact 时权限位可能丢失(0644),ENTRYPOINT 会失败。
+RUN chmod +x /app/api-monitor
 
 # Agent 二进制:INCLUDE_AGENTS=true 时来自 agents 阶段,否则是空目录(走远端直链)。
 COPY --from=agents --chown=appuser:appuser /out/ /app/dist/agent/

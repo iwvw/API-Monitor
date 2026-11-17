@@ -260,7 +260,10 @@ jobs:
 
       - name: Verify prebuilt backend binary
         run: |
-          ls -lh backend-go/api-monitor
+          # upload-artifact 不保留可执行位,下载回来是 0644,必须补 chmod,
+          # 否则镜像里 ENTRYPOINT 无法执行。
+          chmod +x backend-go/api-monitor
+          ls -l backend-go/api-monitor
           test -x backend-go/api-monitor
 
       - name: Verify prebuilt frontend dist
