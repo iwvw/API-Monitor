@@ -95,10 +95,12 @@ export const ModelTrendChart = memo(function ModelTrendChart({ labels, series, i
         tooltip: {
           trigger: 'axis',
           confine: true,
+          enterable: true,
           traceHigh: true,
           // 挂到 body：LayerCard 自带 overflow-hidden，悬浮框默认渲染在图表
           // 容器内会被卡片裁剪遮挡。confine 保证长列表也不会溢出视口右侧被裁。
           appendTo: 'body',
+          extraCssText: 'max-height: 240px; overflow-y: auto; overscroll-behavior: contain;',
           backgroundColor: kumoHex('--color-kumo-base'),
           textStyle: { color: axisColor, fontSize: 11 },
           valueFormatter: tokensMetric
