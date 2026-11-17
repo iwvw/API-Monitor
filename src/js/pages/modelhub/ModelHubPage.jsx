@@ -605,8 +605,7 @@ function ModelHubPage() {
               label: (
                 <span className="inline-flex items-center gap-1.5">
                   <Server className="w-3.5 h-3.5" />
-                  <span className="cq-sm:hidden">端点</span>
-                  <span className="hidden cq-sm:inline">API 端点</span>
+                  端点
                 </span>
               ),
             },
@@ -615,8 +614,7 @@ function ModelHubPage() {
               label: (
                 <span className="inline-flex items-center gap-1.5">
                   <Key className="w-3.5 h-3.5" />
-                  <span className="cq-sm:hidden">密钥</span>
-                  <span className="hidden cq-sm:inline">API 密钥</span>
+                  密钥
                 </span>
               ),
             },
