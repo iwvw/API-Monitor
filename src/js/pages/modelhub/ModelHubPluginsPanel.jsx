@@ -86,7 +86,7 @@ export function ModelHubPluginsPanel() {
                 role="button"
                 tabIndex={0}
                 className={cx(
-                  'group flex shrink-0 cursor-pointer items-center gap-3 rounded-lg border px-3 py-2.5',
+                  'group flex shrink-0 cursor-pointer items-center gap-2.5 rounded-lg border px-2.5 py-2 cq-sm:gap-3 cq-sm:px-3 cq-sm:py-2.5',
                   isActive
                     ? 'border-brand/60 bg-kumo-brand/10'
                     : 'border-kumo-line bg-kumo-base hover:border-brand/60',
@@ -114,7 +114,7 @@ export function ModelHubPluginsPanel() {
                       {plugin.name}
                     </span>
                   </div>
-                  <p className="mt-0.5 line-clamp-2 text-xs leading-relaxed text-kumo-subtle">{plugin.description}</p>
+                  <p className="mt-0.5 hidden line-clamp-2 text-xs leading-relaxed text-kumo-subtle cq-sm:block">{plugin.description}</p>
                 </div>
               </div>
             );

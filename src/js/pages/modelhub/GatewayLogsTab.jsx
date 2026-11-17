@@ -17,6 +17,14 @@ import {
 } from './utils.js';
 import { FailoverPathBadge } from './FailoverPathBadge.jsx';
 import { IpCell } from './IpCell.jsx';
+import {
+  MobileCard,
+  MobileCardEmpty,
+  MobileCardField,
+  MobileCardFields,
+  MobileCardList,
+  MobileCardSkeleton,
+} from './MobileTableCards.jsx';
 
 const GATEWAY_LOG_COLUMNS = [
   { id: 'time', role: 'datetime', align: 'left' },
@@ -57,13 +65,97 @@ export function GatewayLogsTab({ analytics, endpoints }) {
     [endpoints]
   );
 
+  const renderLogCard = log => {
+    const detail = costDetailsFor(log, endpoints);
+    const actionable = log.statusCode >= 400 && log.errorResponse;
+    const cachePercent =
+      log.promptTokens > 0 ? ((Number(log.cachedTokens) / Number(log.promptTokens)) * 100).toFixed(1) : '0.0';
+    return (
+      <MobileCard
+        key={log.id}
+        clickable={actionable}
+        onClick={
+          actionable
+            ? () => {
+                setLogDetailExpanded(false);
+                setLogDetail(log);
+              }
+            : undefined
+        }
+      >
+        <div className="flex items-start justify-between gap-2">
+          <div className="flex min-w-0 flex-1 items-center gap-1.5">
+            <StatusBadge tone={statusCodeTone(log.statusCode)}>{log.statusCode}</StatusBadge>
+            {log.statusCode === 503 && (
+              <StatusBadge tone="warning" title="网关无可用渠道">
+                无
+              </StatusBadge>
+            )}
+            <span className="min-w-0 truncate font-semibold text-kumo-strong">
+              <FailoverPathBadge path={log.failoverPath} endpointName={log.endpointName} />
+            </span>
+          </div>
+          <span className="shrink-0 font-mono text-[10px] leading-normal text-kumo-subtle">
+            {formatDateTime(log.timestamp)}
+          </span>
+        </div>
+        <div className="mt-1 flex min-w-0 items-center gap-1.5 text-[11px] leading-normal">
+          <span
+            className={`min-w-0 truncate font-mono ${actionable ? 'text-kumo-danger' : 'text-kumo-strong'}`}
+            title={actionable ? '点击查看报错详情' : log.model}
+          >
+            {log.model}
+          </span>
+          {log.realModel && log.realModel !== log.model && (
+            <span className="min-w-0 truncate font-mono text-kumo-info" title={`实际模型 ${log.realModel}`}>
+              → {log.realModel}
+            </span>
+          )}
+          {typeof log.keyIndex === 'number' && log.keyIndex >= 0 && (
+            <StatusBadge tone="info" title="使用的 API Key 序号(0=主 key)">
+              K{log.keyIndex + 1}
+            </StatusBadge>
+          )}
+        </div>
+        <MobileCardFields>
+          <MobileCardField label="耗时">{(log.latencyMs / 1000).toFixed(1)}s</MobileCardField>
+          <MobileCardField label="首字">
+            {log.ttfbMs > 0 ? `${(log.ttfbMs / 1000).toFixed(1)}s` : '—'}
+          </MobileCardField>
+          <MobileCardField label="输入/输出">
+            {log.promptTokens} / {log.completionTokens}
+          </MobileCardField>
+          <MobileCardField label="缓存">
+            {log.cachedTokens} ({cachePercent}%)
+          </MobileCardField>
+          <MobileCardField label="总消耗">
+            {detail ? formatCostAmount(detail.cost, detail.currency) : log.totalTokens}
+          </MobileCardField>
+          <MobileCardField label="输出速度">{logOutputSpeedText(log) || '—'}</MobileCardField>
+          <MobileCardField label="出口 IP">
+            <IpCell value={log.upstreamIp} viaProxy={log.viaProxy} />
+          </MobileCardField>
+          <MobileCardField label="客户端 IP">
+            <IpCell value={log.clientIp} v6EdgeOnly />
+          </MobileCardField>
+        </MobileCardFields>
+        <div className="mt-1.5 flex items-center justify-between gap-2">
+          <StatusBadge tone={log.stream ? 'info' : 'warning'}>
+            {log.stream ? '流式' : '非流式'}
+          </StatusBadge>
+          {actionable && <span className="text-[10px] leading-normal text-kumo-danger">点击查看报错详情</span>}
+        </div>
+      </MobileCard>
+    );
+  };
+
   return (
         <div className="flex w-full min-w-0 flex-col gap-3">
           {/* 日志筛选区：状态 / 模型 / 端点，均即时生效 */}
-          <div className="flex shrink-0 flex-wrap items-center gap-2">
+          <div className="grid shrink-0 grid-cols-2 gap-2 cq-sm:flex cq-sm:flex-wrap cq-sm:items-center">
             <Select alignItemWithTrigger
               size="sm"
-              className="w-28"
+              className="w-full cq-sm:w-28"
               value={logStatusFilter || undefined}
               onValueChange={value => {
                 setLogStatusFilter(value || '');
@@ -88,7 +180,7 @@ export function GatewayLogsTab({ analytics, endpoints }) {
               }}
             >
               <Combobox.TriggerInput
-                className="w-52"
+                className="w-full cq-sm:w-52"
                 placeholder="按模型筛选"
                 aria-label="按模型筛选"
                 spellCheck={false}
@@ -114,7 +206,7 @@ export function GatewayLogsTab({ analytics, endpoints }) {
               }}
             >
               <Combobox.TriggerInput
-                className="w-52"
+                className="w-full cq-sm:w-52"
                 placeholder="端点名称或 ID"
                 aria-label="按端点筛选"
                 spellCheck={false}
@@ -134,6 +226,7 @@ export function GatewayLogsTab({ analytics, endpoints }) {
               <Button
                 size="sm"
                 variant="ghost"
+                className="col-span-2 justify-self-start cq-sm:col-auto"
                 onClick={() => {
                   setLogStatusFilter('');
                   setLogModelFilter('');
@@ -149,11 +242,11 @@ export function GatewayLogsTab({ analytics, endpoints }) {
           {/* 表格视口高度：日志 tab 单独做行内部滚动，外层限高让表头吸顶、行在
               容器内滚动（桌面端）。偏移量 = 顶栏 58 + 吸顶 tab 栏 58 + PageStack
               间距 16 + 筛选行 28（sm 控件 h-7）+ 卡片间距 12 + 底部 gutter 12 =
-              184。该硬编码按桌面单行筛选估算；移动端筛选区 flex-wrap 会换行成
+              184。该硬编码按桌面单行筛选估算；移动端筛选区按两列网格排布、会占
               多行，184 偏移不再可靠，故移动端（max-sm）改用自然高度跟随整页
               滚动、分页在内容下方，符合「移动端整页滚动」约定。 */}
           <LayerCard className="flex h-[calc(100dvh-184px)] min-h-64 w-full min-w-0 flex-col overflow-hidden p-0 shadow-none max-sm:h-auto max-sm:min-h-0">
-            <div className="min-h-0 min-w-0 flex-1 overflow-auto scrollbar-thin">
+            <div className="hidden min-h-0 min-w-0 flex-1 overflow-auto scrollbar-thin cq-md:block">
               <AppTable tableId="gateway-logs" columns={GATEWAY_LOG_COLUMNS} className="min-w-[1362px] [&_td]:!px-2 [&_td]:!py-2 [&_th]:!px-2 [&_th]:!py-2">
                 <Table.Header sticky variant="compact">
                   <Table.Row>
@@ -473,6 +566,19 @@ export function GatewayLogsTab({ analytics, endpoints }) {
                 </Table.Body>
               </AppTable>
             </div>
+
+            <MobileCardList className="min-h-0 overflow-y-auto p-2">
+              {analyticsLoading && analyticsLogs.length === 0 ? (
+                <>
+                  <MobileCardSkeleton rows={4} />
+                  <MobileCardSkeleton rows={4} />
+                </>
+              ) : analyticsLogs.length === 0 ? (
+                <MobileCardEmpty>暂无网关日志记录</MobileCardEmpty>
+              ) : (
+                analyticsLogs.map(renderLogCard)
+              )}
+            </MobileCardList>
 
             {analyticsTotal > 0 && (
               <Pagination

@@ -475,7 +475,7 @@ export function AnalyticsTab({ analytics, isDarkMode, trendSeries, byModelTrend 
               <LayerCard key={card.key} className="min-w-0 p-0">
                 <LayerCard.Secondary className={sectionCardHeaderClass}>
                   {toggleTabs ? (
-                    <div className="flex w-full items-center justify-between gap-2">
+                    <div className="flex w-full flex-wrap items-center justify-between gap-x-2 gap-y-1">
                       <span>{card.title}</span>
                       {toggleTabs}
                     </div>
@@ -510,7 +510,7 @@ export function AnalyticsTab({ analytics, isDarkMode, trendSeries, byModelTrend 
             <div className="grid">
             <LayerCard className="min-w-0 p-0">
               <LayerCard.Secondary className={sectionCardHeaderClass}>
-                <div className="flex w-full items-center justify-between gap-2">
+                <div className="flex w-full flex-wrap items-center justify-between gap-x-2 gap-y-1">
                   <span>模型调用趋势</span>
                   <div className="flex flex-wrap items-center justify-end gap-2">
                     {modelTrendMetric === 'tokens' && (
@@ -575,7 +575,7 @@ export function AnalyticsTab({ analytics, isDarkMode, trendSeries, byModelTrend 
             <div className="grid items-start gap-3 cq-xl:grid-cols-2">
             <LayerCard className="min-w-0 p-0">
               <LayerCard.Secondary className={sectionCardHeaderClass}>
-                <div className="flex w-full items-center justify-between gap-2">
+                <div className="flex w-full flex-wrap items-center justify-between gap-x-2 gap-y-1">
                   <span>模型词元分布</span>
                   <Tabs
                     variant="segmented"
@@ -625,7 +625,7 @@ export function AnalyticsTab({ analytics, isDarkMode, trendSeries, byModelTrend 
                               style={{ animationDelay: `${Math.min(index * 40, 400)}ms` }}
                             >
                               <span
-                                className="w-40 shrink-0 truncate font-medium text-kumo-strong"
+                                className="w-24 shrink-0 truncate font-medium text-kumo-strong cq-sm:w-40"
                                 title={model.model}
                               >
                                 {model.model}
@@ -639,7 +639,7 @@ export function AnalyticsTab({ analytics, isDarkMode, trendSeries, byModelTrend 
                                   }}
                                 />
                               </div>
-                              <span className="w-16 shrink-0 text-right font-mono text-[11px] text-kumo-subtle">
+                              <span className="w-14 shrink-0 text-right font-mono text-[11px] text-kumo-subtle cq-sm:w-16">
                                 {formatTokensZh(tokens)}
                               </span>
                               <span className="w-11 shrink-0 text-right font-mono text-[10px] text-kumo-subtle">
@@ -658,7 +658,7 @@ export function AnalyticsTab({ analytics, isDarkMode, trendSeries, byModelTrend 
 
             <LayerCard className="min-w-0 p-0">
               <LayerCard.Secondary className={sectionCardHeaderClass}>
-                <div className="flex w-full items-center justify-between gap-2">
+                <div className="flex w-full flex-wrap items-center justify-between gap-x-2 gap-y-1">
                   <span>模型调用次数</span>
                   <Tabs
                     variant="segmented"
@@ -708,7 +708,7 @@ export function AnalyticsTab({ analytics, isDarkMode, trendSeries, byModelTrend 
                               style={{ animationDelay: `${Math.min(index * 40, 400)}ms` }}
                             >
                               <span
-                                className="w-40 shrink-0 truncate font-medium text-kumo-strong"
+                                className="w-24 shrink-0 truncate font-medium text-kumo-strong cq-sm:w-40"
                                 title={model.model}
                               >
                                 {model.model}
@@ -722,7 +722,7 @@ export function AnalyticsTab({ analytics, isDarkMode, trendSeries, byModelTrend 
                                   }}
                                 />
                               </div>
-                              <span className="w-14 shrink-0 text-right font-mono text-[11px] text-kumo-subtle">
+                              <span className="w-12 shrink-0 text-right font-mono text-[11px] text-kumo-subtle cq-sm:w-14">
                                 {formatCompact(count, 0)}
                               </span>
                               <span className="w-11 shrink-0 text-right font-mono text-[10px] text-kumo-subtle">

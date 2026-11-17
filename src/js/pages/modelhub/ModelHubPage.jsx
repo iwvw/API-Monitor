@@ -595,7 +595,8 @@ function ModelHubPage() {
               label: (
                 <span className="inline-flex items-center gap-1.5">
                   <Activity className="w-3.5 h-3.5" />
-                  数据看板
+                  <span className="cq-sm:hidden">看板</span>
+                  <span className="hidden cq-sm:inline">数据看板</span>
                 </span>
               ),
             },
@@ -604,7 +605,8 @@ function ModelHubPage() {
               label: (
                 <span className="inline-flex items-center gap-1.5">
                   <Server className="w-3.5 h-3.5" />
-                  API 端点
+                  <span className="cq-sm:hidden">端点</span>
+                  <span className="hidden cq-sm:inline">API 端点</span>
                 </span>
               ),
             },
@@ -613,7 +615,8 @@ function ModelHubPage() {
               label: (
                 <span className="inline-flex items-center gap-1.5">
                   <Key className="w-3.5 h-3.5" />
-                  API 密钥
+                  <span className="cq-sm:hidden">密钥</span>
+                  <span className="hidden cq-sm:inline">API 密钥</span>
                 </span>
               ),
             },
@@ -622,7 +625,8 @@ function ModelHubPage() {
               label: (
                 <span className="inline-flex items-center gap-1.5">
                   <History className="w-3.5 h-3.5" />
-                  网关日志
+                  <span className="cq-sm:hidden">日志</span>
+                  <span className="hidden cq-sm:inline">网关日志</span>
                 </span>
               ),
             },

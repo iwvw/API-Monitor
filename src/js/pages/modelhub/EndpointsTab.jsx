@@ -29,6 +29,15 @@ import { ProxyRuntimeMeta } from './ProxyRuntimeMeta.jsx';
 import { MultiSelectPopover } from './MultiSelectPopover.jsx';
 import { KeyStatusBadge } from './KeyStatusBadge.jsx';
 import { toast } from '../../modules/toast.js';
+import {
+  MobileCard,
+  MobileCardActions,
+  MobileCardEmpty,
+  MobileCardField,
+  MobileCardFields,
+  MobileCardList,
+  MobileCardSkeleton,
+} from './MobileTableCards.jsx';
 
 const ENDPOINT_LIST_COLUMNS = [
   { id: 'endpoint', role: 'primary', minWidth: 200, grow: 1 },
@@ -44,6 +53,156 @@ const ENDPOINT_MODEL_COLUMNS = [
   { id: 'health', role: 'status' },
   { id: 'actions', role: 'actions-md' },
 ];
+
+function healthMeta(health) {
+  const tone = health?.loading
+    ? 'info'
+    : health?.status === 'healthy'
+      ? 'success'
+      : health?.status === 'degraded'
+        ? 'warning'
+        : health?.status === 'error'
+          ? 'danger'
+          : 'neutral';
+  const label = health?.loading
+    ? '检测中'
+    : health?.status === 'healthy'
+      ? '可用'
+      : health?.status === 'degraded'
+        ? '较慢'
+        : health?.status === 'error'
+          ? '失败'
+          : health?.status === 'cancelled'
+            ? '已停止'
+            : '未检测';
+  return { tone, label };
+}
+
+function RoutingValue({
+  item,
+  field,
+  min,
+  max,
+  displayValue,
+  emptyValue,
+  hint,
+  tapToEdit = false,
+  routingEditKey,
+  routingDraft,
+  setRoutingDraft,
+  setRoutingEditKey,
+  saveEndpointRouting,
+}) {
+  const editKey = `${item.id}:${field}`;
+  const commit = () =>
+    saveEndpointRouting(item.id, field, Number(routingDraft) || emptyValue);
+
+  if (routingEditKey === editKey) {
+    return (
+      <Input
+        autoFocus
+        size="sm"
+        type="number"
+        min={min}
+        max={max}
+        aria-label={hint}
+        value={routingDraft}
+        onChange={event => setRoutingDraft(event.target.value)}
+        onKeyDown={event => {
+          event.stopPropagation();
+          if (event.key === 'Enter') {
+            commit();
+          } else if (event.key === 'Escape') {
+            setRoutingEditKey(null);
+          }
+        }}
+        onBlur={() => {
+          if (routingEditKey === editKey) commit();
+        }}
+        className="h-6 w-12 text-center font-mono text-[11px]"
+      />
+    );
+  }
+
+  const startEdit = event => {
+    event.stopPropagation();
+    setRoutingDraft(String(item[field] ?? displayValue));
+    setRoutingEditKey(editKey);
+  };
+
+  return (
+    <span
+      className="block cursor-text font-mono text-[11px] text-kumo-strong"
+      title={hint}
+      onClick={tapToEdit ? startEdit : undefined}
+      onDoubleClick={startEdit}
+    >
+      {item[field] ?? displayValue}
+    </span>
+  );
+}
+
+function MappingValue({
+  endpoint,
+  modelId,
+  idleText = '双击设置',
+  tapToEdit = false,
+  mappingEditKey,
+  mappingDraft,
+  setMappingDraft,
+  setMappingEditKey,
+  saveEndpointMapping,
+}) {
+  const editKey = `${endpoint.id}:${modelId}`;
+
+  if (mappingEditKey === editKey) {
+    return (
+      <Input
+        autoFocus
+        size="sm"
+        value={mappingDraft}
+        aria-label="模型对外映射名称"
+        onChange={event => setMappingDraft(event.target.value)}
+        onKeyDown={event => {
+          event.stopPropagation();
+          if (event.key === 'Enter') {
+            saveEndpointMapping(endpoint, modelId, mappingDraft);
+          } else if (event.key === 'Escape') {
+            setMappingEditKey(null);
+          }
+        }}
+        onBlur={() => {
+          if (mappingEditKey === editKey) {
+            saveEndpointMapping(endpoint, modelId, mappingDraft);
+          }
+        }}
+        className="w-full font-mono text-[10px]"
+        placeholder="对外名称"
+      />
+    );
+  }
+
+  const startEdit = event => {
+    event.stopPropagation();
+    setMappingDraft(endpoint.modelMappings?.[modelId] || '');
+    setMappingEditKey(editKey);
+  };
+
+  return (
+    <span
+      className="block cursor-text truncate font-mono text-[10px]"
+      title="双击编辑对外映射名称"
+      onClick={tapToEdit ? startEdit : undefined}
+      onDoubleClick={startEdit}
+    >
+      {endpoint.modelMappings?.[modelId] ? (
+        <span className="text-base text-brand">{endpoint.modelMappings[modelId]}</span>
+      ) : (
+        <span className="text-kumo-subtle">{idleText}</span>
+      )}
+    </span>
+  );
+}
 
 function copyTextHelper(value, label = '内容') {
   const text = String(value || '').trim();
@@ -142,7 +301,7 @@ export function EndpointsTab({
             onChange={importEndpointsFromFile}
           />
           <div className="flex flex-col gap-2 cq-sm:flex-row cq-sm:items-center cq-sm:justify-between">
-<div className="flex min-w-0 items-center gap-2">
+<div className="flex min-w-0 flex-col gap-2 cq-tight:flex-row cq-tight:items-center">
               <ClipboardText
                 size="sm"
                 text={`${gatewayOrigin}/v1`}
@@ -228,6 +387,228 @@ export function EndpointsTab({
                 ? endpoint.disabledModels.length
                 : 0;
 
+              const renderBatchSwitch = () => (
+                <Switch
+                  size="sm"
+                  aria-label={
+                    disabledModelCount > 0
+                      ? `启用 ${disabledModelCount} 个被停用的模型`
+                      : '关闭所有非有效模型(检测有效的保留)'
+                  }
+                  checked={disabledModelCount === 0}
+                  onCheckedChange={checked => {
+                    if (checked) {
+                      batchEnableDisabledModels(endpoint);
+                    } else {
+                      batchCloseNonHealthyModels(endpoint);
+                    }
+                  }}
+                  disabled={modelBatchActionLoading || modelHealthBatchLoading}
+                />
+              );
+
+              const renderEndpointCard = item => (
+                <MobileCard
+                  key={item.id}
+                  selected={item.id === endpoint.id}
+                  clickable
+                  onClick={() => setSelectedEndpointId(item.id)}
+                >
+                  <div className="flex min-w-0 items-start gap-2">
+                    <span
+                      className="inline-flex w-7 shrink-0 items-center justify-center rounded border-2 border-kumo-line/70 font-mono text-xs font-semibold leading-5 tabular-nums text-brand"
+                      title="启用模型数"
+                    >
+                      {activeModelIdsForEndpoint(item).length}
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex min-w-0 items-center gap-1.5">
+                        {item.pluginId && (
+                          <span
+                            className="shrink-0 rounded border-2 border-kumo-line/70 px-1 text-[10px] font-semibold leading-5 text-brand"
+                            title="由插件注册"
+                          >
+                            插件
+                          </span>
+                        )}
+                        <span
+                          className="truncate text-sm font-semibold leading-5 text-kumo-strong"
+                          title={item.name}
+                        >
+                          {item.name || '未命名端点'}
+                        </span>
+                      </div>
+                      <div
+                        className="truncate font-mono text-[10px] leading-4 text-kumo-subtle"
+                        title={item.baseUrl}
+                      >
+                        {item.baseUrl}
+                      </div>
+                    </div>
+                    <div className="shrink-0" onClick={event => event.stopPropagation()}>
+                      <Switch
+                        size="sm"
+                        aria-label={item.enabled ? '停用端点' : '启用端点'}
+                        checked={item.enabled}
+                        onCheckedChange={() => toggleEndpointEnabled(item)}
+                        disabled={!!endpointToggleLoading[item.id]}
+                      />
+                    </div>
+                  </div>
+                  <MobileCardFields>
+                    <MobileCardField label="优先">
+                      <RoutingValue
+                        item={item}
+                        field="priority"
+                        min={0}
+                        max={999}
+                        displayValue={0}
+                        emptyValue={0}
+                        hint="点击编辑路由优先级(值越大越优先)"
+                        tapToEdit
+                        routingEditKey={routingEditKey}
+                        routingDraft={routingDraft}
+                        setRoutingDraft={setRoutingDraft}
+                        setRoutingEditKey={setRoutingEditKey}
+                        saveEndpointRouting={saveEndpointRouting}
+                      />
+                    </MobileCardField>
+                    <MobileCardField label="权重">
+                      <RoutingValue
+                        item={item}
+                        field="weight"
+                        min={1}
+                        max={9999}
+                        displayValue={100}
+                        emptyValue={1}
+                        hint="点击编辑加权因子(值越大被选中概率越高)"
+                        tapToEdit
+                        routingEditKey={routingEditKey}
+                        routingDraft={routingDraft}
+                        setRoutingDraft={setRoutingDraft}
+                        setRoutingEditKey={setRoutingEditKey}
+                        saveEndpointRouting={saveEndpointRouting}
+                      />
+                    </MobileCardField>
+                  </MobileCardFields>
+                </MobileCard>
+              );
+
+              const renderModelCard = model => {
+                const modelId =
+                  typeof model === 'string' ? model.trim() : (model.id || '').trim();
+                const healthKey = modelHealthKey(endpoint.id, modelId);
+                const health = modelhubModelHealth[healthKey];
+                const canStopHealthCheck =
+                  health?.loading && modelHealthAbortControllersRef.current.has(healthKey);
+                const { tone: healthTone, label: healthLabel } = healthMeta(health);
+                const modelName = endpoint.modelNames?.[modelId];
+                const enabled = modelEnabledForEndpoint(endpoint, modelId);
+                return (
+                  <MobileCard key={`mobile:${endpoint.id}:${modelId}`}>
+                    <div className="flex min-w-0 items-start gap-2">
+                      <div className="pt-0.5" onClick={event => event.stopPropagation()}>
+                        <Switch
+                          size="sm"
+                          aria-label={enabled ? `停用 ${modelId}` : `启用 ${modelId}`}
+                          checked={enabled}
+                          onCheckedChange={value => toggleModelEnabled(endpoint, modelId, value)}
+                          disabled={!!modelSwitchLoading[`${endpoint.id}:${modelId}`]}
+                        />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div
+                          className="truncate text-sm font-medium leading-5 text-kumo-strong"
+                          title={modelName ? `${modelName}(${modelId})` : modelId}
+                        >
+                          {modelName || modelId}
+                        </div>
+                        {modelName && (
+                          <div
+                            className="truncate font-mono text-[10px] leading-4 text-kumo-subtle"
+                            title={modelId}
+                          >
+                            {modelId}
+                          </div>
+                        )}
+                      </div>
+                      <div className="shrink-0">
+                        {health?.status !== 'healthy' && health?.status !== 'degraded' ? (
+                          <StatusBadge tone={healthTone}>{healthLabel}</StatusBadge>
+                        ) : (
+                          health?.latency != null && (
+                            <span
+                              className={`font-mono text-xs font-semibold ${
+                                health?.status === 'healthy'
+                                  ? 'text-kumo-success'
+                                  : 'text-kumo-warning'
+                              }`}
+                            >
+                              {health.latency} ms
+                            </span>
+                          )
+                        )}
+                      </div>
+                    </div>
+                    <div className="mt-2 flex min-w-0 items-center gap-1.5 text-[11px] leading-normal">
+                      <span className="shrink-0 text-kumo-subtle">映射</span>
+                      <div className="min-w-0 flex-1">
+                        <MappingValue
+                          endpoint={endpoint}
+                          modelId={modelId}
+                          idleText="未设置"
+                          tapToEdit
+                          mappingEditKey={mappingEditKey}
+                          mappingDraft={mappingDraft}
+                          setMappingDraft={setMappingDraft}
+                          setMappingEditKey={setMappingEditKey}
+                          saveEndpointMapping={saveEndpointMapping}
+                        />
+                      </div>
+                    </div>
+                    <MobileCardActions>
+                      <Button
+                        shape="square"
+                        size="sm"
+                        variant={canStopHealthCheck ? 'secondary-destructive' : 'secondary'}
+                        aria-label={
+                          canStopHealthCheck ? `停止检测 ${modelId}` : `检测 ${modelId}`
+                        }
+                        onClick={() => testModelHealth({ id: modelId }, endpoint.id)}
+                        disabled={modelHealthBatchLoading}
+                        title={
+                          health?.error ||
+                          (canStopHealthCheck
+                            ? '停止检测'
+                            : health?.loading
+                              ? '检测中'
+                              : '检测模型')
+                        }
+                        icon={
+                          health?.loading ? (
+                            <Loader size="sm" />
+                          ) : (
+                            <Activity className="h-3.5 w-3.5" />
+                          )
+                        }
+                      />
+                      <Button
+                        shape="square"
+                        size="sm"
+                        variant="secondary"
+                        aria-label={`复制 ${modelId}`}
+                        onClick={() => {
+                          navigator.clipboard.writeText(modelId);
+                          toast.success('已复制模型名称');
+                        }}
+                        title="复制模型名称"
+                        icon={<Copy className="h-3.5 w-3.5" />}
+                      />
+                    </MobileCardActions>
+                  </MobileCard>
+                );
+              };
+
               return (
                 <div className="grid min-w-0 gap-3 cq-lg:grid-cols-[fit-content(28rem)_minmax(0,1fr)] cq-lg:grid-rows-[minmax(0,calc(100dvh-11.25rem))]">
                   <section className="flex min-h-0 min-w-0 flex-col gap-2">
@@ -250,7 +631,10 @@ export function EndpointsTab({
                         </Button>
                       </div>
                     </div>
-                    <LayerCard className="min-h-64 flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden p-0 shadow-none">
+                    <MobileCardList>
+                      {endpoints.map(renderEndpointCard)}
+                    </MobileCardList>
+                    <LayerCard className="hidden min-h-64 min-w-0 flex-1 flex-col overflow-hidden p-0 shadow-none cq-md:flex">
                       <div className="min-h-0 min-w-0 flex-1 overflow-auto overscroll-x-contain scrollbar-thin">
                         <AppTable tableId="endpoints-list" columns={ENDPOINT_LIST_COLUMNS} className="w-full min-w-[420px] text-xs">
                           <Table.Header sticky variant="compact">
@@ -526,7 +910,25 @@ export function EndpointsTab({
                       </div>
                     </div>
 
-                    <LayerCard className="min-h-64 flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden p-0 shadow-none">
+                    <div className="flex items-center justify-between gap-2 px-1 cq-md:hidden">
+                      <span className="min-w-0 truncate text-xs leading-normal text-kumo-subtle">
+                        {endpoint.models?.length || 0} 个模型 · 已启用 {activeModelIdsForEndpoint(endpoint).length}
+                      </span>
+                      <div className="flex shrink-0 items-center gap-1.5">
+                        <span className="text-[11px] leading-normal text-kumo-subtle">
+                          {disabledModelCount > 0 ? '启用全部' : '关闭非有效'}
+                        </span>
+                        {renderBatchSwitch()}
+                      </div>
+                    </div>
+                    <MobileCardList>
+                      {endpoint.models && endpoint.models.length > 0 ? (
+                        endpoint.models.map(renderModelCard)
+                      ) : (
+                        <MobileCardEmpty>暂无模型数据,可刷新端点获取</MobileCardEmpty>
+                      )}
+                    </MobileCardList>
+                    <LayerCard className="hidden min-h-64 min-w-0 flex-1 flex-col overflow-hidden p-0 shadow-none cq-md:flex">
                       <div className="min-h-0 min-w-0 flex-1 overflow-auto overscroll-x-contain scrollbar-thin">
                         <AppTable tableId="endpoint-models" columns={ENDPOINT_MODEL_COLUMNS} className="min-w-[820px] text-xs">
                           <Table.Header sticky variant="compact">
@@ -541,25 +943,7 @@ export function EndpointsTab({
                                       : '关闭所有非有效模型（检测有效的保留）'
                                   }
                                 >
-                                  <Switch
-                                    size="sm"
-                                    aria-label={
-                                      disabledModelCount > 0
-                                        ? `启用 ${disabledModelCount} 个被停用的模型`
-                                        : '关闭所有非有效模型（检测有效的保留）'
-                                    }
-                                    checked={disabledModelCount === 0}
-                                    onCheckedChange={checked => {
-                                      if (checked) {
-                                        // 从关→开：启用全部被停用的模型
-                                        batchEnableDisabledModels(endpoint);
-                                      } else {
-                                        // 从开→关：关闭所有非有效模型
-                                        batchCloseNonHealthyModels(endpoint);
-                                      }
-                                    }}
-                                    disabled={modelBatchActionLoading || modelHealthBatchLoading}
-                                  />
+                                  {renderBatchSwitch()}
                                 </div>
                               </Table.Head>
                               <Table.Head className="!px-2.5 !py-1.5">模型</Table.Head>
