@@ -779,6 +779,13 @@ return (
           {/* 顶部 Logo */}
           <Sidebar.Header className="h-[58px]! shrink-0 overflow-hidden px-3! transition-[padding] duration-250 ease-[cubic-bezier(0.4,0,0.2,1)] group-data-[state=collapsed]/sidebar:px-2!">
             <SidebarBrand onHome={navigateHome} />
+            {/* 移动端抽屉展开后会覆盖顶栏的汉堡按钮(点击落在抽屉上,表现为「折叠按钮无效」),
+                因此在抽屉内提供显式关闭入口;lg:hidden 与 Kumo 的 1024px 移动断点一致。 */}
+            <Sidebar.Close
+              className="ml-auto shrink-0 lg:hidden"
+              aria-label="收起侧边栏"
+              title="收起侧边栏"
+            />
           </Sidebar.Header>
 
           {/* 导航栏项 */}
