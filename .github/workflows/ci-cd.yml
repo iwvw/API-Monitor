@@ -265,7 +265,9 @@ jobs:
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
             maintainer=iwvw
           cache-from: type=gha,scope=${{ matrix.platform }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.platform }}
+          # mode=min:只导出最终镜像层。mode=max 会连中间 stage 一起导出,
+          # 实测 export 阶段要 ~99s,而本镜像的中间层几乎每轮都因源码变化失效。
+          cache-to: type=gha,mode=min,ignore-error=true,scope=${{ matrix.platform }}
           build-args: |
             NODE_ENV=production
             INCLUDE_AGENTS=false
