@@ -12,6 +12,14 @@ import { toast } from '../../modules/toast.js';
 import { formatDate } from './utils.jsx';
 import { LayerDialog } from '@cloudflare/kumo/components/layer-dialog';
 import { ContextMenu } from '@cloudflare/kumo/primitives/context-menu';
+import {
+  MobileCard,
+  MobileCardActions,
+  MobileCardEmpty,
+  MobileCardField,
+  MobileCardFields,
+  MobileCardList,
+} from '../../components/ui/MobileTableCards.jsx';
 
 // emailcode 收件箱接口不在 /api/cloudflare 前缀下，直接走原生 fetch。
 const emailcodeApi = async (path, options = {}) => {
@@ -286,7 +294,21 @@ function EmailRoutingPanel({ selectedAccountId, cfApi }) {
     <div className="grid min-w-0 items-start gap-3 grid-cols-1 cq-lg:grid-cols-[minmax(0,30rem)_minmax(0,1fr)]">
       {/* 左列:域名 / 目的地地址 / 邮件路由 / 路由规则,随页面自由滚动 */}
       <div className="flex min-w-0 flex-col gap-2 cq-lg:self-start">
-        <div className="dns-table-frame flex max-w-full">
+        <MobileCardList>
+          {zones.length === 0 ? (
+            <MobileCardEmpty>该账号下暂无域名。</MobileCardEmpty>
+          ) : zones.map(z => (
+            <MobileCard key={z.id} selected={z.id === zoneId} clickable onClick={() => setZoneId(z.id)}>
+              <div className="flex min-w-0 items-center gap-2">
+                <span className="min-w-0 flex-1 truncate font-semibold text-kumo-strong" title={z.name}>{z.name}</span>
+                {z.enabled
+                  ? <Badge variant="success" className="shrink-0 text-[10px] leading-4">已启用</Badge>
+                  : <Badge variant="secondary" className="shrink-0 text-[10px] leading-4">未启用</Badge>}
+              </div>
+            </MobileCard>
+          ))}
+        </MobileCardList>
+        <div className="dns-table-frame hidden max-w-full cq-md:flex">
           <div className="dns-table-scroll scrollbar-thin">
             <AppTable tableId="email-zones" columns={EMAIL_ZONE_COLUMNS} className="w-full min-w-[15rem] text-xs">
               <Table.Header sticky variant="compact">
@@ -348,7 +370,25 @@ function EmailRoutingPanel({ selectedAccountId, cfApi }) {
             </Button>
           </div>
           {addrLoading || addresses.length ? (
-          <div className="min-w-0 overflow-x-auto overscroll-x-contain scrollbar-thin">
+          <>
+          <MobileCardList className="p-2">
+            {addrLoading ? (
+              <MobileCard><SkeletonLine className="h-4 w-40" /></MobileCard>
+            ) : addresses.map(a => (
+              <MobileCard key={a.id}>
+                <div className="flex min-w-0 items-center gap-2">
+                  <span className="min-w-0 flex-1 truncate font-mono text-sm text-kumo-strong" title={a.email}>{a.email}</span>
+                  {a.verified
+                    ? <Badge variant="success" className="shrink-0 text-xs">已验证</Badge>
+                    : <Badge variant="warning" className="shrink-0 text-xs">待验证</Badge>}
+                </div>
+                <MobileCardActions>
+                  <Button size="sm" variant={isArmed(`email-addr:${a.id}`) ? 'destructive' : 'secondary-destructive'} disabled={busy} onClick={() => deleteAddress(a)} aria-label={`删除 ${a.email}`} title="删除" icon={<Trash className="h-3.5 w-3.5" />}>删除</Button>
+                </MobileCardActions>
+              </MobileCard>
+            ))}
+          </MobileCardList>
+          <div className="hidden min-w-0 overflow-x-auto overscroll-x-contain scrollbar-thin cq-md:block">
             <AppTable tableId="email-addresses" columns={EMAIL_ADDRESS_COLUMNS} className="w-full min-w-[17rem] text-xs">
               <Table.Header variant="compact">
                 <Table.Row className="h-8">
@@ -378,6 +418,7 @@ function EmailRoutingPanel({ selectedAccountId, cfApi }) {
               </Table.Body>
             </AppTable>
           </div>
+          </>
         ) : (
           <div className="p-4">
             <EmptyState card={false} title="暂无地址" description="先添加一个转发目标邮箱，再到 Cloudflare 后台完成验证。" />
@@ -421,7 +462,31 @@ function EmailRoutingPanel({ selectedAccountId, cfApi }) {
 
         <SectionCard title="路由规则" icon={<GitBranch className="h-4 w-4 text-brand" />} bodyPadding="none">
           {loading || rules.length ? (
-            <div className="min-w-0 overflow-x-auto overscroll-x-contain scrollbar-thin">
+            <>
+            <MobileCardList className="p-2">
+              {loading ? (
+                <MobileCard><SkeletonLine className="h-4 w-40" /></MobileCard>
+              ) : rules.map(ru => (
+                <MobileCard key={ru.id}>
+                  <div className="flex min-w-0 items-start gap-2">
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate text-sm text-kumo-strong" title={ru.matcher}>{ru.matcher}</div>
+                      {ru.matcherValue ? <div className="truncate font-mono text-[11px] text-kumo-subtle" title={ru.matcherValue}>{ru.matcherValue}</div> : null}
+                    </div>
+                    {ru.enabled
+                      ? <Badge variant="success" className="shrink-0 text-xs">开启</Badge>
+                      : <Badge variant="secondary" className="shrink-0 text-xs">关闭</Badge>}
+                  </div>
+                  <MobileCardFields>
+                    <MobileCardField label="动作">{ru.actions?.join(';') || '—'}</MobileCardField>
+                  </MobileCardFields>
+                  <MobileCardActions>
+                    <Button size="sm" variant={isArmed(`email-rule:${ru.id}`) ? 'destructive' : 'secondary-destructive'} disabled={busy} onClick={() => deleteRule(ru)} aria-label={`删除规则 ${ru.matcher}`} title="删除" icon={<Trash className="h-3.5 w-3.5" />}>删除</Button>
+                  </MobileCardActions>
+                </MobileCard>
+              ))}
+            </MobileCardList>
+            <div className="hidden min-w-0 overflow-x-auto overscroll-x-contain scrollbar-thin cq-md:block">
               <AppTable tableId="email-rules" className="w-full min-w-[26rem] text-xs">
                 <colgroup>
                   <col />
@@ -460,6 +525,7 @@ function EmailRoutingPanel({ selectedAccountId, cfApi }) {
                 </Table.Body>
               </AppTable>
             </div>
+            </>
           ) : (
             <div className="p-4">
               <EmptyState card={false} title="暂无规则" description="部署收件箱 Worker 会自动把 catch-all 指向它，此处可查看规则。" />
@@ -513,6 +579,26 @@ function EmailRoutingPanel({ selectedAccountId, cfApi }) {
         >
           {messages.length ? (
             <div className="min-h-0 min-w-0 flex-1 overflow-auto overscroll-contain scrollbar-thin">
+              {/* 移动端没有右键:卡片上直接给「查看 / 删除」按钮。 */}
+              <MobileCardList className="p-2">
+                {messages.map(m => (
+                  <MobileCard key={m.id} clickable onClick={() => openDetail(m)}>
+                    <div className="flex min-w-0 items-start gap-2">
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate text-sm font-medium text-kumo-strong" title={m.subject}>{m.subject || '—'}</div>
+                        <div className="truncate font-mono text-[11px] text-kumo-subtle" title={m.mailbox}>{m.mailbox}</div>
+                      </div>
+                      <span className="shrink-0 text-[11px] text-kumo-subtle">{formatDate(m.receivedAt) || '—'}</span>
+                    </div>
+                    {m.sender ? <div className="mt-0.5 truncate font-mono text-[11px] text-kumo-subtle" title={m.sender}>{m.sender}</div> : null}
+                    <MobileCardActions>
+                      <Button size="sm" variant="secondary" onClick={event => { event.stopPropagation(); openDetail(m); }}>查看正文</Button>
+                      <Button size="sm" variant={isArmed(`email-msg:${m.id}`) ? 'destructive' : 'secondary-destructive'} onClick={event => { event.stopPropagation(); deleteMessage(m); }} aria-label="删除邮件" title="删除" icon={<Trash className="h-3.5 w-3.5" />}>删除</Button>
+                    </MobileCardActions>
+                  </MobileCard>
+                ))}
+              </MobileCardList>
+              <div className="hidden cq-md:block">
               <AppTable tableId="email-messages" className="w-full min-w-[32rem] text-xs">
                 <colgroup>
                   <col />
@@ -573,6 +659,7 @@ function EmailRoutingPanel({ selectedAccountId, cfApi }) {
                   ))}
                 </Table.Body>
               </AppTable>
+              </div>
             </div>
           ) : (
             <div className="p-4">

@@ -35,7 +35,7 @@ import {
   MobileCardEmpty,
   MobileCardList,
   MobileCardSkeleton,
-} from './MobileTableCards.jsx';
+} from '../../components/ui/MobileTableCards.jsx';
 
 const ENDPOINT_LIST_COLUMNS = [
   { id: 'endpoint', role: 'primary', minWidth: 200, grow: 1 },

@@ -22,7 +22,7 @@ import {
   MobileCardEmpty,
   MobileCardList,
   MobileCardSkeleton,
-} from './MobileTableCards.jsx';
+} from '../../components/ui/MobileTableCards.jsx';
 import { MobileLogDetailDialog } from './MobileLogDetailDialog.jsx';
 
 const GATEWAY_LOG_COLUMNS = [

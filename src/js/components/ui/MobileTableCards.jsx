@@ -1,5 +1,5 @@
 import { SkeletonLine } from '@cloudflare/kumo/components/loader';
-import { cx } from '../../components/ui/AppPrimitives.jsx';
+import { cx } from './AppPrimitives.jsx';
 
 export function MobileCardList({ className = '', children }) {
   return <div className={cx('flex min-w-0 flex-col gap-2 cq-md:hidden', className)}>{children}</div>;

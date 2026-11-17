@@ -13,7 +13,7 @@ import {
   MobileCardFields,
   MobileCardList,
   MobileCardSkeleton,
-} from './MobileTableCards.jsx';
+} from '../../components/ui/MobileTableCards.jsx';
 
 const GATEWAY_KEY_COLUMNS = [
   { id: 'name', role: 'primary', minWidth: 180, grow: 1 },
