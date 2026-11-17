@@ -28,6 +28,7 @@ import { modelHealthKey } from '../../modules/modelhubModelHealth.js';
 import { ProxyRuntimeMeta } from './ProxyRuntimeMeta.jsx';
 import { MultiSelectPopover } from './MultiSelectPopover.jsx';
 import { KeyStatusBadge } from './KeyStatusBadge.jsx';
+import { EndpointRoutingEditor } from './EndpointRoutingEditor.jsx';
 import { toast } from '../../modules/toast.js';
 import {
   MobileCard,
@@ -350,7 +351,7 @@ export function EndpointsTab({
                   onClick={() => setSelectedEndpointId(item.id)}
                 >
                   <div className="flex min-w-0 items-stretch gap-2.5">
-                    <div className="flex min-w-0 flex-1 flex-col justify-between gap-2">
+                    <div className="flex min-w-0 flex-1 flex-col">
                       <div className="flex min-w-0 items-start gap-2">
                         <span
                           className="inline-flex w-7 shrink-0 items-center justify-center rounded border-2 border-kumo-line/70 font-mono text-xs font-semibold leading-5 tabular-nums text-brand"
@@ -383,28 +384,8 @@ export function EndpointsTab({
                           </div>
                         </div>
                       </div>
-                      <div className="flex min-w-0 items-center gap-1.5" onClick={event => event.stopPropagation()}>
-                        <Switch
-                          size="sm"
-                          aria-label={item.enabled ? '停用端点' : '启用端点'}
-                          checked={item.enabled}
-                          onCheckedChange={() => toggleEndpointEnabled(item)}
-                          disabled={!!endpointToggleLoading[item.id]}
-                        />
-                        <Button
-                          size="sm"
-                          variant="secondary"
-                          icon={<Edit className="h-3.5 w-3.5" />}
-                          onClick={() => openEditEndpointModal(item)}
-                          aria-label={`编辑端点 ${item.name || item.baseUrl}`}
-                          title="编辑端点"
-                          className="h-7 px-2 text-[11px]"
-                        >
-                          编辑端点
-                        </Button>
-                      </div>
                     </div>
-                    <div className="flex shrink-0 flex-col items-start justify-center gap-1 border-l border-kumo-line pl-2.5 text-[11px] leading-normal">
+                    <div className="flex shrink-0 flex-col items-start justify-start gap-1 text-[11px] leading-normal">
                       <span className="flex items-center gap-1">
                         <span className="text-kumo-subtle">优先</span>
                         <span className="font-mono text-kumo-strong">{item.priority ?? 0}</span>
@@ -414,6 +395,30 @@ export function EndpointsTab({
                         <span className="font-mono text-kumo-strong">{item.weight ?? 100}</span>
                       </span>
                     </div>
+                  </div>
+                  <div
+                    className="mt-2 flex min-w-0 flex-wrap items-center gap-1.5 border-t border-kumo-line pt-2"
+                    onClick={event => event.stopPropagation()}
+                  >
+                    <Switch
+                      size="sm"
+                      aria-label={item.enabled ? '停用端点' : '启用端点'}
+                      checked={item.enabled}
+                      onCheckedChange={() => toggleEndpointEnabled(item)}
+                      disabled={!!endpointToggleLoading[item.id]}
+                    />
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      icon={<Edit className="h-3.5 w-3.5" />}
+                      onClick={() => openEditEndpointModal(item)}
+                      aria-label={`编辑端点 ${item.name || item.baseUrl}`}
+                      title="编辑端点"
+                      className="h-7 px-2 text-[11px]"
+                    >
+                      编辑端点
+                    </Button>
+                    <EndpointRoutingEditor item={item} onSave={saveEndpointRouting} />
                   </div>
                 </MobileCard>
               );
