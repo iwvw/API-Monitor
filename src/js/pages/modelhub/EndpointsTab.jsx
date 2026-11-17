@@ -33,8 +33,6 @@ import {
   MobileCard,
   MobileCardActions,
   MobileCardEmpty,
-  MobileCardField,
-  MobileCardFields,
   MobileCardList,
   MobileCardSkeleton,
 } from './MobileTableCards.jsx';
@@ -119,7 +117,8 @@ function RoutingValue({
         onBlur={() => {
           if (routingEditKey === editKey) commit();
         }}
-        className="h-6 w-12 text-center font-mono text-[11px]"
+        onClick={event => event.stopPropagation()}
+        className="h-6 w-12 shrink-0 text-center font-mono text-[11px]"
       />
     );
   }
@@ -132,7 +131,7 @@ function RoutingValue({
 
   return (
     <span
-      className="block cursor-text font-mono text-[11px] text-kumo-strong"
+      className="inline-flex h-6 w-12 shrink-0 cursor-text items-center justify-end font-mono text-[11px] leading-normal text-kumo-strong"
       title={hint}
       onClick={tapToEdit ? startEdit : undefined}
       onDoubleClick={startEdit}
@@ -455,8 +454,10 @@ export function EndpointsTab({
                       />
                     </div>
                   </div>
-                  <MobileCardFields>
-                    <MobileCardField label="优先">
+                  <div className="mt-2 flex items-center justify-between gap-2">
+                    <span className="shrink-0 text-[11px] leading-normal text-kumo-subtle">路由</span>
+                    <div className="flex shrink-0 items-center gap-1.5 text-[11px] leading-normal">
+                      <span className="text-kumo-subtle">优先</span>
                       <RoutingValue
                         item={item}
                         field="priority"
@@ -472,8 +473,7 @@ export function EndpointsTab({
                         setRoutingEditKey={setRoutingEditKey}
                         saveEndpointRouting={saveEndpointRouting}
                       />
-                    </MobileCardField>
-                    <MobileCardField label="权重">
+                      <span className="ml-1 text-kumo-subtle">权重</span>
                       <RoutingValue
                         item={item}
                         field="weight"
@@ -489,8 +489,8 @@ export function EndpointsTab({
                         setRoutingEditKey={setRoutingEditKey}
                         saveEndpointRouting={saveEndpointRouting}
                       />
-                    </MobileCardField>
-                  </MobileCardFields>
+                    </div>
+                  </div>
                 </MobileCard>
               );
 
