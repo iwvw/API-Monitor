@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { Button } from '@cloudflare/kumo/components/button';
 import { Combobox } from '@cloudflare/kumo/components/combobox';
 import { Select } from '@cloudflare/kumo/components/select';
@@ -20,11 +20,10 @@ import { IpCell } from './IpCell.jsx';
 import {
   MobileCard,
   MobileCardEmpty,
-  MobileCardField,
-  MobileCardFields,
   MobileCardList,
   MobileCardSkeleton,
 } from './MobileTableCards.jsx';
+import { MobileLogDetailDialog } from './MobileLogDetailDialog.jsx';
 
 const GATEWAY_LOG_COLUMNS = [
   { id: 'time', role: 'datetime', align: 'left' },
@@ -65,23 +64,25 @@ export function GatewayLogsTab({ analytics, endpoints }) {
     [endpoints]
   );
 
+  const [logDetailCard, setLogDetailCard] = useState(null);
+
   const renderLogCard = log => {
     const detail = costDetailsFor(log, endpoints);
     const actionable = log.statusCode >= 400 && log.errorResponse;
-    const cachePercent =
-      log.promptTokens > 0 ? ((Number(log.cachedTokens) / Number(log.promptTokens)) * 100).toFixed(1) : '0.0';
     return (
       <MobileCard
         key={log.id}
-        clickable={actionable}
-        onClick={
-          actionable
-            ? () => {
-                setLogDetailExpanded(false);
-                setLogDetail(log);
-              }
-            : undefined
-        }
+        clickable
+        role="button"
+        tabIndex={0}
+        aria-label={`查看 ${log.model} 日志详情`}
+        onClick={() => setLogDetailCard(log)}
+        onKeyDown={event => {
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            setLogDetailCard(log);
+          }
+        }}
       >
         <div className="flex items-start justify-between gap-2">
           <div className="flex min-w-0 flex-1 items-center gap-1.5">
@@ -91,59 +92,31 @@ export function GatewayLogsTab({ analytics, endpoints }) {
                 无
               </StatusBadge>
             )}
-            <span className="min-w-0 truncate font-semibold text-kumo-strong">
-              <FailoverPathBadge path={log.failoverPath} endpointName={log.endpointName} />
+            <span
+              className={`min-w-0 truncate font-mono ${actionable ? 'text-kumo-danger' : 'text-kumo-strong'}`}
+              title={log.model}
+            >
+              {log.model}
             </span>
           </div>
           <span className="shrink-0 font-mono text-[10px] leading-normal text-kumo-subtle">
             {formatDateTime(log.timestamp)}
           </span>
         </div>
-        <div className="mt-1 flex min-w-0 items-center gap-1.5 text-[11px] leading-normal">
+        <div className="mt-1 flex min-w-0 items-center gap-2 text-[11px] leading-normal">
           <span
-            className={`min-w-0 truncate font-mono ${actionable ? 'text-kumo-danger' : 'text-kumo-strong'}`}
-            title={actionable ? '点击查看报错详情' : log.model}
+            className="min-w-0 flex-1 truncate font-semibold text-kumo-strong"
+            onClick={event => event.stopPropagation()}
           >
-            {log.model}
+            <FailoverPathBadge path={log.failoverPath} endpointName={log.endpointName} />
           </span>
-          {log.realModel && log.realModel !== log.model && (
-            <span className="min-w-0 truncate font-mono text-kumo-info" title={`实际模型 ${log.realModel}`}>
-              → {log.realModel}
-            </span>
-          )}
-          {typeof log.keyIndex === 'number' && log.keyIndex >= 0 && (
-            <StatusBadge tone="info" title="使用的 API Key 序号(0=主 key)">
-              K{log.keyIndex + 1}
-            </StatusBadge>
-          )}
-        </div>
-        <MobileCardFields>
-          <MobileCardField label="耗时">{(log.latencyMs / 1000).toFixed(1)}s</MobileCardField>
-          <MobileCardField label="首字">
+          <span className="shrink-0 text-kumo-subtle">{(log.latencyMs / 1000).toFixed(1)}s</span>
+          <span className="shrink-0 text-kumo-subtle">
             {log.ttfbMs > 0 ? `${(log.ttfbMs / 1000).toFixed(1)}s` : '—'}
-          </MobileCardField>
-          <MobileCardField label="输入/输出">
-            {log.promptTokens} / {log.completionTokens}
-          </MobileCardField>
-          <MobileCardField label="缓存">
-            {log.cachedTokens} ({cachePercent}%)
-          </MobileCardField>
-          <MobileCardField label="总消耗">
+          </span>
+          <span className="shrink-0 font-mono text-kumo-success">
             {detail ? formatCostAmount(detail.cost, detail.currency) : log.totalTokens}
-          </MobileCardField>
-          <MobileCardField label="输出速度">{logOutputSpeedText(log) || '—'}</MobileCardField>
-          <MobileCardField label="出口 IP">
-            <IpCell value={log.upstreamIp} viaProxy={log.viaProxy} />
-          </MobileCardField>
-          <MobileCardField label="客户端 IP">
-            <IpCell value={log.clientIp} v6EdgeOnly />
-          </MobileCardField>
-        </MobileCardFields>
-        <div className="mt-1.5 flex items-center justify-between gap-2">
-          <StatusBadge tone={log.stream ? 'info' : 'warning'}>
-            {log.stream ? '流式' : '非流式'}
-          </StatusBadge>
-          {actionable && <span className="text-[10px] leading-normal text-kumo-danger">点击查看报错详情</span>}
+          </span>
         </div>
       </MobileCard>
     );
@@ -618,6 +591,16 @@ export function GatewayLogsTab({ analytics, endpoints }) {
               </Pagination>
             )}
           </LayerCard>
+          <MobileLogDetailDialog
+            log={logDetailCard}
+            endpoints={endpoints}
+            onClose={() => setLogDetailCard(null)}
+            onShowError={log => {
+              setLogDetailCard(null);
+              setLogDetailExpanded(false);
+              setLogDetail(log);
+            }}
+          />
         </div>
   );
 }
