@@ -349,60 +349,62 @@ export function EndpointsTab({
                   clickable
                   onClick={() => setSelectedEndpointId(item.id)}
                 >
-                  <div className="flex min-w-0 items-start gap-2">
-                    <span
-                      className="inline-flex w-7 shrink-0 items-center justify-center rounded border-2 border-kumo-line/70 font-mono text-xs font-semibold leading-5 tabular-nums text-brand"
-                      title="启用模型数"
-                    >
-                      {activeModelIdsForEndpoint(item).length}
-                    </span>
-                    <div className="min-w-0 flex-1">
-                      <div className="flex min-w-0 items-center gap-1.5">
-                        {item.pluginId && (
-                          <span
-                            className="shrink-0 rounded border-2 border-kumo-line/70 px-1 text-[10px] font-semibold leading-5 text-brand"
-                            title="由插件注册"
-                          >
-                            插件
-                          </span>
-                        )}
+                  <div className="flex min-w-0 items-stretch gap-2.5">
+                    <div className="flex min-w-0 flex-1 flex-col justify-between gap-2">
+                      <div className="flex min-w-0 items-start gap-2">
                         <span
-                          className="truncate text-sm font-semibold leading-5 text-kumo-strong"
-                          title={item.name}
+                          className="inline-flex w-7 shrink-0 items-center justify-center rounded border-2 border-kumo-line/70 font-mono text-xs font-semibold leading-5 tabular-nums text-brand"
+                          title="启用模型数"
                         >
-                          {item.name || '未命名端点'}
+                          {activeModelIdsForEndpoint(item).length}
                         </span>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex min-w-0 items-center gap-1.5">
+                            {item.pluginId && (
+                              <span
+                                className="shrink-0 rounded border-2 border-kumo-line/70 px-1 text-[10px] font-semibold leading-5 text-brand"
+                                title="由插件注册"
+                              >
+                                插件
+                              </span>
+                            )}
+                            <span
+                              className="truncate text-sm font-semibold leading-5 text-kumo-strong"
+                              title={item.name}
+                            >
+                              {item.name || '未命名端点'}
+                            </span>
+                          </div>
+                          <div
+                            className="truncate font-mono text-[10px] leading-4 text-kumo-subtle"
+                            title={item.baseUrl}
+                          >
+                            {item.baseUrl}
+                          </div>
+                        </div>
                       </div>
-                      <div
-                        className="truncate font-mono text-[10px] leading-4 text-kumo-subtle"
-                        title={item.baseUrl}
-                      >
-                        {item.baseUrl}
+                      <div className="flex min-w-0 items-center gap-1.5" onClick={event => event.stopPropagation()}>
+                        <Switch
+                          size="sm"
+                          aria-label={item.enabled ? '停用端点' : '启用端点'}
+                          checked={item.enabled}
+                          onCheckedChange={() => toggleEndpointEnabled(item)}
+                          disabled={!!endpointToggleLoading[item.id]}
+                        />
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          icon={<Edit className="h-3.5 w-3.5" />}
+                          onClick={() => openEditEndpointModal(item)}
+                          aria-label={`编辑端点 ${item.name || item.baseUrl}`}
+                          title="编辑端点"
+                          className="h-7 px-2 text-[11px]"
+                        >
+                          编辑端点
+                        </Button>
                       </div>
                     </div>
-                  </div>
-                  <div className="mt-2 flex items-end justify-between gap-2">
-                    <div className="flex min-w-0 items-center gap-1.5" onClick={event => event.stopPropagation()}>
-                      <Switch
-                        size="sm"
-                        aria-label={item.enabled ? '停用端点' : '启用端点'}
-                        checked={item.enabled}
-                        onCheckedChange={() => toggleEndpointEnabled(item)}
-                        disabled={!!endpointToggleLoading[item.id]}
-                      />
-                      <Button
-                        size="sm"
-                        variant="secondary"
-                        icon={<Edit className="h-3.5 w-3.5" />}
-                        onClick={() => openEditEndpointModal(item)}
-                        aria-label={`编辑端点 ${item.name || item.baseUrl}`}
-                        title="编辑端点"
-                        className="h-7 px-2 text-[11px]"
-                      >
-                        编辑端点
-                      </Button>
-                    </div>
-                    <div className="flex shrink-0 flex-col items-end gap-0.5 text-[11px] leading-normal">
+                    <div className="flex shrink-0 flex-col items-start justify-center gap-1 border-l border-kumo-line pl-2.5 text-[11px] leading-normal">
                       <span className="flex items-center gap-1">
                         <span className="text-kumo-subtle">优先</span>
                         <span className="font-mono text-kumo-strong">{item.priority ?? 0}</span>
