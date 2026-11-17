@@ -28,7 +28,6 @@ import { modelHealthKey } from '../../modules/modelhubModelHealth.js';
 import { ProxyRuntimeMeta } from './ProxyRuntimeMeta.jsx';
 import { MultiSelectPopover } from './MultiSelectPopover.jsx';
 import { KeyStatusBadge } from './KeyStatusBadge.jsx';
-import { EndpointRoutingEditor } from './EndpointRoutingEditor.jsx';
 import { toast } from '../../modules/toast.js';
 import {
   MobileCard,
@@ -381,7 +380,9 @@ export function EndpointsTab({
                         {item.baseUrl}
                       </div>
                     </div>
-                    <div className="shrink-0" onClick={event => event.stopPropagation()}>
+                  </div>
+                  <div className="mt-2 flex items-end justify-between gap-2">
+                    <div className="flex min-w-0 items-center gap-1.5" onClick={event => event.stopPropagation()}>
                       <Switch
                         size="sm"
                         aria-label={item.enabled ? '停用端点' : '启用端点'}
@@ -389,15 +390,27 @@ export function EndpointsTab({
                         onCheckedChange={() => toggleEndpointEnabled(item)}
                         disabled={!!endpointToggleLoading[item.id]}
                       />
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        icon={<Edit className="h-3.5 w-3.5" />}
+                        onClick={() => openEditEndpointModal(item)}
+                        aria-label={`编辑端点 ${item.name || item.baseUrl}`}
+                        title="编辑端点"
+                        className="h-7 px-2 text-[11px]"
+                      >
+                        编辑端点
+                      </Button>
                     </div>
-                  </div>
-                  <div className="mt-2 flex items-center justify-between gap-2">
-                    <EndpointRoutingEditor item={item} onSave={saveEndpointRouting} />
-                    <div className="flex shrink-0 items-center gap-2 text-[11px] leading-normal">
-                      <span className="text-kumo-subtle">优先</span>
-                      <span className="font-mono text-kumo-strong">{item.priority ?? 0}</span>
-                      <span className="text-kumo-subtle">权重</span>
-                      <span className="font-mono text-kumo-strong">{item.weight ?? 100}</span>
+                    <div className="flex shrink-0 flex-col items-end gap-0.5 text-[11px] leading-normal">
+                      <span className="flex items-center gap-1">
+                        <span className="text-kumo-subtle">优先</span>
+                        <span className="font-mono text-kumo-strong">{item.priority ?? 0}</span>
+                      </span>
+                      <span className="flex items-center gap-1">
+                        <span className="text-kumo-subtle">权重</span>
+                        <span className="font-mono text-kumo-strong">{item.weight ?? 100}</span>
+                      </span>
                     </div>
                   </div>
                 </MobileCard>

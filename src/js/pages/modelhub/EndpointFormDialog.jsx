@@ -52,7 +52,7 @@ export function EndpointFormDialog({ endpointsApi, proxypoolPools }) {
           </LayerDialog.Description>
 
           <LayerDialog.Body>
-            <div className="grid grid-cols-2 gap-x-5 gap-y-4">
+            <div className="grid grid-cols-1 gap-x-5 gap-y-4 sm:grid-cols-2">
               {/* ====== 左列：基本信息 ====== */}
               <div className="space-y-4">
                 <Input
@@ -65,7 +65,7 @@ export function EndpointFormDialog({ endpointsApi, proxypoolPools }) {
                   className="w-full text-kumo-strong text-sm font-sans"
                 />
 
-                <div className="grid grid-cols-[auto_minmax(0,1fr)] items-end gap-2">
+                <div className="grid grid-cols-1 items-stretch gap-2 sm:grid-cols-[auto_minmax(0,1fr)] sm:items-end">
                   <Select alignItemWithTrigger
                     size="sm"
                     label="上游协议"
@@ -86,7 +86,7 @@ export function EndpointFormDialog({ endpointsApi, proxypoolPools }) {
                       })
                     }
                     items={ENDPOINT_UPSTREAM_OPTIONS}
-                    className="w-40"
+                    className="w-full sm:w-40"
                   />
                   <Input
                     size="sm"
@@ -249,7 +249,7 @@ export function EndpointFormDialog({ endpointsApi, proxypoolPools }) {
                     {(endpointForm.headers || []).map((header, index) => (
                       <div
                         key={index}
-                        className="grid grid-cols-[minmax(0,1.2fr)_minmax(0,1.8fr)_2rem] items-center gap-2"
+                        className="flex flex-wrap items-center gap-2 sm:grid sm:grid-cols-[minmax(0,1.2fr)_minmax(0,1.8fr)_2rem]"
                       >
                         <Input
                           size="sm"
@@ -261,7 +261,7 @@ export function EndpointFormDialog({ endpointsApi, proxypoolPools }) {
                           spellCheck={false}
                           autoComplete="off"
                           data-1p-ignore
-                          className="w-full text-kumo-strong font-mono text-[0.85em]"
+                          className="w-full min-w-0 text-kumo-strong font-mono text-[0.85em] sm:w-auto"
                         />
                         <Input
                           size="sm"
@@ -273,7 +273,7 @@ export function EndpointFormDialog({ endpointsApi, proxypoolPools }) {
                           spellCheck={false}
                           autoComplete="off"
                           data-1p-ignore
-                          className="w-full text-kumo-strong font-mono text-[0.85em]"
+                          className="min-w-0 flex-1 text-kumo-strong font-mono text-[0.85em] sm:w-auto sm:flex-none"
                         />
                         <Button
                           shape="square"
