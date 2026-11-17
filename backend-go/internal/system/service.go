@@ -1568,6 +1568,9 @@ func inferRouteMethods(route manifest.Route) []string {
 		"/api/emailcode/messages/{id}/consume", "/api/emailcode/ingest",
 		"/api/emailcode/messages/batch", "/api/emailcode/messages/fetch", "/api/emailcode/messages/consume":
 		return []string{"POST"}
+	// 收件箱保留天数是读写一体(读取当前值 + PUT 保存),显式登记避免退化成只读。
+	case "/api/emailcode/settings":
+		return []string{"GET", "PUT"}
 	case "/api/prompts/entries/{id}/publish":
 		return []string{"POST"}
 	case "/api/server/agent/auto-install/{id}":

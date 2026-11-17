@@ -490,8 +490,6 @@ func init() {
 		"subject":    {t: "string", d: "主题"},
 		"messageId":  {t: "string", d: "邮件 Message-ID，用于去重"},
 		"raw":        {t: "string", d: "邮件 MIME 原文，面板侧解析提取"},
-		"code":       {t: "string", d: "已提取的验证码（兼容旧版）"},
-		"link":       {t: "string", d: "已提取的验证链接（兼容旧版）"},
 		"snippet":    {t: "string", d: "正文摘要"},
 		"receivedAt": {t: "string", d: "收件时刻（RFC3339）"},
 	})
@@ -503,7 +501,6 @@ func init() {
 		"since":           {t: "string", d: "只接受该时刻之后的邮件（RFC3339）"},
 		"timeoutSec":      {t: "integer", d: "最长等待秒数"},
 		"consumer":        {t: "string", d: "认领方标识"},
-		"requireCode":     {t: "boolean", d: "是否要求已提取出验证码（默认 true）"},
 	})
 	routeRequestContracts["/api/emailcode/messages/{id}/consume"] = obj(nil, map[string]prop{})
 	routeRequestContracts["/api/emailcode/clear"] = obj(nil, map[string]prop{})
@@ -517,18 +514,12 @@ func init() {
 	routeRequestContracts["/api/emailcode/messages/fetch"] = obj([]string{"ids"}, map[string]prop{
 		"ids": {t: "array", req: true, d: "邮件 id 数组,最多 50 个;返回含 MIME 原文 raw"},
 	})
+	routeRequestContracts["/api/emailcode/settings"] = obj([]string{"retentionDays"}, map[string]prop{
+		"retentionDays": {t: "integer", req: true, d: "邮件保留天数,1-90,默认 7;超期邮件在保存时立即清理"},
+	})
 	routeRequestContracts["/api/emailcode/messages/consume"] = obj([]string{"ids"}, map[string]prop{
 		"ids":      {t: "array", req: true, d: "邮件 id 数组,最多 50 个"},
 		"consumer": {t: "string", d: "认领方标识,默认 batch"},
-	})
-	routeRequestContracts["/api/posthogcode/signup/start"] = obj(nil, map[string]prop{
-		"region":    {t: "string", d: "区域 us/eu，默认 us"},
-		"prefix":    {t: "string", d: "邮箱前缀，默认 probe"},
-		"domain":    {t: "string", d: "收件域名，需已部署收件箱，缺省用第一个可用域名"},
-		"password":  {t: "string", d: "账号密码，缺省自动生成"},
-		"accountId": {t: "string", d: "指定既有账号则复用其身份"},
-		"email":     {t: "string", d: "手动模式：用户自行在浏览器注册时使用的邮箱"},
-		"manual":    {t: "boolean", d: "人机分工模式：面板只备邮箱密码，由用户在浏览器过 Turnstile，面板接管验证与授权"},
 	})
 
 	// ===== GitHub =====

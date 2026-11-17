@@ -31,14 +31,14 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.handleBatchFetch(w, r)
 	case path == "/messages/consume":
 		s.handleBatchConsume(w, r)
-	case path == "/stats":
-		s.handleStats(w, r)
 	case strings.HasPrefix(path, "/messages/"):
 		s.handleMessageItem(w, r, strings.TrimPrefix(path, "/messages/"))
 	case path == "/wait":
 		s.handleWait(w, r)
 	case path == "/clear":
 		s.handleClear(w, r)
+	case path == "/settings":
+		s.handleSettings(w, r)
 	default:
 		response.Error(w, http.StatusNotFound, "emailcode route not found")
 	}
@@ -55,8 +55,6 @@ type ingestPayload struct {
 	Subject   string `json:"subject"`
 	MessageID string `json:"messageId"`
 	Raw       string `json:"raw"`
-	Code      string `json:"code"`
-	Link      string `json:"link"`
 	Snippet   string `json:"snippet"`
 	Received  string `json:"receivedAt"`
 }
@@ -99,14 +97,13 @@ func (s *Service) handleIngest(w http.ResponseWriter, r *http.Request) {
 		Sender:     sender,
 		Subject:    strings.TrimSpace(body.Subject),
 		MessageID:  strings.TrimSpace(body.MessageID),
-		Code:       strings.TrimSpace(body.Code),
-		Link:       strings.TrimSpace(body.Link),
 		Snippet:    strings.TrimSpace(body.Snippet),
 		Raw:        strings.TrimSpace(body.Raw),
 		ReceivedAt: strings.TrimSpace(body.Received),
 	}
 
-	// 面板侧解析：用标准库 MIME + charset 解码 + 分层提取，比 Worker 内启发式更准。
+	// 面板侧解析:用标准库 MIME + charset 解码,补齐头字段与正文。
+	// 自动提取验证码已移除,邮件只做展示与原文留存。
 	if raw := strings.TrimSpace(body.Raw); raw != "" {
 		parsed, err := ParseRaw(raw)
 		if err == nil {
@@ -123,20 +120,6 @@ func (s *Service) handleIngest(w http.ResponseWriter, r *http.Request) {
 				msg.Snippet = truncate(strings.TrimSpace(parsed.Text), 300)
 			}
 			msg.TextBody = parsed.Text
-			res := ExtractFromParsed(parsed, parsed.Text)
-			msg.Code = res.Code
-			msg.ExtractStatus = res.Status
-			if msg.Link == "" {
-				msg.Link = res.Link
-			}
-		} else if msg.ExtractStatus == "" {
-			msg.ExtractStatus = ExtractNone
-		}
-	} else if msg.ExtractStatus == "" {
-		if msg.Code != "" {
-			msg.ExtractStatus = ExtractOK
-		} else {
-			msg.ExtractStatus = ExtractNone
 		}
 	}
 
@@ -146,7 +129,7 @@ func (s *Service) handleIngest(w http.ResponseWriter, r *http.Request) {
 		response.Error(w, http.StatusInternalServerError, "ingest 失败")
 		return
 	}
-	response.OK(w, map[string]interface{}{"id": id, "status": msg.ExtractStatus})
+	response.OK(w, map[string]interface{}{"id": id})
 }
 
 // handleDomains 返回已部署收件箱、可用于生成收件邮箱的域名。
@@ -183,21 +166,6 @@ func (s *Service) handleMessages(w http.ResponseWriter, r *http.Request) {
 	response.OK(w, map[string]interface{}{"messages": messages})
 }
 
-// handleStats 返回提取统计。
-func (s *Service) handleStats(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		response.Error(w, http.StatusMethodNotAllowed, "method not allowed")
-		return
-	}
-	days, _ := strconv.Atoi(r.URL.Query().Get("days"))
-	stats, err := s.Stats(r.Context(), days)
-	if err != nil {
-		response.Error(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	response.OK(w, stats)
-}
-
 // handleClear 清理邮件：onlyConsumed=1 只删已消费的。
 func (s *Service) handleClear(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
@@ -211,6 +179,36 @@ func (s *Service) handleClear(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	response.OK(w, map[string]interface{}{"deleted": n})
+}
+
+// handleSettings 读写收件箱的保留天数(全域名共用)。
+// GET /api/emailcode/settings
+// PUT /api/emailcode/settings  body: {retentionDays}
+func (s *Service) handleSettings(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		response.OK(w, map[string]interface{}{"retentionDays": s.RetentionDays(r.Context())})
+	case http.MethodPut:
+		var body struct {
+			RetentionDays int `json:"retentionDays"`
+		}
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10)).Decode(&body); err != nil {
+			response.Error(w, http.StatusBadRequest, "请求体解析失败")
+			return
+		}
+		if body.RetentionDays < 1 || body.RetentionDays > maxRetentionDays {
+			response.Error(w, http.StatusBadRequest, fmt.Sprintf("保留天数需在 1-%d 之间", maxRetentionDays))
+			return
+		}
+		days, err := s.SetRetentionDays(r.Context(), body.RetentionDays)
+		if err != nil {
+			response.Error(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		response.OK(w, map[string]interface{}{"retentionDays": days})
+	default:
+		response.Error(w, http.StatusMethodNotAllowed, "method not allowed")
+	}
 }
 
 // handleMessageItem 处理单条邮件的详情、取用与删除。
@@ -280,7 +278,6 @@ func (s *Service) handleWait(w http.ResponseWriter, r *http.Request) {
 		Since           string `json:"since"`
 		TimeoutSec      int    `json:"timeoutSec"`
 		Consumer        string `json:"consumer"`
-		RequireCode     *bool  `json:"requireCode"`
 	}
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 256<<10)).Decode(&body); err != nil {
 		response.Error(w, http.StatusBadRequest, "请求体解析失败")
@@ -297,17 +294,12 @@ func (s *Service) handleWait(w http.ResponseWriter, r *http.Request) {
 			since = ts
 		}
 	}
-	requireCode := true
-	if body.RequireCode != nil {
-		requireCode = *body.RequireCode
-	}
 	sel := Selector{
 		Mailbox:         mailbox,
 		Domain:          strings.TrimSpace(body.Domain),
 		FromDomain:      strings.TrimSpace(body.FromDomain),
 		SubjectContains: strings.TrimSpace(body.SubjectContains),
 		Since:           since,
-		RequireCode:     requireCode,
 	}
 	consumer := strings.TrimSpace(body.Consumer)
 	if consumer == "" {

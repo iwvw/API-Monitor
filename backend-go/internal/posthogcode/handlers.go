@@ -51,10 +51,6 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.handleAutoLoginCancel(w, r)
 	case path == "/api/posthogcode/autologin/status":
 		s.handleAutoLoginStatus(w, r)
-	case path == "/api/posthogcode/signup/start":
-		s.handleSignupStart(w, r)
-	case path == "/api/posthogcode/signup/status":
-		s.handleSignupStatus(w, r)
 	case path == "/api/posthogcode/accounts":
 		s.handleAccounts(w, r)
 	case path == "/api/posthogcode/accounts/export":

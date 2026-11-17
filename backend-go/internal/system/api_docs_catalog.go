@@ -1045,8 +1045,8 @@ var apiDocSeeds = []apiDocSeed{
 		Docs: apiRouteDocs{Methods: []string{"POST"}}},
 	{Route: manifest.Route{Prefix: "/api/emailcode/messages/consume", Module: "emailcode", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "按 id 批量标记已消费(最多 50)", MatchMode: manifest.MatchExact},
 		Docs: apiRouteDocs{Methods: []string{"POST"}}},
-	{Route: manifest.Route{Prefix: "/api/emailcode/stats", Module: "emailcode", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "收件箱提取统计", MatchMode: manifest.MatchExact},
-		Docs: apiRouteDocs{Methods: []string{"GET"}}},
+	{Route: manifest.Route{Prefix: "/api/emailcode/settings", Module: "emailcode", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "收件箱保留天数(默认 7 天,1-90)", MatchMode: manifest.MatchExact},
+		Docs: apiRouteDocs{Methods: []string{"GET", "PUT"}}},
 
 	// ---- 模型网关修正与补缺 ----
 	{Route: manifest.Route{Prefix: "/api/modelhub/endpoints/{id}/key-check", Module: "modelhub", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "Endpoint API key check", MatchMode: manifest.MatchPattern},

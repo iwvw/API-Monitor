@@ -14,7 +14,7 @@ func TestIngestStoresRawAndGetReturnsIt(t *testing.T) {
 	s := newTestService(t)
 	ctx := context.Background()
 	raw := "From: a@x.com\r\nSubject: Hi\r\n\r\nYour code is 123456"
-	id, err := s.Ingest(ctx, Message{Mailbox: "a@x.com", Code: "123456", Raw: raw})
+	id, err := s.Ingest(ctx, Message{Mailbox: "a@x.com", Raw: raw})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -38,8 +38,8 @@ func TestIngestStoresRawAndGetReturnsIt(t *testing.T) {
 func TestGetManyAndConsumeMany(t *testing.T) {
 	s := newTestService(t)
 	ctx := context.Background()
-	id1, _ := s.Ingest(ctx, Message{Mailbox: "a@x.com", Code: "111111", Raw: "raw-1"})
-	id2, _ := s.Ingest(ctx, Message{Mailbox: "b@x.com", Code: "222222", Raw: "raw-2"})
+	id1, _ := s.Ingest(ctx, Message{Mailbox: "a@x.com", Raw: "raw-1"})
+	id2, _ := s.Ingest(ctx, Message{Mailbox: "b@x.com", Raw: "raw-2"})
 
 	msgs, err := s.GetMany(ctx, []int64{id2, 999999, id1})
 	if err != nil {
@@ -67,8 +67,8 @@ func TestGetManyAndConsumeMany(t *testing.T) {
 func TestBatchHTTPHandlers(t *testing.T) {
 	s := newTestService(t)
 	ctx := context.Background()
-	s.Ingest(ctx, Message{Mailbox: "a@x.com", Code: "111111", Raw: "raw-1"})
-	s.Ingest(ctx, Message{Mailbox: "b@x.com", Code: "222222", Raw: "raw-2"})
+	s.Ingest(ctx, Message{Mailbox: "a@x.com", Raw: "raw-1"})
+	s.Ingest(ctx, Message{Mailbox: "b@x.com", Raw: "raw-2"})
 
 	// 批量列出多个收件人
 	req := httptest.NewRequest(http.MethodPost, "/api/emailcode/messages/batch",

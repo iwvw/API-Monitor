@@ -1,7 +1,7 @@
-# 邮箱验证码收件箱(Cloudflare Email Worker)
+# 邮箱收件箱(Cloudflare Email Worker)
 
-把发往你自有域名(已接入 Cloudflare Email Routing)的邮件解析出验证码与验证链接,
-投递到 API Monitor 面板的通用收件箱,供自动登录、账号注册等消费者直接取用。
+把发往你自有域名(已接入 Cloudflare Email Routing)的邮件原文与元数据
+投递到 API Monitor 面板的通用收件箱,供人查看或由 API/Agent 读取。
 
 ## 部署方式
 
@@ -53,8 +53,9 @@ npx wrangler deploy
 | POST | `/api/emailcode/messages/batch` | **批量列表**:`{mailboxes:[...], domain?, fromDomain?, includeConsumed?, limit?}`,最多 50 个收件人 |
 | POST | `/api/emailcode/messages/fetch` | **批量取详情**:`{ids:[...]}`,最多 50,返回含 `raw` 原文 |
 | POST | `/api/emailcode/messages/consume` | **批量消费**:`{ids:[...], consumer?}`,最多 50 |
-| POST | `/api/emailcode/wait` | 等待某收件人收到验证码(长轮询,**会消费**) |
-| GET | `/api/emailcode/stats` | 近 N 天提取统计(`days`) |
+| POST | `/api/emailcode/wait` | 等待某收件人收到新邮件(长轮询,**会消费**) |
+| GET | `/api/emailcode/settings` | 读取收件箱保留天数(默认 7 天) |
+| PUT | `/api/emailcode/settings` | 设置保留天数(`{retentionDays}`,1-90);保存时立即清理超期邮件 |
 | POST | `/api/emailcode/clear` | 清理(`onlyConsumed=1` 只删已消费) |
 
 ## 邮件原文与正文
@@ -64,8 +65,6 @@ npx wrangler deploy
 | 字段 | 含义 | 出现位置 |
 | --- | --- | --- |
 | `textBody` | 面板解析后的**正文纯文本**(≤64K runes) | 列表 + 详情 + 批量 |
-| `code` | 启发式提取的**验证码** | 列表 + 详情 + 批量 |
-| `link` | 提取到的**验证链接**(完整,不脱敏) | 列表 + 详情 + 批量 |
 | `snippet` | 正文摘要 | 列表 + 详情 + 批量 |
 | `subject` / `sender` / `fromDomain` / `receivedAt` | 元数据 | 列表 + 详情 + 批量 |
 | `raw` | **MIME 原文**(≤256KB,按 UTF-8 边界截断) | **仅详情/批量取回**,列表不返回 |
@@ -73,7 +72,7 @@ npx wrangler deploy
 要点:
 - 原文只在 `GET /messages/{id}` 与 `POST /messages/fetch` 返回,列表为体积考虑**不带 raw**。
 - Worker 侧投递原文上限 512KB;入库再截断到 256KB;`textBody` 上限 64K runes。
-- 保留期默认 **7 天**,到期自动清理(含原文)。
+- 保留期默认 **7 天**,可在收件箱头部自定义(1-90 天,存 `emailcode_settings`);清理为每小时一轮 + 保存时立即执行一次。
 
 ## 批量操作(注册 / 取信)
 
@@ -109,7 +108,7 @@ COOKIE='sid=<SESSION_ID>'
 # 可用收件域名
 curl -s "$BASE/api/emailcode/domains" -H "Cookie: $COOKIE"
 
-# 列表(含正文 textBody / code / link)
+# 列表(含正文 textBody)
 curl -s "$BASE/api/emailcode/messages?mailbox=user1@yourdomain.com&includeConsumed=1" -H "Cookie: $COOKIE"
 
 # 单封详情(含 raw 原文)
@@ -156,18 +155,19 @@ curl -s "$BASE/api/ai/mcp" -H "Authorization: Bearer $KEY" -H 'Content-Type: app
 
 > 写操作(`consume`/`delete`/`clear`)在 `minimal` 模式会被拒绝;直接用 `POST` 前请确认权限模式。
 
-## 自动链路
+## 典型链路
 
-1. 消费者(如 PostHog 自动登录)发起流程并订阅收件箱等待验证码
-2. 上游服务发验证码邮件到你的域名
-3. Worker 收到邮件 → 原样搬运 MIME 原文 + 元数据 → `POST /api/emailcode/ingest`
-4. 面板解析原文,提取验证码/链接/正文,入库并唤醒等待者;消费者取码、标记消费,继续完成后续步骤
+1. 上游服务把邮件发到你的域名
+2. Worker 收到邮件 → 原样搬运 MIME 原文 + 元数据 → `POST /api/emailcode/ingest`
+3. 面板解析原文补齐头字段与正文并入库;`wait` 会唤醒订阅该收件人的调用方
+4. 调用方(脚本/Agent)读取 `textBody` 或 `raw` 自行处理,必要时 `consume` 标记已取用
+
+> 本模块**不做验证码提取**:面板只存原文与元数据,邮件内容由查看者或调用方自行判断。
 
 ## 约束
 
 - catch-all 会接管该域名所有收件:配置了 `FORWARD_TO` 才会继续转发,
   否则邮件只进收件箱不再外发,务必确认续转目标。
-- 验证码提取是启发式(6 位数字,优先匹配 code/verification 上下文,
-  且绝不在 MIME 头里匹配以免误取事务 ID),非标准格式的邮件可能提取不到。
-- 原文按 256KB 截断、正文按 64K runes 截断;保留期 7 天。
+- 收件箱不做验证码提取,不猜测正文语义;需要验证码请自行从正文/原文读取。
+- 原文按 256KB 截断、正文按 64K runes 截断;保留期默认 7 天(可在收件箱头部改成 1-90 天)。
 - 收件箱内容含敏感验证码与原文,接口按会话/Agent Key 鉴权,请定期清理。

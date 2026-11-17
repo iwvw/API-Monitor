@@ -151,3 +151,15 @@ func normalizeProxyURL(raw string) (*url.URL, error) {
 	}
 	return u, nil
 }
+
+// redactProxy 把代理地址里的凭据替换为 ***,用于日志/状态文案。
+func redactProxy(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil || u.Host == "" {
+		return "已配置"
+	}
+	if u.User != nil {
+		u.User = url.UserPassword("***", "***")
+	}
+	return u.String()
+}

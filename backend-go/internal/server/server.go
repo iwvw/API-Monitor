@@ -257,11 +257,10 @@ func newServer(cfg config.Config) (*Server, error) {
 	// 资产到期扫描：每日按站点时区扫描并触发 asset_expiry 通知。
 	server.assets.StartExpiryScheduler(warmupCtx)
 	server.modelhub.SetNotifier(notifyService)
-	server.posthogcode.SetInbox(server.emailcode)
 	// 收件箱的可用域名来自 Cloudflare 的收件箱部署记录。
 	server.emailcode.SetDomainProvider(server.cf)
 	// 收件箱 TTL 清理：临时邮箱语义下邮件必须过期消失。
-	server.emailcode.StartCleanup(warmupCtx, 0)
+	server.emailcode.StartCleanup(warmupCtx)
 	// 注入独立代理池选择器：端点配置 proxy_pool_id 时复用插件管理的池与健康数据。
 	server.modelhub.SetProxyPoolSelector(server.proxypool)
 	// Antigravity 插件可引用独立代理池作为出网出口。

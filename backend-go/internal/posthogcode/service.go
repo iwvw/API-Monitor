@@ -25,7 +25,6 @@ import (
 
 	"github.com/iwvw/api-monitor/backend-go/internal/config"
 	"github.com/iwvw/api-monitor/backend-go/internal/database"
-	"github.com/iwvw/api-monitor/backend-go/internal/emailcode"
 	"github.com/iwvw/api-monitor/backend-go/internal/secure"
 )
 
@@ -215,23 +214,6 @@ type Service struct {
 
 	// autoLogin 保存进行中的账号密码自动登录会话（内存态，重启清空）。
 	autoLogin *autoLoginSess
-
-	// inbox 是通用邮箱验证码收件箱，自动登录与一键注册从它取验证码。
-	inbox InboxConsumer
-
-	// signups 保存进行中的一键注册会话（内存态，重启清空）。
-	signups map[string]*signupState
-}
-
-// InboxConsumer 是通用收件箱的最小消费接口（由 server 注入 emailcode.Service）。
-type InboxConsumer interface {
-	Wait(ctx context.Context, sel emailcode.Selector, consumer string, timeout time.Duration) (emailcode.Message, error)
-	AvailableDomains(ctx context.Context) ([]string, error)
-}
-
-// SetInbox 注入通用邮箱验证码收件箱。
-func (s *Service) SetInbox(inbox InboxConsumer) {
-	s.inbox = inbox
 }
 
 // ProxyPoolSelector 复用独立代理池选择器（由 server 注入）。

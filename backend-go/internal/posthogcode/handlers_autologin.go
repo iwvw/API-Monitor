@@ -8,8 +8,6 @@ import (
 	"net/http"
 	"strings"
 	"time"
-
-	"github.com/iwvw/api-monitor/backend-go/internal/emailcode"
 )
 
 // autoLoginSess 由 Service 持有，存进行中的自动登录会话（内存态，重启清空）。
@@ -22,15 +20,11 @@ type autoLoginSess struct {
 // 自动登录状态机：
 //   start  → 建独立 cookie jar 会话，POST /api/login（邮箱+密码）
 //              ├─ 成功：直接走 OAuth authorize → code → 换 token → 落账号
-//              └─ 需验证码/2FA：返回待验证状态 + 会话 id，
-//                 验证码类会启动后台消费者从通用邮件收件箱等码并自动完成
+//              └─ 需验证码/2FA:返回待验证状态 + 会话 id,由用户手动填写验证码
 //   verify → 手动提交验证码/TOTP → 完成登录 → OAuth authorize → 落账号
-//   status → 查询会话进度（自动消费可能已在后台完成）
+//   status → 查询会话进度
 //   cancel → 丢弃会话
 // ---------------------------------------------------------------------------
-
-// autoLoginCodeWait 是后台等待登录验证码邮件的最长时间。
-const autoLoginCodeWait = 5 * time.Minute
 
 type autoLoginStartReq struct {
 	Region   string `json:"region"`
@@ -114,9 +108,6 @@ func (s *Service) handleAutoLoginStart(w http.ResponseWriter, r *http.Request) {
 				st.status = autoLoginAwaitingCode
 			}
 			s.saveAutoLogin(st)
-			if st.status == autoLoginAwaitingCode {
-				s.consumeLoginCodeAsync(st)
-			}
 			responseJSON(w, http.StatusOK, map[string]interface{}{
 				"success":   true,
 				"status":    st.status,
@@ -206,8 +197,7 @@ func (s *Service) handleAutoLoginStatus(w http.ResponseWriter, r *http.Request) 
 }
 
 // autoLoginStatusSnapshot 在锁内构建会话状态的稳定快照。
-// 后台消费者（consumeLoginCodeAsync）与 supersede/complete/fail 会并发写
-// status/result/lastError，锁外读会构成 data race。
+// supersede/complete/fail 会并发写 status/result/lastError,锁外读会构成 data race。
 func (s *Service) autoLoginStatusSnapshot(id string) map[string]interface{} {
 	autologinMu.Lock()
 	defer autologinMu.Unlock()
@@ -249,43 +239,6 @@ func (s *Service) handleAutoLoginCancel(w http.ResponseWriter, r *http.Request) 
 	_ = json.NewDecoder(r.Body).Decode(&body)
 	s.dropAutoLogin(strings.TrimSpace(body.SessionID))
 	responseJSON(w, map[string]interface{}{"success": true})
-}
-
-// consumeLoginCodeAsync 在后台从通用邮件收件箱等待该邮箱的登录验证码，
-// 取到后自动提交并完成授权落库。用发件人域名与主题过滤，避免同邮箱多站点串码。
-//
-// 时间下界刻意放宽：PostHog 在短时间内的重复登录会复用同一封验证邮件，不会重发。
-// 若只认「会话开始之后」到达的邮件，用户先点登录、稍后再发起面板自动登录时就会错过。
-// 精确性由 mailbox + fromDomain + subject 三重收敛保证，时间只作粗过滤（15 分钟容差）。
-func (s *Service) consumeLoginCodeAsync(st *autoLoginState) {
-	if s.inbox == nil {
-		return
-	}
-	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), autoLoginCodeWait+10*time.Second)
-		defer cancel()
-		msg, err := s.inbox.Wait(ctx, emailcode.Selector{
-			Mailbox:         st.email,
-			FromDomain:      "posthog.com",
-			SubjectContains: "login",
-			Since:           st.createdAt.Add(-15 * time.Minute),
-			RequireCode:     true,
-		}, "autologin:"+st.id, autoLoginCodeWait)
-		if err != nil {
-			s.failAutoLogin(st, "等待验证码失败："+err.Error())
-			return
-		}
-		if err := s.posthogLoginVerify(ctx, st, msg.Code); err != nil {
-			s.failAutoLogin(st, "提交验证码失败："+err.Error())
-			return
-		}
-		acc, err := s.finishAutoLogin(ctx, st)
-		if err != nil {
-			s.failAutoLogin(st, err.Error())
-			return
-		}
-		s.completeAutoLogin(st, acc)
-	}()
 }
 
 // finishAutoLogin 在登录成功后走 OAuth 授权并落库账号凭据。

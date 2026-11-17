@@ -16,24 +16,15 @@ func ensureSchema(ctx context.Context, db *sql.DB) error {
 			sender         TEXT NOT NULL DEFAULT '',
 			from_domain    TEXT NOT NULL DEFAULT '',
 			subject        TEXT NOT NULL DEFAULT '',
-			code           TEXT NOT NULL DEFAULT '',
-			link           TEXT NOT NULL DEFAULT '',
 			snippet        TEXT NOT NULL DEFAULT '',
 			text_body      TEXT NOT NULL DEFAULT '',
-			extract_status TEXT NOT NULL DEFAULT '',
 			received_at    TEXT NOT NULL,
 			consumed_at    TEXT,
 			consumed_by    TEXT NOT NULL DEFAULT ''
 		)`,
-		`CREATE TABLE IF NOT EXISTS emailcode_daily_stats (
-			day          TEXT NOT NULL,
-			domain       TEXT NOT NULL,
-			from_domain  TEXT NOT NULL,
-			received     INTEGER NOT NULL DEFAULT 0,
-			extracted    INTEGER NOT NULL DEFAULT 0,
-			primary_spans INTEGER NOT NULL DEFAULT 0,
-			updated_at   TEXT NOT NULL,
-			PRIMARY KEY (day, domain, from_domain)
+		`CREATE TABLE IF NOT EXISTS emailcode_settings (
+			id             INTEGER PRIMARY KEY CHECK (id = 1),
+			retention_days INTEGER NOT NULL DEFAULT 7
 		)`,
 	}
 	for _, stmt := range statements {
@@ -44,12 +35,11 @@ func ensureSchema(ctx context.Context, db *sql.DB) error {
 	// 兼容早期建表：补列，老库无需重建。必须在建索引之前完成，
 	// 否则引用新列的唯一索引会在老库上失败（no such column）。
 	columns := map[string]string{
-		"message_id":     "TEXT NOT NULL DEFAULT ''",
-		"from_domain":    "TEXT NOT NULL DEFAULT ''",
-		"text_body":      "TEXT NOT NULL DEFAULT ''",
-		"raw":            "TEXT NOT NULL DEFAULT ''",
-		"extract_status": "TEXT NOT NULL DEFAULT ''",
-		"consumed_by":    "TEXT NOT NULL DEFAULT ''",
+		"message_id":  "TEXT NOT NULL DEFAULT ''",
+		"from_domain": "TEXT NOT NULL DEFAULT ''",
+		"text_body":   "TEXT NOT NULL DEFAULT ''",
+		"raw":         "TEXT NOT NULL DEFAULT ''",
+		"consumed_by": "TEXT NOT NULL DEFAULT ''",
 	}
 	for name, def := range columns {
 		if err := ensureColumn(ctx, db, "emailcode_messages", name, def); err != nil {
