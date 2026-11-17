@@ -595,8 +595,7 @@ function ModelHubPage() {
               label: (
                 <span className="inline-flex items-center gap-1.5">
                   <Activity className="w-3.5 h-3.5" />
-                  <span className="cq-sm:hidden">看板</span>
-                  <span className="hidden cq-sm:inline">数据看板</span>
+                  看板
                 </span>
               ),
             },
@@ -623,8 +622,7 @@ function ModelHubPage() {
               label: (
                 <span className="inline-flex items-center gap-1.5">
                   <History className="w-3.5 h-3.5" />
-                  <span className="cq-sm:hidden">日志</span>
-                  <span className="hidden cq-sm:inline">网关日志</span>
+                  日志
                 </span>
               ),
             },
