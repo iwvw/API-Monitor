@@ -28,6 +28,7 @@ import { modelHealthKey } from '../../modules/modelhubModelHealth.js';
 import { ProxyRuntimeMeta } from './ProxyRuntimeMeta.jsx';
 import { MultiSelectPopover } from './MultiSelectPopover.jsx';
 import { KeyStatusBadge } from './KeyStatusBadge.jsx';
+import { EndpointRoutingEditor } from './EndpointRoutingEditor.jsx';
 import { toast } from '../../modules/toast.js';
 import {
   MobileCard,
@@ -76,70 +77,6 @@ function healthMeta(health) {
   return { tone, label };
 }
 
-function RoutingValue({
-  item,
-  field,
-  min,
-  max,
-  displayValue,
-  emptyValue,
-  hint,
-  tapToEdit = false,
-  routingEditKey,
-  routingDraft,
-  setRoutingDraft,
-  setRoutingEditKey,
-  saveEndpointRouting,
-}) {
-  const editKey = `${item.id}:${field}`;
-  const commit = () =>
-    saveEndpointRouting(item.id, field, Number(routingDraft) || emptyValue);
-
-  if (routingEditKey === editKey) {
-    return (
-      <Input
-        autoFocus
-        size="sm"
-        type="number"
-        min={min}
-        max={max}
-        aria-label={hint}
-        value={routingDraft}
-        onChange={event => setRoutingDraft(event.target.value)}
-        onKeyDown={event => {
-          event.stopPropagation();
-          if (event.key === 'Enter') {
-            commit();
-          } else if (event.key === 'Escape') {
-            setRoutingEditKey(null);
-          }
-        }}
-        onBlur={() => {
-          if (routingEditKey === editKey) commit();
-        }}
-        onClick={event => event.stopPropagation()}
-        className="h-6 w-12 shrink-0 text-center font-mono text-[11px]"
-      />
-    );
-  }
-
-  const startEdit = event => {
-    event.stopPropagation();
-    setRoutingDraft(String(item[field] ?? displayValue));
-    setRoutingEditKey(editKey);
-  };
-
-  return (
-    <span
-      className="inline-flex h-6 w-12 shrink-0 cursor-text items-center justify-end font-mono text-[11px] leading-normal text-kumo-strong"
-      title={hint}
-      onClick={tapToEdit ? startEdit : undefined}
-      onDoubleClick={startEdit}
-    >
-      {item[field] ?? displayValue}
-    </span>
-  );
-}
 
 function MappingValue({
   endpoint,
@@ -455,40 +392,12 @@ export function EndpointsTab({
                     </div>
                   </div>
                   <div className="mt-2 flex items-center justify-between gap-2">
-                    <span className="shrink-0 text-[11px] leading-normal text-kumo-subtle">路由</span>
-                    <div className="flex shrink-0 items-center gap-1.5 text-[11px] leading-normal">
+                    <EndpointRoutingEditor item={item} onSave={saveEndpointRouting} />
+                    <div className="flex shrink-0 items-center gap-2 text-[11px] leading-normal">
                       <span className="text-kumo-subtle">优先</span>
-                      <RoutingValue
-                        item={item}
-                        field="priority"
-                        min={0}
-                        max={999}
-                        displayValue={0}
-                        emptyValue={0}
-                        hint="点击编辑路由优先级(值越大越优先)"
-                        tapToEdit
-                        routingEditKey={routingEditKey}
-                        routingDraft={routingDraft}
-                        setRoutingDraft={setRoutingDraft}
-                        setRoutingEditKey={setRoutingEditKey}
-                        saveEndpointRouting={saveEndpointRouting}
-                      />
-                      <span className="ml-1 text-kumo-subtle">权重</span>
-                      <RoutingValue
-                        item={item}
-                        field="weight"
-                        min={1}
-                        max={9999}
-                        displayValue={100}
-                        emptyValue={1}
-                        hint="点击编辑加权因子(值越大被选中概率越高)"
-                        tapToEdit
-                        routingEditKey={routingEditKey}
-                        routingDraft={routingDraft}
-                        setRoutingDraft={setRoutingDraft}
-                        setRoutingEditKey={setRoutingEditKey}
-                        saveEndpointRouting={saveEndpointRouting}
-                      />
+                      <span className="font-mono text-kumo-strong">{item.priority ?? 0}</span>
+                      <span className="text-kumo-subtle">权重</span>
+                      <span className="font-mono text-kumo-strong">{item.weight ?? 100}</span>
                     </div>
                   </div>
                 </MobileCard>
