@@ -93,7 +93,7 @@ export function GatewayLogsTab({ analytics, endpoints }) {
               </StatusBadge>
             )}
             <span
-              className={`min-w-0 truncate font-mono text-[11px] ${actionable ? 'text-kumo-danger' : 'text-kumo-strong'}`}
+              className={`min-w-0 truncate font-mono text-[11px] font-semibold ${actionable ? 'text-kumo-danger' : 'text-kumo-strong'}`}
               title={log.model}
             >
               {log.model}
@@ -105,7 +105,7 @@ export function GatewayLogsTab({ analytics, endpoints }) {
         </div>
         <div className="mt-1 flex min-w-0 items-center gap-2 text-[11px] leading-normal">
           <span
-            className="min-w-0 flex-1 truncate font-semibold text-kumo-strong"
+            className="min-w-0 flex-1 truncate text-kumo-strong"
             onClick={event => event.stopPropagation()}
           >
             <FailoverPathBadge path={log.failoverPath} endpointName={log.endpointName} />
