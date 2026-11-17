@@ -577,8 +577,10 @@ function EmailRoutingPanel({ selectedAccountId, cfApi }) {
             </div>
           }
         >
+          {/* 内部滚动只在桌面(cq-lg 右列固定高度)启用:移动端若也套 overflow-auto +
+              overscroll-contain,手指落在列表上会被内层滚动容器吃掉,页面滚不动。 */}
           {messages.length ? (
-            <div className="min-h-0 min-w-0 flex-1 overflow-auto overscroll-contain scrollbar-thin">
+            <div className="min-w-0 scrollbar-thin cq-lg:min-h-0 cq-lg:flex-1 cq-lg:overflow-auto cq-lg:overscroll-contain">
               {/* 移动端没有右键:卡片上直接给「查看 / 删除」按钮。 */}
               <MobileCardList className="p-2">
                 {messages.map(m => (
