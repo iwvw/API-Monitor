@@ -294,23 +294,6 @@ export const QoderBrand = createAssetIcon(qoderIcon, 'Qoder');
 export const RaccoonBrand = createAssetIcon(raccoonIcon, 'Raccoon');
 // Cline 有官方 simple-icons 图标；ZCode / AutoClaw 没有，用通用字体图标兜底。
 export const ClineBrand = createFontIcon('si si-cline', 'Cline');
-// TokenHarbor 无官方 simple-icons 图标;用单色(随主题 currentColor)锚形标记作品牌图像。
-export const TokenHarborBrand = ({ className = '', size = 24, weight, ...props }) => (
-  <svg
-    viewBox="0 0 24 24"
-    width={size}
-    height={size}
-    className={`app-icon ${className}`.trim()}
-    aria-hidden={props['aria-label'] ? undefined : true}
-    focusable="false"
-    {...props}
-  >
-    <path
-      fill="currentColor"
-      d="M12 2a3 3 0 0 0-3 3c0 1.3.84 2.4 2 2.82V10H7v2h4v6.92A5.002 5.002 0 0 1 7 14H5a7 7 0 0 0 14 0h-2a5.002 5.002 0 0 1-4 4.92V12h4v-2h-4V7.82A3.001 3.001 0 0 0 12 2Zm0 2a1 1 0 1 1 0 2 1 1 0 0 1 0-2Z"
-    />
-  </svg>
-);
 export const KoyebBrand = createFontIcon('si si-koyeb', 'Koyeb');
 export const FlyIoBrand = createFontIcon('si si-flydotio', 'Fly.io');
 

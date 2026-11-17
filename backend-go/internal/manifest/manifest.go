@@ -392,8 +392,6 @@ func buildRoutes() []Route {
 		{Prefix: "/api/raccoon/v1", Module: "raccoon-compatible", Owner: OwnerGo, Auth: AuthInternal, ResponseMode: ResponseStream, Description: "小浣熊插件 OpenAI 兼容中继（仅本机内部网关调用）"},
 		{Prefix: "/api/cline", Module: "cline", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Cline 插件（cline.bot 转 OpenAI 兼容 API）管理"},
 		{Prefix: "/api/cline/v1", Module: "cline-compatible", Owner: OwnerGo, Auth: AuthInternal, ResponseMode: ResponseStream, Description: "Cline 插件 OpenAI 兼容中继（仅本机内部网关调用）"},
-		{Prefix: "/api/tokenharbor", Module: "tokenharbor", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "TokenHarbor 插件(tokenharbor.ai 转 OpenAI 兼容 API)管理"},
-		{Prefix: "/api/tokenharbor/v1", Module: "tokenharbor-compatible", Owner: OwnerGo, Auth: AuthInternal, ResponseMode: ResponseStream, Description: "TokenHarbor 插件 OpenAI 兼容中继(仅本机内部网关调用)"},
 		{Prefix: "/api/emailcode", Module: "emailcode", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "通用邮箱验证码收件箱（列表、详情、等待、取用、统计、清理）"},
 		{Prefix: "/api/emailcode/ingest", Module: "emailcode-worker-callback", Owner: OwnerGo, Auth: AuthPublic, ResponseMode: ResponseJSON, Description: "邮件 Worker 投递回调（共享密钥校验，非会话鉴权）", MatchMode: MatchExact},
 		{Prefix: "/api/subscription", Module: "subscription", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Subscription distribution, nodes, templates, logs, and settings"},

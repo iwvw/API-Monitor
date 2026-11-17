@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { EmptyState, cx } from '../../components/ui/AppPrimitives.jsx';
-import { Globe, AntigravityBrand, CodeBuddyBrand, PostHogBrand, QoderBrand, RaccoonBrand, ClineBrand, TokenHarborBrand } from '../../components/Icons.jsx';
+import { Globe, AntigravityBrand, CodeBuddyBrand, PostHogBrand, QoderBrand, RaccoonBrand, ClineBrand } from '../../components/Icons.jsx';
 import { ProxyPoolPlugin } from './plugins/ProxyPoolPlugin.jsx';
 import { AntigravityPlugin } from './plugins/AntigravityPlugin.jsx';
 import { WorkBuddyPlugin } from './plugins/WorkBuddyPlugin.jsx';
@@ -8,7 +8,6 @@ import { PostHogCodePlugin } from './plugins/PostHogCodePlugin.jsx';
 import { QoderPlugin } from './plugins/QoderPlugin.jsx';
 import { RaccoonPlugin } from './plugins/RaccoonPlugin.jsx';
 import { ClinePlugin } from './plugins/ClinePlugin.jsx';
-import { TokenHarborPlugin } from './plugins/TokenHarborPlugin.jsx';
 
 // 插件注册表：后续新增插件只需向 PLUGINS 追加一项（id 唯一、提供详情组件）。
 // 插件中心是列表式容器，本身不承载具体模块逻辑。
@@ -63,13 +62,6 @@ const PLUGINS = [
     description: 'Cline（cline.bot）免费池 / ClinePass 订阅池转 API。',
     icon: ClineBrand,
     detail: ClinePlugin,
-  },
-  {
-    id: 'tokenharbor',
-    name: 'TokenHarbor',
-    description: 'TokenHarbor(tokenharbor.ai)免费 / 付费模型转 API。',
-    icon: TokenHarborBrand,
-    detail: TokenHarborPlugin,
   },
 ];
 

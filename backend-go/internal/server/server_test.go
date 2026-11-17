@@ -799,7 +799,7 @@ func TestPluginCompatibleRelayRoutesAreInternalOnly(t *testing.T) {
 	handler := testServer(t)
 
 	// 外部来源（非 loopback）：插件 /v1 兼容中继应被 AuthInternal 拒绝。
-	for _, path := range []string{"/api/antigravity/v1/messages", "/api/workbuddy/v1/chat/completions", "/api/tokenharbor/v1/chat/completions"} {
+	for _, path := range []string{"/api/antigravity/v1/messages", "/api/workbuddy/v1/chat/completions"} {
 		req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(`{}`))
 		req.RemoteAddr = "203.0.113.9:12345"
 		res := httptest.NewRecorder()
