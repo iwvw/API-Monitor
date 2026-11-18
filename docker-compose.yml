@@ -5,7 +5,11 @@ services:
     container_name: api-monitor
     restart: unless-stopped
     ports:
-      - "3000:3000"
+      # 默认只绑定回环地址:公网入口应由前置 nginx/openresty 在 443 上终止 TLS 后
+      # 反代到 127.0.0.1:3000。直接把 3000 映射到公网会让登录口令与会话 Cookie
+      # 全程明文,并绕过前置代理上的 HSTS/CSP/限流。
+      # 确需局域网直连时显式设置 API_MONITOR_BIND_ADDR=0.0.0.0(不推荐公网)。
+      - "${API_MONITOR_BIND_ADDR:-127.0.0.1}:3000:3000"
     volumes:
       - ./data:/app/data
     environment:
