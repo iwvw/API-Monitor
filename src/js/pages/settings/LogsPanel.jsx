@@ -9,25 +9,42 @@ import { MobileCard, MobileCardField, MobileCardFields, MobileCardList } from '.
 import { Database, FileText, Save, Trash } from '../../components/Icons.jsx';
 import { toInt } from './utils.js';
 
-const MONO_FONT = '12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace';
-const SANS_FONT = '500 12px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
-const CELL_PADDING = 22;
-const FALLBACK_WIDTHS = { time: 160, operation: 96, table: 176 };
+const FALLBACK_FAMILY = 'ui-sans-serif, system-ui, sans-serif';
+const CELL_PADDING_WIDE = 20;
+const CELL_PADDING_NARROW = 16;
+const BADGE_BOX = 18;
+const FALLBACK_WIDTHS = { time: 168, operation: 160, table: 176 };
+
+function resolveFontFamily() {
+  if (typeof window === 'undefined' || !document.body) return FALLBACK_FAMILY;
+  const family = window.getComputedStyle(document.body).fontFamily;
+  return family && family.trim() ? family : FALLBACK_FAMILY;
+}
+
+function resolveFontPx() {
+  if (typeof window === 'undefined') return 12;
+  const base = parseFloat(window.getComputedStyle(document.documentElement).fontSize);
+  if (!Number.isFinite(base) || base <= 0) return 12;
+  return 0.75 * base;
+}
 
 function measureAuditWidths(logs) {
   if (typeof document === 'undefined' || logs.length === 0) return FALLBACK_WIDTHS;
   const probe = document.createElement('canvas');
   const ctx = probe.getContext('2d');
   if (!ctx) return FALLBACK_WIDTHS;
-  const measure = (values, font) => {
-    ctx.font = font;
+  const family = resolveFontFamily();
+  const fontPx = resolveFontPx();
+  const measure = (values, weight) => {
+    ctx.font = `${weight} ${fontPx}px ${family}`;
     return values.reduce((max, value) => Math.max(max, ctx.measureText(String(value || '')).width), 0);
   };
   const clamp = (value, min, max) => Math.min(max, Math.max(min, Math.ceil(value)));
+  const widestOperation = measure(logs.map(log => log.operation_type), 500);
   return {
-    time: clamp(measure(logs.map(log => log.created_at), MONO_FONT) + CELL_PADDING, 128, 184),
-    operation: clamp(measure(logs.map(log => log.operation_type), SANS_FONT) + CELL_PADDING + 2, 72, 140),
-    table: clamp(measure(logs.map(log => log.table_name), MONO_FONT) + CELL_PADDING, 96, 280),
+    time: clamp(measure(logs.map(log => log.created_at), 400) + CELL_PADDING_WIDE + 2, 132, 220),
+    operation: clamp(widestOperation + BADGE_BOX + CELL_PADDING_NARROW + 6, 96, 300),
+    table: clamp(measure(logs.map(log => log.table_name), 400) + CELL_PADDING_WIDE + 2, 104, 340),
   };
 }
 
@@ -35,9 +52,9 @@ export function LogsPanel({ logSettings, logsBusy, operationLogs, runEnforceLogL
   const logs = React.useMemo(() => operationLogs.slice(0, 100), [operationLogs]);
   const widths = React.useMemo(() => measureAuditWidths(logs), [logs]);
   const columns = React.useMemo(() => [
-    { id: 'time', role: 'datetime', width: widths.time, minWidth: 128, maxWidth: 184 },
-    { id: 'operation', role: 'type', width: widths.operation, minWidth: 72, maxWidth: 140 },
-    { id: 'table', role: 'identifier', width: widths.table, minWidth: 96, maxWidth: 280 },
+    { id: 'time', role: 'datetime', width: widths.time, minWidth: 132, maxWidth: 220 },
+    { id: 'operation', role: 'type', width: widths.operation, minWidth: 96, maxWidth: 300 },
+    { id: 'table', role: 'identifier', width: widths.table, minWidth: 104, maxWidth: 340 },
     { id: 'trace', role: 'content', grow: 1, minWidth: 160, verticalAlign: 'middle' },
   ], [widths]);
   const intervalDisabled = !logSettings.autoCleanup;
