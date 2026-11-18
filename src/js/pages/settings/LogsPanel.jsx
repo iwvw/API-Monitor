@@ -9,15 +9,39 @@ import { MobileCard, MobileCardField, MobileCardFields, MobileCardList } from '.
 import { Database, FileText, Save, Trash } from '../../components/Icons.jsx';
 import { toInt } from './utils.js';
 
-const AUDIT_LOG_COLUMNS = [
-  { id: 'time', role: 'datetime' },
-  { id: 'operation', role: 'type' },
-  { id: 'table', role: 'identifier' },
-  { id: 'trace', role: 'content', grow: 1, verticalAlign: 'middle' },
-];
+const MONO_FONT = '12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace';
+const SANS_FONT = '500 12px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
+const CELL_PADDING = 22;
+const FALLBACK_WIDTHS = { time: 160, operation: 96, table: 176 };
+
+function measureAuditWidths(logs) {
+  if (typeof document === 'undefined' || logs.length === 0) return FALLBACK_WIDTHS;
+  const probe = document.createElement('canvas');
+  const ctx = probe.getContext('2d');
+  if (!ctx) return FALLBACK_WIDTHS;
+  const measure = (values, font) => {
+    ctx.font = font;
+    return values.reduce((max, value) => Math.max(max, ctx.measureText(String(value || '')).width), 0);
+  };
+  const clamp = (value, min, max) => Math.min(max, Math.max(min, Math.ceil(value)));
+  return {
+    time: clamp(measure(logs.map(log => log.created_at), MONO_FONT) + CELL_PADDING, 128, 184),
+    operation: clamp(measure(logs.map(log => log.operation_type), SANS_FONT) + CELL_PADDING + 2, 72, 140),
+    table: clamp(measure(logs.map(log => log.table_name), MONO_FONT) + CELL_PADDING, 96, 280),
+  };
+}
 
 export function LogsPanel({ logSettings, logsBusy, operationLogs, runEnforceLogLimits, saveLogSettings, setLogSettings }) {
-  const logs = operationLogs.slice(0, 100);
+  const logs = React.useMemo(() => operationLogs.slice(0, 100), [operationLogs]);
+  const widths = React.useMemo(() => measureAuditWidths(logs), [logs]);
+  const columns = React.useMemo(() => [
+    { id: 'time', role: 'datetime', width: widths.time, minWidth: 128, maxWidth: 184 },
+    { id: 'operation', role: 'type', width: widths.operation, minWidth: 72, maxWidth: 140 },
+    { id: 'table', role: 'identifier', width: widths.table, minWidth: 96, maxWidth: 280 },
+    { id: 'trace', role: 'content', grow: 1, minWidth: 160, verticalAlign: 'middle' },
+  ], [widths]);
+  const intervalDisabled = !logSettings.autoCleanup;
+
   return (
     <div className="grid min-w-0 grid-cols-1 items-start gap-3 cq-lg:grid-cols-[minmax(0,24rem)_minmax(0,1fr)]">
       {/* 左列:保留策略,随页面自由滚动 */}
@@ -35,19 +59,28 @@ export function LogsPanel({ logSettings, logsBusy, operationLogs, runEnforceLogL
             />
           }
         >
-          <div className="p-4 cq-sm:p-5">
-            <div className="grid grid-cols-1 gap-3 cq-sm:grid-cols-2 cq-md:grid-cols-3">
-              <Input size="sm" label="保留天数" type="number" min="0" value={logSettings.days} onChange={(e) => setLogSettings((prev) => ({ ...prev, days: Math.max(0, toInt(e.target.value, 0)) }))} />
-              <Input size="sm" label="单表最大条数" type="number" min="0" value={logSettings.count} onChange={(e) => setLogSettings((prev) => ({ ...prev, count: Math.max(0, toInt(e.target.value, 0)) }))} />
-              <Input size="sm" label="数据库最大 MB" type="number" min="0" value={logSettings.dbSizeMB} onChange={(e) => setLogSettings((prev) => ({ ...prev, dbSizeMB: Math.max(0, toInt(e.target.value, 0)) }))} />
-              <Input size="sm" label="app.log 最大 MB" type="number" min="1" value={logSettings.logFileSizeMB} onChange={(e) => setLogSettings((prev) => ({ ...prev, logFileSizeMB: Math.max(1, toInt(e.target.value, 10)) }))} />
-              <Input size="sm" label="执行间隔(小时)" type="number" min="1" value={logSettings.autoCleanupHours} onChange={(e) => setLogSettings((prev) => ({ ...prev, autoCleanupHours: Math.max(1, toInt(e.target.value, 24)) }))} disabled={!logSettings.autoCleanup} />
+          <div className="grid grid-cols-1 gap-x-4 gap-y-4 p-4 cq-sm:grid-cols-2 cq-sm:p-5">
+            <Input size="sm" label="保留天数" type="number" min="0" value={logSettings.days} onChange={(e) => setLogSettings((prev) => ({ ...prev, days: Math.max(0, toInt(e.target.value, 0)) }))} />
+            <Input size="sm" label="单表最大条数" type="number" min="0" value={logSettings.count} onChange={(e) => setLogSettings((prev) => ({ ...prev, count: Math.max(0, toInt(e.target.value, 0)) }))} />
+            <Input size="sm" label="数据库最大 MB" type="number" min="0" value={logSettings.dbSizeMB} onChange={(e) => setLogSettings((prev) => ({ ...prev, dbSizeMB: Math.max(0, toInt(e.target.value, 0)) }))} />
+            <Input size="sm" label="app.log 最大 MB" type="number" min="1" value={logSettings.logFileSizeMB} onChange={(e) => setLogSettings((prev) => ({ ...prev, logFileSizeMB: Math.max(1, toInt(e.target.value, 10)) }))} />
+            <div className="cq-sm:col-span-2">
+              <Input
+                size="sm"
+                label="执行间隔(小时)"
+                type="number"
+                min="1"
+                value={logSettings.autoCleanupHours}
+                onChange={(e) => setLogSettings((prev) => ({ ...prev, autoCleanupHours: Math.max(1, toInt(e.target.value, 24)) }))}
+                disabled={intervalDisabled}
+                description={intervalDisabled ? '未开启自动执行时不生效' : undefined}
+              />
             </div>
+          </div>
 
-            <div className="mt-4 flex justify-end gap-2">
-              <Button size="sm" variant="secondary" onClick={saveLogSettings} loading={logsBusy} icon={<Save className="h-4 w-4" />}>保存策略</Button>
-              <Button size="sm" onClick={runEnforceLogLimits} loading={logsBusy} icon={<Trash className="h-4 w-4" />}>执行保留限制</Button>
-            </div>
+          <div className="flex flex-wrap items-center justify-end gap-2 border-t border-kumo-line px-4 py-3 cq-sm:px-5">
+            <Button size="sm" variant="secondary" onClick={saveLogSettings} loading={logsBusy} icon={<Save className="h-4 w-4" />}>保存策略</Button>
+            <Button size="sm" onClick={runEnforceLogLimits} loading={logsBusy} icon={<Trash className="h-4 w-4" />}>执行保留限制</Button>
           </div>
         </SectionCard>
       </div>
@@ -87,22 +120,22 @@ export function LogsPanel({ logSettings, logsBusy, operationLogs, runEnforceLogL
                 ))}
               </MobileCardList>
               <div className="hidden min-w-0 overflow-x-auto overscroll-x-contain scrollbar-thin cq-md:block">
-                <AppTable tableId="audit-logs" columns={AUDIT_LOG_COLUMNS} className="w-full min-w-[40rem] text-xs">
-                  <Table.Header>
-                    <Table.Row>
-                      <Table.Head>时间</Table.Head>
-                      <Table.Head>操作</Table.Head>
-                      <Table.Head>对象</Table.Head>
-                      <Table.Head>Trace</Table.Head>
+                <AppTable tableId="audit-logs" columns={columns} className="w-full text-xs">
+                  <Table.Header sticky variant="compact">
+                    <Table.Row className="h-8">
+                      <Table.Head className="!px-2.5 !py-1.5">时间</Table.Head>
+                      <Table.Head className="!px-2 !py-1.5 text-center">操作</Table.Head>
+                      <Table.Head className="!px-2.5 !py-1.5">对象</Table.Head>
+                      <Table.Head className="!px-2.5 !py-1.5">Trace</Table.Head>
                     </Table.Row>
                   </Table.Header>
                   <Table.Body>
                     {logs.map((log) => (
-                      <Table.Row key={log.id}>
-                        <Table.Cell className="font-mono text-xs">{log.created_at}</Table.Cell>
-                        <Table.Cell><Badge variant="outline">{log.operation_type}</Badge></Table.Cell>
-                        <Table.Cell className="font-mono text-xs">{log.table_name}</Table.Cell>
-                        <Table.Cell className="truncate font-mono text-xs text-kumo-subtle">{log.trace_id || '-'}</Table.Cell>
+                      <Table.Row key={log.id} className="h-10">
+                        <Table.Cell className="!px-2.5 !py-1.5 whitespace-nowrap font-mono text-xs text-kumo-subtle" title={log.created_at}>{log.created_at || '—'}</Table.Cell>
+                        <Table.Cell className="!px-2 !py-1.5 text-center"><Badge variant="outline">{log.operation_type}</Badge></Table.Cell>
+                        <Table.Cell className="!px-2.5 !py-1.5"><span className="block truncate font-mono text-xs text-kumo-strong" title={log.table_name}>{log.table_name}</span></Table.Cell>
+                        <Table.Cell className="!px-2.5 !py-1.5"><span className="block truncate font-mono text-[11px] text-kumo-subtle" title={log.trace_id || ''}>{log.trace_id || '-'}</span></Table.Cell>
                       </Table.Row>
                     ))}
                   </Table.Body>
