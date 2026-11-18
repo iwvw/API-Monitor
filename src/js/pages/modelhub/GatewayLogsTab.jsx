@@ -26,17 +26,17 @@ import {
 import { MobileLogDetailDialog } from './MobileLogDetailDialog.jsx';
 
 const GATEWAY_LOG_COLUMNS = [
-  { id: 'time', role: 'datetime', align: 'left' },
-  { id: 'endpoint', role: 'meta', align: 'left' },
+  { id: 'time', role: 'datetime', width: 148, align: 'left' },
+  { id: 'endpoint', role: 'identifier', minWidth: 150, align: 'left' },
   { id: 'model', role: 'identifier', align: 'left' },
   { id: 'status', role: 'status' },
-  { id: 'upstreamIp', role: 'meta', align: 'left' },
-  { id: 'clientIp', role: 'meta', align: 'left' },
-  { id: 'latency', role: 'content', minWidth: 160, align: 'left', verticalAlign: 'middle' },
-  { id: 'tokens', role: 'content', minWidth: 132, align: 'left', verticalAlign: 'middle' },
-  { id: 'cache', role: 'content', minWidth: 132, align: 'left', verticalAlign: 'middle' },
-  { id: 'cost', role: 'content', minWidth: 150, align: 'left', verticalAlign: 'middle' },
-  { id: 'speed', role: 'meta', align: 'left' },
+  { id: 'upstreamIp', role: 'meta', width: 130, align: 'left' },
+  { id: 'clientIp', role: 'meta', width: 130, align: 'left' },
+  { id: 'latency', role: 'content', minWidth: 160, width: 176, align: 'left', verticalAlign: 'middle' },
+  { id: 'tokens', role: 'number', width: 128, align: 'left', verticalAlign: 'middle' },
+  { id: 'cache', role: 'number', width: 124, align: 'left', verticalAlign: 'middle' },
+  { id: 'cost', role: 'number', width: 140, align: 'left', verticalAlign: 'middle' },
+  { id: 'speed', role: 'count', width: 84, align: 'left' },
 ];
 
 export function GatewayLogsTab({ analytics, endpoints }) {
@@ -223,7 +223,7 @@ export function GatewayLogsTab({ analytics, endpoints }) {
               滚动、分页在内容下方，符合「移动端整页滚动」约定。 */}
           <LayerCard className="flex h-[calc(100dvh-184px)] min-h-64 w-full min-w-0 flex-col overflow-hidden p-0 shadow-none max-sm:h-auto max-sm:min-h-0">
             <div className="hidden min-h-0 min-w-0 flex-1 overflow-auto scrollbar-thin cq-md:block">
-              <AppTable tableId="gateway-logs" columns={GATEWAY_LOG_COLUMNS} className="min-w-[1362px] [&_td]:!px-2 [&_td]:!py-2 [&_th]:!px-2 [&_th]:!py-2">
+              <AppTable tableId="gateway-logs" columns={GATEWAY_LOG_COLUMNS} className="[&_td]:!px-2 [&_td]:!py-2 [&_th]:!px-2 [&_th]:!py-2">
                 <Table.Header sticky variant="compact">
                   <Table.Row>
                     <Table.Head className="text-left">时间</Table.Head>
