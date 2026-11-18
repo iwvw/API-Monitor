@@ -27,7 +27,7 @@ func (s *Service) enabledEndpointsCached(ctx context.Context, db *sql.DB) ([]End
 
 	endpoints := []Endpoint{}
 	rows, err := db.QueryContext(ctx, `
-		SELECT id, name, base_url, api_key, api_keys, headers, disabled_models, proxy_pool, auto_switch, proxy_enabled, force_proxy, rate_limit_retry_enabled, rate_limit_retry_wait_seconds, protocol, status, enabled, models, model_mappings, sort_order, priority, weight, key_retry_rounds, proxy_pool_id, upstream_type
+		SELECT id, name, base_url, api_key, api_keys, headers, disabled_models, proxy_pool, auto_switch, proxy_enabled, force_proxy, rate_limit_retry_enabled, rate_limit_retry_wait_seconds, protocol, status, enabled, models, model_mappings, sort_order, priority, weight, key_retry_rounds, proxy_pool_id, upstream_type, key_strategy, key_cooldown_seconds
 		FROM modelhub_endpoints WHERE enabled = 1
 		ORDER BY priority DESC, sort_order ASC, created_at ASC`)
 	if err != nil {
@@ -36,9 +36,9 @@ func (s *Service) enabledEndpointsCached(ctx context.Context, db *sql.DB) ([]End
 	defer rows.Close()
 	for rows.Next() {
 		var ep Endpoint
-		var headersRaw, modelsRaw, disabledRaw, proxyRaw, mappingsRaw, protocolRaw, apiKeysRaw, proxyPoolIDRaw, upstreamTypeRaw sql.NullString
-		var enabledInt, autoSwitchInt, proxyEnabledInt, forceProxyInt, rateLimitRetryInt, rateLimitRetryWaitSeconds, sortOrder, priority, weight, keyRetryRounds int
-		if errScan := rows.Scan(&ep.ID, &ep.Name, &ep.BaseURL, &ep.APIKey, &apiKeysRaw, &headersRaw, &disabledRaw, &proxyRaw, &autoSwitchInt, &proxyEnabledInt, &forceProxyInt, &rateLimitRetryInt, &rateLimitRetryWaitSeconds, &protocolRaw, &ep.Status, &enabledInt, &modelsRaw, &mappingsRaw, &sortOrder, &priority, &weight, &keyRetryRounds, &proxyPoolIDRaw, &upstreamTypeRaw); errScan == nil {
+		var headersRaw, modelsRaw, disabledRaw, proxyRaw, mappingsRaw, protocolRaw, apiKeysRaw, proxyPoolIDRaw, upstreamTypeRaw, keyStrategyRaw sql.NullString
+		var enabledInt, autoSwitchInt, proxyEnabledInt, forceProxyInt, rateLimitRetryInt, rateLimitRetryWaitSeconds, sortOrder, priority, weight, keyRetryRounds, keyCooldownSeconds int
+		if errScan := rows.Scan(&ep.ID, &ep.Name, &ep.BaseURL, &ep.APIKey, &apiKeysRaw, &headersRaw, &disabledRaw, &proxyRaw, &autoSwitchInt, &proxyEnabledInt, &forceProxyInt, &rateLimitRetryInt, &rateLimitRetryWaitSeconds, &protocolRaw, &ep.Status, &enabledInt, &modelsRaw, &mappingsRaw, &sortOrder, &priority, &weight, &keyRetryRounds, &proxyPoolIDRaw, &upstreamTypeRaw, &keyStrategyRaw, &keyCooldownSeconds); errScan == nil {
 			ep.ProxyPoolID = proxyPoolIDRaw.String
 			ep.UpstreamType = normalizeUpstreamType(upstreamTypeRaw.String)
 			ep.APIKey = secure.SecureDecrypt(ep.APIKey)
@@ -50,6 +50,8 @@ func (s *Service) enabledEndpointsCached(ctx context.Context, db *sql.DB) ([]End
 			ep.RateLimitRetryWaitSeconds = rateLimitRetryWaitSeconds
 			ep.Protocol = normalizeProtocol(protocolRaw.String)
 			ep.KeyRetryRounds = keyRetryRounds
+			ep.KeyStrategy = normalizeKeyStrategy(keyStrategyRaw.String)
+			ep.KeyCooldownSeconds = normalizeKeyCooldownSeconds(keyCooldownSeconds)
 			if apiKeysRaw.Valid && apiKeysRaw.String != "" {
 				_ = json.Unmarshal([]byte(secure.SecureDecrypt(apiKeysRaw.String)), &ep.APIKeys)
 			}
@@ -128,7 +130,7 @@ func (s *Service) enabledEndpointSnapshot(ctx context.Context, db *sql.DB) ([]En
 func (s *Service) selectEndpointCandidates(ctx context.Context, db *sql.DB, model, targetEndpointID, sessionKey string) (candidates []Endpoint, chosen Endpoint, chosenIndex int, selectedModel string, found bool) {
 	selectedModel = model
 
-	loadEndpoint := func(ep *Endpoint, headersRaw, modelsRaw, disabledRaw, proxyRaw, mappingsRaw, protocolRaw, apiKeysRaw sql.NullString, enabledInt, autoSwitchInt, proxyEnabledInt, forceProxyInt, keyRetryRounds int) {
+	loadEndpoint := func(ep *Endpoint, headersRaw, modelsRaw, disabledRaw, proxyRaw, mappingsRaw, protocolRaw, apiKeysRaw sql.NullString, enabledInt, autoSwitchInt, proxyEnabledInt, forceProxyInt, keyRetryRounds int, keyStrategyRaw sql.NullString, keyCooldownSeconds int) {
 		ep.APIKey = secure.SecureDecrypt(ep.APIKey)
 		ep.Enabled = enabledInt == 1
 		ep.AutoSwitch = autoSwitchInt == 1
@@ -136,6 +138,8 @@ func (s *Service) selectEndpointCandidates(ctx context.Context, db *sql.DB, mode
 		ep.ForceProxy = forceProxyInt == 1
 		ep.Protocol = normalizeProtocol(protocolRaw.String)
 		ep.KeyRetryRounds = keyRetryRounds
+		ep.KeyStrategy = normalizeKeyStrategy(keyStrategyRaw.String)
+		ep.KeyCooldownSeconds = normalizeKeyCooldownSeconds(keyCooldownSeconds)
 		if apiKeysRaw.Valid && apiKeysRaw.String != "" {
 			_ = json.Unmarshal([]byte(secure.SecureDecrypt(apiKeysRaw.String)), &ep.APIKeys)
 		}
@@ -161,14 +165,14 @@ func (s *Service) selectEndpointCandidates(ctx context.Context, db *sql.DB, mode
 
 	if targetEndpointID != "" {
 		var ep Endpoint
-		var headersRaw, modelsRaw, disabledRaw, proxyRaw, mappingsRaw, protocolRaw, apiKeysRaw sql.NullString
-		var enabledInt, autoSwitchInt, proxyEnabledInt, forceProxyInt, keyRetryRounds int
+		var headersRaw, modelsRaw, disabledRaw, proxyRaw, mappingsRaw, protocolRaw, apiKeysRaw, keyStrategyRaw sql.NullString
+		var enabledInt, autoSwitchInt, proxyEnabledInt, forceProxyInt, keyRetryRounds, keyCooldownSeconds int
 		err := db.QueryRowContext(ctx, `
-			SELECT id, name, base_url, api_key, api_keys, headers, disabled_models, proxy_pool, auto_switch, proxy_enabled, force_proxy, protocol, status, enabled, models, model_mappings, key_retry_rounds
+			SELECT id, name, base_url, api_key, api_keys, headers, disabled_models, proxy_pool, auto_switch, proxy_enabled, force_proxy, protocol, status, enabled, models, model_mappings, key_retry_rounds, key_strategy, key_cooldown_seconds
 			FROM modelhub_endpoints WHERE id = ? AND enabled = 1`, targetEndpointID).
-			Scan(&ep.ID, &ep.Name, &ep.BaseURL, &ep.APIKey, &apiKeysRaw, &headersRaw, &disabledRaw, &proxyRaw, &autoSwitchInt, &proxyEnabledInt, &forceProxyInt, &protocolRaw, &ep.Status, &enabledInt, &modelsRaw, &mappingsRaw, &keyRetryRounds)
+			Scan(&ep.ID, &ep.Name, &ep.BaseURL, &ep.APIKey, &apiKeysRaw, &headersRaw, &disabledRaw, &proxyRaw, &autoSwitchInt, &proxyEnabledInt, &forceProxyInt, &protocolRaw, &ep.Status, &enabledInt, &modelsRaw, &mappingsRaw, &keyRetryRounds, &keyStrategyRaw, &keyCooldownSeconds)
 		if err == nil {
-			loadEndpoint(&ep, headersRaw, modelsRaw, disabledRaw, proxyRaw, mappingsRaw, protocolRaw, apiKeysRaw, enabledInt, autoSwitchInt, proxyEnabledInt, forceProxyInt, keyRetryRounds)
+			loadEndpoint(&ep, headersRaw, modelsRaw, disabledRaw, proxyRaw, mappingsRaw, protocolRaw, apiKeysRaw, enabledInt, autoSwitchInt, proxyEnabledInt, forceProxyInt, keyRetryRounds, keyStrategyRaw, keyCooldownSeconds)
 			if s.endpointHasModel(ep, model) {
 				if real, routable := s.resolveEndpointModel(ep, model); routable {
 					selectedModel = real
