@@ -210,6 +210,12 @@ export const MODULE_GROUPS = [
     trailingModules: ['server', 'paas'],
   },
   {
+    id: 'api-gateway',
+    name: 'API 服务',
+    icon: 'fa-bolt',
+    modules: ['modelhub', 'subscription', 'aiagent'],
+  },
+  {
     id: 'toolbox',
     name: '工具箱',
     icon: 'fa-toolbox',
@@ -227,12 +233,6 @@ export const MODULE_GROUPS = [
       },
     ],
     trailingModules: ['totp'],
-  },
-  {
-    id: 'api-gateway',
-    name: 'API 服务',
-    icon: 'fa-bolt',
-    modules: ['modelhub', 'subscription', 'aiagent'],
   },
   {
     id: 'system',

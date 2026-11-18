@@ -189,7 +189,7 @@ export const GROUP_NAME_TO_MODULE_ID = {
   系统设置: 'settings',
 };
 
-// 顶层分区：按侧边栏 MODULE_GROUPS 推导（仪表盘 / 云服务 / 工具箱 / API 服务 / 系统）
+// 顶层分区:组名顺序直接取侧边栏 MODULE_GROUPS,末尾补充不属于任何模块组的兜底分区
 export const SECTION_OF_GROUP = {};
 MODULE_GROUPS.forEach(section => {
   (section.modules || []).forEach(moduleId => {
@@ -211,7 +211,13 @@ export const FALLBACK_SECTION = {
   基础: '基础',
 };
 
-export const SECTION_ORDER = ['仪表盘', '云服务', '工具箱', 'API 服务', '系统', '认证', '系统基础', '基础', '其他'];
+export const SECTION_ORDER = [
+  ...MODULE_GROUPS.map(section => section.name),
+  '认证',
+  '系统基础',
+  '基础',
+  '其他',
+];
 
 export const AI_ACCESS_BASE = '/api/ai-access';
 export const API_KEYS_BASE = '/api/api-keys';
