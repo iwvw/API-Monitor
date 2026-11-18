@@ -67,21 +67,30 @@ export const formatTokensZh = value => {
   return String(Math.round(num));
 };
 
-// 词元用量坐标轴刻度：中文单位取整数（向下取整），避免两位小数造成轴标签过长。
-// 内部数值与 formatTokensZh 保持一致，仅展示粒度不同。
+// 词元用量坐标轴刻度:中文单位;单位上的整数不显示小数,非整数保留 1 位。
+// 允许小数是必要的——刻度值是 1/2/5×10^k 这类「好看数」,并不总是单位的整数倍,
+// 一律取整会让相邻两格渲染成同一个标签(1亿 与 1.5亿 都成「1亿」)。
 export const formatTokensAxis = value => {
   const num = Number(value) || 0;
   if (!(num > 0)) return '0';
   const abs = Math.abs(num);
-  if (abs >= 1e8) return `${Math.floor(num / 1e8)}亿`;
-  if (abs >= 1e7) return `${Math.floor(num / 1e7)}千万`;
-  if (abs >= 1e6) return `${Math.floor(num / 1e6)}百万`;
-  if (abs >= 1e4) return `${Math.floor(num / 1e4)}万`;
-  return String(Math.round(num));
+  const units = [
+    [1e8, '亿'],
+    [1e7, '千万'],
+    [1e6, '百万'],
+    [1e4, '万'],
+  ];
+  const hit = units.find(([scale]) => abs >= scale);
+  if (!hit) return String(Math.round(num));
+  const [scale, suffix] = hit;
+  const scaled = num / scale;
+  const rounded = Math.round(scaled);
+  if (Math.abs(scaled - rounded) < 1e-9) return `${rounded}${suffix}`;
+  return `${scaled.toFixed(1)}${suffix}`;
 };
 
 // resolveAxisTicks 给纵轴挑一组「标签互不相同」的刻度。
-// 原因:自动分割给出的刻度值往往不是标签单位的整数倍,而轴标签只保留单位上的整数
+// 原因:自动分割给出的刻度值往往不是标签单位的整数倍,而轴标签的精度可能低于刻度间隔
 // (词元轴的 1亿 与 1.5亿 都渲染成「1亿」,2亿 与 2.5亿 都是「2亿」),一根轴上
 // 就出现重复刻度。这里按 1/2/5×10^k 依次试候选间隔,用调用方自己的 formatAxis
 // 实测标签是否重复,取网格线最多且不重复的一档;找不到时返回 null,由图表库回退默认分割。

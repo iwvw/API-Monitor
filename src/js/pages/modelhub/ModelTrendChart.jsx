@@ -10,7 +10,7 @@ import {
 } from 'echarts/components';
 import { CanvasRenderer } from 'echarts/renderers';
 import { createSiteFontEcharts, hideOtherChartTips } from '../../chartFont.js';
-import { kumoHex, formatCompact, formatTokensZh } from './utils.js';
+import { kumoHex, formatCompact, formatTokensAxis, formatTokensZh, resolveAxisTicks } from './utils.js';
 
 echarts.use([
   BarChart,
@@ -89,6 +89,14 @@ export const ModelTrendChart = memo(function ModelTrendChart({ labels, series, i
     if (!chart || !labels || labels.length === 0) return;
     const axisColor = kumoHex('--color-kumo-contrast');
     const gridColor = kumoHex('--color-kumo-line');
+    // 单位与页面其它图表统一成中文(亿/千万/百万/万):图例本就是中文,
+    // 只有 tooltip 与纵轴在用 M,同屏两套单位。
+    const formatAxis = tokensMetric ? formatTokensAxis : value => formatCompact(value, 0);
+    // 刻度自己定:自动分割会给出 1亿/1.5亿 这类非整单位值,需要保证标签互不相同。
+    const yTicks = resolveAxisTicks(
+      visibleSeries.flatMap(item => item.values),
+      formatAxis
+    );
     chart.setOption(
       {
         grid: { left: 8, right: 12, top: 8, bottom: 0, containLabel: true },
@@ -103,9 +111,7 @@ export const ModelTrendChart = memo(function ModelTrendChart({ labels, series, i
           extraCssText: 'max-height: 240px; overflow-y: auto; overscroll-behavior: contain;',
           backgroundColor: kumoHex('--color-kumo-base'),
           textStyle: { color: axisColor, fontSize: 11 },
-          valueFormatter: tokensMetric
-            ? value => `${(Number(value) / 1e6).toFixed(2)}M`
-            : undefined,
+          valueFormatter: tokensMetric ? formatTokensZh : undefined,
         },
         xAxis: {
           type: 'category',
@@ -117,13 +123,12 @@ export const ModelTrendChart = memo(function ModelTrendChart({ labels, series, i
         },
         yAxis: {
           type: 'value',
+          ...(yTicks || {}),
           splitLine: { lineStyle: { color: gridColor } },
           axisLabel: {
             color: axisColor,
             fontSize: 10,
-            formatter: tokensMetric
-              ? value => `${(Number(value) / 1e6).toFixed(1)}M`
-              : value => formatCompact(value, 0),
+            formatter: formatAxis,
           },
         },
         series: visibleSeries.map(item => ({
