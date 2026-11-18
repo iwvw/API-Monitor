@@ -41,7 +41,8 @@ func (s *Service) newPublicRegister(w http.ResponseWriter, r *http.Request) {
 
 	payload, err := readObject(r)
 	if err != nil {
-		response.Error(w, http.StatusBadRequest, err.Error())
+		// 不回显 encoding/json 原始错误(类型名、EOF 等),避免泄露后端实现细节。
+		response.Error(w, http.StatusBadRequest, "请求格式无效")
 		return
 	}
 	code := strings.TrimSpace(stringValue(payload["code"], ""))

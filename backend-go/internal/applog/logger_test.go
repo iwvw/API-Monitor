@@ -297,3 +297,60 @@ func TestMiddlewareLogsNormalAPIRequest(t *testing.T) {
 		t.Fatalf("expected normal api request log, got %q", logLine)
 	}
 }
+
+func TestMiddlewareValidatesClientRequestID(t *testing.T) {
+	previous := Logger()
+	SetLogger(slog.New(slog.NewJSONHandler(&bytes.Buffer{}, &slog.HandlerOptions{Level: slog.LevelInfo})))
+	defer func() {
+		SetLogger(previous)
+	}()
+
+	cases := []struct {
+		name     string
+		incoming string
+		wantEcho bool
+	}{
+		{name: "empty", incoming: "", wantEcho: false},
+		{name: "valid upstream id", incoming: "req_abc-123.XYZ", wantEcho: true},
+		{name: "html injection", incoming: `<script>alert(1)</script>`, wantEcho: false},
+		{name: "spaces and angle brackets", incoming: `a b<c>`, wantEcho: false},
+		{name: "too long", incoming: strings.Repeat("a", maxRequestIDLen+1), wantEcho: false},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var seenInContext string
+			handler := Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				seenInContext = RequestID(r.Context())
+				w.WriteHeader(http.StatusNoContent)
+			}))
+
+			req := httptest.NewRequest(http.MethodGet, "/api/auth/session", nil)
+			if tc.incoming != "" {
+				req.Header.Set("X-Request-ID", tc.incoming)
+			}
+			res := httptest.NewRecorder()
+			handler.ServeHTTP(res, req)
+
+			got := res.Header().Get("X-Request-ID")
+			if got == "" {
+				t.Fatal("expected X-Request-ID header to be set")
+			}
+			if got != seenInContext {
+				t.Fatalf("context request id %q != header %q", seenInContext, got)
+			}
+			if tc.wantEcho {
+				if got != tc.incoming {
+					t.Fatalf("valid incoming id not preserved: got %q want %q", got, tc.incoming)
+				}
+				return
+			}
+			if got == tc.incoming {
+				t.Fatalf("untrusted incoming id %q was echoed back", tc.incoming)
+			}
+			if !strings.HasPrefix(got, "req_") {
+				t.Fatalf("expected server generated req_ id, got %q", got)
+			}
+		})
+	}
+}

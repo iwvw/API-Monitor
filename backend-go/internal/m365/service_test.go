@@ -743,3 +743,24 @@ func decodeEnvelopeData(t *testing.T, rec *httptest.ResponseRecorder) map[string
 func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
+
+func TestPublicRegisterDoesNotEchoJSONParseErrors(t *testing.T) {
+	service := New(config.Config{
+		DataDir: t.TempDir(),
+		DBName:  "data.db",
+	})
+
+	for _, body := range []string{"", "{", "[]"} {
+		res := performM365(service, http.MethodPost, "/api/m365/public/register", body)
+		if res.Code != http.StatusBadRequest {
+			t.Fatalf("body %q status=%d body=%s", body, res.Code, res.Body.String())
+		}
+		responseBody := res.Body.String()
+		if strings.Contains(responseBody, "unmarshal") || strings.Contains(responseBody, "EOF") {
+			t.Fatalf("public register leaked JSON parse detail: %s", responseBody)
+		}
+		if !strings.Contains(responseBody, "请求格式无效") {
+			t.Fatalf("public register did not return generic error: %s", responseBody)
+		}
+	}
+}

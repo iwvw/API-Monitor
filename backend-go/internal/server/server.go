@@ -1015,7 +1015,7 @@ func (s *Server) applySecurityHeaders(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
 	w.Header().Set("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
-	if s.cfg.IsProduction() {
+	if s.cfg.IsProduction() || s.requestIsHTTPS(r) {
 		w.Header().Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
 	}
 	if isGatewayRoute(r.URL.Path) {
@@ -1123,6 +1123,22 @@ func (s *Server) originCheckHost(r *http.Request) string {
 		}
 	}
 	return r.Host
+}
+
+// requestIsHTTPS 判断请求是否来自 HTTPS(含受信反向代理注入的 X-Forwarded-Proto)。
+// HSTS 只应在 HTTPS 响应上下发;开发环境经 nginx/Cloudflare 终止 TLS 时同样需要,
+// 否则浏览器永远收不到 HSTS。明文直连因不带该头而不会误发。
+func (s *Server) requestIsHTTPS(r *http.Request) bool {
+	if r == nil {
+		return false
+	}
+	if r.TLS != nil {
+		return true
+	}
+	if s.trustForwardedHost(r) && strings.EqualFold(firstForwardedValue(r.Header.Get("X-Forwarded-Proto")), "https") {
+		return true
+	}
+	return false
 }
 
 func (s *Server) trustForwardedHost(r *http.Request) bool {
