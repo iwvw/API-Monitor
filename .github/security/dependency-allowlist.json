@@ -30,6 +30,13 @@
       "reason": "minimatch <11.0.1 potential denial of service via globparts amplification, only introduced via dev dependencies eslint-plugin-react and eslint. Upstream fix not yet available in current eslint ecosystem tree; does not affect production bundle.",
       "owner": "@iwvw",
       "expires": "2026-12-31"
+    },
+    {
+      "id": "GHSA-fc5q-39xc-vjpf",
+      "ecosystem": "npm",
+      "reason": "picomatch ReDoS via single-branch repeated extglobs. Affected range is <=4.0.7 and 4.0.7 is the newest published version, so no fix exists yet. Only reachable through dev-only build/test tooling (vite -> tinyglobby, vitest, rollup-plugin-visualizer); the ReDoS input is a glob pattern supplied by our own build config, never by untrusted request data, and none of these packages ship in the production bundle. Remove this entry once picomatch releases a patched version.",
+      "owner": "@iwvw",
+      "expires": "2026-12-31"
     }
   ]
 }
