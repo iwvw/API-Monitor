@@ -1135,6 +1135,7 @@ func init() {
 	})
 	routeRequestContracts["/api/modelhub/endpoints/{id}/proxy-state"] = noBody
 	routeRequestContracts["/api/modelhub/endpoints/{id}/key-state"] = noBody
+	routeRequestContracts["/api/modelhub/endpoints/{id}/key-state/release"] = noBody
 	routeRequestContracts["/api/modelhub/endpoints/{id}/proxy-state/unban"] = noBody
 	routeRequestContracts["/api/modelhub/endpoints/{id}/verify"] = noBody
 	routeRequestContracts["/api/modelhub/endpoints/{id}/test"] = noBody

@@ -315,6 +315,60 @@ func (s *Service) keyCooledAt(endpointID, key string) time.Time {
 	return time.Time{}
 }
 
+// releaseKeyCooldowns 立即清除端点全部 API Key 的回避冷却，返回被清除的条数。
+// 与「成功转发后 markKeySuccess 自动解除」等价，但不改动失败计数等健康统计，
+// 供管理面板的「释放所有冷却」按钮手动止损。
+func (s *Service) releaseKeyCooldowns(endpointID string) int {
+	s.keyMu.Lock()
+	defer s.keyMu.Unlock()
+	state, ok := s.keyStateByEndpoint[endpointID]
+	if !ok || state.health == nil {
+		return 0
+	}
+	now := time.Now()
+	released := 0
+	for _, entry := range state.health {
+		if entry == nil || entry.cooldownUntil.IsZero() {
+			continue
+		}
+		if now.Before(entry.cooldownUntil) {
+			released++
+		}
+		entry.cooldownUntil = time.Time{}
+	}
+	return released
+}
+
+// resyncKeyCooldowns 在端点「回避冷却秒数」变更后让新配置立即覆盖存量冷却：
+//   - cooldownSeconds <= 0（关闭冷却）：清空全部冷却；
+//   - cooldownSeconds > 0：把仍在冷却期内的条目的截止时间重算为 now+cooldownSeconds。
+//
+// 已自然过期的条目不动（它们本就不再回避）。返回受影响的条数。
+// 之所以需要单独重算而不复用 armKeyCooldown：armKeyCooldown 为兼容单请求内多次
+// 探测只会「延长不缩短」，无法表达「用户把 72h 改成 60s」这类主动收紧。
+func (s *Service) resyncKeyCooldowns(endpointID string, cooldownSeconds int) int {
+	if cooldownSeconds <= 0 {
+		return s.releaseKeyCooldowns(endpointID)
+	}
+	s.keyMu.Lock()
+	defer s.keyMu.Unlock()
+	state, ok := s.keyStateByEndpoint[endpointID]
+	if !ok || state.health == nil {
+		return 0
+	}
+	now := time.Now()
+	until := now.Add(time.Duration(cooldownSeconds) * time.Second)
+	changed := 0
+	for _, entry := range state.health {
+		if entry == nil || entry.cooldownUntil.IsZero() || !now.Before(entry.cooldownUntil) {
+			continue
+		}
+		entry.cooldownUntil = until
+		changed++
+	}
+	return changed
+}
+
 // proxySinkThreshold 是代理在探活/转发中被判定为「坏代理」的连续失败阈值。
 // 达到后该代理进入长期沉淀（不参与选择），避免坏代理反复拖累转发。
 const proxySinkThreshold = 3

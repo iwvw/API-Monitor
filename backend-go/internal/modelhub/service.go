@@ -884,6 +884,11 @@ func (s *Service) updateEndpoint(w http.ResponseWriter, r *http.Request, id stri
 		}
 	}
 	s.invalidateRouteCache()
+	// 冷却秒数是运行时行为参数：改动后必须让新值立即覆盖存量冷却，
+	// 否则「72h 改成 60s」这类收紧要等原冷却自然过期才生效。
+	if keyCooldownChanged {
+		s.resyncKeyCooldowns(id, keyCooldownSeconds)
+	}
 
 	response.JSON(w, http.StatusOK, map[string]interface{}{"success": true})
 }

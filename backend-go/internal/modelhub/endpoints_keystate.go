@@ -71,3 +71,24 @@ func (s *Service) getEndpointKeyStateRoute(w http.ResponseWriter, r *http.Reques
 
 	response.JSON(w, http.StatusOK, map[string]interface{}{"success": true, "keys": items})
 }
+
+// releaseEndpointKeyCooldowns 立即清除该端点全部 API Key 的回避冷却，
+// 供弹窗「释放所有冷却」按钮手动止损（冷却只是内存态，不涉及配置写库）。
+func (s *Service) releaseEndpointKeyCooldowns(w http.ResponseWriter, r *http.Request, id string) {
+	ctx := r.Context()
+	db, err := s.open(ctx)
+	if err != nil {
+		response.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	defer db.Close()
+
+	var exists int
+	if err := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM modelhub_endpoints WHERE id = ?", id).Scan(&exists); err != nil || exists == 0 {
+		response.JSON(w, http.StatusNotFound, map[string]string{"error": "端点不存在"})
+		return
+	}
+
+	released := s.releaseKeyCooldowns(id)
+	response.JSON(w, http.StatusOK, map[string]interface{}{"success": true, "released": released})
+}
