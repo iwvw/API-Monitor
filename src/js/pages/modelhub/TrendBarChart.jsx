@@ -22,6 +22,10 @@ echarts.use([
 ]);
 const siteFontEcharts = createSiteFontEcharts(echarts);
 
+// 纵轴每次都整体替换:刻度由 resolveAxisTicks 现算,算不出时不能沿用上一轮的
+// min/max/interval(ECharts 默认是合并式 setOption,缺省键会保留旧值)。
+const Y_AXIS_UPDATE_BEHAVIOR = { replaceMerge: ['yAxis'] };
+
   // 时间序列（小时/天/周粒度）：为每根柱提供独立可对齐的类目轴。
 // 后端每个桶返回 day(bucket label) + count/tokens/avgLatency/errors，仅用于柱状展示。
 export const TrendBarChart = memo(function TrendBarChart({
@@ -60,6 +64,7 @@ export const TrendBarChart = memo(function TrendBarChart({
         axisLabel: { color: axisColor, fontSize: 10, hideOverlap: true },
       },
       yAxis: {
+        id: 'y',
         type: 'value',
         ...(yTicks || {}),
         splitLine: { lineStyle: { color: gridColor } },
@@ -107,5 +112,5 @@ export const TrendBarChart = memo(function TrendBarChart({
   const hasData = !!(labels && labels.length > 0);
   if (!hasData && !loading) return null;
 
-  return <Chart ref={chartRef} echarts={siteFontEcharts} isDarkMode={isDarkMode} options={hasData ? options : {}} height={168} />;
+  return <Chart ref={chartRef} echarts={siteFontEcharts} isDarkMode={isDarkMode} options={hasData ? options : {}} height={168} optionUpdateBehavior={Y_AXIS_UPDATE_BEHAVIOR} />;
 });

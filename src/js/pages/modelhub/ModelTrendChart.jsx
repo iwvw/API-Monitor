@@ -122,6 +122,7 @@ export const ModelTrendChart = memo(function ModelTrendChart({ labels, series, i
           axisLabel: { color: axisColor, fontSize: 10, hideOverlap: true },
         },
         yAxis: {
+          id: 'y',
           type: 'value',
           ...(yTicks || {}),
           splitLine: { lineStyle: { color: gridColor } },
@@ -146,7 +147,8 @@ export const ModelTrendChart = memo(function ModelTrendChart({ labels, series, i
       },
       // replaceMerge：隐藏/恢复系列时按 name 精确替换，避免默认 merge 模式下
       //「新 series 数组变短 → 按 index 合并」导致被隐藏的旧系列残留、颜色错位。
-      { replaceMerge: ['series'] }
+      // yAxis 一并整体替换:刻度算不出时不能沿用上一轮的 min/max/interval。
+      { replaceMerge: ['series', 'yAxis'] }
     );
   }, [labels, visibleSeries, isDarkMode, metric, tokensMetric]);
 
