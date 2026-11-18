@@ -4,7 +4,8 @@ import { Button } from '@cloudflare/kumo/components/button';
 import { Input } from '@cloudflare/kumo/components/input';
 import { Switch } from '@cloudflare/kumo/components/switch';
 import { Table } from '@cloudflare/kumo/components/table';
-import { AppTable, SectionCard } from '../../components/ui/AppPrimitives.jsx';
+import { AppTable, EmptyState, SectionCard } from '../../components/ui/AppPrimitives.jsx';
+import { MobileCard, MobileCardField, MobileCardFields, MobileCardList } from '../../components/ui/MobileTableCards.jsx';
 import { Database, FileText, Save, Trash } from '../../components/Icons.jsx';
 import { toInt } from './utils.js';
 
@@ -16,73 +17,105 @@ const AUDIT_LOG_COLUMNS = [
 ];
 
 export function LogsPanel({ logSettings, logsBusy, operationLogs, runEnforceLogLimits, saveLogSettings, setLogSettings }) {
+  const logs = operationLogs.slice(0, 100);
   return (
-        <div className="grid items-start gap-4 cq-xl:grid-cols-[minmax(22rem,0.9fr)_minmax(0,1.1fr)]">
-          <SectionCard
-            className="top-[calc(var(--app-header-height)+0.5rem)] z-20 min-w-0 cq-xl:sticky"
-            title="审计与保留"
-            icon={<FileText className="h-4 w-4 text-brand" />}
-            bodyPadding="none"
-            actions={
-              <Switch
-                label="自动执行保留限制"
-                checked={logSettings.autoCleanup}
-                onCheckedChange={(checked) => setLogSettings((prev) => ({ ...prev, autoCleanup: checked }))}
-              />
-            }
-          >
-            <div className="p-5">
-              <div className="grid grid-cols-1 gap-3 cq-sm:grid-cols-2 cq-md:grid-cols-3">
-                <Input size="sm" label="保留天数" type="number" min="0" value={logSettings.days} onChange={(e) => setLogSettings((prev) => ({ ...prev, days: Math.max(0, toInt(e.target.value, 0)) }))} />
-                <Input size="sm" label="单表最大条数" type="number" min="0" value={logSettings.count} onChange={(e) => setLogSettings((prev) => ({ ...prev, count: Math.max(0, toInt(e.target.value, 0)) }))} />
-                <Input size="sm" label="数据库最大 MB" type="number" min="0" value={logSettings.dbSizeMB} onChange={(e) => setLogSettings((prev) => ({ ...prev, dbSizeMB: Math.max(0, toInt(e.target.value, 0)) }))} />
-                <Input size="sm" label="app.log 最大 MB" type="number" min="1" value={logSettings.logFileSizeMB} onChange={(e) => setLogSettings((prev) => ({ ...prev, logFileSizeMB: Math.max(1, toInt(e.target.value, 10)) }))} />
-                <Input size="sm" label="执行间隔（小时）" type="number" min="1" value={logSettings.autoCleanupHours} onChange={(e) => setLogSettings((prev) => ({ ...prev, autoCleanupHours: Math.max(1, toInt(e.target.value, 24)) }))} disabled={!logSettings.autoCleanup} />
-              </div>
+    <div className="grid min-w-0 grid-cols-1 items-start gap-3 cq-lg:grid-cols-[minmax(0,24rem)_minmax(0,1fr)]">
+      {/* 左列:保留策略,随页面自由滚动 */}
+      <div className="flex min-w-0 flex-col gap-3 cq-lg:self-start">
+        <SectionCard
+          className="min-w-0"
+          title="审计与保留"
+          icon={<FileText className="h-4 w-4 text-brand" />}
+          bodyPadding="none"
+          actions={
+            <Switch
+              label="自动执行保留限制"
+              checked={logSettings.autoCleanup}
+              onCheckedChange={(checked) => setLogSettings((prev) => ({ ...prev, autoCleanup: checked }))}
+            />
+          }
+        >
+          <div className="p-4 cq-sm:p-5">
+            <div className="grid grid-cols-1 gap-3 cq-sm:grid-cols-2 cq-md:grid-cols-3">
+              <Input size="sm" label="保留天数" type="number" min="0" value={logSettings.days} onChange={(e) => setLogSettings((prev) => ({ ...prev, days: Math.max(0, toInt(e.target.value, 0)) }))} />
+              <Input size="sm" label="单表最大条数" type="number" min="0" value={logSettings.count} onChange={(e) => setLogSettings((prev) => ({ ...prev, count: Math.max(0, toInt(e.target.value, 0)) }))} />
+              <Input size="sm" label="数据库最大 MB" type="number" min="0" value={logSettings.dbSizeMB} onChange={(e) => setLogSettings((prev) => ({ ...prev, dbSizeMB: Math.max(0, toInt(e.target.value, 0)) }))} />
+              <Input size="sm" label="app.log 最大 MB" type="number" min="1" value={logSettings.logFileSizeMB} onChange={(e) => setLogSettings((prev) => ({ ...prev, logFileSizeMB: Math.max(1, toInt(e.target.value, 10)) }))} />
+              <Input size="sm" label="执行间隔(小时)" type="number" min="1" value={logSettings.autoCleanupHours} onChange={(e) => setLogSettings((prev) => ({ ...prev, autoCleanupHours: Math.max(1, toInt(e.target.value, 24)) }))} disabled={!logSettings.autoCleanup} />
+            </div>
 
-                <div className="mt-4 flex justify-end gap-2">
-                  <Button size="sm" variant="secondary" onClick={saveLogSettings} loading={logsBusy} icon={<Save className="h-4 w-4" />}>保存策略</Button>
-                  <Button size="sm" onClick={runEnforceLogLimits} loading={logsBusy} icon={<Trash className="h-4 w-4" />}>执行保留限制</Button>
-                </div>
-              </div>
-            </SectionCard>
-
-          <div className="min-w-0">
-            <SectionCard
-              className="min-w-0"
-              title="审计记录"
-              description="最近 100 条记录"
-              icon={<Database className="h-4 w-4 text-brand" />}
-              bodyPadding="none"
-              bodyClassName="overflow-x-auto"
-            >
-              <AppTable tableId="audit-logs" columns={AUDIT_LOG_COLUMNS} className="min-w-[700px]">
-                <Table.Header>
-                  <Table.Row>
-                    <Table.Head>时间</Table.Head>
-                    <Table.Head>操作</Table.Head>
-                    <Table.Head>对象</Table.Head>
-                    <Table.Head>Trace</Table.Head>
-                  </Table.Row>
-                </Table.Header>
-                <Table.Body>
-                  {operationLogs.slice(0, 100).map((log) => (
-                    <Table.Row key={log.id}>
-                      <Table.Cell className="font-mono text-xs">{log.created_at}</Table.Cell>
-                      <Table.Cell><Badge variant="outline">{log.operation_type}</Badge></Table.Cell>
-                      <Table.Cell className="font-mono text-xs">{log.table_name}</Table.Cell>
-                      <Table.Cell className="truncate font-mono text-xs text-kumo-subtle">{log.trace_id || '-'}</Table.Cell>
-                    </Table.Row>
-                  ))}
-                  {operationLogs.length === 0 && (
-                    <Table.Row>
-                      <Table.Cell colSpan={4} className="p-8 text-center text-kumo-subtle">暂无审计记录</Table.Cell>
-                    </Table.Row>
-                  )}
-                </Table.Body>
-              </AppTable>
-            </SectionCard>
+            <div className="mt-4 flex justify-end gap-2">
+              <Button size="sm" variant="secondary" onClick={saveLogSettings} loading={logsBusy} icon={<Save className="h-4 w-4" />}>保存策略</Button>
+              <Button size="sm" onClick={runEnforceLogLimits} loading={logsBusy} icon={<Trash className="h-4 w-4" />}>执行保留限制</Button>
+            </div>
           </div>
-        </div>
+        </SectionCard>
+      </div>
+
+      {/* 右列:审计记录,桌面吸顶全高、列表内部滚动 */}
+      <section className="flex min-w-0 flex-col gap-2 cq-lg:sticky cq-lg:top-[calc(var(--app-header-height)+0.5rem)] cq-lg:h-[calc(100dvh-var(--app-header-height)-1rem)]">
+        <SectionCard
+          className="min-h-0 min-w-0 cq-lg:flex-1"
+          title="审计记录"
+          description="最近 100 条记录"
+          icon={<Database className="h-4 w-4 text-brand" />}
+          bodyPadding="none"
+          bodyClassName="min-h-0 cq-lg:flex-1"
+        >
+          {/* 内部滚动只在桌面(cq-lg 右列固定高度)启用:移动端若也套 overflow-auto +
+              overscroll-contain,手指落在列表上会被内层滚动容器吃掉,页面滚不动。 */}
+          {logs.length ? (
+            <div className="min-w-0 scrollbar-thin cq-lg:min-h-0 cq-lg:flex-1 cq-lg:overflow-auto cq-lg:overscroll-contain">
+              <MobileCardList className="p-2">
+                {logs.map((log) => (
+                  <MobileCard key={log.id}>
+                    <div className="flex min-w-0 items-start gap-2">
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate font-mono text-[11px] text-kumo-subtle" title={log.created_at}>{log.created_at || '—'}</div>
+                        <div className="mt-1 flex min-w-0 items-center gap-1.5">
+                          <Badge variant="outline" className="shrink-0">{log.operation_type}</Badge>
+                          <span className="min-w-0 truncate font-mono text-xs text-kumo-strong" title={log.table_name}>{log.table_name}</span>
+                        </div>
+                      </div>
+                    </div>
+                    <MobileCardFields className="grid-cols-1">
+                      <MobileCardField label="Trace">
+                        <span className="font-mono text-[11px]">{log.trace_id || '-'}</span>
+                      </MobileCardField>
+                    </MobileCardFields>
+                  </MobileCard>
+                ))}
+              </MobileCardList>
+              <div className="hidden min-w-0 overflow-x-auto overscroll-x-contain scrollbar-thin cq-md:block">
+                <AppTable tableId="audit-logs" columns={AUDIT_LOG_COLUMNS} className="w-full min-w-[40rem] text-xs">
+                  <Table.Header>
+                    <Table.Row>
+                      <Table.Head>时间</Table.Head>
+                      <Table.Head>操作</Table.Head>
+                      <Table.Head>对象</Table.Head>
+                      <Table.Head>Trace</Table.Head>
+                    </Table.Row>
+                  </Table.Header>
+                  <Table.Body>
+                    {logs.map((log) => (
+                      <Table.Row key={log.id}>
+                        <Table.Cell className="font-mono text-xs">{log.created_at}</Table.Cell>
+                        <Table.Cell><Badge variant="outline">{log.operation_type}</Badge></Table.Cell>
+                        <Table.Cell className="font-mono text-xs">{log.table_name}</Table.Cell>
+                        <Table.Cell className="truncate font-mono text-xs text-kumo-subtle">{log.trace_id || '-'}</Table.Cell>
+                      </Table.Row>
+                    ))}
+                  </Table.Body>
+                </AppTable>
+              </div>
+            </div>
+          ) : (
+            <div className="p-4">
+              <EmptyState card={false} title="暂无审计记录" description="执行敏感操作后,记录会汇总在这里。" />
+            </div>
+          )}
+        </SectionCard>
+      </section>
+    </div>
   );
 }
