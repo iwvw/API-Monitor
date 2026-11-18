@@ -226,6 +226,48 @@ export function useEndpointForm({ loadEndpoints, loadAllModels, confirmState }) 
   // 批次管理：展开预览 / 删除整批 / 移出单条。
   const [expandedBatchId, setExpandedBatchId] = useState(null);
   const [manualProxyExpanded, setManualProxyExpanded] = useState(false);
+  // keyRuntimeStates：端点各 API Key 的运行时状态（是否处于回避冷却），
+  // 用于在编辑弹窗里把暂不可用的 key 序号标红。key 为 key 字符串。
+  const [keyRuntimeStates, setKeyRuntimeStates] = useState({});
+  useEffect(() => {
+    if (!endpointFormOpen || !editingEndpoint?.id) {
+      setKeyRuntimeStates({});
+      return undefined;
+    }
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const response = await fetch(`/api/modelhub/endpoints/${editingEndpoint.id}/key-state`, {
+          headers: getAuthHeaders(),
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok || !Array.isArray(data.keys)) return;
+        if (!cancelled) {
+          const map = {};
+          data.keys.forEach(item => {
+            if (item?.key) map[item.key] = item;
+          });
+          setKeyRuntimeStates(map);
+        }
+      } catch {
+        // 状态加载失败不阻断弹窗使用。
+      }
+    };
+    load();
+    const timer = setInterval(load, 15000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [endpointFormOpen, editingEndpoint?.id]);
+  // keyRuntimeDisabled 返回某 key 的不可用信息：{label} 或 null（可用）。
+  const keyRuntimeDisabled = key => {
+    const trimmed = (key || '').trim();
+    if (!trimmed) return null;
+    const item = keyRuntimeStates[trimmed];
+    if (!item || !item.cooled) return null;
+    return { label: `冷却至 ${formatDateTime(item.cooldownUntil)}`, until: item.cooldownUntil };
+  };
   // proxyRuntimeStates：代理池各出口的运行时禁用状态（冷却 / 429 冻结），
   // 用于在管理弹窗里把被禁用的代理标红。key 为代理 URL。
   const [proxyRuntimeStates, setProxyRuntimeStates] = useState({});
@@ -532,6 +574,9 @@ export function useEndpointForm({ loadEndpoints, loadAllModels, confirmState }) 
     setManualProxyExpanded,
     proxyRuntimeStates,
     setProxyRuntimeStates,
+    keyRuntimeStates,
+    setKeyRuntimeStates,
+    keyRuntimeDisabled,
     disabledProxyUntil,
     disabledProxyCount,
     unbanningProxies,

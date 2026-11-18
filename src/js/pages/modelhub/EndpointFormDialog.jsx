@@ -22,6 +22,7 @@ export function EndpointFormDialog({ endpointsApi, proxypoolPools }) {
     appendEndpointKey,
     keyDeleteConfirmActive,
     removeEndpointKey,
+    keyRuntimeDisabled,
     addEndpointHeader,
     updateEndpointHeader,
     removeEndpointHeader,
@@ -161,14 +162,17 @@ export function EndpointFormDialog({ endpointsApi, proxypoolPools }) {
                   </div>
 
                   <div ref={keyListRef} className="key-list-fade max-h-64 space-y-1.5 overflow-y-auto py-1.5">
-                    {[endpointForm.apiKey, ...(endpointForm.apiKeys || [])].map((key, rowIndex) => (
+                    {[endpointForm.apiKey, ...(endpointForm.apiKeys || [])].map((key, rowIndex) => {
+                      const runtime = keyRuntimeDisabled(key);
+                      return (
                       <div
                         key={rowIndex}
                         className="grid grid-cols-[2rem_minmax(0,1fr)_1.75rem] items-center gap-1.5"
                       >
                         <Badge
-                          variant="outline"
+                          variant={runtime ? 'red' : 'outline'}
                           className="w-full justify-center text-center font-mono !text-[11px] leading-none"
+                          title={runtime ? `该 Key 暂不可用（${runtime.label}），请求会优先绕开` : undefined}
                         >
                           K{rowIndex + 1}
                         </Badge>
@@ -218,7 +222,8 @@ export function EndpointFormDialog({ endpointsApi, proxypoolPools }) {
                           icon={<Trash className="h-3.5 w-3.5" />}
                         />
                       </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
 

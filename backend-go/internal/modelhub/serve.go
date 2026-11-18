@@ -78,6 +78,8 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.healthCheckKeysRoute(w, r, parts[1])
 	case len(parts) == 3 && parts[0] == "endpoints" && parts[2] == "health" && method == http.MethodGet:
 		s.getEndpointHealthRoute(w, r, parts[1])
+	case len(parts) == 3 && parts[0] == "endpoints" && parts[2] == "key-state" && method == http.MethodGet:
+		s.getEndpointKeyStateRoute(w, r, parts[1])
 	case len(parts) == 3 && parts[0] == "endpoints" && parts[2] == "proxy-state" && method == http.MethodGet:
 		s.getEndpointProxyStateRoute(w, r, parts[1])
 	case len(parts) == 4 && parts[0] == "endpoints" && parts[2] == "proxy-state" && parts[3] == "unban" && method == http.MethodPost:

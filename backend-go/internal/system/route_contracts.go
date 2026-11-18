@@ -1134,6 +1134,7 @@ func init() {
 		"weight":   {t: "number", d: "路由权重，与 priority 至少提供一个"},
 	})
 	routeRequestContracts["/api/modelhub/endpoints/{id}/proxy-state"] = noBody
+	routeRequestContracts["/api/modelhub/endpoints/{id}/key-state"] = noBody
 	routeRequestContracts["/api/modelhub/endpoints/{id}/proxy-state/unban"] = noBody
 	routeRequestContracts["/api/modelhub/endpoints/{id}/verify"] = noBody
 	routeRequestContracts["/api/modelhub/endpoints/{id}/test"] = noBody
