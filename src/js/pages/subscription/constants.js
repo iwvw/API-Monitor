@@ -58,13 +58,13 @@ export const NODE_COLUMNS = [
 
 export const RUNTIME_HOST_COLUMNS = [
   { id: 'check', role: 'check' },
-  { id: 'name', role: 'primary', minWidth: 160, grow: 1 },
-  { id: 'status', role: 'status', width: 88, align: 'center' },
-  { id: 'location', role: 'meta', width: 116, align: 'center' },
-  { id: 'online', role: 'count', width: 88, align: 'center' },
-  { id: 'agentVersion', role: 'meta', width: 104, align: 'center' },
-  { id: 'proxy', role: 'content', minWidth: 180, grow: 1, align: 'center', verticalAlign: 'middle' },
-  { id: 'nodeType', role: 'content', minWidth: 120, grow: 1, align: 'center', verticalAlign: 'middle' },
+  { id: 'name', role: 'primary', grow: 200, minWidth: 120 },
+  { id: 'status', role: 'status', grow: 88, minWidth: 88, maxWidth: null, align: 'center' },
+  { id: 'location', role: 'meta', grow: 116, minWidth: 100, maxWidth: null, align: 'center' },
+  { id: 'online', role: 'count', grow: 88, minWidth: 76, maxWidth: null, align: 'center' },
+  { id: 'agentVersion', role: 'meta', grow: 104, minWidth: 96, maxWidth: null, align: 'center' },
+  { id: 'proxy', role: 'content', grow: 200, minWidth: 120, align: 'center', verticalAlign: 'middle' },
+  { id: 'nodeType', role: 'content', grow: 140, minWidth: 100, align: 'center', verticalAlign: 'middle' },
   { id: 'actions', role: 'actions-xl', width: 320 },
 ];
 
