@@ -143,7 +143,7 @@ func dockerStackStatusAfterAction(action, actionError string) string {
 		return "error"
 	}
 	switch action {
-	case "up", "start", "restart":
+	case "up", "start", "restart", "update":
 		return "running"
 	case "down", "stop":
 		return "stopped"

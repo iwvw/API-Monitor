@@ -1115,16 +1115,16 @@ export default function ServerDockerConsole(props) {
                                           'compose.restart',
                                           composePayload
                                         );
-                                        const composePullPending = isDockerActionPending(
+                                        const composeUpdatePending = isDockerActionPending(
                                           server.id,
-                                          'compose.pull',
+                                          'compose.update',
                                           composePayload
                                         );
                                         const composeBusy =
                                           composeUpPending ||
                                           composeDownPending ||
                                           composeRestartPending ||
-                                          composePullPending;
+                                          composeUpdatePending;
                                         return (
                                           <div
                                             key={`${server.id}-${projectName}-${configFiles}`}
@@ -1204,7 +1204,7 @@ export default function ServerDockerConsole(props) {
                                                 size="sm"
                                                 variant="secondary"
                                                 icon={
-                                                  composePullPending ? (
+                                                  composeUpdatePending ? (
                                                     <RefreshCw className="h-3.5 w-3.5 animate-spin" />
                                                   ) : (
                                                     <Upload className="h-3.5 w-3.5" />
@@ -1212,10 +1212,10 @@ export default function ServerDockerConsole(props) {
                                                 }
                                                 disabled={composeBusy}
                                                 onClick={() =>
-                                                  submitDockerTask('compose.pull', composePayload)
+                                                  submitDockerTask('compose.update', composePayload)
                                                 }
                                                 aria-label={`升级 ${projectName}`}
-                                                title="升级镜像"
+                                                title="强制拉取最新镜像并重建容器"
                                               />
                                               <Button
                                                 shape="square"
