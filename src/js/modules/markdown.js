@@ -18,6 +18,21 @@ export const ALLOWED_URI_REGEXP =
   /^(?:(?:(?:f|ht)tps?|mailto|tel|callto|cid|xmpp:|data:image\/(?:png|jpe?g|gif|webp|bmp|avif|ico)[;,])|[^a-z]|[a-z+.\-]+(?:[^a-z+.\-:]|$))/i;
 
 /**
+ * DOMPurify 配置:所有 Markdown 输出(含解析异常回退)共用同一套策略。
+ */
+const SANITIZE_OPTIONS = {
+  ADD_ATTR: ['target', 'title', 'rel', 'open', 'class', 'style', 'aria-hidden', 'viewBox', 'd', 'fill'],
+  ADD_TAGS: ['a', 'img', 'div', 'details', 'summary', 'i', 'span', 'svg', 'path', 'math', 'semantics', 'mrow', 'annotation', 'mstyle', 'mo', 'mi', 'mn', 'msup', 'msub', 'mfrac', 'msqrt', 'root', 'mtd', 'mtr', 'mtable'],
+  // 允许 data:image/ 位图(Base64 图片预览);data:text/html 与
+  // data:image/svg+xml 等可执行脚本的 data URL 一律不放行。
+  ALLOWED_URI_REGEXP,
+};
+
+function sanitizeMarkdownHtml(html) {
+  return DOMPurify.sanitize(html, SANITIZE_OPTIONS);
+}
+
+/**
  * 渲染 Markdown 为 HTML (安全模式)
  */
 export function renderMarkdown(text) {
@@ -100,15 +115,10 @@ export function renderMarkdown(text) {
       rawHtml = rawHtml.replace(`@@MATH_${index}@@`, html);
     });
 
-    return DOMPurify.sanitize(rawHtml, {
-      ADD_ATTR: ['target', 'title', 'rel', 'open', 'class', 'style', 'aria-hidden', 'viewBox', 'd', 'fill'],
-      ADD_TAGS: ['a', 'img', 'div', 'details', 'summary', 'i', 'span', 'svg', 'path', 'math', 'semantics', 'mrow', 'annotation', 'mstyle', 'mo', 'mi', 'mn', 'msup', 'msub', 'mfrac', 'msqrt', 'root', 'mtd', 'mtr', 'mtable'],
-      // 允许 data:image/ 位图（Base64 图片预览）；data:text/html 与
-      // data:image/svg+xml 等可执行脚本的 data URL 一律不放行。
-      ALLOWED_URI_REGEXP,
-    });
+    return sanitizeMarkdownHtml(rawHtml);
   } catch (e) {
     console.error('Markdown 解析失败:', e);
-    return source;
+    // 异常分支同样必须净化,避免 marked 抛错时旁路 DOMPurify。
+    return sanitizeMarkdownHtml(source);
   }
 }
