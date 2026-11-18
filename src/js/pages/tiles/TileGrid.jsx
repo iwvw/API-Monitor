@@ -5,11 +5,11 @@
 // 这里用 ResizeObserver 实时读取 item 像素尺寸换算为连续列/行数，覆盖传给 renderTile，
 // 使拖拽跨越档位阈值时卡片内部布局立即重排（而非松手后才变）。
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import GridLayout, { useContainerWidth, verticalCompactor } from 'react-grid-layout';
+import GridLayout, { verticalCompactor } from 'react-grid-layout';
 import 'react-grid-layout/css/styles.css';
 import 'react-resizable/css/styles.css';
 import TileResizeHandle from './TileResizeHandle.jsx';
-import { useThrottledLayoutValue } from '../../hooks/useThrottledLayoutValue.js';
+import { useThrottledContainerWidth } from '../../hooks/useThrottledContainerWidth.js';
 
 // 尺寸档位：h=2 为 1×1 正方形单元，h=1 为半高卡（两张可上下叠放占满一个单元），h=4 为双高富内容卡。
 // 含 3 列档位（3×1 / 3×2）：部分卡（如模块入口）可吸附到三列宽布局。
@@ -101,14 +101,12 @@ export default function TileGrid({
   dragEnabled = true,
   resizeEnabled = true,
 }) {
-  const { width: measuredWidth, containerRef, mounted } = useContainerWidth();
-  // 侧栏展开/收起会让容器宽度连续变化几十帧。直接用测量值等于让整个网格
-  // (以及网格里所有图表)每帧重排一次,动画必然卡;这里按节流节奏跟进,
-  // 变化结束后仍会落到最终宽度。
-  const width = useThrottledLayoutValue(measuredWidth);
+  // 宽度走节流版测量(见 useThrottledContainerWidth):侧栏展开/收起时容器宽度
+  // 连续变化几十帧,若每帧都 setState,整个网格与所有图块子树都会逐帧重渲染。
+  const { width, containerRef } = useThrottledContainerWidth();
   // 列数：外部 cols 优先（按断点固定，断点内宽度变化列数不变、布局稳定）；
   // 未指定时随容器宽度自适应（约 250px 一列），宽仪表盘自动展更多列
-  const cols = colsOverride ?? (mounted ? Math.min(maxCols, Math.max(2, Math.round(width / 250))) : 4);
+  const cols = colsOverride ?? Math.min(maxCols, Math.max(2, Math.round(width / 250)));
   // 行高随当前列宽动态计算，使 1×1（h=2）在任何宽度下都是精确正方形：2*rowHeight + marginY = 列宽
   // containerPadding 归零：嵌入仪表盘时与页面 gutter（12px）对齐，避免网格内容额外内缩一圈
   // rowHeight 支持传函数 ({ width, cols, colWidth }) => number：内容高度依赖图块自身宽度
@@ -239,7 +237,6 @@ export default function TileGrid({
   }, [renderTile]);
 
   useEffect(() => {
-    if (!mounted) return undefined;
     if (!roRef.current) {
       roRef.current = new ResizeObserver((entries) => {
         // 非拖拽（含窗口 resize）时清掉残留的实时覆盖，不做换算覆盖
@@ -292,7 +289,7 @@ export default function TileGrid({
       ref={containerRef}
       className={`w-full select-none [&_.react-grid-item.react-grid-placeholder]:rounded-lg! [&_.react-grid-item.react-grid-placeholder]:bg-brand/30! ${className}`}
     >
-      {mounted && layout != null && (
+      {layout != null && (
         <GridLayout
           width={width}
           layout={fittedLayout}
