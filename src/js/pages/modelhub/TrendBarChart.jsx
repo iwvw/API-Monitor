@@ -10,7 +10,7 @@ import {
 } from 'echarts/components';
 import { CanvasRenderer } from 'echarts/renderers';
 import { createSiteFontEcharts, hideOtherChartTips } from '../../chartFont.js';
-import { kumoHex } from './utils.js';
+import { kumoHex, resolveAxisTicks } from './utils.js';
 
 echarts.use([
   BarChart,
@@ -38,6 +38,8 @@ export const TrendBarChart = memo(function TrendBarChart({
     if (!labels || labels.length === 0) return null;
     const axisColor = kumoHex('--color-kumo-contrast');
     const gridColor = kumoHex('--color-kumo-line');
+    // 自己给纵轴定刻度,避免自动分割产生「两格同一个标签」(详见 utils.resolveAxisTicks)。
+    const yTicks = resolveAxisTicks(values, formatAxis);
     return {
       grid: { left: 8, right: 12, top: 10, bottom: 0, containLabel: true },
       tooltip: {
@@ -59,6 +61,7 @@ export const TrendBarChart = memo(function TrendBarChart({
       },
       yAxis: {
         type: 'value',
+        ...(yTicks || {}),
         splitLine: { lineStyle: { color: gridColor } },
         axisLabel: { color: axisColor, fontSize: 10, formatter: formatAxis },
       },

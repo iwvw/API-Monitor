@@ -80,6 +80,37 @@ export const formatTokensAxis = value => {
   return String(Math.round(num));
 };
 
+// resolveAxisTicks 给纵轴挑一组「标签互不相同」的刻度。
+// 原因:自动分割给出的刻度值往往不是标签单位的整数倍,而轴标签只保留单位上的整数
+// (词元轴的 1亿 与 1.5亿 都渲染成「1亿」,2亿 与 2.5亿 都是「2亿」),一根轴上
+// 就出现重复刻度。这里按 1/2/5×10^k 依次试候选间隔,用调用方自己的 formatAxis
+// 实测标签是否重复,取网格线最多且不重复的一档;找不到时返回 null,由图表库回退默认分割。
+export const resolveAxisTicks = (values, formatAxis) => {
+  if (typeof formatAxis !== 'function') return null;
+  let dataMax = 0;
+  let hasNegative = false;
+  (values || []).forEach(value => {
+    const num = Number(value);
+    if (!Number.isFinite(num)) return;
+    if (num < 0) hasNegative = true;
+    if (num > dataMax) dataMax = num;
+  });
+  if (!(dataMax > 0) || hasNegative) return null;
+  const base = Math.pow(10, Math.floor(Math.log10(dataMax)) - 1);
+  for (const factor of [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000]) {
+    const interval = base * factor;
+    const max = Math.ceil(dataMax / interval) * interval;
+    const count = Math.round(max / interval);
+    if (count < 2 || count > 6) continue;
+    const labels = new Set();
+    for (let index = 0; index <= count; index += 1) {
+      labels.add(String(formatAxis(index * interval)));
+    }
+    if (labels.size === count + 1) return { min: 0, max, interval };
+  }
+  return null;
+};
+
 // 货币符号映射：覆盖常见币种，未知货币回退到「code 空格」前缀。
 const CURRENCY_SYMBOLS = {
   CNY: '¥',
