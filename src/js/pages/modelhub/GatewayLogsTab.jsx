@@ -26,17 +26,17 @@ import {
 import { MobileLogDetailDialog } from './MobileLogDetailDialog.jsx';
 
 const GATEWAY_LOG_COLUMNS = [
-  { id: 'time', role: 'datetime', width: 148, align: 'left' },
-  { id: 'endpoint', role: 'identifier', minWidth: 150, align: 'left' },
-  { id: 'model', role: 'identifier', align: 'left' },
-  { id: 'status', role: 'status' },
-  { id: 'upstreamIp', role: 'meta', width: 130, align: 'left' },
-  { id: 'clientIp', role: 'meta', width: 130, align: 'left' },
-  { id: 'latency', role: 'content', minWidth: 160, width: 176, align: 'left', verticalAlign: 'middle' },
-  { id: 'tokens', role: 'number', width: 128, align: 'left', verticalAlign: 'middle' },
-  { id: 'cache', role: 'number', width: 124, align: 'left', verticalAlign: 'middle' },
-  { id: 'cost', role: 'number', width: 140, align: 'left', verticalAlign: 'middle' },
-  { id: 'speed', role: 'count', width: 84, align: 'left' },
+  { id: 'time', role: 'datetime', grow: 148, minWidth: 116, maxWidth: null, align: 'left' },
+  { id: 'endpoint', role: 'identifier', grow: 190, minWidth: 110, align: 'left' },
+  { id: 'model', role: 'identifier', grow: 230, minWidth: 110, align: 'left' },
+  { id: 'status', role: 'status', grow: 88, minWidth: 88, maxWidth: null },
+  { id: 'upstreamIp', role: 'meta', grow: 130, minWidth: 100, maxWidth: null, align: 'left' },
+  { id: 'clientIp', role: 'meta', grow: 130, minWidth: 100, maxWidth: null, align: 'left' },
+  { id: 'latency', role: 'content', grow: 176, minWidth: 110, align: 'left', verticalAlign: 'middle' },
+  { id: 'tokens', role: 'number', grow: 128, minWidth: 96, maxWidth: null, align: 'left', verticalAlign: 'middle' },
+  { id: 'cache', role: 'number', grow: 124, minWidth: 92, maxWidth: null, align: 'left', verticalAlign: 'middle' },
+  { id: 'cost', role: 'number', grow: 140, minWidth: 100, maxWidth: null, align: 'left', verticalAlign: 'middle' },
+  { id: 'speed', role: 'count', grow: 66, minWidth: 60, maxWidth: null, align: 'left' },
 ];
 
 export function GatewayLogsTab({ analytics, endpoints }) {
