@@ -9,6 +9,7 @@ import GridLayout, { useContainerWidth, verticalCompactor } from 'react-grid-lay
 import 'react-grid-layout/css/styles.css';
 import 'react-resizable/css/styles.css';
 import TileResizeHandle from './TileResizeHandle.jsx';
+import { useThrottledLayoutValue } from '../../hooks/useThrottledLayoutValue.js';
 
 // 尺寸档位：h=2 为 1×1 正方形单元，h=1 为半高卡（两张可上下叠放占满一个单元），h=4 为双高富内容卡。
 // 含 3 列档位（3×1 / 3×2）：部分卡（如模块入口）可吸附到三列宽布局。
@@ -100,7 +101,11 @@ export default function TileGrid({
   dragEnabled = true,
   resizeEnabled = true,
 }) {
-  const { width, containerRef, mounted } = useContainerWidth();
+  const { width: measuredWidth, containerRef, mounted } = useContainerWidth();
+  // 侧栏展开/收起会让容器宽度连续变化几十帧。直接用测量值等于让整个网格
+  // (以及网格里所有图表)每帧重排一次,动画必然卡;这里按节流节奏跟进,
+  // 变化结束后仍会落到最终宽度。
+  const width = useThrottledLayoutValue(measuredWidth);
   // 列数：外部 cols 优先（按断点固定，断点内宽度变化列数不变、布局稳定）；
   // 未指定时随容器宽度自适应（约 250px 一列），宽仪表盘自动展更多列
   const cols = colsOverride ?? (mounted ? Math.min(maxCols, Math.max(2, Math.round(width / 250))) : 4);

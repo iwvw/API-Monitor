@@ -1,6 +1,29 @@
+import { createLayoutThrottle } from './modules/layoutThrottle.js';
+
 const patchedEchartsModules = new WeakMap();
 const liveChartInstances = new Set();
 let fontWatcherStarted = false;
+
+// 待重排的图表:同一个实例只保留最后一次请求。
+// ResizeObserver 会在每一帧回调里驱动图表 resize,而侧栏展开/收起这类宽度动画
+// 会连续改变几十帧;几十个实例各自重排一次就足够吃掉整帧预算,动画必然掉帧。
+// 这里把 resize 收敛成一个节流任务,动画期间约 10 次/秒,结束后补一次最终尺寸。
+const pendingChartResizes = new Map();
+
+const flushChartResizes = () => {
+  if (pendingChartResizes.size === 0) return;
+  const jobs = [...pendingChartResizes.values()];
+  pendingChartResizes.clear();
+  for (const job of jobs) {
+    try {
+      job();
+    } catch {
+      // 图表可能在排队期间被销毁
+    }
+  }
+};
+
+const chartResizeThrottle = createLayoutThrottle(flushChartResizes);
 
 export const getSiteChartFontFamily = () => {
   if (typeof document === 'undefined' || !document.body) return '';
@@ -30,8 +53,15 @@ const mergeChartFont = (option) => {
 const patchChartInstance = (chart) => {
   const originalSetOption = chart.setOption.bind(chart);
   chart.setOption = (option, ...rest) => originalSetOption(mergeChartFont(option), ...rest);
+  // resize 走节流队列(见上方注释),不直接同步重排。
+  const originalResize = chart.resize.bind(chart);
+  chart.resize = (...args) => {
+    pendingChartResizes.set(chart, () => originalResize(...args));
+    chartResizeThrottle.schedule();
+  };
   const originalDispose = chart.dispose.bind(chart);
   chart.dispose = () => {
+    pendingChartResizes.delete(chart);
     liveChartInstances.delete(chart);
     originalDispose();
   };
