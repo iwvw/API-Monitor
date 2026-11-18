@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from '../../../modules/toast.js';
 import { formatDateTime } from '../../../modules/utils.js';
 import { getAuthHeaders } from '../utils.js';
@@ -267,16 +267,17 @@ export function useEndpointForm({ loadEndpoints, loadAllModels, confirmState }) 
       clearInterval(timer);
     };
   }, [endpointFormOpen, editingEndpoint?.id]);
-  // keyRuntimeDisabled 返回某 key 的不可用信息：{label} 或 null（可用）。
-  const keyRuntimeDisabled = key => {
-    const trimmed = (key || '').trim();
-    if (!trimmed) return null;
-    const item = keyRuntimeStates[trimmed];
-    if (!item || !item.cooled) return null;
-    // cooldownUntil 缺失时（后端字段可选）退化为基础文案，避免 tooltip 出现「冷却至 undefined」。
-    const label = item.cooldownUntil ? `冷却至 ${formatDateTime(item.cooldownUntil)}` : '冷却中';
-    return { label, until: item.cooldownUntil };
-  };
+  // keyRuntimeLabels:key -> 不可用原因(仅含处于回避冷却的 key)。做成稳定引用的 map,
+  // 让 key 列表行按字符串比较 props,避免每次输入都重建整表。
+  const keyRuntimeLabels = useMemo(() => {
+    const map = Object.create(null);
+    Object.entries(keyRuntimeStates).forEach(([key, item]) => {
+      if (!item?.cooled) return;
+      // cooldownUntil 缺失时(后端字段可选)退化为基础文案,避免 tooltip 出现「冷却至 undefined」。
+      map[key] = item.cooldownUntil ? `冷却至 ${formatDateTime(item.cooldownUntil)}` : '冷却中';
+    });
+    return map;
+  }, [keyRuntimeStates]);
   // keyRuntimeCooledCount：「解冻」按钮的条件显示依据——没有任何冷却中的 key 时不渲染。
   const keyRuntimeCooledCount = useMemo(
     () => Object.values(keyRuntimeStates).filter(item => item?.cooled).length,
@@ -540,17 +541,27 @@ export function useEndpointForm({ loadEndpoints, loadAllModels, confirmState }) 
     }
   };
 
-  const appendEndpointKey = () => {
+  const appendEndpointKey = useCallback(() => {
     setEndpointForm(current => ({
       ...current,
       apiKeys: [...(current.apiKeys || []), ''],
     }));
-  };
+  }, [setEndpointForm]);
+
+  const updateEndpointKey = useCallback((rowIndex, value) => {
+    setEndpointForm(current => {
+      if (rowIndex === 0) return { ...current, apiKey: value };
+      return {
+        ...current,
+        apiKeys: (current.apiKeys || []).map((k, j) => (j === rowIndex - 1 ? value : k)),
+      };
+    });
+  }, [setEndpointForm]);
 
   const keyDeleteConfirmActive = rowIndex =>
     isArmed(`modelhub-endpoint-key:${endpointKeyEpoch}:${rowIndex}`);
 
-  const removeEndpointKey = rowIndex => {
+  const removeEndpointKey = useCallback((rowIndex) => {
     if (!confirmPress(`modelhub-endpoint-key:${endpointKeyEpoch}:${rowIndex}`, '删除此 Key')) return;
     setEndpointKeyEpoch(epoch => epoch + 1);
     setEndpointForm(current => {
@@ -562,7 +573,7 @@ export function useEndpointForm({ loadEndpoints, loadAllModels, confirmState }) 
         apiKeys: keys.slice(1),
       };
     });
-  };
+  }, [confirmPress, endpointKeyEpoch, setEndpointForm]);
 
   const deleteEndpointConfirmActive = id =>
     isArmed(`modelhub-endpoint-delete:${id}`);
@@ -610,7 +621,7 @@ export function useEndpointForm({ loadEndpoints, loadAllModels, confirmState }) 
     setProxyRuntimeStates,
     keyRuntimeStates,
     setKeyRuntimeStates,
-    keyRuntimeDisabled,
+    keyRuntimeLabels,
     keyRuntimeCooledCount,
     releaseKeyCooldowns,
     keyCooldownReleasing,
@@ -630,6 +641,7 @@ export function useEndpointForm({ loadEndpoints, loadAllModels, confirmState }) 
     removeEndpointHeader,
     saveEndpoint,
     appendEndpointKey,
+    updateEndpointKey,
     removeEndpointKey,
     keyDeleteConfirmActive,
     deleteEndpointConfirmActive,

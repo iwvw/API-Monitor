@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState } from 'react';
+import { memo, useCallback, useLayoutEffect, useRef, useState } from 'react';
 import { Button } from '@cloudflare/kumo/components/button';
 import { LayerDialog } from '@cloudflare/kumo/components/layer-dialog';
 import { Input, Textarea } from '@cloudflare/kumo/components/input';
@@ -14,6 +14,53 @@ import {
   KEY_STRATEGY_OPTIONS,
 } from './constants.js';
 
+const KEY_LIST_PAGE_SIZE = 50;
+
+const EndpointKeyRow = memo(function EndpointKeyRow({
+  rowIndex,
+  value,
+  cooledLabel,
+  confirming,
+  onChange,
+  onRemove,
+}) {
+  return (
+    <div className="grid grid-cols-[2rem_minmax(0,1fr)_1.75rem] items-center gap-1.5">
+      <Badge
+        variant={cooledLabel ? 'red' : 'outline'}
+        className="w-full justify-center text-center font-mono !text-[11px] leading-none"
+        title={cooledLabel ? `该 Key 暂不可用(${cooledLabel}),请求会优先绕开` : undefined}
+      >
+        K{rowIndex + 1}
+      </Badge>
+      <Input
+        size="sm"
+        type="text"
+        value={value}
+        aria-label={`API Key K${rowIndex + 1}`}
+        onChange={event => onChange(rowIndex, event.target.value)}
+        placeholder="sk-xxxxxxxxxxxxxxxxxxxxxxxx"
+        autoComplete="off"
+        data-1p-ignore
+        data-lpignore="true"
+        data-bwignore="true"
+        data-form-type="other"
+        spellCheck={false}
+        className="w-full text-kumo-strong text-[0.9em] font-mono"
+      />
+      <Button
+        shape="square"
+        size="sm"
+        variant={confirming ? 'destructive' : 'secondary-destructive'}
+        aria-label={confirming ? `再次点击确认删除 Key K${rowIndex + 1}` : `删除 Key K${rowIndex + 1}`}
+        onClick={() => onRemove(rowIndex)}
+        title={confirming ? '再次点击确认删除' : '删除此 Key'}
+        icon={<Trash className="h-3.5 w-3.5" />}
+      />
+    </div>
+  );
+});
+
 export function EndpointFormDialog({ endpointsApi, proxypoolPools }) {
   const {
     endpointFormOpen, setEndpointFormOpen,
@@ -22,10 +69,11 @@ export function EndpointFormDialog({ endpointsApi, proxypoolPools }) {
     appendEndpointKey,
     keyDeleteConfirmActive,
     removeEndpointKey,
-    keyRuntimeDisabled,
+    keyRuntimeLabels,
     keyRuntimeCooledCount,
     releaseKeyCooldowns,
     keyCooldownReleasing,
+    updateEndpointKey,
     addEndpointHeader,
     updateEndpointHeader,
     removeEndpointHeader,
@@ -67,20 +115,43 @@ export function EndpointFormDialog({ endpointsApi, proxypoolPools }) {
   };
 
   const keyListRef = useRef(null);
-  useLayoutEffect(() => {
+  const [visibleKeyCount, setVisibleKeyCount] = useState(KEY_LIST_PAGE_SIZE);
+  const keyRows = [endpointForm.apiKey, ...(endpointForm.apiKeys || [])];
+  const keyRowCount = keyRows.length;
+  const visibleKeys = keyRows.slice(0, visibleKeyCount);
+
+  const syncKeyListFade = useCallback(() => {
     const el = keyListRef.current;
     if (!el) return;
-    const update = () => {
-      el.style.setProperty('--scroll-fade-top', `${el.scrollTop}px`);
-      el.style.setProperty(
-        '--scroll-fade-bottom',
-        `${Math.max(0, el.scrollHeight - el.scrollTop - el.clientHeight)}px`
-      );
-    };
-    el.addEventListener('scroll', update);
-    update();
-    return () => el.removeEventListener('scroll', update);
-  });
+    el.style.setProperty('--scroll-fade-top', `${el.scrollTop}px`);
+    el.style.setProperty(
+      '--scroll-fade-bottom',
+      `${Math.max(0, el.scrollHeight - el.scrollTop - el.clientHeight)}px`
+    );
+  }, []);
+
+  useLayoutEffect(() => {
+    syncKeyListFade();
+  }, [syncKeyListFade, keyRowCount, visibleKeyCount, endpointFormOpen]);
+
+  useLayoutEffect(() => {
+    if (endpointFormOpen) setVisibleKeyCount(KEY_LIST_PAGE_SIZE);
+  }, [endpointFormOpen, editingEndpoint?.id]);
+
+  const handleKeyListScroll = () => {
+    syncKeyListFade();
+    const el = keyListRef.current;
+    if (!el) return;
+    if (el.scrollTop + el.clientHeight < el.scrollHeight - 24) return;
+    setVisibleKeyCount(current =>
+      current >= keyRowCount ? current : Math.min(current + KEY_LIST_PAGE_SIZE, keyRowCount)
+    );
+  };
+
+  const handleAppendEndpointKey = () => {
+    appendEndpointKey();
+    setVisibleKeyCount(current => Math.max(current, keyRowCount + 1));
+  };
 
   return (
     <>
@@ -173,7 +244,7 @@ export function EndpointFormDialog({ endpointsApi, proxypoolPools }) {
                       <Button
                         size="xs"
                         variant="outline"
-                        onClick={appendEndpointKey}
+                        onClick={handleAppendEndpointKey}
                         icon={<Plus className="h-3.5 w-3.5" />}
                       >
                         Key
@@ -181,69 +252,27 @@ export function EndpointFormDialog({ endpointsApi, proxypoolPools }) {
                     </div>
                   </div>
 
-                  <div ref={keyListRef} className="key-list-fade max-h-64 space-y-1.5 overflow-y-auto py-1.5">
-                    {[endpointForm.apiKey, ...(endpointForm.apiKeys || [])].map((key, rowIndex) => {
-                      const runtime = keyRuntimeDisabled(key);
-                      return (
-                      <div
+                  <div
+                    ref={keyListRef}
+                    onScroll={handleKeyListScroll}
+                    className="key-list-fade max-h-64 space-y-1.5 overflow-y-auto py-1.5"
+                  >
+                    {visibleKeys.map((key, rowIndex) => (
+                      <EndpointKeyRow
                         key={rowIndex}
-                        className="grid grid-cols-[2rem_minmax(0,1fr)_1.75rem] items-center gap-1.5"
-                      >
-                        <Badge
-                          variant={runtime ? 'red' : 'outline'}
-                          className="w-full justify-center text-center font-mono !text-[11px] leading-none"
-                          title={runtime ? `该 Key 暂不可用（${runtime.label}），请求会优先绕开` : undefined}
-                        >
-                          K{rowIndex + 1}
-                        </Badge>
-                        <Input
-                          size="sm"
-                          type="text"
-                          value={key}
-                          aria-label={`API Key K${rowIndex + 1}`}
-                          onChange={e => {
-                            const value = e.target.value;
-                            setEndpointForm(current => {
-                              if (rowIndex === 0) {
-                                return { ...current, apiKey: value };
-                              }
-                              return {
-                                ...current,
-                                apiKeys: (current.apiKeys || []).map((k, j) =>
-                                  j === rowIndex - 1 ? value : k
-                                ),
-                              };
-                            });
-                          }}
-                          placeholder="sk-xxxxxxxxxxxxxxxxxxxxxxxx"
-                          autoComplete="off"
-                          data-1p-ignore
-                          data-lpignore="true"
-                          data-bwignore="true"
-                          data-form-type="other"
-                          spellCheck={false}
-                          className="w-full text-kumo-strong text-[0.9em] font-mono"
-                        />
-                        <Button
-                          shape="square"
-                          size="sm"
-                          variant={keyDeleteConfirmActive(rowIndex) ? 'destructive' : 'secondary-destructive'}
-                          aria-label={
-                            keyDeleteConfirmActive(rowIndex)
-                              ? `再次点击确认删除 Key K${rowIndex + 1}`
-                              : `删除 Key K${rowIndex + 1}`
-                          }
-                          onClick={() => removeEndpointKey(rowIndex)}
-                          title={
-                            keyDeleteConfirmActive(rowIndex)
-                              ? '再次点击确认删除'
-                              : '删除此 Key'
-                          }
-                          icon={<Trash className="h-3.5 w-3.5" />}
-                        />
+                        rowIndex={rowIndex}
+                        value={key}
+                        cooledLabel={keyRuntimeLabels[String(key || '').trim()] || null}
+                        confirming={keyDeleteConfirmActive(rowIndex)}
+                        onChange={updateEndpointKey}
+                        onRemove={removeEndpointKey}
+                      />
+                    ))}
+                    {keyRowCount > visibleKeys.length && (
+                      <div className="pt-1 text-center text-[11px] text-kumo-subtle">
+                        已显示 {visibleKeys.length} / {keyRowCount},滚动加载更多
                       </div>
-                      );
-                    })}
+                    )}
                   </div>
                 </div>
 
