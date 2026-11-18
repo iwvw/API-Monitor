@@ -7,6 +7,7 @@ import { Table } from '@cloudflare/kumo/components/table';
 import { AppTable, EmptyState, SectionCard } from '../../components/ui/AppPrimitives.jsx';
 import { MobileCard, MobileCardField, MobileCardFields, MobileCardList } from '../../components/ui/MobileTableCards.jsx';
 import { Database, FileText, Save, Trash } from '../../components/Icons.jsx';
+import useStore from '../../store.js';
 import { toInt } from './utils.js';
 
 const FALLBACK_FAMILY = 'ui-sans-serif, system-ui, sans-serif';
@@ -50,7 +51,11 @@ function measureAuditWidths(logs) {
 
 export function LogsPanel({ logSettings, logsBusy, operationLogs, runEnforceLogLimits, saveLogSettings, setLogSettings }) {
   const logs = React.useMemo(() => operationLogs.slice(0, 100), [operationLogs]);
-  const widths = React.useMemo(() => measureAuditWidths(logs), [logs]);
+  // 列宽是按「当前字体的实际字宽」实测出来的：字体主题或字号变更后必须重算，
+  // 否则切到更宽的字体（如衬线/楷体）列宽会沿用旧值导致文本被裁断。
+  const uiFont = useStore(s => s.uiFont);
+  const uiFontSize = useStore(s => s.uiFontSize);
+  const widths = React.useMemo(() => measureAuditWidths(logs), [logs, uiFont, uiFontSize]);
   const columns = React.useMemo(() => [
     { id: 'time', role: 'datetime', width: widths.time, minWidth: 132, maxWidth: 220 },
     { id: 'operation', role: 'type', width: widths.operation, minWidth: 96, maxWidth: 300 },
