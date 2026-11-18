@@ -266,7 +266,9 @@ export function useEndpointForm({ loadEndpoints, loadAllModels, confirmState }) 
     if (!trimmed) return null;
     const item = keyRuntimeStates[trimmed];
     if (!item || !item.cooled) return null;
-    return { label: `冷却至 ${formatDateTime(item.cooldownUntil)}`, until: item.cooldownUntil };
+    // cooldownUntil 缺失时（后端字段可选）退化为基础文案，避免 tooltip 出现「冷却至 undefined」。
+    const label = item.cooldownUntil ? `冷却至 ${formatDateTime(item.cooldownUntil)}` : '冷却中';
+    return { label, until: item.cooldownUntil };
   };
   // proxyRuntimeStates：代理池各出口的运行时禁用状态（冷却 / 429 冻结），
   // 用于在管理弹窗里把被禁用的代理标红。key 为代理 URL。
