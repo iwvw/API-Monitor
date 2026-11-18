@@ -46,7 +46,7 @@ export function SecurityPanel({
 }) {
   return (
         <div className="grid min-w-0 items-start gap-4 cq-xl:grid-cols-[minmax(22rem,0.9fr)_minmax(0,1.1fr)]">
-          <div className="top-[calc(var(--app-header-height)+0.5rem)] z-20 flex min-w-0 flex-col gap-4 cq-xl:sticky">
+          <div className="top-[132px] z-20 flex min-w-0 flex-col gap-4 cq-xl:sticky">
           <SectionCard
             className={SECURITY_MASONRY_CARD_CLASS}
             title="管理员密码"

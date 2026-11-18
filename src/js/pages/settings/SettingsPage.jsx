@@ -11,7 +11,7 @@ import useStore, {
 import { useShallow } from 'zustand/react/shallow';
 import { MODULE_TABS_PROPS } from '../../modules/kumoTabs.js';
 import { applySiteBrandFaviconHref, getDefaultSiteBrandPreviewUrl } from '../../modules/siteBrand.js';
-import { TabBarOverflowActions, stickyTabsBaseClass } from '../../components/ui/AppPrimitives.jsx';
+import { TabBarOverflowActions, stickyTabsBelowHeaderClass } from '../../components/ui/AppPrimitives.jsx';
 import { browserSupportsWebAuthn, createPasskeyCredential } from '../../modules/webauthn.js';
 import { RefreshCw, Save } from '../../components/Icons.jsx';
 import { SETTINGS_TABS } from './tabs.jsx';
@@ -1063,7 +1063,7 @@ function SettingsPage() {
 
   return (
     <div className="flex min-h-full w-full min-w-0 flex-col gap-3 cq-sm:gap-4">
-      <div className={`${stickyTabsBaseClass} justify-between gap-2 border-b border-kumo-line [&>*]:min-w-0`}>
+      <div className={`${stickyTabsBelowHeaderClass} justify-between gap-2 border-b border-kumo-line [&>*]:min-w-0`}>
         <Tabs
           {...MODULE_TABS_PROPS}
           value={activeTab}

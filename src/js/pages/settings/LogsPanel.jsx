@@ -52,8 +52,8 @@ export function LogsPanel({ logSettings, logsBusy, operationLogs, runEnforceLogL
         </SectionCard>
       </div>
 
-      {/* 右列:审计记录,桌面吸顶全高、列表内部滚动 */}
-      <section className="flex min-w-0 flex-col gap-2 cq-lg:sticky cq-lg:top-[calc(var(--app-header-height)+0.5rem)] cq-lg:h-[calc(100dvh-var(--app-header-height)-1rem)]">
+      {/* 右列:审计记录,桌面吸顶全高、列表内部滚动。吸顶偏移要让开顶栏(58px)与吸在其下沿的 Tab 行(58px)。 */}
+      <section className="flex min-w-0 flex-col gap-2 cq-lg:sticky cq-lg:top-[132px] cq-lg:h-[calc(100dvh-144px)]">
         <SectionCard
           className="min-h-0 min-w-0 cq-lg:flex-1"
           title="审计记录"
