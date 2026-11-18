@@ -3,6 +3,26 @@ import { toast } from '../../../modules/toast.js';
 import { formatDateTime } from '../../../modules/utils.js';
 import { getAuthHeaders } from '../utils.js';
 
+// fetchKeyRuntimeStates 拉取端点各 API Key 的运行时冷却状态，返回 key -> 状态的映射。
+// 失败/响应异常时返回 null（调用方保持原状态，不因状态接口故障阻断弹窗）。
+async function fetchKeyRuntimeStates(endpointId) {
+  if (!endpointId) return null;
+  try {
+    const response = await fetch(`/api/modelhub/endpoints/${endpointId}/key-state`, {
+      headers: getAuthHeaders(),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || !Array.isArray(data.keys)) return null;
+    const map = {};
+    data.keys.forEach(item => {
+      if (item?.key) map[item.key] = item;
+    });
+    return map;
+  } catch {
+    return null;
+  }
+}
+
 export function useEndpointForm({ loadEndpoints, loadAllModels, confirmState }) {
   const { isArmed, confirmPress } = confirmState;
   const [editingEndpoint, setEditingEndpoint] = useState(null);
@@ -229,6 +249,7 @@ export function useEndpointForm({ loadEndpoints, loadAllModels, confirmState }) 
   // keyRuntimeStates：端点各 API Key 的运行时状态（是否处于回避冷却），
   // 用于在编辑弹窗里把暂不可用的 key 序号标红。key 为 key 字符串。
   const [keyRuntimeStates, setKeyRuntimeStates] = useState({});
+  const [keyCooldownReleasing, setKeyCooldownReleasing] = useState(false);
   useEffect(() => {
     if (!endpointFormOpen || !editingEndpoint?.id) {
       setKeyRuntimeStates({});
@@ -236,22 +257,8 @@ export function useEndpointForm({ loadEndpoints, loadAllModels, confirmState }) 
     }
     let cancelled = false;
     const load = async () => {
-      try {
-        const response = await fetch(`/api/modelhub/endpoints/${editingEndpoint.id}/key-state`, {
-          headers: getAuthHeaders(),
-        });
-        const data = await response.json().catch(() => ({}));
-        if (!response.ok || !Array.isArray(data.keys)) return;
-        if (!cancelled) {
-          const map = {};
-          data.keys.forEach(item => {
-            if (item?.key) map[item.key] = item;
-          });
-          setKeyRuntimeStates(map);
-        }
-      } catch {
-        // 状态加载失败不阻断弹窗使用。
-      }
+      const map = await fetchKeyRuntimeStates(editingEndpoint.id);
+      if (map && !cancelled) setKeyRuntimeStates(map);
     };
     load();
     const timer = setInterval(load, 15000);
@@ -269,6 +276,31 @@ export function useEndpointForm({ loadEndpoints, loadAllModels, confirmState }) 
     // cooldownUntil 缺失时（后端字段可选）退化为基础文案，避免 tooltip 出现「冷却至 undefined」。
     const label = item.cooldownUntil ? `冷却至 ${formatDateTime(item.cooldownUntil)}` : '冷却中';
     return { label, until: item.cooldownUntil };
+  };
+  // keyRuntimeCooledCount：「解冻」按钮的条件显示依据——没有任何冷却中的 key 时不渲染。
+  const keyRuntimeCooledCount = useMemo(
+    () => Object.values(keyRuntimeStates).filter(item => item?.cooled).length,
+    [keyRuntimeStates]
+  );
+  // releaseKeyCooldowns 立即清除该端点全部 Key 的回避冷却，并刷新本地状态。
+  const releaseKeyCooldowns = async () => {
+    if (!editingEndpoint?.id || keyCooldownReleasing) return;
+    setKeyCooldownReleasing(true);
+    try {
+      const response = await fetch(`/api/modelhub/endpoints/${editingEndpoint.id}/key-state/release`, {
+        method: 'POST',
+        headers: getAuthHeaders(),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.success) throw new Error(data.error || `HTTP ${response.status}`);
+      toast.success(data.released ? `已释放 ${data.released} 个 Key 的冷却` : '当前没有冷却中的 Key');
+      const map = await fetchKeyRuntimeStates(editingEndpoint.id);
+      if (map) setKeyRuntimeStates(map);
+    } catch (error) {
+      toast.error('释放冷却失败: ' + error.message);
+    } finally {
+      setKeyCooldownReleasing(false);
+    }
   };
   // proxyRuntimeStates：代理池各出口的运行时禁用状态（冷却 / 429 冻结），
   // 用于在管理弹窗里把被禁用的代理标红。key 为代理 URL。
@@ -579,6 +611,9 @@ export function useEndpointForm({ loadEndpoints, loadAllModels, confirmState }) 
     keyRuntimeStates,
     setKeyRuntimeStates,
     keyRuntimeDisabled,
+    keyRuntimeCooledCount,
+    releaseKeyCooldowns,
+    keyCooldownReleasing,
     disabledProxyUntil,
     disabledProxyCount,
     unbanningProxies,
