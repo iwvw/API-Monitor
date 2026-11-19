@@ -285,7 +285,7 @@ func TestGeminiUpstreamHealthCheck(t *testing.T) {
 	}
 	mustDecode(t, wCreate.Body.String(), &createRes)
 
-	record := service.healthCheckSingleModel(context.Background(), createRes.Endpoint.ID, createRes.Endpoint.BaseURL, "K", "gemini-3.7-flash", 10*time.Second, nil, "gemini")
+	record := service.healthCheckSingleModel(context.Background(), healthCheckEndpoint{id: createRes.Endpoint.ID, baseURL: createRes.Endpoint.BaseURL, apiKey: "K", upstreamType: "gemini"}, "gemini-3.7-flash", 10*time.Second)
 	if record.Status != "operational" {
 		t.Fatalf("health status = %q err=%q; want operational", record.Status, record.Error)
 	}

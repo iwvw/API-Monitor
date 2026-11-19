@@ -218,8 +218,9 @@ func (s *Service) healthCheckModelRoute(w http.ResponseWriter, r *http.Request, 
 	defer db.Close()
 
 	var baseURL, apiKey string
-	var headersRaw, proxyRaw, upstreamTypeRaw sql.NullString
-	err = db.QueryRowContext(ctx, "SELECT base_url, api_key, headers, proxy_pool, upstream_type FROM modelhub_endpoints WHERE id = ?", id).Scan(&baseURL, &apiKey, &headersRaw, &proxyRaw, &upstreamTypeRaw)
+	var headersRaw, proxyRaw, proxyPoolIDRaw, upstreamTypeRaw, protocolRaw sql.NullString
+	var proxyEnabledInt, forceProxyInt int
+	err = db.QueryRowContext(ctx, "SELECT base_url, api_key, headers, proxy_pool, proxy_pool_id, proxy_enabled, force_proxy, protocol, upstream_type FROM modelhub_endpoints WHERE id = ?", id).Scan(&baseURL, &apiKey, &headersRaw, &proxyRaw, &proxyPoolIDRaw, &proxyEnabledInt, &forceProxyInt, &protocolRaw, &upstreamTypeRaw)
 	if err != nil {
 		response.JSON(w, http.StatusNotFound, map[string]string{"error": "端点不存在"})
 		return
@@ -235,7 +236,18 @@ func (s *Service) healthCheckModelRoute(w http.ResponseWriter, r *http.Request, 
 	_, _ = db.ExecContext(ctx, "UPDATE modelhub_endpoints SET last_used = ? WHERE id = ?", time.Now().Format(time.RFC3339), id)
 
 	pool := decodeProxyPool(proxyRaw)
-	result := s.healthCheckSingleModel(ctx, id, baseURL, apiKey, req.Model, timeoutDuration, pool, normalizeUpstreamType(upstreamTypeRaw.String), decodeEndpointHeaders(headersRaw))
+	result := s.healthCheckSingleModel(ctx, healthCheckEndpoint{
+		id:           id,
+		baseURL:      baseURL,
+		apiKey:       apiKey,
+		pool:         pool,
+		proxyPoolID:  proxyPoolIDRaw.String,
+		proxyEnabled: proxyEnabledInt == 1,
+		forceProxy:   forceProxyInt == 1,
+		protocol:     protocolRaw.String,
+		upstreamType: normalizeUpstreamType(upstreamTypeRaw.String),
+		headers:      decodeEndpointHeaders(headersRaw),
+	}, req.Model, timeoutDuration)
 
 	// Save check to health history
 	var errMsg sql.NullString
@@ -267,16 +279,26 @@ func (s *Service) healthCheckAllModelsRoute(w http.ResponseWriter, r *http.Reque
 	defer db.Close()
 
 	var baseURL, apiKey, modelsRaw string
-	var headersRaw, proxyRaw, upstreamTypeRaw sql.NullString
-	err = db.QueryRowContext(ctx, "SELECT base_url, api_key, models, headers, proxy_pool, upstream_type FROM modelhub_endpoints WHERE id = ?", id).Scan(&baseURL, &apiKey, &modelsRaw, &headersRaw, &proxyRaw, &upstreamTypeRaw)
+	var headersRaw, proxyRaw, proxyPoolIDRaw, upstreamTypeRaw, protocolRaw sql.NullString
+	var proxyEnabledInt, forceProxyInt int
+	err = db.QueryRowContext(ctx, "SELECT base_url, api_key, models, headers, proxy_pool, proxy_pool_id, proxy_enabled, force_proxy, protocol, upstream_type FROM modelhub_endpoints WHERE id = ?", id).Scan(&baseURL, &apiKey, &modelsRaw, &headersRaw, &proxyRaw, &proxyPoolIDRaw, &proxyEnabledInt, &forceProxyInt, &protocolRaw, &upstreamTypeRaw)
 	if err != nil {
 		response.JSON(w, http.StatusNotFound, map[string]string{"error": "端点不存在"})
 		return
 	}
 	apiKey = secure.SecureDecrypt(apiKey)
-	upstreamType := normalizeUpstreamType(upstreamTypeRaw.String)
-	endpointHeaders := decodeEndpointHeaders(headersRaw)
-	endpointPool := decodeProxyPool(proxyRaw)
+	ep := healthCheckEndpoint{
+		id:           id,
+		baseURL:      baseURL,
+		apiKey:       apiKey,
+		pool:         decodeProxyPool(proxyRaw),
+		proxyPoolID:  proxyPoolIDRaw.String,
+		proxyEnabled: proxyEnabledInt == 1,
+		forceProxy:   forceProxyInt == 1,
+		protocol:     protocolRaw.String,
+		upstreamType: normalizeUpstreamType(upstreamTypeRaw.String),
+		headers:      decodeEndpointHeaders(headersRaw),
+	}
 
 	var models []string
 	if modelsRaw != "" {
@@ -306,7 +328,7 @@ func (s *Service) healthCheckAllModelsRoute(w http.ResponseWriter, r *http.Reque
 	}
 	concurrency = min(max(concurrency, 1), healthConcurrencyMax)
 
-	summary := s.runBatchHealthCheck(ctx, id, baseURL, apiKey, models, timeoutDuration, concurrency, endpointPool, upstreamType, endpointHeaders)
+	summary := s.runBatchHealthCheck(ctx, ep, models, timeoutDuration, concurrency)
 
 	// Save check results to db history
 	for _, result := range summary.Results {
@@ -425,7 +447,7 @@ func (s *Service) healthCheckAllRoute(w http.ResponseWriter, r *http.Request) {
 	}
 	defer db.Close()
 
-	rows, err := db.QueryContext(ctx, "SELECT id, name, base_url, api_key, models, headers, proxy_pool, upstream_type FROM modelhub_endpoints WHERE enabled = 1")
+	rows, err := db.QueryContext(ctx, "SELECT id, name, base_url, api_key, models, headers, proxy_pool, proxy_pool_id, proxy_enabled, force_proxy, protocol, upstream_type FROM modelhub_endpoints WHERE enabled = 1")
 	if err != nil {
 		response.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
@@ -433,19 +455,24 @@ func (s *Service) healthCheckAllRoute(w http.ResponseWriter, r *http.Request) {
 	defer rows.Close()
 
 	type item struct {
-		id, name, url, key, modelsRaw, upstreamType string
-		headers                                     []HeaderItem
-		pool                                        []string
+		id, name, modelsRaw string
+		ep                  healthCheckEndpoint
 	}
 	items := []item{}
 	for rows.Next() {
 		var it item
-		var headersRaw, proxyRaw, upstreamTypeRaw sql.NullString
-		if err := rows.Scan(&it.id, &it.name, &it.url, &it.key, &it.modelsRaw, &headersRaw, &proxyRaw, &upstreamTypeRaw); err == nil {
-			it.upstreamType = normalizeUpstreamType(upstreamTypeRaw.String)
-			it.key = secure.SecureDecrypt(it.key)
-			it.headers = decodeEndpointHeaders(headersRaw)
-			it.pool = decodeProxyPool(proxyRaw)
+		var headersRaw, proxyRaw, proxyPoolIDRaw, upstreamTypeRaw, protocolRaw sql.NullString
+		var proxyEnabledInt, forceProxyInt int
+		if err := rows.Scan(&it.id, &it.name, &it.ep.baseURL, &it.ep.apiKey, &it.modelsRaw, &headersRaw, &proxyRaw, &proxyPoolIDRaw, &proxyEnabledInt, &forceProxyInt, &protocolRaw, &upstreamTypeRaw); err == nil {
+			it.ep.id = it.id
+			it.ep.apiKey = secure.SecureDecrypt(it.ep.apiKey)
+			it.ep.pool = decodeProxyPool(proxyRaw)
+			it.ep.proxyPoolID = proxyPoolIDRaw.String
+			it.ep.proxyEnabled = proxyEnabledInt == 1
+			it.ep.forceProxy = forceProxyInt == 1
+			it.ep.protocol = protocolRaw.String
+			it.ep.upstreamType = normalizeUpstreamType(upstreamTypeRaw.String)
+			it.ep.headers = decodeEndpointHeaders(headersRaw)
 			items = append(items, it)
 		}
 	}
@@ -488,7 +515,7 @@ func (s *Service) healthCheckAllRoute(w http.ResponseWriter, r *http.Request) {
 				}
 				defer func() { <-sem }()
 
-				result := s.healthCheckSingleModel(ctx, target.id, target.url, target.key, model, timeoutDuration, target.pool, target.upstreamType, target.headers)
+				result := s.healthCheckSingleModel(ctx, target.ep, model, timeoutDuration)
 				resultsMu.Lock()
 				resultsByEndpoint[target.id] = append(resultsByEndpoint[target.id], result)
 				resultsMu.Unlock()
@@ -846,7 +873,22 @@ func healthCheckFastFailStatus(statusCode int) bool {
 	return false
 }
 
-func (s *Service) healthCheckSingleModel(ctx context.Context, endpointID, baseURL, apiKey, model string, timeout time.Duration, pool []string, upstreamType string, headers ...[]HeaderItem) HealthRecord {
+// healthCheckEndpoint 是一次健康检测所需的端点配置快照。
+// 出口选择与真实转发保持一致:独立代理池优先,其次内联池 + 代理开关,最后按连接协议直连。
+type healthCheckEndpoint struct {
+	id           string
+	baseURL      string
+	apiKey       string
+	pool         []string
+	proxyPoolID  string
+	proxyEnabled bool
+	forceProxy   bool
+	protocol     string
+	upstreamType string
+	headers      []HeaderItem
+}
+
+func (s *Service) healthCheckSingleModel(ctx context.Context, ep healthCheckEndpoint, model string, timeout time.Duration) HealthRecord {
 	startTime := time.Now()
 	record := HealthRecord{
 		Model:     model,
@@ -857,28 +899,26 @@ func (s *Service) healthCheckSingleModel(ctx context.Context, endpointID, baseUR
 	// Gemini 上游：健康检测走 Interactions API（x-goog-api-key + 转换后的请求体）；
 	// Vertex 上游：走 streamGenerateContent（SSE 首事件快速返回，避免思考模型超时）；
 	// 其余走 OpenAI /chat/completions。
-	upType := normalizeUpstreamType(upstreamType)
+	upType := normalizeUpstreamType(ep.upstreamType)
 	gemini := upType == upstreamTypeGemini
 	var reqURL string
 	switch upType {
 	case upstreamTypeGemini:
-		reqURL = geminiInteractionsURL(baseURL)
+		reqURL = geminiInteractionsURL(ep.baseURL)
 	case upstreamTypeVertex:
-		reqURL = vertexGenerateURL(baseURL, model, true)
+		reqURL = vertexGenerateURL(ep.baseURL, model, true)
 	default:
-		reqURL = fmt.Sprintf("%s/chat/completions", strings.TrimSuffix(baseURL, "/"))
+		reqURL = fmt.Sprintf("%s/chat/completions", strings.TrimSuffix(ep.baseURL, "/"))
 	}
 
-	// 端点配置了代理池时，健康检测与真实转发走同一出口（池内代理），
+	// 端点配置了出口代理时,健康检测与真实转发走同一出口,
 	// 避免检测请求从网关本机直连出口（出口 IP 不属于代理池）。
-	client := s.client
-	selectedProxy := ""
-	if len(pool) > 0 {
-		poolClient, proxy := s.auxClientForPool(endpointID, pool)
-		if poolClient != nil {
-			client = poolClient
-			selectedProxy = proxy
-		}
+	client, selectedProxy, clientErr := s.auxClientForEndpoint(
+		ep.id, ep.pool, ep.proxyEnabled, ep.forceProxy, ep.protocol, ep.proxyPoolID,
+	)
+	if clientErr != nil {
+		record.Error = clientErr.Error()
+		return record
 	}
 
 	// 请求体模拟真实客户端常用字段，降低上游对缺字段请求的兼容性误判。
@@ -927,14 +967,14 @@ func (s *Service) healthCheckSingleModel(ctx context.Context, endpointID, baseUR
 			return record
 		}
 		if gemini || upType == upstreamTypeVertex {
-			httpReq.Header.Set("X-Goog-Api-Key", apiKey)
+			httpReq.Header.Set("X-Goog-Api-Key", ep.apiKey)
 		} else {
-			httpReq.Header.Set("Authorization", "Bearer "+apiKey)
+			httpReq.Header.Set("Authorization", "Bearer "+ep.apiKey)
 		}
 		httpReq.Header.Set("Content-Type", "application/json")
 		httpReq.Header.Set("Accept", "application/json, text/event-stream")
-		if len(headers) > 0 {
-			applyCustomHeaders(httpReq, headers[0])
+		if len(ep.headers) > 0 {
+			applyCustomHeaders(httpReq, ep.headers)
 		}
 
 		resp, err := client.Do(httpReq)
@@ -954,7 +994,7 @@ func (s *Service) healthCheckSingleModel(ctx context.Context, endpointID, baseUR
 		// 健康检测也累计上游限流：半死出口（已限死的 IP）在健康检查里反复
 		// 429 时同样触发冻结，避免只有真实流量才能发现问题代理。
 		if isRateLimitResponse(resp, nil) && selectedProxy != "" {
-			s.markProxy429(endpointID, selectedProxy, retryAfterFromHeader(resp))
+			s.markProxy429(ep.id, selectedProxy, retryAfterFromHeader(resp))
 		}
 
 		// 状态码优先：2xx 视为可用（仅校验显式 error 结构），
@@ -1048,7 +1088,7 @@ func healthCheckBodyError(body []byte) string {
 	return ""
 }
 
-func (s *Service) runBatchHealthCheck(ctx context.Context, endpointID, baseURL, apiKey string, models []string, timeout time.Duration, concurrency int, pool []string, upstreamType string, headers ...[]HeaderItem) HealthSummary {
+func (s *Service) runBatchHealthCheck(ctx context.Context, ep healthCheckEndpoint, models []string, timeout time.Duration, concurrency int) HealthSummary {
 	var mu sync.Mutex
 	results := []HealthRecord{}
 
@@ -1062,7 +1102,7 @@ func (s *Service) runBatchHealthCheck(ctx context.Context, endpointID, baseURL, 
 			sem <- struct{}{}
 			defer func() { <-sem }()
 
-			res := s.healthCheckSingleModel(ctx, endpointID, baseURL, apiKey, m, timeout, pool, upstreamType, headers...)
+			res := s.healthCheckSingleModel(ctx, ep, m, timeout)
 
 			mu.Lock()
 			results = append(results, res)

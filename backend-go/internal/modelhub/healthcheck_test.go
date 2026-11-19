@@ -3,9 +3,12 @@ package modelhub
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
+	"time"
 )
 
 // clineGroupedModels 模拟 Cline recommended-models 的典型返回：顶层按分类分组，
@@ -72,5 +75,69 @@ func TestVerifyAPIKeyRawGroupedStructure(t *testing.T) {
 	}
 	if count != 3 {
 		t.Fatalf("verifyAPIKeyRaw count = %d; want 3", count)
+	}
+}
+
+type failingProxyPoolSelector struct{}
+
+func (failingProxyPoolSelector) SelectProxy(context.Context, string, string) (string, error) {
+	return "", errors.New("boom")
+}
+
+func (failingProxyPoolSelector) ReportResult(context.Context, string, string, bool, bool, *time.Duration) error {
+	return nil
+}
+
+func TestHealthCheckIgnoresInlinePoolWhenProxyDisabled(t *testing.T) {
+	mock := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"ok"}}]}`))
+	}))
+	defer mock.Close()
+
+	s := newOpenAIService(t)
+	record := s.healthCheckSingleModel(context.Background(), healthCheckEndpoint{
+		baseURL:      mock.URL + "/v1",
+		apiKey:       "sk-test",
+		pool:         []string{"http://127.0.0.1:1"},
+		proxyEnabled: false,
+		upstreamType: "openai",
+	}, "m", 3*time.Second)
+	if record.Status == "failed" {
+		t.Fatalf("proxy disabled should bypass inline pool, got failed: %s", record.Error)
+	}
+}
+
+func TestHealthCheckForceProxyWithEmptyPoolFails(t *testing.T) {
+	s := newOpenAIService(t)
+	record := s.healthCheckSingleModel(context.Background(), healthCheckEndpoint{
+		baseURL:      "http://127.0.0.1:1/v1",
+		apiKey:       "sk-test",
+		proxyEnabled: true,
+		forceProxy:   true,
+		upstreamType: "openai",
+	}, "m", time.Second)
+	if record.Status != "failed" {
+		t.Fatalf("force proxy with empty pool should fail, got %s", record.Status)
+	}
+	if !strings.Contains(record.Error, "强制走代理") {
+		t.Fatalf("expected force-proxy error, got %q", record.Error)
+	}
+}
+
+func TestHealthCheckReportsExternalPoolSelectionError(t *testing.T) {
+	s := newOpenAIService(t)
+	s.externalPool = failingProxyPoolSelector{}
+	record := s.healthCheckSingleModel(context.Background(), healthCheckEndpoint{
+		baseURL:      "http://127.0.0.1:1/v1",
+		apiKey:       "sk-test",
+		proxyPoolID:  "pool-1",
+		upstreamType: "openai",
+	}, "m", time.Second)
+	if record.Status != "failed" {
+		t.Fatalf("external pool selection error should fail, got %s", record.Status)
+	}
+	if !strings.Contains(record.Error, "独立代理池选择失败") {
+		t.Fatalf("expected external pool error, got %q", record.Error)
 	}
 }

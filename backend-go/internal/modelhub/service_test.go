@@ -800,13 +800,9 @@ func TestHealthCheckAcceptsEmptyOutput(t *testing.T) {
 
 	success := service.healthCheckSingleModel(
 		context.Background(),
-		"",
-		mockUpstream.URL+"/v1",
-		"test-api-key",
+		healthCheckEndpoint{baseURL: mockUpstream.URL + "/v1", apiKey: "test-api-key", upstreamType: "openai"},
 		"array-model",
 		5*time.Second,
-		nil,
-		"openai",
 	)
 	if success.Status == "failed" || success.Error != "" {
 		t.Fatalf("expected valid output to pass, got status=%s error=%s", success.Status, success.Error)
@@ -814,13 +810,9 @@ func TestHealthCheckAcceptsEmptyOutput(t *testing.T) {
 
 	failed := service.healthCheckSingleModel(
 		context.Background(),
-		"",
-		mockUpstream.URL+"/v1",
-		"test-api-key",
+		healthCheckEndpoint{baseURL: mockUpstream.URL + "/v1", apiKey: "test-api-key", upstreamType: "openai"},
 		"empty-model",
 		5*time.Second,
-		nil,
-		"openai",
 	)
 	if failed.Status == "failed" {
 		t.Fatalf("expected empty output to count as healthy, got status=%s error=%s", failed.Status, failed.Error)
@@ -843,13 +835,9 @@ func TestHealthCheckRejects200WithErrorBody(t *testing.T) {
 
 	record := service.healthCheckSingleModel(
 		context.Background(),
-		"",
-		mockUpstream.URL+"/v1",
-		"test-api-key",
+		healthCheckEndpoint{baseURL: mockUpstream.URL + "/v1", apiKey: "test-api-key", upstreamType: "openai"},
 		"broken-model",
 		5*time.Second,
-		nil,
-		"openai",
 	)
 	if record.Status != "failed" {
 		t.Fatalf("expected 200-with-error-body to fail, got status=%s", record.Status)
