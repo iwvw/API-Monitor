@@ -32,9 +32,10 @@ func (s *Service) verifyEndpoint(w http.ResponseWriter, r *http.Request, id stri
 
 	var name, baseURL, apiKey string
 	var modelsURLRaw, upstreamTypeRaw sql.NullString
-	var headersRaw, proxyRaw sql.NullString
+	var headersRaw, proxyRaw, proxyPoolIDRaw, protocolRaw sql.NullString
+	var proxyEnabledInt, forceProxyInt int
 	// models_url 为 NULL（插件注册等历史行）时按空串处理，避免 NULL→string 扫描报错误判「端点不存在」。
-	err = db.QueryRowContext(ctx, "SELECT name, base_url, models_url, api_key, headers, proxy_pool, upstream_type FROM modelhub_endpoints WHERE id = ?", id).Scan(&name, &baseURL, &modelsURLRaw, &apiKey, &headersRaw, &proxyRaw, &upstreamTypeRaw)
+	err = db.QueryRowContext(ctx, "SELECT name, base_url, models_url, api_key, headers, proxy_pool, proxy_pool_id, proxy_enabled, force_proxy, protocol, upstream_type FROM modelhub_endpoints WHERE id = ?", id).Scan(&name, &baseURL, &modelsURLRaw, &apiKey, &headersRaw, &proxyRaw, &proxyPoolIDRaw, &proxyEnabledInt, &forceProxyInt, &protocolRaw, &upstreamTypeRaw)
 	if err != nil {
 		response.JSON(w, http.StatusNotFound, map[string]string{"error": "端点不存在"})
 		return
@@ -43,7 +44,14 @@ func (s *Service) verifyEndpoint(w http.ResponseWriter, r *http.Request, id stri
 	apiKey = secure.SecureDecrypt(apiKey)
 	upstreamType := normalizeUpstreamType(upstreamTypeRaw.String)
 	headers := decodeEndpointHeaders(headersRaw)
-	pool := decodeProxyPool(proxyRaw)
+	ep := auxEndpoint{
+		id:           id,
+		pool:         decodeProxyPool(proxyRaw),
+		proxyPoolID:  proxyPoolIDRaw.String,
+		proxyEnabled: proxyEnabledInt == 1,
+		forceProxy:   forceProxyInt == 1,
+		protocol:     protocolRaw.String,
+	}
 
 	startTime := time.Now()
 	status := "invalid"
@@ -52,12 +60,12 @@ func (s *Service) verifyEndpoint(w http.ResponseWriter, r *http.Request, id stri
 	var errMsg string
 
 	listOK := false
-	vOk, _, vErr := s.verifyAPIKeyRaw(verifyCtx, baseURL, apiKey, id, pool, modelsURL, upstreamType, headers)
+	vOk, _, vErr := s.verifyAPIKeyRaw(verifyCtx, baseURL, apiKey, ep, modelsURL, upstreamType, headers)
 	responseTime := time.Since(startTime).Milliseconds()
 
 	if vErr == nil && vOk {
 		status = "valid"
-		mList, mPrice, mErr := s.listModelsWithPricing(verifyCtx, baseURL, apiKey, id, pool, modelsURL, upstreamType, headers)
+		mList, mPrice, mErr := s.listModelsWithPricing(verifyCtx, baseURL, apiKey, ep, modelsURL, upstreamType, headers)
 		if mErr == nil {
 			modelsList = mList
 			pricing = mPrice
@@ -207,9 +215,10 @@ func (s *Service) healthCheckKeysRoute(w http.ResponseWriter, r *http.Request, i
 
 	var baseURL string
 	var modelsURLRaw, upstreamTypeRaw sql.NullString
-	var headersRaw, proxyRaw sql.NullString
+	var headersRaw, proxyRaw, proxyPoolIDRaw, protocolRaw sql.NullString
+	var proxyEnabledInt, forceProxyInt int
 	// models_url 为 NULL（插件注册等历史行）时按空串处理。
-	err = db.QueryRowContext(ctx, "SELECT base_url, models_url, headers, proxy_pool, upstream_type FROM modelhub_endpoints WHERE id = ?", id).Scan(&baseURL, &modelsURLRaw, &headersRaw, &proxyRaw, &upstreamTypeRaw)
+	err = db.QueryRowContext(ctx, "SELECT base_url, models_url, headers, proxy_pool, proxy_pool_id, proxy_enabled, force_proxy, protocol, upstream_type FROM modelhub_endpoints WHERE id = ?", id).Scan(&baseURL, &modelsURLRaw, &headersRaw, &proxyRaw, &proxyPoolIDRaw, &proxyEnabledInt, &forceProxyInt, &protocolRaw, &upstreamTypeRaw)
 	if err != nil {
 		response.JSON(w, http.StatusNotFound, map[string]string{"error": "端点不存在"})
 		return
@@ -221,7 +230,14 @@ func (s *Service) healthCheckKeysRoute(w http.ResponseWriter, r *http.Request, i
 	if req.Timeout > 0 {
 		timeout = time.Duration(req.Timeout) * time.Millisecond
 	}
-	pool := decodeProxyPool(proxyRaw)
+	ep := auxEndpoint{
+		id:           id,
+		pool:         decodeProxyPool(proxyRaw),
+		proxyPoolID:  proxyPoolIDRaw.String,
+		proxyEnabled: proxyEnabledInt == 1,
+		forceProxy:   forceProxyInt == 1,
+		protocol:     protocolRaw.String,
+	}
 	headers := decodeEndpointHeaders(headersRaw)
 
 	results := make([]KeyCheckResult, len(keys))
@@ -230,7 +246,7 @@ func (s *Service) healthCheckKeysRoute(w http.ResponseWriter, r *http.Request, i
 		wg.Add(1)
 		go func(idx int, k string) {
 			defer wg.Done()
-			results[idx] = s.checkAPIKeyStatus(ctx, baseURL, k, id, timeout, pool, modelsURL, upstreamType, headers, idx)
+			results[idx] = s.checkAPIKeyStatus(ctx, baseURL, k, timeout, ep, modelsURL, upstreamType, headers, idx)
 		}(i, key)
 	}
 	wg.Wait()
@@ -240,7 +256,7 @@ func (s *Service) healthCheckKeysRoute(w http.ResponseWriter, r *http.Request, i
 
 // checkAPIKeyStatus 用 GET {baseURL}/models 检测单个 key 的有效性。
 // 2xx=valid；401/403=invalid（鉴权失败）；402=overdue（欠费）；其余/网络错误=error。
-func (s *Service) checkAPIKeyStatus(ctx context.Context, baseURL, key, endpointID string, timeout time.Duration, pool []string, modelsURL, upstreamType string, headers []HeaderItem, index int) KeyCheckResult {
+func (s *Service) checkAPIKeyStatus(ctx context.Context, baseURL, key string, timeout time.Duration, ep auxEndpoint, modelsURL, upstreamType string, headers []HeaderItem, index int) KeyCheckResult {
 	result := KeyCheckResult{Index: index, Key: key}
 	childCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
@@ -286,11 +302,11 @@ func (s *Service) checkAPIKeyStatus(ctx context.Context, baseURL, key, endpointI
 	}
 	applyCustomHeaders(httpReq, headers)
 
-	client := s.client
-	if len(pool) > 0 {
-		if poolClient, _ := s.auxClientForPool(endpointID, pool); poolClient != nil {
-			client = poolClient
-		}
+	client, _, clientErr := s.auxClientForEndpoint(childCtx, ep)
+	if clientErr != nil {
+		result.Status = "error"
+		result.Message = clientErr.Error()
+		return result
 	}
 
 	resp, err := client.Do(httpReq)

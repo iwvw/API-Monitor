@@ -36,7 +36,7 @@ func (s *Service) refreshAllModels(ctx context.Context) (results []map[string]in
 	}
 	defer db.Close()
 
-	rows, err := db.QueryContext(ctx, "SELECT id, name, base_url, models_url, api_key, headers, proxy_pool, upstream_type FROM modelhub_endpoints WHERE enabled = 1")
+	rows, err := db.QueryContext(ctx, "SELECT id, name, base_url, models_url, api_key, headers, proxy_pool, proxy_pool_id, proxy_enabled, force_proxy, protocol, upstream_type FROM modelhub_endpoints WHERE enabled = 1")
 	if err != nil {
 		return nil, err
 	}
@@ -46,18 +46,27 @@ func (s *Service) refreshAllModels(ctx context.Context) (results []map[string]in
 		id, name, url, key, modelsURL, upstreamType string
 		headers                                     []HeaderItem
 		pool                                        []string
+		proxyPoolID                                 string
+		protocol                                    string
+		proxyEnabled                                bool
+		forceProxy                                  bool
 	}
 	items := []item{}
 	for rows.Next() {
 		var it item
-		var modelsURLRaw, headersRaw, proxyRaw, upstreamTypeRaw sql.NullString
+		var modelsURLRaw, headersRaw, proxyRaw, proxyPoolIDRaw, upstreamTypeRaw, protocolRaw sql.NullString
+		var proxyEnabledInt, forceProxyInt int
 		// models_url 为 NULL（插件注册等历史行）时按空串处理，避免该端点被静默跳过。
-		if err := rows.Scan(&it.id, &it.name, &it.url, &modelsURLRaw, &it.key, &headersRaw, &proxyRaw, &upstreamTypeRaw); err == nil {
+		if err := rows.Scan(&it.id, &it.name, &it.url, &modelsURLRaw, &it.key, &headersRaw, &proxyRaw, &proxyPoolIDRaw, &proxyEnabledInt, &forceProxyInt, &protocolRaw, &upstreamTypeRaw); err == nil {
 			it.modelsURL = modelsURLRaw.String
 			it.upstreamType = normalizeUpstreamType(upstreamTypeRaw.String)
 			it.key = secure.SecureDecrypt(it.key)
 			it.headers = decodeEndpointHeaders(headersRaw)
 			it.pool = decodeProxyPool(proxyRaw)
+			it.proxyPoolID = proxyPoolIDRaw.String
+			it.protocol = protocolRaw.String
+			it.proxyEnabled = proxyEnabledInt == 1
+			it.forceProxy = forceProxyInt == 1
 			items = append(items, it)
 		}
 	}
@@ -76,10 +85,18 @@ func (s *Service) refreshAllModels(ctx context.Context) (results []map[string]in
 			var errStr string
 
 			listOK := false
-			vOk, _, err := s.verifyAPIKeyRaw(ctx, it.url, it.key, it.id, it.pool, it.modelsURL, it.upstreamType, it.headers)
+			ep := auxEndpoint{
+				id:           it.id,
+				pool:         it.pool,
+				proxyPoolID:  it.proxyPoolID,
+				proxyEnabled: it.proxyEnabled,
+				forceProxy:   it.forceProxy,
+				protocol:     it.protocol,
+			}
+			vOk, _, err := s.verifyAPIKeyRaw(ctx, it.url, it.key, ep, it.modelsURL, it.upstreamType, it.headers)
 			if err == nil && vOk {
 				status = "valid"
-				mList, mPrice, mErr := s.listModelsWithPricing(ctx, it.url, it.key, it.id, it.pool, it.modelsURL, it.upstreamType, it.headers)
+				mList, mPrice, mErr := s.listModelsWithPricing(ctx, it.url, it.key, ep, it.modelsURL, it.upstreamType, it.headers)
 				if mErr == nil {
 					modelsList = mList
 					pricing = mPrice

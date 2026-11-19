@@ -49,8 +49,9 @@ func (s *Service) testEndpointChat(w http.ResponseWriter, r *http.Request, id st
 	defer db.Close()
 
 	var baseURL, apiKey string
-	var headersRaw, proxyRaw, upstreamTypeRaw, modelsRaw sql.NullString
-	err = db.QueryRowContext(ctx, "SELECT base_url, api_key, headers, proxy_pool, upstream_type, models FROM modelhub_endpoints WHERE id = ?", id).Scan(&baseURL, &apiKey, &headersRaw, &proxyRaw, &upstreamTypeRaw, &modelsRaw)
+	var headersRaw, proxyRaw, proxyPoolIDRaw, upstreamTypeRaw, modelsRaw, protocolRaw sql.NullString
+	var proxyEnabledInt, forceProxyInt int
+	err = db.QueryRowContext(ctx, "SELECT base_url, api_key, headers, proxy_pool, proxy_pool_id, proxy_enabled, force_proxy, protocol, upstream_type, models FROM modelhub_endpoints WHERE id = ?", id).Scan(&baseURL, &apiKey, &headersRaw, &proxyRaw, &proxyPoolIDRaw, &proxyEnabledInt, &forceProxyInt, &protocolRaw, &upstreamTypeRaw, &modelsRaw)
 	if err != nil {
 		response.JSON(w, http.StatusNotFound, map[string]string{"error": "端点不存在"})
 		return
@@ -115,14 +116,17 @@ func (s *Service) testEndpointChat(w http.ResponseWriter, r *http.Request, id st
 	httpReq.Header.Set("Content-Type", "application/json")
 	applyCustomHeaders(httpReq, decodeEndpointHeaders(headersRaw))
 
-	client := s.client
-	selectedProxy := ""
-	if len(pool) > 0 {
-		poolClient, proxy := s.auxClientForPool(id, pool)
-		if poolClient != nil {
-			client = poolClient
-			selectedProxy = proxy
-		}
+	client, selectedProxy, clientErr := s.auxClientForEndpoint(ctx, auxEndpoint{
+		id:           id,
+		pool:         pool,
+		proxyPoolID:  proxyPoolIDRaw.String,
+		proxyEnabled: proxyEnabledInt == 1,
+		forceProxy:   forceProxyInt == 1,
+		protocol:     protocolRaw.String,
+	})
+	if clientErr != nil {
+		response.JSON(w, http.StatusOK, map[string]interface{}{"success": false, "error": clientErr.Error()})
+		return
 	}
 
 	resp, err := client.Do(httpReq)
@@ -572,10 +576,10 @@ func (s *Service) healthCheckAllRoute(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (s *Service) verifyAPIKeyRaw(ctx context.Context, u, key, endpointID string, pool []string, modelsURL, upstreamType string, headers ...[]HeaderItem) (bool, int, error) {
+func (s *Service) verifyAPIKeyRaw(ctx context.Context, u, key string, ep auxEndpoint, modelsURL, upstreamType string, headers ...[]HeaderItem) (bool, int, error) {
 	vertex := normalizeUpstreamType(upstreamType) == upstreamTypeVertex
 	if vertex {
-		return s.verifyVertexKey(ctx, u, key, endpointID, pool, headers...)
+		return s.verifyVertexKey(ctx, u, key, ep, headers...)
 	}
 	gemini := normalizeUpstreamType(upstreamType) == upstreamTypeGemini
 	var reqURL string
@@ -597,14 +601,9 @@ func (s *Service) verifyAPIKeyRaw(ctx context.Context, u, key, endpointID string
 		applyCustomHeaders(req, headers[0])
 	}
 
-	client := s.client
-	selectedProxy := ""
-	if len(pool) > 0 {
-		poolClient, proxy := s.auxClientForPool(endpointID, pool)
-		if poolClient != nil {
-			client = poolClient
-			selectedProxy = proxy
-		}
+	client, selectedProxy, clientErr := s.auxClientForEndpoint(ctx, ep)
+	if clientErr != nil {
+		return false, 0, clientErr
 	}
 
 	resp, err := client.Do(req)
@@ -615,7 +614,7 @@ func (s *Service) verifyAPIKeyRaw(ctx context.Context, u, key, endpointID string
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		if isRateLimitResponse(resp, nil) && selectedProxy != "" {
-			s.markProxy429(endpointID, selectedProxy, retryAfterFromHeader(resp))
+			s.markProxy429(ep.id, selectedProxy, retryAfterFromHeader(resp))
 		}
 		return false, 0, fmt.Errorf("verify failed: HTTP %d", resp.StatusCode)
 	}
@@ -655,7 +654,7 @@ func (s *Service) verifyAPIKeyRaw(ctx context.Context, u, key, endpointID string
 // verifyVertexKey 验证 Vertex AI API Key：Vertex 不提供模型列表端点（GET /models
 // 返回 404），改用 generateContent 简单请求判定鉴权。401/403 → key 无效；其余
 // （200/400/404 等）说明鉴权已通过——模型/区域/参数问题不影响 key 有效性。
-func (s *Service) verifyVertexKey(ctx context.Context, u, key, endpointID string, pool []string, headers ...[]HeaderItem) (bool, int, error) {
+func (s *Service) verifyVertexKey(ctx context.Context, u, key string, ep auxEndpoint, headers ...[]HeaderItem) (bool, int, error) {
 	reqURL := vertexGenerateURL(u, "gemini-2.5-flash", false)
 	body, _ := json.Marshal(map[string]interface{}{
 		"contents": []interface{}{
@@ -672,11 +671,9 @@ func (s *Service) verifyVertexKey(ctx context.Context, u, key, endpointID string
 	if len(headers) > 0 {
 		applyCustomHeaders(req, headers[0])
 	}
-	client := s.client
-	if len(pool) > 0 {
-		if poolClient, _ := s.auxClientForPool(endpointID, pool); poolClient != nil {
-			client = poolClient
-		}
+	client, _, clientErr := s.auxClientForEndpoint(ctx, ep)
+	if clientErr != nil {
+		return false, 0, clientErr
 	}
 	resp, err := client.Do(req)
 	if err != nil {
@@ -734,15 +731,15 @@ func modelListURL(baseURL, modelsURL string) string {
 
 // listModelsRaw 拉取上游模型列表（GET /models）。endpointID 用于把 429 限流
 // 累计到对应端点的代理池状态（见 verifyAPIKeyRaw）。定价信息被丢弃，仅返回模型名。
-func (s *Service) listModelsRaw(ctx context.Context, u, key, endpointID string, pool []string, modelsURL, upstreamType string, headers ...[]HeaderItem) ([]string, error) {
-	models, _, err := s.listModelsWithPricing(ctx, u, key, endpointID, pool, modelsURL, upstreamType, headers...)
+func (s *Service) listModelsRaw(ctx context.Context, u, key string, ep auxEndpoint, modelsURL, upstreamType string, headers ...[]HeaderItem) ([]string, error) {
+	models, _, err := s.listModelsWithPricing(ctx, u, key, ep, modelsURL, upstreamType, headers...)
 	return models, err
 }
 
 // listModelsWithPricing 拉取上游模型列表（GET /models 或 Gemini 的 /v1beta/models）
 // 并解析每个模型的定价。返回模型 id 列表与按 id 索引的定价表；无法解析出定价的
 // 模型不出现在定价表中。Gemini 上游定价暂不解析（无 OpenAI 风格定价字段）。
-func (s *Service) listModelsWithPricing(ctx context.Context, u, key, endpointID string, pool []string, modelsURL, upstreamType string, headers ...[]HeaderItem) ([]string, PricingMap, error) {
+func (s *Service) listModelsWithPricing(ctx context.Context, u, key string, ep auxEndpoint, modelsURL, upstreamType string, headers ...[]HeaderItem) ([]string, PricingMap, error) {
 	vertex := normalizeUpstreamType(upstreamType) == upstreamTypeVertex
 	if vertex {
 		// Vertex AI 不提供模型列表端点（请求 404），模型需手动添加：
@@ -769,14 +766,9 @@ func (s *Service) listModelsWithPricing(ctx context.Context, u, key, endpointID 
 		applyCustomHeaders(req, headers[0])
 	}
 
-	client := s.client
-	selectedProxy := ""
-	if len(pool) > 0 {
-		poolClient, proxy := s.auxClientForPool(endpointID, pool)
-		if poolClient != nil {
-			client = poolClient
-			selectedProxy = proxy
-		}
+	client, selectedProxy, clientErr := s.auxClientForEndpoint(ctx, ep)
+	if clientErr != nil {
+		return nil, nil, clientErr
 	}
 
 	resp, err := client.Do(req)
@@ -787,7 +779,7 @@ func (s *Service) listModelsWithPricing(ctx context.Context, u, key, endpointID 
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		if isRateLimitResponse(resp, nil) && selectedProxy != "" {
-			s.markProxy429(endpointID, selectedProxy, retryAfterFromHeader(resp))
+			s.markProxy429(ep.id, selectedProxy, retryAfterFromHeader(resp))
 		}
 		return nil, nil, fmt.Errorf("list models failed: HTTP %d", resp.StatusCode)
 	}
@@ -913,9 +905,14 @@ func (s *Service) healthCheckSingleModel(ctx context.Context, ep healthCheckEndp
 
 	// 端点配置了出口代理时,健康检测与真实转发走同一出口,
 	// 避免检测请求从网关本机直连出口（出口 IP 不属于代理池）。
-	client, selectedProxy, clientErr := s.auxClientForEndpoint(
-		ep.id, ep.pool, ep.proxyEnabled, ep.forceProxy, ep.protocol, ep.proxyPoolID,
-	)
+	client, selectedProxy, clientErr := s.auxClientForEndpoint(ctx, auxEndpoint{
+		id:           ep.id,
+		pool:         ep.pool,
+		proxyPoolID:  ep.proxyPoolID,
+		proxyEnabled: ep.proxyEnabled,
+		forceProxy:   ep.forceProxy,
+		protocol:     ep.protocol,
+	})
 	if clientErr != nil {
 		record.Error = clientErr.Error()
 		return record

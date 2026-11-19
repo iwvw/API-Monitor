@@ -616,10 +616,10 @@ func (s *Service) updateEndpoint(w http.ResponseWriter, r *http.Request, id stri
 	defer db.Close()
 
 	var currentBaseURL, currentAPIKey string
-	var currentModelsURLRaw, currentProxyPoolIDRaw, currentUpstreamTypeRaw, currentKeyStrategyRaw sql.NullString
-	var currentKeyRetryRounds, currentKeyCooldownSeconds int
+	var currentModelsURLRaw, currentProxyPoolRaw, currentProxyPoolIDRaw, currentUpstreamTypeRaw, currentKeyStrategyRaw, currentProtocolRaw sql.NullString
+	var currentKeyRetryRounds, currentKeyCooldownSeconds, currentProxyEnabledInt, currentForceProxyInt int
 	// models_url 为 NULL（插件注册等历史行）时按空串处理，避免 NULL→string 扫描报错误判「端点不存在」。
-	err = db.QueryRowContext(ctx, "SELECT base_url, models_url, api_key, proxy_pool_id, key_retry_rounds, upstream_type, key_strategy, key_cooldown_seconds FROM modelhub_endpoints WHERE id = ?", id).Scan(&currentBaseURL, &currentModelsURLRaw, &currentAPIKey, &currentProxyPoolIDRaw, &currentKeyRetryRounds, &currentUpstreamTypeRaw, &currentKeyStrategyRaw, &currentKeyCooldownSeconds)
+	err = db.QueryRowContext(ctx, "SELECT base_url, models_url, api_key, proxy_pool, proxy_enabled, force_proxy, protocol, proxy_pool_id, key_retry_rounds, upstream_type, key_strategy, key_cooldown_seconds FROM modelhub_endpoints WHERE id = ?", id).Scan(&currentBaseURL, &currentModelsURLRaw, &currentAPIKey, &currentProxyPoolRaw, &currentProxyEnabledInt, &currentForceProxyInt, &currentProtocolRaw, &currentProxyPoolIDRaw, &currentKeyRetryRounds, &currentUpstreamTypeRaw, &currentKeyStrategyRaw, &currentKeyCooldownSeconds)
 	if err != nil {
 		response.JSON(w, http.StatusNotFound, map[string]string{"error": "端点不存在"})
 		return
@@ -814,19 +814,39 @@ func (s *Service) updateEndpoint(w http.ResponseWriter, r *http.Request, id stri
 		if req.Headers != nil {
 			verifyHeaders = cleanHeaders(*req.Headers)
 		}
-		verifyPool := []string(nil)
+		verifyPool := decodeProxyPool(currentProxyPoolRaw)
 		if req.ProxyPool != nil {
 			verifyPool = cleanProxyPool(*req.ProxyPool)
+		}
+		verifyProxyEnabled := currentProxyEnabledInt == 1
+		if req.ProxyEnabled != nil {
+			verifyProxyEnabled = *req.ProxyEnabled
+		}
+		verifyForceProxy := currentForceProxyInt == 1
+		if req.ForceProxy != nil {
+			verifyForceProxy = *req.ForceProxy
+		}
+		verifyProtocol := normalizeProtocol(currentProtocolRaw.String)
+		if req.Protocol != nil {
+			verifyProtocol = protocol
+		}
+		verifyRoute := auxEndpoint{
+			id:           id,
+			pool:         verifyPool,
+			proxyPoolID:  proxyPoolID,
+			proxyEnabled: verifyProxyEnabled,
+			forceProxy:   verifyForceProxy,
+			protocol:     verifyProtocol,
 		}
 
 		// 空 API Key（新建或显式清空）无法验证：状态置 unknown，不发起上游请求。
 		// 验证与拉取模型加总超时：挂死的出口/上游不能把保存拖成「等超时」。
 		if targetAPIKey != "" {
 			verifyCtx, cancelVerify := context.WithTimeout(ctx, endpointVerifyTimeout)
-			vOk, _, err := s.verifyAPIKeyRaw(verifyCtx, targetBaseURL, targetAPIKey, id, verifyPool, targetModelsURL, upstreamType, verifyHeaders)
+			vOk, _, err := s.verifyAPIKeyRaw(verifyCtx, targetBaseURL, targetAPIKey, verifyRoute, targetModelsURL, upstreamType, verifyHeaders)
 			if err == nil && vOk {
 				status = "valid"
-				mList, mPrice, mErr := s.listModelsWithPricing(verifyCtx, targetBaseURL, targetAPIKey, id, verifyPool, targetModelsURL, upstreamType, verifyHeaders)
+				mList, mPrice, mErr := s.listModelsWithPricing(verifyCtx, targetBaseURL, targetAPIKey, verifyRoute, targetModelsURL, upstreamType, verifyHeaders)
 				if mErr == nil {
 					// Vertex AI 不提供模型列表端点，models 全部来自手动添加：
 					// 保存触发重验证时不覆盖手动模型（拉取结果为空列表）。

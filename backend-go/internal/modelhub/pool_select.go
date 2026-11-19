@@ -220,40 +220,50 @@ func (s *Service) clientForEndpoint(endpointID string, pool []string, proxyEnabl
 	return client, selectedProxy, nil
 }
 
-// auxClientForEndpoint 为辅助请求(健康检测等)按端点出口配置选择客户端,
+// auxEndpoint 描述一次辅助请求(验证、模型列表、健康检测、对话测试)使用的出口配置。
+type auxEndpoint struct {
+	id           string
+	pool         []string
+	proxyPoolID  string
+	proxyEnabled bool
+	forceProxy   bool
+	protocol     string
+}
+
+// auxClientForEndpoint 为辅助请求按端点出口配置选择客户端,
 // 规则与 clientForEndpoint 对齐:独立代理池优先,其次内联池 + 代理开关,
 // 代理不可用时由 forceProxy 决定报错还是按连接协议直连。
 // 与 clientForEndpoint 的区别:不推进游标、不写 TTFB、不写冷却,
 // 也不向独立代理池回写结果,避免辅助请求污染真实转发的择优状态。
-func (s *Service) auxClientForEndpoint(endpointID string, pool []string, proxyEnabled, forceProxy bool, protocol, proxyPoolID string) (*http.Client, string, error) {
-	if proxyPoolID != "" && s.externalPool != nil {
-		proxyURL, err := s.externalPool.SelectProxy(context.Background(), proxyPoolID, "")
+func (s *Service) auxClientForEndpoint(ctx context.Context, ep auxEndpoint) (*http.Client, string, error) {
+	if ep.proxyPoolID != "" && s.externalPool != nil {
+		proxyURL, err := s.externalPool.SelectProxy(ctx, ep.proxyPoolID, "")
 		if err != nil {
 			return nil, "", fmt.Errorf("独立代理池选择失败: %w", err)
 		}
 		if proxyURL == "" {
-			if forceProxy {
+			if ep.forceProxy {
 				return nil, "", fmt.Errorf("端点配置为强制走代理,但独立代理池无可用出口")
 			}
-			return s.clientForProtocol(protocol), "", nil
+			return s.clientForProtocol(ep.protocol), "", nil
 		}
 		client, err := s.proxyClient(proxyURL)
 		if err != nil {
-			return s.clientForProtocol(protocol), proxyURL, err
+			return s.clientForProtocol(ep.protocol), proxyURL, err
 		}
 		return client, proxyURL, nil
 	}
-	if !proxyEnabled {
-		return s.clientForProtocol(protocol), "", nil
+	if !ep.proxyEnabled {
+		return s.clientForProtocol(ep.protocol), "", nil
 	}
-	cleaned := cleanProxyPool(pool)
+	cleaned := cleanProxyPool(ep.pool)
 	if len(cleaned) == 0 {
-		if forceProxy {
+		if ep.forceProxy {
 			return nil, "", fmt.Errorf("端点配置为强制走代理,但代理池为空")
 		}
-		return s.clientForProtocol(protocol), "", nil
+		return s.clientForProtocol(ep.protocol), "", nil
 	}
-	client, selectedProxy := s.auxClientForPool(endpointID, cleaned)
+	client, selectedProxy := s.auxClientForPool(ep.id, cleaned)
 	return client, selectedProxy, nil
 }
 

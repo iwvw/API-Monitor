@@ -28,9 +28,10 @@ func (s *Service) getEndpointModels(w http.ResponseWriter, r *http.Request, id s
 
 	var baseURL, apiKey string
 	var modelsURLRaw, upstreamTypeRaw sql.NullString
-	var headersRaw, proxyRaw sql.NullString
+	var headersRaw, proxyRaw, proxyPoolIDRaw, protocolRaw sql.NullString
+	var proxyEnabledInt, forceProxyInt int
 	// models_url 为 NULL（插件注册等历史行）时按空串处理。
-	err = db.QueryRowContext(ctx, "SELECT base_url, models_url, api_key, headers, proxy_pool, upstream_type FROM modelhub_endpoints WHERE id = ?", id).Scan(&baseURL, &modelsURLRaw, &apiKey, &headersRaw, &proxyRaw, &upstreamTypeRaw)
+	err = db.QueryRowContext(ctx, "SELECT base_url, models_url, api_key, headers, proxy_pool, proxy_pool_id, proxy_enabled, force_proxy, protocol, upstream_type FROM modelhub_endpoints WHERE id = ?", id).Scan(&baseURL, &modelsURLRaw, &apiKey, &headersRaw, &proxyRaw, &proxyPoolIDRaw, &proxyEnabledInt, &forceProxyInt, &protocolRaw, &upstreamTypeRaw)
 	if err != nil {
 		response.JSON(w, http.StatusNotFound, map[string]string{"error": "端点不存在"})
 		return
@@ -38,8 +39,16 @@ func (s *Service) getEndpointModels(w http.ResponseWriter, r *http.Request, id s
 	modelsURL := modelsURLRaw.String
 	apiKey = secure.SecureDecrypt(apiKey)
 	upstreamType := normalizeUpstreamType(upstreamTypeRaw.String)
+	ep := auxEndpoint{
+		id:           id,
+		pool:         decodeProxyPool(proxyRaw),
+		proxyPoolID:  proxyPoolIDRaw.String,
+		proxyEnabled: proxyEnabledInt == 1,
+		forceProxy:   forceProxyInt == 1,
+		protocol:     protocolRaw.String,
+	}
 
-	modelsList, pricing, err := s.listModelsWithPricing(modelsCtx, baseURL, apiKey, id, decodeProxyPool(proxyRaw), modelsURL, upstreamType, decodeEndpointHeaders(headersRaw))
+	modelsList, pricing, err := s.listModelsWithPricing(modelsCtx, baseURL, apiKey, ep, modelsURL, upstreamType, decodeEndpointHeaders(headersRaw))
 	if err != nil {
 		response.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return

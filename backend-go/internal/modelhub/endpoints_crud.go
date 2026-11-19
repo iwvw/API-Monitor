@@ -270,6 +270,14 @@ func (s *Service) createEndpoint(w http.ResponseWriter, r *http.Request) {
 
 	id := fmt.Sprintf("oai_%d_%s", time.Now().UnixNano(), s.randString(9))
 	status := "unknown"
+	route := auxEndpoint{
+		id:           id,
+		pool:         cleanProxyPool(req.ProxyPool),
+		proxyPoolID:  strings.TrimSpace(req.ProxyPoolID),
+		proxyEnabled: req.ProxyEnabled,
+		forceProxy:   req.ForceProxy,
+		protocol:     protocol,
+	}
 	modelsList := []string{}
 	pricing := PricingMap{}
 	var verification map[string]interface{}
@@ -277,14 +285,14 @@ func (s *Service) createEndpoint(w http.ResponseWriter, r *http.Request) {
 	if !req.SkipVerify && req.APIKey != "" {
 		// 验证与拉取模型加总超时：挂死的出口/上游不能把保存拖成「等超时」。
 		verifyCtx, cancelVerify := context.WithTimeout(ctx, endpointVerifyTimeout)
-		vOk, count, err := s.verifyAPIKeyRaw(verifyCtx, normalizedURL, req.APIKey, id, cleanProxyPool(req.ProxyPool), req.ModelsURL, upstreamType, cleanHeaders(req.Headers))
+		vOk, count, err := s.verifyAPIKeyRaw(verifyCtx, normalizedURL, req.APIKey, route, req.ModelsURL, upstreamType, cleanHeaders(req.Headers))
 		if err == nil && vOk {
 			status = "valid"
 			verification = map[string]interface{}{
 				"valid":       true,
 				"modelsCount": count,
 			}
-			mList, mPrice, mErr := s.listModelsWithPricing(verifyCtx, normalizedURL, req.APIKey, id, cleanProxyPool(req.ProxyPool), req.ModelsURL, upstreamType, cleanHeaders(req.Headers))
+			mList, mPrice, mErr := s.listModelsWithPricing(verifyCtx, normalizedURL, req.APIKey, route, req.ModelsURL, upstreamType, cleanHeaders(req.Headers))
 			if mErr == nil {
 				modelsList = mList
 				pricing = mPrice
