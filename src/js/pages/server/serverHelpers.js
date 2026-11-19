@@ -1086,8 +1086,8 @@ export const createMockDockerOverview = import.meta.env.DEV
               {
                 Name: 'edge-stack',
                 Status: 'running(4)',
-                ConfigFiles: '/srv/edge/docker-compose.yml',
-                WorkingDir: '/srv/edge',
+                ConfigFiles: '/opt/1panel/docker/compose/api-monitor/docker-compose.yml',
+                WorkingDir: '/opt/1panel/docker/compose/api-monitor',
               },
             ],
           },
@@ -1173,6 +1173,48 @@ export const createMockDockerOverview = import.meta.env.DEV
         },
       ];
 
+      const withDoubledItems = (items, clone) => {
+        const list = asArray(items);
+        return [...list, ...list.map((item, index) => clone(item, index))];
+      };
+
+      const doubledServers = servers.map(server => ({
+        ...server,
+        resources: {
+          ...server.resources,
+          containers: withDoubledItems(server.resources?.containers, container => ({
+            ...container,
+            id: `${container.id}2`,
+            name: `${container.name}-2`,
+          })),
+          images: withDoubledItems(server.resources?.images, image => ({
+            ...image,
+            id: `${image.id}-2`,
+            tag: `${image.tag}-2`,
+          })),
+          networks: withDoubledItems(server.resources?.networks, network => ({
+            ...network,
+            id: `${network.id}-2`,
+            name: `${network.name}-2`,
+          })),
+          volumes: withDoubledItems(server.resources?.volumes, volume => ({
+            ...volume,
+            name: `${volume.name}-2`,
+          })),
+          stats: withDoubledItems(server.resources?.stats, stat => ({
+            ...stat,
+            container_id: `${stat.container_id}2`,
+            name: `${stat.name}-2`,
+          })),
+          composeProjects: withDoubledItems(server.resources?.composeProjects, project => ({
+            ...project,
+            Name: `${project.Name}-2`,
+            ConfigFiles: String(project.ConfigFiles || '').replace(/(\.ya?ml)$/, '-2$1'),
+            WorkingDir: `${project.WorkingDir}-2`,
+          })),
+        },
+      }));
+
       const updateChecks = [
         {
           serverId: 'mock-hk',
@@ -1212,9 +1254,14 @@ export const createMockDockerOverview = import.meta.env.DEV
         },
       ];
 
+      const doubledUpdateChecks = updateChecks.flatMap(check => [
+        check,
+        { ...check, containerId: `${check.containerId}2` },
+      ]);
+
       return {
-        servers: servers.map(normalizeDockerOverviewServer),
-        updateChecks,
+        servers: doubledServers.map(normalizeDockerOverviewServer),
+        updateChecks: doubledUpdateChecks,
       };
     }
   : () => ({ servers: [], updateChecks: [] });

@@ -1,19 +1,29 @@
-import { ChartPalette, LayerCard, Meter, Tabs } from '@cloudflare/kumo';
+import { ChartPalette, LayerCard, Meter, Table, Tabs } from '@cloudflare/kumo';
 import { Badge } from '@cloudflare/kumo/components/badge';
 import { Button } from '@cloudflare/kumo/components/button';
 import { Checkbox } from '@cloudflare/kumo/components/checkbox';
 import { Input } from '@cloudflare/kumo/components/input';
 import { Select } from '@cloudflare/kumo/components/select';
 import { SkeletonLine } from '@cloudflare/kumo/components/loader';
-import { AppCard, ChartBoundaryBox } from '../../components/ui/AppPrimitives.jsx';
+import { AppCard, AppTable, ChartBoundaryBox, EmptyState } from '../../components/ui/AppPrimitives.jsx';
+import { DockerManageCard, DockerResourceTableCard } from './DockerResourceCards.jsx';
 import AnimatedCollapse from '../../components/AnimatedCollapse.jsx';
 import SiteFontTimeseriesChart from '../../components/SiteFontTimeseriesChart.jsx';
-import { Activity, Box, ChevronDown, ChevronUp, Database, Edit, FileText, FolderOpen, Globe, HardDrive, Pause, Play, RefreshCw, RotateCw, Search, Settings, Square, Trash, Upload } from '../../components/Icons.jsx';
+import { Activity, Box, ChevronDown, ChevronUp, Database, FileText, FolderOpen, Globe, HardDrive, Pause, Play, RefreshCw, RotateCw, Search, Settings, Square, Trash, Upload } from '../../components/Icons.jsx';
 import { TOOL_TABS_PROPS } from '../../modules/kumoTabs.js';
 import { isDockerImagePruneCandidate, summarizeDockerTaskMessage } from '../../modules/dockerTasks.js';
 import { asArray, buildDockerPairSeries, buildDockerStatSeries, formatComposeStatusLabel, getComposeConfigFiles, getComposePrimaryConfigFile, getComposeProjectName, getComposeStatus, getComposeWorkingDir, getDockerImageId, getDockerImageRepository, getDockerImageSize, getDockerImageTag, getDockerNetworkDriver, getDockerNetworkId, getDockerNetworkName, getDockerNetworkScope, getDockerTaskActionLabel, getDockerTaskStateLabel, getDockerVolumeDriver, getDockerVolumeName, getDockerVolumeScope, isComposeConfigMissing, isDockerOverviewHostVisible } from './serverHelpers.js';
 import { clampPercent, formatBytesValue, formatPercentAxis, toNumber } from './utils.js';
 import { SERVER_FAST_CHART_UPDATE_BEHAVIOR, SERVER_SECONDARY_TABS_GROUP_CLASS, SERVER_SECTION_HEADER_CLASS } from './constants.js';
+
+const DOCKER_CONTAINER_TABLE_COLUMNS = [
+  { id: 'select', role: 'check' },
+  { id: 'container', role: 'primary', grow: 2 },
+  { id: 'state', role: 'status' },
+  { id: 'ports', role: 'meta', align: 'center', minWidth: 112, idealWidth: 160, maxWidth: 220 },
+  { id: 'update', role: 'status' },
+  { id: 'actions', role: 'actions-lg' },
+];
 
 export default function ServerDockerConsole(props) {
   const {
@@ -38,6 +48,7 @@ export default function ServerDockerConsole(props) {
     dockerResourceLoading,
     dockerSearchQuery,
     dockerSelectedContainerKeySet,
+    dockerSelectedServer,
     dockerStats,
     dockerStatsHistory,
     dockerStatsSummary,
@@ -79,6 +90,7 @@ export default function ServerDockerConsole(props) {
     serverCurrentTab,
     setDockerContainerStateFilter,
     setDockerSearchQuery,
+    setDockerSelectedServer,
     setDockerSubTab,
     setShowDockerTaskDetails,
     showDockerBlockingLoading,
@@ -367,430 +379,75 @@ export default function ServerDockerConsole(props) {
             </AppCard>
           ) : (
             <div className="flex flex-col gap-4">
-              {/* 1. 容器管理 */}
-              {dockerSubTab === 'containers' && (
-                <div className="grid min-w-0 gap-4 cq-xl:grid-cols-[22rem_minmax(0,1fr)]">
-                  <div className="flex min-w-0 flex-col gap-3 cq-xl:order-2">
-                    {dockerOverviewServers.length === 0
-                      ? renderDockerEmptyState('未检测到可用的 Docker 主机')
-                      : visibleDockerContainerServers.length === 0
-                        ? renderDockerEmptyState('当前筛选下没有容器')
-                        : visibleDockerContainerServers.map(server => {
-                            const summary = getDockerContainerSummary(
-                              server.resources?.containers,
-                              server.id
-                            );
-                            const isOpen = isDockerHostExpanded(
-                              server.id,
-                              visibleDockerContainerServers[0]?.id
-                            );
-                            const hostUpdateTargets = getUpdatableDockerContainers(
-                              [server],
-                              server.id
-                            );
-                            const hostUpdateConfirmKey = `host.update::${server.id}::${hostUpdateTargets.map(item => getDockerContainerSelectionKey(item.server.id, item.payload)).join('|')}`;
-                            return (
-                              <div
-                                key={server.id}
-                                className="overflow-hidden rounded-lg border border-kumo-line bg-kumo-base"
-                              >
-                                <div
-                                  role="button"
-                                  tabIndex={0}
-                                  onClick={() =>
-                                    toggleDockerOverviewServer(
-                                      server.id,
-                                      visibleDockerContainerServers[0]?.id
-                                    )
-                                  }
-                                  onKeyDown={event => {
-                                    if (event.key === 'Enter' || event.key === ' ') {
-                                      event.preventDefault();
-                                      toggleDockerOverviewServer(
-                                        server.id,
-                                        visibleDockerContainerServers[0]?.id
-                                      );
-                                    }
-                                  }}
-                                  className={`flex min-h-[52px] cursor-pointer flex-wrap items-center justify-between gap-2 px-3 py-3.5 ${
-                                    isOpen ? 'border-b border-kumo-line/70' : ''
-                                  }`}
-                                >
-                                  <div className="flex min-w-0 items-center gap-2">
-                                    <Box className="h-4 w-4 shrink-0 text-brand" />
-                                    <span className="truncate text-xs font-semibold text-kumo-strong">
-                                      {server.name}
-                                    </span>
-                                    {renderDockerFilterChip(
-                                      server.id,
-                                      'all',
-                                      `${summary.total} 容器`,
-                                      'neutral',
-                                      `${server.name} 全部容器`
-                                    )}
-                                    {renderDockerFilterChip(
-                                      server.id,
-                                      'running',
-                                      `${summary.running} 运行`,
-                                      'success',
-                                      `${server.name} 运行容器`
-                                    )}
-                                    {summary.paused > 0 &&
-                                      renderDockerFilterChip(
-                                        server.id,
-                                        'paused',
-                                        `${summary.paused} 暂停`,
-                                        'warning',
-                                        `${server.name} 暂停容器`
-                                      )}
-                                    {summary.stopped > 0 &&
-                                      renderDockerFilterChip(
-                                        server.id,
-                                        'stopped',
-                                        `${summary.stopped} 停止`,
-                                        'error',
-                                        `${server.name} 停止容器`
-                                      )}
-                                    {summary.updatable > 0 &&
-                                      renderDockerFilterChip(
-                                        server.id,
-                                        'updatable',
-                                        `${summary.updatable} 可更新`,
-                                        'warning',
-                                        `${server.name} 可更新容器`
-                                      )}
-                                  </div>
-                                  <div className="flex items-center gap-1.5">
-                                    {summary.updatable > 0 && (
-                                      <Button
-                                        size="sm"
-                                        variant={
-                                          isDockerUpdateConfirmActive(hostUpdateConfirmKey)
-                                            ? 'secondary-destructive'
-                                            : 'primary'
-                                        }
-                                        icon={<Upload className="h-3.5 w-3.5" />}
-                                        onClick={event => {
-                                          event.stopPropagation();
-                                          batchUpdateVisibleDockerContainers(
-                                            server.id,
-                                            false,
-                                            hostUpdateTargets,
-                                            {
-                                              confirmKey: hostUpdateConfirmKey,
-                                            }
-                                          );
-                                        }}
-                                      >
-                                        {isDockerUpdateConfirmActive(hostUpdateConfirmKey)
-                                          ? '再次确认'
-                                          : '一键更新'}
-                                      </Button>
-                                    )}
-                                    <Button
-                                      size="sm"
-                                      variant="secondary"
-                                      icon={
-                                        isOpen ? (
-                                          <ChevronUp className="h-3.5 w-3.5" />
-                                        ) : (
-                                          <ChevronDown className="h-3.5 w-3.5" />
-                                        )
-                                      }
-                                      onClick={event => {
-                                        event.stopPropagation();
-                                        toggleDockerOverviewServer(
-                                          server.id,
-                                          visibleDockerContainerServers[0]?.id
-                                        );
-                                      }}
-                                    >
-                                      {isOpen ? '收起' : '展开'}
-                                    </Button>
-                                  </div>
-                                </div>
+{/* 1. 容器管理 */}
+              {dockerSubTab === 'containers' && (() => {
+                const activeServer =
+                  visibleDockerContainerServers.find(
+                    server => String(server.id) === String(dockerSelectedServer || '')
+                  ) ||
+                  visibleDockerContainerServers[0] ||
+                  null;
+                const activeContainers = asArray(activeServer?.resources?.containers);
+                const activeSummary = activeServer
+                  ? getDockerContainerSummary(activeContainers, activeServer.id)
+                  : { total: 0, running: 0, paused: 0, stopped: 0, updatable: 0 };
+                const activeUpdateTargets = activeServer
+                  ? getUpdatableDockerContainers([activeServer], activeServer.id)
+                  : [];
+                const activeUpdateConfirmKey = activeServer
+                  ? `host.update::${activeServer.id}::${activeUpdateTargets.map(item => getDockerContainerSelectionKey(item.server.id, item.payload)).join('|')}`
+                  : '';
 
-                                <AnimatedCollapse open={isOpen} keepMounted>
-                                  {server.resources.containers.length === 0 ? (
-                                    <div className="p-8 text-center text-xs text-kumo-subtle">
-                                      暂无容器
-                                    </div>
-                                  ) : (
-                                    <div className="divide-y divide-kumo-line">
-                                      {server.resources.containers.map(c => {
-                                        const state = getDockerContainerState(c);
-                                        const stateBadge = getDockerStateBadge(state);
-                                        const containerId = getDockerContainerId(c);
-                                        const containerName = getDockerContainerName(c);
-                                        const containerImage = getDockerContainerImage(c);
-                                        const containerPorts = getDockerContainerPorts(c);
-                                        const updateCheck = getDockerContainerUpdateCheck(
-                                          server.id,
-                                          c
-                                        );
-                                        const updateBadge = getDockerUpdateBadge(updateCheck);
-                                        const updateChecking = isDockerContainerUpdateChecking(
-                                          server.id,
-                                          c
-                                        );
-                                        const toggleAction =
-                                          state === 'running'
-                                            ? 'container.stop'
-                                            : 'container.start';
-                                        const togglePayload = {
-                                          serverId: server.id,
-                                          containerId,
-                                          containerName,
-                                          image: containerImage,
-                                        };
-                                        const togglePending = isDockerActionPending(
-                                          server.id,
-                                          toggleAction,
-                                          togglePayload
-                                        );
-                                        const restartPayload = {
-                                          serverId: server.id,
-                                          containerId,
-                                          containerName,
-                                          image: containerImage,
-                                        };
-                                        const restartPending = isDockerActionPending(
-                                          server.id,
-                                          'container.restart',
-                                          restartPayload
-                                        );
-                                        const updatePayload = {
-                                          serverId: server.id,
-                                          containerId,
-                                          containerName,
-                                          image: containerImage,
-                                        };
-                                        const updatePending = isDockerActionPending(
-                                          server.id,
-                                          'container.update',
-                                          updatePayload
-                                        );
-                                        const updateProgress = getDockerActionProgress(
-                                          server.id,
-                                          'container.update',
-                                          updatePayload
-                                        );
-                                        const updateConfirmKey = `container.update::${getDockerContainerSelectionKey(server.id, updatePayload)}`;
-                                        const selectionKey = getDockerContainerSelectionKey(
-                                          server.id,
-                                          updatePayload
-                                        );
-                                        const canSelectForUpdate =
-                                          !!updateCheck?.hasUpdate && !updatePending;
-                                        return (
-                                          <div
-                                            key={containerId || `${server.id}-${containerName}`}
-                                            className="flex min-w-0 items-center gap-3 px-3 py-2.5 cq-sm:px-4"
-                                          >
-                                            <Checkbox
-                                              checked={dockerSelectedContainerKeySet.has(
-                                                selectionKey
-                                              )}
-                                              disabled={!canSelectForUpdate}
-                                              onCheckedChange={checked =>
-                                                toggleDockerContainerSelection(
-                                                  selectionKey,
-                                                  Boolean(checked)
-                                                )
-                                              }
-                                              aria-label={`选择更新 ${containerName}`}
-                                            />
-                                            <div className="min-w-0 flex-1">
-                                              <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-                                                <span
-                                                  className="min-w-0 truncate text-xs font-semibold leading-5 text-kumo-strong"
-                                                  title={containerName}
-                                                >
-                                                  {containerName}
-                                                </span>
-                                                <span
-                                                  className="min-w-0 truncate font-mono text-[10px] text-kumo-subtle"
-                                                  title={containerImage}
-                                                >
-                                                  {containerImage}
-                                                </span>
-                                              </div>
-                                              <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-kumo-subtle">
-                                                <Badge
-                                                  variant={stateBadge.variant}
-                                                  appearance="dot"
-                                                >
-                                                  {stateBadge.label}
-                                                </Badge>
-                                                {updatePending ? (
-                                                  <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-brand">
-                                                    <RefreshCw className="h-3 w-3 animate-spin" />
-                                                    更新中
-                                                    {updateProgress > 0
-                                                      ? ` ${updateProgress}%`
-                                                      : ''}
-                                                  </span>
-                                                ) : updateChecking ? (
-                                                  <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-kumo-subtle">
-                                                    <RefreshCw className="h-3 w-3 animate-spin" />
-                                                    检测中
-                                                  </span>
-                                                ) : (
-                                                  <Badge
-                                                    variant={updateBadge.variant}
-                                                    appearance="dot"
-                                                    title={updateBadge.title}
-                                                  >
-                                                    {updateBadge.label}
-                                                  </Badge>
-                                                )}
-                                                {containerPorts && (
-                                                  <span
-                                                    className="truncate font-mono"
-                                                    title={containerPorts}
-                                                  >
-                                                    {containerPorts}
-                                                  </span>
-                                                )}
-                                              </div>
-                                              {updatePending && updateProgress > 0 && (
-                                                <Meter
-                                                  label={`${containerName} 更新进度`}
-                                                  value={updateProgress}
-                                                  showValue={false}
-                                                  className="mt-1.5 w-28 gap-0"
-                                                  trackClassName="!h-1 overflow-hidden rounded-full bg-kumo-recessed"
-                                                  indicatorClassName="!h-full !bg-none !bg-brand"
-                                                />
-                                              )}
-                                            </div>
-                                            <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
-                                              <Button
-                                                shape="square"
-                                                size="sm"
-                                                variant={
-                                                  state === 'running'
-                                                    ? 'secondary-destructive'
-                                                    : 'secondary'
-                                                }
-                                                icon={
-                                                  togglePending ? (
-                                                    <RefreshCw className="h-3.5 w-3.5 animate-spin" />
-                                                  ) : state === 'running' ? (
-                                                    <Pause className="h-3.5 w-3.5" />
-                                                  ) : (
-                                                    <Play className="h-3.5 w-3.5" />
-                                                  )
-                                                }
-                                                aria-label={
-                                                  state === 'running' ? '停止容器' : '启动容器'
-                                                }
-                                                disabled={
-                                                  togglePending || restartPending || updatePending
-                                                }
-                                                onClick={() =>
-                                                  submitDockerTask(toggleAction, togglePayload)
-                                                }
-                                                title={state === 'running' ? '停止' : '启动'}
-                                              />
-                                              <Button
-                                                shape="square"
-                                                size="sm"
-                                                variant="secondary"
-                                                icon={
-                                                  restartPending ? (
-                                                    <RefreshCw className="h-3.5 w-3.5 animate-spin" />
-                                                  ) : (
-                                                    <RotateCw className="h-3.5 w-3.5" />
-                                                  )
-                                                }
-                                                aria-label="重启容器"
-                                                disabled={
-                                                  togglePending || restartPending || updatePending
-                                                }
-                                                onClick={() =>
-                                                  submitDockerTask(
-                                                    'container.restart',
-                                                    restartPayload
-                                                  )
-                                                }
-                                                title="重启"
-                                              />
-                                              <Button
-                                                shape="square"
-                                                size="sm"
-                                                variant="secondary"
-                                                icon={
-                                                  updateChecking ? (
-                                                    <RefreshCw className="h-3.5 w-3.5 animate-spin" />
-                                                  ) : (
-                                                    <Search className="h-3.5 w-3.5" />
-                                                  )
-                                                }
-                                                aria-label="检测镜像更新"
-                                                disabled={updateChecking}
-                                                onClick={() =>
-                                                  checkDockerUpdatesForServer(server, c)
-                                                }
-                                                title="检测更新"
-                                              />
-                                              <Button
-                                                shape="square"
-                                                size="sm"
-                                                variant={
-                                                  isDockerUpdateConfirmActive(updateConfirmKey)
-                                                    ? 'secondary-destructive'
-                                                    : 'primary'
-                                                }
-                                                icon={
-                                                  updatePending ? (
-                                                    <RefreshCw className="h-3.5 w-3.5 animate-spin" />
-                                                  ) : (
-                                                    <Upload className="h-3.5 w-3.5" />
-                                                  )
-                                                }
-                                                aria-label={
-                                                  isDockerUpdateConfirmActive(updateConfirmKey)
-                                                    ? '再次确认更新容器'
-                                                    : '一键更新容器'
-                                                }
-                                                disabled={
-                                                  togglePending || restartPending || updatePending
-                                                }
-                                                onClick={() =>
-                                                  handleDockerContainerUpdate(updatePayload)
-                                                }
-                                                title={
-                                                  isDockerUpdateConfirmActive(updateConfirmKey)
-                                                    ? '再次点击确认更新'
-                                                    : '一键更新'
-                                                }
-                                              />
-                                            </div>
-                                          </div>
-                                        );
-                                      })}
-                                    </div>
-                                  )}
-                                </AnimatedCollapse>
-                              </div>
-                            );
-                          })}
-                  </div>
+                if (dockerOverviewServers.length === 0) {
+                  return renderDockerEmptyState('未检测到可用的 Docker 主机');
+                }
+                if (visibleDockerContainerServers.length === 0) {
+                  return renderDockerEmptyState('当前筛选下没有容器');
+                }
 
-                  <div className="flex min-w-0 flex-col gap-3 cq-xl:order-1 cq-xl:sticky cq-xl:top-0 cq-xl:self-start">
-                    {renderDockerSimpleLogCard('order-3')}
-
-                    <LayerCard className="order-1 overflow-hidden p-0">
-                      <LayerCard.Secondary className={SERVER_SECTION_HEADER_CLASS}>
-                        <span className="inline-flex min-w-0 items-center gap-2 text-xs font-semibold text-kumo-strong">
-                          <Settings className="h-4 w-4 shrink-0 text-brand" />
-                          管理
-                        </span>
-                        <span className="flex shrink-0 items-center gap-1.5">
-                          <Badge variant="neutral">
-                            {dockerContainerManagementServers.length} 主机
-                          </Badge>
+                return (
+                  <div className="grid min-w-0 gap-4 cq-xl:grid-cols-[22rem_minmax(0,1fr)]">
+                    <DockerManageCard
+                      hosts={visibleDockerContainerServers}
+                      statItems={[
+                        { label: '容器', value: dockerContainerManagementTotals.total },
+                        {
+                          label: '运行',
+                          value: dockerContainerManagementTotals.running,
+                          className: 'text-kumo-success',
+                        },
+                        {
+                          label: '停止',
+                          value: dockerContainerManagementTotals.stopped,
+                          className: 'text-kumo-subtle',
+                        },
+                        {
+                          label: '更新',
+                          value: dockerContainerManagementTotals.updatable,
+                          className: 'text-kumo-warning',
+                        },
+                      ]}
+                      selectedServerId={activeServer?.id}
+                      onSelectServer={setDockerSelectedServer}
+                      getHostCount={server =>
+                        getDockerContainerSummary(server.resources?.containers, server.id).total
+                      }
+                      getHostBadges={server => {
+                        const summary = getDockerContainerSummary(
+                          server.resources?.containers,
+                          server.id
+                        );
+                        return [
+                          ...(summary.running > 0
+                            ? [{ label: summary.running, variant: 'success', appearance: 'dot' }]
+                            : []),
+                          ...(summary.updatable > 0
+                            ? [{ label: summary.updatable, variant: 'warning', appearance: 'dot' }]
+                            : []),
+                        ];
+                      }}
+                      headerActions={
+                        <>
                           <Button
                             shape="square"
                             size="sm"
@@ -836,189 +493,329 @@ export default function ServerDockerConsole(props) {
                                 : '请先检测出可更新容器'
                             }
                           />
-                        </span>
-                      </LayerCard.Secondary>
-                      <LayerCard.Primary className="space-y-3 p-3">
-                        <div className="grid grid-cols-4 gap-1.5">
-                          <div className="rounded-md border border-kumo-line/70 bg-kumo-recessed/20 px-2 py-1.5">
-                            <div className="text-[10px] text-kumo-subtle">容器</div>
-                            <div className="mt-0.5 text-sm font-semibold text-kumo-strong">
-                              {dockerContainerManagementTotals.total}
-                            </div>
-                          </div>
-                          <div className="rounded-md border border-kumo-line/70 bg-kumo-recessed/20 px-2 py-1.5">
-                            <div className="text-[10px] text-kumo-subtle">运行</div>
-                            <div className="mt-0.5 text-sm font-semibold text-kumo-success">
-                              {dockerContainerManagementTotals.running}
-                            </div>
-                          </div>
-                          <div className="rounded-md border border-kumo-line/70 bg-kumo-recessed/20 px-2 py-1.5">
-                            <div className="text-[10px] text-kumo-subtle">停止</div>
-                            <div className="mt-0.5 text-sm font-semibold text-kumo-subtle">
-                              {dockerContainerManagementTotals.stopped}
-                            </div>
-                          </div>
-                          <div className="rounded-md border border-kumo-line/70 bg-kumo-recessed/20 px-2 py-1.5">
-                            <div className="text-[10px] text-kumo-subtle">更新</div>
-                            <div className="mt-0.5 text-sm font-semibold text-kumo-warning">
-                              {dockerContainerManagementTotals.updatable}
-                            </div>
-                          </div>
-                        </div>
+                        </>
+                      }
+                      footer={renderDockerSimpleLogCard('order-3')}
+                    />
 
-                        <div className="flex flex-col gap-2">
-                          {dockerContainerManagementServers.map(server => {
-                            const summary = getDockerContainerSummary(
-                              server.resources?.containers,
-                              server.id
-                            );
-                            const isOpen = isDockerHostExpanded(
-                              server.id,
-                              dockerContainerManagementServers[0]?.id
-                            );
-                            const managementHostUpdateTargets = getUpdatableDockerContainers(
-                              [server],
-                              server.id
-                            );
-                            const managementHostUpdateConfirmKey = `management.host.update::${server.id}::${managementHostUpdateTargets.map(item => getDockerContainerSelectionKey(item.server.id, item.payload)).join('|')}`;
-                            return (
-                              <div
-                                key={`management-${server.id}`}
-                                className={`overflow-hidden rounded-md border ${isOpen ? 'border-brand/55 bg-brand/5' : 'border-kumo-line/80 bg-kumo-base'}`}
+                    <div className="flex min-w-0 flex-col gap-3 cq-xl:order-2 cq-xl:min-h-0">
+                      <LayerCard className="flex min-h-0 min-w-0 flex-col overflow-hidden bg-kumo-base p-0 shadow-none cq-xl:h-[calc(100dvh-184px)] cq-xl:min-h-64">
+                        <LayerCard.Secondary className={SERVER_SECTION_HEADER_CLASS}>
+                          <span className="inline-flex min-w-0 items-center gap-2 text-xs font-semibold text-kumo-strong">
+                            <Box className="h-4 w-4 shrink-0 text-brand" />
+                            <span className="min-w-0 truncate" title={activeServer.name}>
+                              {activeServer.name}
+                            </span>
+                          </span>
+                          <span className="flex shrink-0 items-center gap-1.5">
+                            {activeSummary.updatable > 0 && (
+                              <Button
+                                size="sm"
+                                variant={
+                                  isDockerUpdateConfirmActive(activeUpdateConfirmKey)
+                                    ? 'secondary-destructive'
+                                    : 'primary'
+                                }
+                                icon={<Upload className="h-3.5 w-3.5" />}
+                                onClick={() =>
+                                  batchUpdateVisibleDockerContainers(
+                                    activeServer.id,
+                                    false,
+                                    activeUpdateTargets,
+                                    { confirmKey: activeUpdateConfirmKey }
+                                  )
+                                }
                               >
-                                <div
-                                  role="button"
-                                  tabIndex={0}
-                                  onClick={() =>
-                                    toggleDockerOverviewServer(
-                                      server.id,
-                                      dockerContainerManagementServers[0]?.id
-                                    )
-                                  }
-                                  onKeyDown={event => {
-                                    if (event.key === 'Enter' || event.key === ' ') {
-                                      event.preventDefault();
-                                      toggleDockerOverviewServer(
-                                        server.id,
-                                        dockerContainerManagementServers[0]?.id
-                                      );
-                                    }
-                                  }}
-                                  className="flex min-h-10 cursor-pointer items-center justify-between gap-2 px-2.5 py-2"
-                                >
-                                  <span className="flex min-w-0 items-center gap-2">
-                                    <Box className="h-3.5 w-3.5 shrink-0 text-brand" />
-                                    <span className="min-w-0 truncate text-xs font-semibold text-kumo-strong">
-                                      {server.name}
-                                    </span>
-                                  </span>
-                                  <span className="flex shrink-0 items-center gap-1.5">
-                                    {renderDockerFilterChip(
-                                      server.id,
-                                      'all',
-                                      String(summary.total),
-                                      'neutral',
-                                      `${server.name} 全部容器`
-                                    )}
-                                    {summary.updatable > 0 &&
-                                      renderDockerFilterChip(
-                                        server.id,
-                                        'updatable',
-                                        String(summary.updatable),
-                                        'warning',
-                                        `${server.name} 可更新容器`
-                                      )}
-                                  </span>
-                                </div>
+                                {isDockerUpdateConfirmActive(activeUpdateConfirmKey)
+                                  ? '再次确认'
+                                  : '一键更新'}
+                              </Button>
+                            )}
+                          </span>
+                        </LayerCard.Secondary>
 
-                                <AnimatedCollapse open={isOpen} keepMounted>
-                                  <div className="border-t border-kumo-line/70 px-2.5 py-2">
-                                    <div className="flex flex-wrap items-center justify-between gap-2">
-                                      <div className="flex flex-wrap gap-1.5">
-                                        {renderDockerFilterChip(
-                                          server.id,
-                                          'running',
-                                          `${summary.running} 运行`,
-                                          'success',
-                                          `${server.name} 运行容器`
+                        <LayerCard.Primary className="flex min-h-0 min-w-0 flex-1 flex-col gap-0 overflow-hidden p-0">
+                          <div className="min-h-0 min-w-0 flex-1 overflow-auto overscroll-contain scrollbar-thin">
+                          {activeContainers.length === 0 ? (
+                            <div className="p-4">
+                              <EmptyState
+                                icon={Box}
+                                title="没有容器"
+                                description="该主机在当前筛选下没有容器。"
+                              />
+                            </div>
+                          ) : (
+                            <AppTable tableId="docker-containers" columns={DOCKER_CONTAINER_TABLE_COLUMNS} className="w-full min-w-[720px] text-xs">
+                              <Table.Header sticky variant="compact">
+                                <Table.Row className="h-8">
+                                  <Table.Head className="!px-2 !py-1.5 text-center">
+                                    <span className="sr-only">选择</span>
+                                  </Table.Head>
+                                  <Table.Head className="!px-2.5 !py-1.5">容器</Table.Head>
+                                  <Table.Head className="!px-2 !py-1.5 text-center">状态</Table.Head>
+                                  <Table.Head className="!px-2 !py-1.5 text-center">端口</Table.Head>
+                                  <Table.Head className="!px-2 !py-1.5 text-center">更新</Table.Head>
+                                  <Table.Head className="!px-2 !py-1.5 text-center">操作</Table.Head>
+                                </Table.Row>
+                              </Table.Header>
+                              <Table.Body>
+                                {activeContainers.map(c => {
+                                  const state = getDockerContainerState(c);
+                                  const stateBadge = getDockerStateBadge(state);
+                                  const containerId = getDockerContainerId(c);
+                                  const containerName = getDockerContainerName(c);
+                                  const containerImage = getDockerContainerImage(c);
+                                  const containerPorts = getDockerContainerPorts(c);
+                                  const updateCheck = getDockerContainerUpdateCheck(
+                                    activeServer.id,
+                                    c
+                                  );
+                                  const updateBadge = getDockerUpdateBadge(updateCheck);
+                                  const updateChecking = isDockerContainerUpdateChecking(
+                                    activeServer.id,
+                                    c
+                                  );
+                                  const toggleAction =
+                                    state === 'running' ? 'container.stop' : 'container.start';
+                                  const togglePayload = {
+                                    serverId: activeServer.id,
+                                    containerId,
+                                    containerName,
+                                    image: containerImage,
+                                  };
+                                  const togglePending = isDockerActionPending(
+                                    activeServer.id,
+                                    toggleAction,
+                                    togglePayload
+                                  );
+                                  const restartPayload = {
+                                    serverId: activeServer.id,
+                                    containerId,
+                                    containerName,
+                                    image: containerImage,
+                                  };
+                                  const restartPending = isDockerActionPending(
+                                    activeServer.id,
+                                    'container.restart',
+                                    restartPayload
+                                  );
+                                  const updatePayload = {
+                                    serverId: activeServer.id,
+                                    containerId,
+                                    containerName,
+                                    image: containerImage,
+                                  };
+                                  const updatePending = isDockerActionPending(
+                                    activeServer.id,
+                                    'container.update',
+                                    updatePayload
+                                  );
+                                  const updateProgress = getDockerActionProgress(
+                                    activeServer.id,
+                                    'container.update',
+                                    updatePayload
+                                  );
+                                  const updateConfirmKey = `container.update::${getDockerContainerSelectionKey(activeServer.id, updatePayload)}`;
+                                  const selectionKey = getDockerContainerSelectionKey(
+                                    activeServer.id,
+                                    updatePayload
+                                  );
+                                  const canSelectForUpdate =
+                                    !!updateCheck?.hasUpdate && !updatePending;
+                                  return (
+                                    <Table.Row
+                                      className="[&>td]:align-middle"
+                                      key={containerId || `${activeServer.id}-${containerName}`}
+                                    >
+                                      <Table.Cell className="!px-2 !py-1.5 text-center">
+                                        <Checkbox
+                                          checked={dockerSelectedContainerKeySet.has(selectionKey)}
+                                          disabled={!canSelectForUpdate}
+                                          onCheckedChange={checked =>
+                                            toggleDockerContainerSelection(
+                                              selectionKey,
+                                              Boolean(checked)
+                                            )
+                                          }
+                                          aria-label={`选择更新 ${containerName}`}
+                                        />
+                                      </Table.Cell>
+                                      <Table.Cell className="!px-2.5 !py-1.5">
+                                        <div className="min-w-0">
+                                          <div
+                                            className="truncate text-sm leading-normal font-medium text-kumo-strong"
+                                            title={containerName}
+                                          >
+                                            {containerName}
+                                          </div>
+                                          <div
+                                            className="truncate font-mono leading-5 text-kumo-subtle"
+                                            title={containerImage}
+                                          >
+                                            {containerImage}
+                                          </div>
+                                        </div>
+                                      </Table.Cell>
+                                      <Table.Cell className="!px-2 !py-1.5 text-center">
+                                        <Badge variant={stateBadge.variant} className="text-xs">
+                                          {stateBadge.label}
+                                        </Badge>
+                                      </Table.Cell>
+                                      <Table.Cell className="!px-2 !py-1.5 text-center">
+                                        <span
+                                          className="truncate font-mono text-xs leading-5 text-kumo-subtle"
+                                          title={containerPorts}
+                                        >
+                                          {containerPorts || '-'}
+                                        </span>
+                                      </Table.Cell>
+                                      <Table.Cell className="!px-2 !py-1.5 text-center">
+                                        {updatePending ? (
+                                          <div className="flex flex-col gap-1">
+                                            <span className="inline-flex items-center gap-1 text-xs font-semibold text-brand">
+                                              <RefreshCw className="h-3 w-3 animate-spin" />
+                                              更新中
+                                              {updateProgress > 0 ? ` ${updateProgress}%` : ''}
+                                            </span>
+                                            {updateProgress > 0 && (
+                                              <Meter
+                                                label={`${containerName} 更新进度`}
+                                                value={updateProgress}
+                                                showValue={false}
+                                                className="w-24 gap-0"
+                                                trackClassName="!h-1 overflow-hidden rounded-full bg-kumo-recessed"
+                                                indicatorClassName="!h-full !bg-none !bg-brand"
+                                              />
+                                            )}
+                                          </div>
+                                        ) : updateChecking ? (
+                                          <span className="inline-flex items-center gap-1 text-xs font-semibold text-kumo-subtle">
+                                            <RefreshCw className="h-3 w-3 animate-spin" />
+                                            检测中
+                                          </span>
+                                        ) : (
+                                          <Badge
+                                            variant={updateBadge.variant}
+                                            className="text-xs"
+                                            title={updateBadge.title}
+                                          >
+                                            {updateBadge.label}
+                                          </Badge>
                                         )}
-                                        {summary.paused > 0 &&
-                                          renderDockerFilterChip(
-                                            server.id,
-                                            'paused',
-                                            `${summary.paused} 暂停`,
-                                            'warning',
-                                            `${server.name} 暂停容器`
-                                          )}
-                                        {summary.stopped > 0 &&
-                                          renderDockerFilterChip(
-                                            server.id,
-                                            'stopped',
-                                            `${summary.stopped} 停止`,
-                                            'error',
-                                            `${server.name} 停止容器`
-                                          )}
-                                        {summary.updatable > 0 &&
-                                          renderDockerFilterChip(
-                                            server.id,
-                                            'updatable',
-                                            `${summary.updatable} 可更新`,
-                                            'warning',
-                                            `${server.name} 可更新容器`
-                                          )}
-                                      </div>
-                                      <Button
-                                        shape="square"
-                                        size="sm"
-                                        variant={
-                                          isDockerUpdateConfirmActive(
-                                            managementHostUpdateConfirmKey
-                                          )
-                                            ? 'secondary-destructive'
-                                            : 'primary'
-                                        }
-                                        icon={<Upload className="h-3.5 w-3.5" />}
-                                        disabled={summary.updatable === 0}
-                                        onClick={event => {
-                                          event.stopPropagation();
-                                          batchUpdateVisibleDockerContainers(
-                                            server.id,
-                                            false,
-                                            managementHostUpdateTargets,
-                                            {
-                                              confirmKey: managementHostUpdateConfirmKey,
+                                      </Table.Cell>
+                                      <Table.Cell className="!px-2 !py-1.5 text-center">
+                                        <div className="flex flex-wrap items-center justify-center gap-1">
+                                          <Button
+                                            shape="square"
+                                            size="sm"
+                                            variant={
+                                              state === 'running'
+                                                ? 'secondary-destructive'
+                                                : 'outline'
                                             }
-                                          );
-                                        }}
-                                        aria-label={
-                                          isDockerUpdateConfirmActive(
-                                            managementHostUpdateConfirmKey
-                                          )
-                                            ? `再次确认更新 ${server.name}`
-                                            : `更新 ${server.name} 可更新容器`
-                                        }
-                                        title={
-                                          summary.updatable > 0
-                                            ? isDockerUpdateConfirmActive(
-                                                managementHostUpdateConfirmKey
+                                            icon={
+                                              togglePending ? (
+                                                <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                                              ) : state === 'running' ? (
+                                                <Pause className="h-3.5 w-3.5" />
+                                              ) : (
+                                                <Play className="h-3.5 w-3.5" />
                                               )
-                                              ? `再次点击确认更新 ${server.name}`
-                                              : `更新 ${server.name} 的 ${summary.updatable} 个可更新容器`
-                                            : `${server.name} 暂无可更新容器`
-                                        }
-                                      />
-                                    </div>
-                                  </div>
-                                </AnimatedCollapse>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </LayerCard.Primary>
-                    </LayerCard>
+                                            }
+                                            aria-label={
+                                              state === 'running' ? '停止容器' : '启动容器'
+                                            }
+                                            disabled={
+                                              togglePending || restartPending || updatePending
+                                            }
+                                            onClick={() =>
+                                              submitDockerTask(toggleAction, togglePayload)
+                                            }
+                                            title={state === 'running' ? '停止' : '启动'}
+                                          />
+                                          <Button
+                                            shape="square"
+                                            size="sm"
+                                            variant="outline"
+                                            icon={
+                                              restartPending ? (
+                                                <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                                              ) : (
+                                                <RotateCw className="h-3.5 w-3.5" />
+                                              )
+                                            }
+                                            aria-label="重启容器"
+                                            disabled={
+                                              togglePending || restartPending || updatePending
+                                            }
+                                            onClick={() =>
+                                              submitDockerTask('container.restart', restartPayload)
+                                            }
+                                            title="重启"
+                                          />
+                                          <Button
+                                            shape="square"
+                                            size="sm"
+                                            variant="outline"
+                                            icon={
+                                              updateChecking ? (
+                                                <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                                              ) : (
+                                                <Search className="h-3.5 w-3.5" />
+                                              )
+                                            }
+                                            aria-label="检测镜像更新"
+                                            disabled={updateChecking}
+                                            onClick={() => checkDockerUpdatesForServer(activeServer, c)}
+                                            title="检测更新"
+                                          />
+                                          <Button
+                                            shape="square"
+                                            size="sm"
+                                            variant={
+                                              isDockerUpdateConfirmActive(updateConfirmKey)
+                                                ? 'secondary-destructive'
+                                                : 'primary'
+                                            }
+                                            icon={
+                                              updatePending ? (
+                                                <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                                              ) : (
+                                                <Upload className="h-3.5 w-3.5" />
+                                              )
+                                            }
+                                            aria-label={
+                                              isDockerUpdateConfirmActive(updateConfirmKey)
+                                                ? '再次确认更新容器'
+                                                : '一键更新容器'
+                                            }
+                                            disabled={
+                                              togglePending || restartPending || updatePending
+                                            }
+                                            onClick={() =>
+                                              handleDockerContainerUpdate(updatePayload)
+                                            }
+                                            title={
+                                              isDockerUpdateConfirmActive(updateConfirmKey)
+                                                ? '再次点击确认更新'
+                                                : '一键更新'
+                                            }
+                                          />
+                                        </div>
+                                      </Table.Cell>
+                                    </Table.Row>
+                                  );
+                                })}
+                              </Table.Body>
+                            </AppTable>
+                          )}
+                          </div>
+                        </LayerCard.Primary>
+                      </LayerCard>
+                    </div>
                   </div>
-                </div>
-              )}
+                );
+              })()}
 
               {/* 2. Compose */}
               {dockerSubTab === 'compose' &&
@@ -1029,260 +826,241 @@ export default function ServerDockerConsole(props) {
                   const runningProjects = dockerComposeProjects.filter(item =>
                     getComposeStatus(item).includes('running')
                   ).length;
+                  const activeServer =
+                    hosts.find(server => String(server.id) === String(dockerSelectedServer || '')) ||
+                    hosts[0] ||
+                    null;
+                  if (dockerOverviewServers.length === 0) {
+                    return renderDockerEmptyState('未检测到可用的 Docker 主机');
+                  }
+                  if (!activeServer) {
+                    return renderDockerEmptyState('当前筛选下没有可用的 Docker 主机');
+                  }
+                  const projects = asArray(activeServer.resources?.composeProjects);
+                  const running = projects.filter(project =>
+                    getComposeStatus(project).toLowerCase().includes('running')
+                  ).length;
+
                   return (
                     <div className="grid min-w-0 gap-4 cq-xl:grid-cols-[22rem_minmax(0,1fr)]">
-                      {renderDockerResourceSideRail({
-                        title: 'Compose 项目',
-                        icon: <FolderOpen className="h-4 w-4 shrink-0 text-brand" />,
-                        hosts,
-                        totalCount: dockerComposeProjects.length,
-                        countLabel: '项目',
-                        summaryItems: [
-                          { label: '运行', value: runningProjects, className: 'text-kumo-success' },
+                      <DockerManageCard
+                        hosts={hosts}
+                        statItems={[
+                          { label: '项目', value: dockerComposeProjects.length },
+                          {
+                            label: '运行',
+                            value: runningProjects,
+                            className: 'text-kumo-success',
+                          },
                           {
                             label: '停止',
                             value: Math.max(0, dockerComposeProjects.length - runningProjects),
                             className: 'text-kumo-subtle',
                           },
-                        ],
-                        getHostCount: server => asArray(server.resources?.composeProjects).length,
-                        getHostBadges: server => {
-                          const projects = asArray(server.resources?.composeProjects);
-                          const running = projects.filter(project =>
+                          { label: '主机', value: hosts.length, className: 'text-kumo-subtle' },
+                        ]}
+                        selectedServerId={activeServer.id}
+                        onSelectServer={setDockerSelectedServer}
+                        getHostCount={server => asArray(server.resources?.composeProjects).length}
+                        getHostBadges={server => {
+                          const items = asArray(server.resources?.composeProjects);
+                          const runningCount = items.filter(project =>
                             getComposeStatus(project).toLowerCase().includes('running')
                           ).length;
-                          return running > 0
-                            ? [{ label: `${running} 运行`, variant: 'success', appearance: 'dot' }]
+                          return runningCount > 0
+                            ? [{ label: `${runningCount} 运行`, variant: 'success' }]
                             : [];
-                        },
-                      })}
-                      <div className="flex min-w-0 flex-col gap-3">
-                        {hosts.length === 0
-                          ? renderDockerEmptyState('未检测到可用的 Docker 主机')
-                          : hosts.map(server => {
-                              const projects = asArray(server.resources?.composeProjects);
-                              const running = projects.filter(project =>
-                                getComposeStatus(project).toLowerCase().includes('running')
-                              ).length;
-                              return renderDockerHostResourceSection({
-                                server,
-                                isFirstVisible: server.id === hosts[0]?.id,
-                                icon: <FolderOpen className="h-4 w-4 shrink-0 text-brand" />,
-                                count: projects.length,
-                                countLabel: '项目',
-                                badges:
-                                  running > 0
-                                    ? [
-                                        {
-                                          label: `${running} 运行`,
-                                          variant: 'success',
-                                          appearance: 'dot',
-                                        },
-                                      ]
-                                    : [],
-                                children:
-                                  projects.length === 0 ? (
-                                    <div className="p-8 text-center text-xs text-kumo-subtle">
-                                      暂无 Compose 项目
-                                    </div>
-                                  ) : (
-                                    <div className="divide-y divide-kumo-line">
-                                      {projects.map(proj => {
-                                        const projectName = getComposeProjectName(proj);
-                                        const configFiles = getComposeConfigFiles(proj);
-                                        const primaryConfigFile = getComposePrimaryConfigFile(proj);
-                                        const workingDir = getComposeWorkingDir(proj);
-                                        const status = getComposeStatus(proj);
-                                        const statusLower = status.toLowerCase();
-                                        const statusLabel = formatComposeStatusLabel(status);
-                                        const composePayload = {
-                                          serverId: server.id,
-                                          project: projectName,
-                                          config_file: configFiles,
-                                        };
-                                        const composeUpPending = isDockerActionPending(
-                                          server.id,
-                                          'compose.up',
-                                          composePayload
-                                        );
-                                        const composeDownPending = isDockerActionPending(
-                                          server.id,
-                                          'compose.down',
-                                          composePayload
-                                        );
-                                        const composeRestartPending = isDockerActionPending(
-                                          server.id,
-                                          'compose.restart',
-                                          composePayload
-                                        );
-                                        const composeUpdatePending = isDockerActionPending(
-                                          server.id,
-                                          'compose.update',
-                                          composePayload
-                                        );
-                                        const composeBusy =
-                                          composeUpPending ||
-                                          composeDownPending ||
-                                          composeRestartPending ||
-                                          composeUpdatePending;
-                                        return (
-                                          <div
-                                            key={`${server.id}-${projectName}-${configFiles}`}
-                                            className="flex min-w-0 items-center gap-3 px-3 py-2.5 cq-sm:px-4"
-                                          >
-                                            <div className="min-w-0 flex-1">
-                                              <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-                                                <span className="truncate text-xs font-semibold leading-5 text-kumo-strong">
-                                                  {projectName}
-                                                </span>
-                                                <Badge
-                                                  variant={
-                                                    statusLower.includes('running')
-                                                      ? 'success'
-                                                      : 'error'
-                                                  }
-                                                  appearance="dot"
-                                                >
-                                                  {statusLabel}
-                                                </Badge>
-                                                {isComposeConfigMissing(proj) && (
-                                                  <Badge
-                                                    variant="warning"
-                                                    appearance="dot"
-                                                    title="配置文件路径已失效，查看/修改配置会失败；可执行 down 或忽略该项目"
-                                                  >
-                                                    配置缺失
-                                                  </Badge>
-                                                )}
-                                              </div>
-                                              <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-kumo-subtle">
-                                                <span
-                                                  className="min-w-0 truncate font-mono"
-                                                  title={configFiles}
-                                                >
-                                                  配置: {configFiles || '-'}
-                                                </span>
-                                                <span
-                                                  className="min-w-0 truncate font-mono"
-                                                  title={workingDir}
-                                                >
-                                                  目录: {workingDir || '-'}
-                                                </span>
-                                              </div>
-                                            </div>
-                                            <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
-                                              <Button
-                                                shape="square"
-                                                size="sm"
-                                                variant="secondary"
-                                                icon={<FileText className="h-3.5 w-3.5" />}
-                                                onClick={() =>
-                                                  openDockerComposeConfig(server, proj, 'view')
-                                                }
-                                                disabled={!primaryConfigFile}
-                                                aria-label={`查看 ${projectName} 配置`}
-                                                title={
-                                                  primaryConfigFile ? '查看配置' : '未找到配置文件'
-                                                }
-                                              />
-                                              <Button
-                                                shape="square"
-                                                size="sm"
-                                                variant="secondary"
-                                                icon={<Edit className="h-3.5 w-3.5" />}
-                                                onClick={() =>
-                                                  openDockerComposeConfig(server, proj, 'edit')
-                                                }
-                                                disabled={!primaryConfigFile}
-                                                aria-label={`修改 ${projectName} 配置`}
-                                                title={
-                                                  primaryConfigFile ? '修改配置' : '未找到配置文件'
-                                                }
-                                              />
-                                              <Button
-                                                shape="square"
-                                                size="sm"
-                                                variant="secondary"
-                                                icon={
-                                                  composeUpdatePending ? (
-                                                    <RefreshCw className="h-3.5 w-3.5 animate-spin" />
-                                                  ) : (
-                                                    <Upload className="h-3.5 w-3.5" />
-                                                  )
-                                                }
-                                                disabled={composeBusy}
-                                                onClick={() =>
-                                                  submitDockerTask('compose.update', composePayload)
-                                                }
-                                                aria-label={`升级 ${projectName}`}
-                                                title="强制拉取最新镜像并重建容器"
-                                              />
-                                              <Button
-                                                shape="square"
-                                                size="sm"
-                                                variant="secondary"
-                                                icon={
-                                                  composeRestartPending ? (
-                                                    <RefreshCw className="h-3.5 w-3.5 animate-spin" />
-                                                  ) : (
-                                                    <RotateCw className="h-3.5 w-3.5" />
-                                                  )
-                                                }
-                                                disabled={composeBusy}
-                                                onClick={() =>
-                                                  submitDockerTask(
-                                                    'compose.restart',
-                                                    composePayload
-                                                  )
-                                                }
-                                                aria-label={`重启 ${projectName}`}
-                                                title="重启项目"
-                                              />
-                                              <Button
-                                                shape="square"
-                                                size="sm"
-                                                variant="primary"
-                                                icon={
-                                                  composeUpPending ? (
-                                                    <RefreshCw className="h-3.5 w-3.5 animate-spin" />
-                                                  ) : (
-                                                    <Play className="h-3.5 w-3.5" />
-                                                  )
-                                                }
-                                                disabled={composeBusy}
-                                                onClick={() =>
-                                                  submitDockerTask('compose.up', composePayload)
-                                                }
-                                                aria-label={`启动 ${projectName}`}
-                                                title="启动项目"
-                                              />
-                                              <Button
-                                                shape="square"
-                                                size="sm"
-                                                variant="secondary"
-                                                icon={
-                                                  composeDownPending ? (
-                                                    <RefreshCw className="h-3.5 w-3.5 animate-spin" />
-                                                  ) : (
-                                                    <Square className="h-3.5 w-3.5" />
-                                                  )
-                                                }
-                                                disabled={composeBusy}
-                                                onClick={() =>
-                                                  submitDockerTask('compose.down', composePayload)
-                                                }
-                                                aria-label={`停止 ${projectName}`}
-                                                title="停止项目"
-                                              />
-                                            </div>
-                                          </div>
-                                        );
-                                      })}
-                                    </div>
-                                  ),
-                              });
-                            })}
-                      </div>
+                        }}
+                        onRefresh={loadDockerResources}
+                        refreshing={dockerResourceLoading}
+                        footer={renderDockerSimpleLogCard()}
+                      />
+
+                      <DockerResourceTableCard
+                        title={activeServer.name}
+                        icon={<FolderOpen className="h-4 w-4 shrink-0 text-brand" />}
+                        badges={[
+                          { label: `${projects.length} 项目` },
+                          ...(running > 0 ? [{ label: `${running} 运行`, variant: 'success' }] : []),
+                        ]}
+                        headers={[
+                          { label: '项目', primary: true },
+                          { label: '状态', align: 'center' },
+                          { label: '配置文件' },
+                          { label: '目录' },
+                          { label: '操作', align: 'center' },
+                        ]}
+                        layout="auto"
+                        tableId="docker-compose-projects"
+                        isEmpty={projects.length === 0}
+                        emptyTitle="暂无 Compose 项目"
+                        emptyDescription="该主机在当前筛选下没有 Compose 项目。"
+                        emptyIcon={FolderOpen}
+                      >
+                        {projects.map(proj => {
+                          const projectName = getComposeProjectName(proj);
+                          const configFiles = getComposeConfigFiles(proj);
+                          const primaryConfigFile = getComposePrimaryConfigFile(proj);
+                          const workingDir = getComposeWorkingDir(proj);
+                          const status = getComposeStatus(proj);
+                          const statusLower = status.toLowerCase();
+                          const composeRunning = statusLower.includes('running');
+                          const statusLabel = formatComposeStatusLabel(status);
+                          const composePayload = {
+                            serverId: activeServer.id,
+                            project: projectName,
+                            config_file: configFiles,
+                          };
+                          const composeUpPending = isDockerActionPending(
+                            activeServer.id,
+                            'compose.up',
+                            composePayload
+                          );
+                          const composeDownPending = isDockerActionPending(
+                            activeServer.id,
+                            'compose.down',
+                            composePayload
+                          );
+                          const composeRestartPending = isDockerActionPending(
+                            activeServer.id,
+                            'compose.restart',
+                            composePayload
+                          );
+                          const composeUpdatePending = isDockerActionPending(
+                            activeServer.id,
+                            'compose.update',
+                            composePayload
+                          );
+                          const composeBusy =
+                            composeUpPending ||
+                            composeDownPending ||
+                            composeRestartPending ||
+                            composeUpdatePending;
+                          const composeTogglePending = composeRunning
+                            ? composeDownPending
+                            : composeUpPending;
+                          const composeToggleAction = composeRunning
+                            ? 'compose.down'
+                            : 'compose.up';
+                          let composeToggleIcon = <Play className="h-3.5 w-3.5" />;
+                          if (composeRunning) {
+                            composeToggleIcon = <Square className="h-3.5 w-3.5" />;
+                          }
+                          if (composeTogglePending) {
+                            composeToggleIcon = (
+                              <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                            );
+                          }
+                          return (
+                            <Table.Row
+                              key={`${activeServer.id}-${projectName}-${configFiles}`}
+                              className="[&>td]:align-middle"
+                            >
+                              <Table.Cell className="!px-2.5 !py-1.5">
+                                <div
+                                  className="text-sm leading-normal font-medium whitespace-nowrap text-kumo-strong"
+                                  title={projectName}
+                                >
+                                  {projectName}
+                                </div>
+                              </Table.Cell>
+                              <Table.Cell className="!px-2 !py-1.5 text-center">
+                                <div className="flex flex-col items-center gap-1">
+                                  <Badge
+                                    variant={composeRunning ? 'success' : 'error'}
+                                    className="text-xs"
+                                  >
+                                    {statusLabel}
+                                  </Badge>
+                                  {isComposeConfigMissing(proj) && (
+                                    <Badge
+                                      variant="warning"
+                                      className="text-xs"
+                                      title="配置文件路径已失效,查看/修改配置会失败;可执行 down 或忽略该项目"
+                                    >
+                                      配置缺失
+                                    </Badge>
+                                  )}
+                                </div>
+                              </Table.Cell>
+                              <Table.Cell className="!px-2 !py-1.5">
+                                <span
+                                  className="font-mono text-xs leading-5 whitespace-nowrap text-kumo-subtle"
+                                  title={configFiles}
+                                >
+                                  {configFiles || '-'}
+                                </span>
+                              </Table.Cell>
+                              <Table.Cell className="!px-2 !py-1.5">
+                                <span
+                                  className="font-mono text-xs leading-5 whitespace-nowrap text-kumo-subtle"
+                                  title={workingDir}
+                                >
+                                  {workingDir || '-'}
+                                </span>
+                              </Table.Cell>
+                              <Table.Cell className="!px-2 !py-1.5 text-center">
+                                <div className="flex items-center justify-center gap-1">
+                                  <Button
+                                    shape="square"
+                                    size="sm"
+                                    variant="outline"
+                                    icon={<FileText className="h-3.5 w-3.5" />}
+                                    onClick={() => openDockerComposeConfig(activeServer, proj, 'view')}
+                                    disabled={!primaryConfigFile}
+                                    aria-label={`查看或修改 ${projectName} 配置`}
+                                    title={primaryConfigFile ? '查看/修改配置' : '未找到配置文件'}
+                                  />
+                                  <Button
+                                    shape="square"
+                                    size="sm"
+                                    variant="outline"
+                                    icon={
+                                      composeUpdatePending ? (
+                                        <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                                      ) : (
+                                        <Upload className="h-3.5 w-3.5" />
+                                      )
+                                    }
+                                    disabled={composeBusy}
+                                    onClick={() => submitDockerTask('compose.update', composePayload)}
+                                    aria-label={`升级 ${projectName}`}
+                                    title="强制拉取最新镜像并重建容器"
+                                  />
+                                  <Button
+                                    shape="square"
+                                    size="sm"
+                                    variant="outline"
+                                    icon={
+                                      composeRestartPending ? (
+                                        <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                                      ) : (
+                                        <RotateCw className="h-3.5 w-3.5" />
+                                      )
+                                    }
+                                    disabled={composeBusy}
+                                    onClick={() =>
+                                      submitDockerTask('compose.restart', composePayload)
+                                    }
+                                    aria-label={`重启 ${projectName}`}
+                                    title="重启项目"
+                                  />
+                                  <Button
+                                    shape="square"
+                                    size="sm"
+                                    variant={composeRunning ? 'secondary-destructive' : 'primary'}
+                                    icon={composeToggleIcon}
+                                    disabled={composeBusy}
+                                    onClick={() => submitDockerTask(composeToggleAction, composePayload)}
+                                    aria-label={`${composeRunning ? '停止' : '启动'} ${projectName}`}
+                                    title={composeRunning ? '停止项目' : '启动项目'}
+                                  />
+                                </div>
+                              </Table.Cell>
+                            </Table.Row>
+                          );
+                        })}
+                      </DockerResourceTableCard>
                     </div>
                   );
                 })()}
@@ -1297,15 +1075,32 @@ export default function ServerDockerConsole(props) {
                   const pruneCandidateCount = dockerImages.filter(
                     isDockerImagePruneCandidate
                   ).length;
+                  const activeServer =
+                    hosts.find(server => String(server.id) === String(dockerSelectedServer || '')) ||
+                    hosts[0] ||
+                    null;
+                  if (dockerOverviewServers.length === 0) {
+                    return renderDockerEmptyState('未检测到可用的 Docker 主机');
+                  }
+                  if (!activeServer) {
+                    return renderDockerEmptyState('当前筛选下没有可用的 Docker 主机');
+                  }
+                  const images = asArray(activeServer.resources?.images);
+                  const activePruneCandidates = images.filter(isDockerImagePruneCandidate).length;
+                  const prunePayload = { serverId: activeServer.id };
+                  const prunePending = isDockerActionPending(
+                    activeServer.id,
+                    'image.prune',
+                    prunePayload
+                  );
+                  const pruneConfirmKey = `image.prune.section::${activeServer.id}`;
+
                   return (
                     <div className="grid min-w-0 gap-4 cq-xl:grid-cols-[22rem_minmax(0,1fr)]">
-                      {renderDockerResourceSideRail({
-                        title: '镜像',
-                        icon: <HardDrive className="h-4 w-4 shrink-0 text-brand" />,
-                        hosts,
-                        totalCount: dockerImages.length,
-                        countLabel: '镜像',
-                        summaryItems: [
+                      <DockerManageCard
+                        hosts={hosts}
+                        statItems={[
+                          { label: '镜像', value: dockerImages.length },
                           {
                             label: '仓库',
                             value: new Set(dockerImages.map(item => getDockerImageRepository(item)))
@@ -1317,8 +1112,9 @@ export default function ServerDockerConsole(props) {
                             className:
                               pruneCandidateCount > 0 ? 'text-kumo-warning' : 'text-kumo-success',
                           },
-                        ],
-                        actions: (
+                          { label: '主机', value: hosts.length, className: 'text-kumo-subtle' },
+                        ]}
+                        headerActions={
                           <Button
                             size="sm"
                             variant={
@@ -1348,227 +1144,172 @@ export default function ServerDockerConsole(props) {
                               ? '再次确认'
                               : '一键清理'}
                           </Button>
-                        ),
-                        getHostCount: server => asArray(server.resources?.images).length,
-                        getHostBadges: server => {
-                          const images = asArray(server.resources?.images);
-                          const pruneCandidates = images.filter(isDockerImagePruneCandidate).length;
-                          return images.length > 0
+                        }
+                        selectedServerId={activeServer.id}
+                        onSelectServer={setDockerSelectedServer}
+                        getHostCount={server => asArray(server.resources?.images).length}
+                        getHostBadges={server => {
+                          const items = asArray(server.resources?.images);
+                          const candidates = items.filter(isDockerImagePruneCandidate).length;
+                          return items.length > 0
                             ? [
                                 {
-                                  label: `${new Set(images.map(img => getDockerImageRepository(img))).size} 仓库`,
+                                  label: `${new Set(items.map(img => getDockerImageRepository(img))).size} 仓库`,
                                 },
-                                ...(pruneCandidates > 0
-                                  ? [{ label: `${pruneCandidates} 可清理`, variant: 'warning' }]
+                                ...(candidates > 0
+                                  ? [{ label: `${candidates} 可清理`, variant: 'warning' }]
                                   : []),
                               ]
                             : [];
-                        },
-                        renderHostAction: server => {
-                          const prunePayload = { serverId: server.id };
-                          const prunePending = isDockerActionPending(
-                            server.id,
-                            'image.prune',
-                            prunePayload
-                          );
-                          const pruneConfirmKey = `image.prune::${server.id}`;
-                          return (
-                            <Button
-                              shape="square"
-                              size="sm"
-                              variant={
-                                isDockerUpdateConfirmActive(pruneConfirmKey)
-                                  ? 'secondary-destructive'
-                                  : 'secondary'
-                              }
-                              icon={
-                                prunePending ? (
-                                  <RefreshCw className="h-3.5 w-3.5 animate-spin" />
-                                ) : (
-                                  <Trash className="h-3.5 w-3.5" />
-                                )
-                              }
-                              disabled={prunePending}
-                              onClick={() =>
-                                submitDockerPruneTask(
-                                  'image.prune',
-                                  prunePayload,
-                                  pruneConfirmKey,
-                                  `清理 ${server.name} 未使用镜像`
-                                )
-                              }
-                              aria-label={
-                                isDockerUpdateConfirmActive(pruneConfirmKey)
-                                  ? `再次确认清理 ${server.name} 镜像`
-                                  : `清理 ${server.name} 镜像`
-                              }
-                              title={
-                                isDockerUpdateConfirmActive(pruneConfirmKey)
-                                  ? '再次点击确认清理'
-                                  : '清理未使用镜像'
-                              }
-                            />
-                          );
-                        },
-                      })}
-                      <div className="flex min-w-0 flex-col gap-3">
-                        {hosts.length === 0
-                          ? renderDockerEmptyState('未检测到可用的 Docker 主机')
-                          : hosts.map(server => {
-                              const images = asArray(server.resources?.images);
-                              const prunePayload = { serverId: server.id };
-                              const prunePending = isDockerActionPending(
-                                server.id,
+                        }}
+                        onRefresh={loadDockerResources}
+                        refreshing={dockerResourceLoading}
+                        footer={renderDockerSimpleLogCard()}
+                      />
+
+                      <DockerResourceTableCard
+                        title={activeServer.name}
+                        icon={<HardDrive className="h-4 w-4 shrink-0 text-brand" />}
+                        badges={[
+                          { label: `${images.length} 镜像` },
+                          ...(activePruneCandidates > 0
+                            ? [{ label: `${activePruneCandidates} 可清理`, variant: 'warning' }]
+                            : []),
+                        ]}
+                        actions={
+                          <Button
+                            size="sm"
+                            variant={
+                              isDockerUpdateConfirmActive(pruneConfirmKey)
+                                ? 'secondary-destructive'
+                                : 'secondary'
+                            }
+                            icon={
+                              prunePending ? (
+                                <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                              ) : (
+                                <Trash className="h-3.5 w-3.5" />
+                              )
+                            }
+                            disabled={prunePending}
+                            onClick={() =>
+                              submitDockerPruneTask(
                                 'image.prune',
-                                prunePayload
-                              );
-                              const pruneConfirmKey = `image.prune.section::${server.id}`;
-                              const pruneCandidates = images.filter(
-                                isDockerImagePruneCandidate
-                              ).length;
-                              return renderDockerHostResourceSection({
-                                server,
-                                isFirstVisible: server.id === hosts[0]?.id,
-                                icon: <HardDrive className="h-4 w-4 shrink-0 text-brand" />,
-                                count: images.length,
-                                countLabel: '镜像',
-                                badges:
-                                  images.length > 0
-                                    ? [
-                                        {
-                                          label: `${new Set(images.map(img => getDockerImageRepository(img))).size} 仓库`,
-                                        },
-                                        ...(pruneCandidates > 0
-                                          ? [
-                                              {
-                                                label: `${pruneCandidates} 可清理`,
-                                                variant: 'warning',
-                                              },
-                                            ]
-                                          : []),
-                                      ]
-                                    : [],
-                                actions: (
+                                prunePayload,
+                                pruneConfirmKey,
+                                `清理 ${activeServer.name} 未使用镜像`
+                              )
+                            }
+                          >
+                            {isDockerUpdateConfirmActive(pruneConfirmKey) ? '再次确认' : '清理镜像'}
+                          </Button>
+                        }
+                        headers={[
+                          { label: '镜像', primary: true },
+                          { label: '标签', align: 'center' },
+                          { label: '大小', align: 'center' },
+                          { label: '操作', align: 'center' },
+                        ]}
+                        columns={[
+                          { id: 'repository', role: 'primary', grow: 2 },
+                          { id: 'tag', role: 'type' },
+                          { id: 'size', role: 'count' },
+                          { id: 'actions', role: 'actions-md' },
+                        ]}
+                        tableId="docker-images"
+                        isEmpty={images.length === 0}
+                        emptyTitle="暂无镜像"
+                        emptyDescription="该主机在当前筛选下没有镜像。"
+                        emptyIcon={HardDrive}
+                      >
+                        {images.map((img, i) => {
+                          const repository = getDockerImageRepository(img);
+                          const tag = getDockerImageTag(img);
+                          const imageId = getDockerImageId(img);
+                          const imageRef =
+                            imageId ||
+                            (tag && tag !== '-' ? `${repository}:${tag}` : repository);
+                          const removePayload = {
+                            serverId: activeServer.id,
+                            image: imageRef,
+                          };
+                          const removePending = isDockerActionPending(
+                            activeServer.id,
+                            'image.remove',
+                            removePayload
+                          );
+                          return (
+                            <Table.Row
+                              key={`${activeServer.id}-${imageId || repository}-${i}`}
+                              className="[&>td]:align-middle"
+                            >
+                              <Table.Cell className="!px-2.5 !py-1.5">
+                                <div className="min-w-0">
+                                  <div
+                                    className="truncate text-sm leading-normal font-medium text-kumo-strong"
+                                    title={repository}
+                                  >
+                                    {repository}
+                                  </div>
+                                  <div
+                                    className="truncate font-mono leading-5 text-kumo-subtle"
+                                    title={imageId}
+                                  >
+                                    {imageId || '-'}
+                                  </div>
+                                </div>
+                              </Table.Cell>
+                              <Table.Cell className="!px-2 !py-1.5 text-center">
+                                <Badge variant="secondary" className="font-mono text-xs">
+                                  {tag}
+                                </Badge>
+                              </Table.Cell>
+                              <Table.Cell className="!px-2 !py-1.5 text-center">
+                                <span className="font-mono text-xs text-kumo-strong">
+                                  {getDockerImageSize(img)}
+                                </span>
+                              </Table.Cell>
+                              <Table.Cell className="!px-2 !py-1.5 text-center">
+                                <div className="flex items-center justify-center gap-1">
                                   <Button
+                                    shape="square"
                                     size="sm"
                                     variant={
-                                      isDockerUpdateConfirmActive(pruneConfirmKey)
-                                        ? 'secondary-destructive'
-                                        : 'secondary'
-                                    }
-                                    icon={
-                                      prunePending ? (
-                                        <RefreshCw className="h-3.5 w-3.5 animate-spin" />
-                                      ) : (
-                                        <Trash className="h-3.5 w-3.5" />
+                                      isArmed(
+                                        `docker.image.remove::${activeServer.id}::${imageRef}`
                                       )
+                                        ? 'destructive'
+                                        : 'secondary-destructive'
                                     }
-                                    disabled={prunePending}
-                                    onClick={event => {
-                                      event.stopPropagation();
-                                      submitDockerPruneTask(
-                                        'image.prune',
-                                        prunePayload,
-                                        pruneConfirmKey,
-                                        `清理 ${server.name} 未使用镜像`
-                                      );
+                                    aria-label={`删除 ${repository || '镜像'}`}
+                                    disabled={removePending}
+                                    onClick={() => {
+                                      if (
+                                        !confirmPress(
+                                          `docker.image.remove::${activeServer.id}::${imageRef}`,
+                                          `删除镜像「${repository || '镜像'}」`
+                                        )
+                                      )
+                                        return;
+                                      submitDockerTask('image.remove', removePayload, {
+                                        skipConfirm: true,
+                                      });
                                     }}
+                                    className="text-kumo-danger"
+                                    title="删除镜像"
                                   >
-                                    {isDockerUpdateConfirmActive(pruneConfirmKey)
-                                      ? '再次确认'
-                                      : '清理镜像'}
+                                    {removePending ? (
+                                      <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                                    ) : (
+                                      <Trash className="h-3.5 w-3.5" />
+                                    )}
                                   </Button>
-                                ),
-                                children:
-                                  images.length === 0 ? (
-                                    <div className="p-8 text-center text-xs text-kumo-subtle">
-                                      暂无镜像
-                                    </div>
-                                  ) : (
-                                    <div className="divide-y divide-kumo-line">
-                                      {images.map((img, i) => {
-                                        const repository = getDockerImageRepository(img);
-                                        const tag = getDockerImageTag(img);
-                                        const imageId = getDockerImageId(img);
-                                        const imageRef =
-                                          imageId ||
-                                          (tag && tag !== '-'
-                                            ? `${repository}:${tag}`
-                                            : repository);
-                                        const removePayload = {
-                                          serverId: server.id,
-                                          image: imageRef,
-                                        };
-                                        const removePending = isDockerActionPending(
-                                          server.id,
-                                          'image.remove',
-                                          removePayload
-                                        );
-                                        return (
-                                          <div
-                                            key={`${server.id}-${imageId || repository}-${i}`}
-                                            className="flex min-w-0 items-center gap-3 px-3 py-2.5 cq-sm:px-4"
-                                          >
-                                            <div className="min-w-0 flex-1">
-                                              <div
-                                                className="truncate text-xs font-semibold leading-5 text-kumo-strong"
-                                                title={repository}
-                                              >
-                                                {repository}
-                                              </div>
-                                              <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-kumo-subtle">
-                                                <Badge
-                                                  variant="secondary"
-                                                  className="font-mono text-[10px]"
-                                                >
-                                                  {tag}
-                                                </Badge>
-                                                <span className="shrink-0">
-                                                  {getDockerImageSize(img)}
-                                                </span>
-                                              </div>
-                                            </div>
-                                            <Button
-                                              shape="square"
-                                              size="sm"
-                                              variant={
-                                                isArmed(
-                                                  `docker.image.remove::${server.id}::${imageRef}`
-                                                )
-                                                  ? 'destructive'
-                                                  : 'secondary-destructive'
-                                              }
-                                              aria-label={`删除 ${repository || '镜像'}`}
-                                              disabled={removePending}
-                                              onClick={() => {
-                                                if (
-                                                  !confirmPress(
-                                                    `docker.image.remove::${server.id}::${imageRef}`,
-                                                    `删除镜像「${repository || '镜像'}」`
-                                                  )
-                                                )
-                                                  return;
-                                                submitDockerTask('image.remove', removePayload, {
-                                                  skipConfirm: true,
-                                                });
-                                              }}
-                                              className="text-kumo-danger"
-                                              title="删除镜像"
-                                            >
-                                              {removePending ? (
-                                                <RefreshCw className="h-3.5 w-3.5 animate-spin" />
-                                              ) : (
-                                                <Trash className="h-3.5 w-3.5" />
-                                              )}
-                                            </Button>
-                                          </div>
-                                        );
-                                      })}
-                                    </div>
-                                  ),
-                              });
-                            })}
-                      </div>
+                                </div>
+                              </Table.Cell>
+                            </Table.Row>
+                          );
+                        })}
+                      </DockerResourceTableCard>
                     </div>
                   );
                 })()}
@@ -1580,22 +1321,40 @@ export default function ServerDockerConsole(props) {
                     isDockerOverviewHostVisible(server, 'networks')
                   );
                   const allNetworkPruneConfirmKey = `network.prune.all::${hosts.map(server => server.id).join('|')}`;
+                  const activeServer =
+                    hosts.find(server => String(server.id) === String(dockerSelectedServer || '')) ||
+                    hosts[0] ||
+                    null;
+                  if (dockerOverviewServers.length === 0) {
+                    return renderDockerEmptyState('未检测到可用的 Docker 主机');
+                  }
+                  if (!activeServer) {
+                    return renderDockerEmptyState('当前筛选下没有可用的 Docker 主机');
+                  }
+                  const networks = asArray(activeServer.resources?.networks);
+                  const prunePayload = { serverId: activeServer.id };
+                  const prunePending = isDockerActionPending(
+                    activeServer.id,
+                    'network.prune',
+                    prunePayload
+                  );
+                  const pruneConfirmKey = `network.prune.section::${activeServer.id}`;
+
                   return (
                     <div className="grid min-w-0 gap-4 cq-xl:grid-cols-[22rem_minmax(0,1fr)]">
-                      {renderDockerResourceSideRail({
-                        title: '网络',
-                        icon: <Globe className="h-4 w-4 shrink-0 text-brand" />,
-                        hosts,
-                        totalCount: dockerNetworks.length,
-                        countLabel: '网络',
-                        summaryItems: [
+                      <DockerManageCard
+                        hosts={hosts}
+                        statItems={[
+                          { label: '网络', value: dockerNetworks.length },
                           {
                             label: '驱动',
-                            value: new Set(dockerNetworks.map(item => getDockerNetworkDriver(item)))
-                              .size,
+                            value: new Set(
+                              dockerNetworks.map(item => getDockerNetworkDriver(item))
+                            ).size,
                           },
-                        ],
-                        actions: (
+                          { label: '主机', value: hosts.length, className: 'text-kumo-subtle' },
+                        ]}
+                        headerActions={
                           <Button
                             size="sm"
                             variant={
@@ -1625,219 +1384,169 @@ export default function ServerDockerConsole(props) {
                               ? '再次确认'
                               : '一键清理'}
                           </Button>
-                        ),
-                        getHostCount: server => asArray(server.resources?.networks).length,
-                        getHostBadges: server => {
-                          const networks = asArray(server.resources?.networks);
-                          return networks.length > 0
+                        }
+                        selectedServerId={activeServer.id}
+                        onSelectServer={setDockerSelectedServer}
+                        getHostCount={server => asArray(server.resources?.networks).length}
+                        getHostBadges={server => {
+                          const items = asArray(server.resources?.networks);
+                          return items.length > 0
+                            ? [
+                                {
+                                  label: `${new Set(items.map(network => getDockerNetworkDriver(network))).size} 驱动`,
+                                },
+                              ]
+                            : [];
+                        }}
+                        onRefresh={loadDockerResources}
+                        refreshing={dockerResourceLoading}
+                        footer={renderDockerSimpleLogCard()}
+                      />
+
+                      <DockerResourceTableCard
+                        title={activeServer.name}
+                        icon={<Globe className="h-4 w-4 shrink-0 text-brand" />}
+                        badges={[
+                          { label: `${networks.length} 网络` },
+                          ...(networks.length > 0
                             ? [
                                 {
                                   label: `${new Set(networks.map(network => getDockerNetworkDriver(network))).size} 驱动`,
                                 },
                               ]
-                            : [];
-                        },
-                        renderHostAction: server => {
-                          const prunePayload = { serverId: server.id };
-                          const prunePending = isDockerActionPending(
-                            server.id,
-                            'network.prune',
-                            prunePayload
-                          );
-                          const pruneConfirmKey = `network.prune::${server.id}`;
-                          return (
-                            <Button
-                              shape="square"
-                              size="sm"
-                              variant={
-                                isDockerUpdateConfirmActive(pruneConfirmKey)
-                                  ? 'secondary-destructive'
-                                  : 'secondary'
-                              }
-                              icon={
-                                prunePending ? (
-                                  <RefreshCw className="h-3.5 w-3.5 animate-spin" />
-                                ) : (
-                                  <Trash className="h-3.5 w-3.5" />
-                                )
-                              }
-                              disabled={prunePending}
-                              onClick={() =>
-                                submitDockerPruneTask(
-                                  'network.prune',
-                                  prunePayload,
-                                  pruneConfirmKey,
-                                  `清理 ${server.name} 未使用网络`
-                                )
-                              }
-                              aria-label={
-                                isDockerUpdateConfirmActive(pruneConfirmKey)
-                                  ? `再次确认清理 ${server.name} 网络`
-                                  : `清理 ${server.name} 网络`
-                              }
-                              title={
-                                isDockerUpdateConfirmActive(pruneConfirmKey)
-                                  ? '再次点击确认清理'
-                                  : '清理未使用网络'
-                              }
-                            />
-                          );
-                        },
-                      })}
-                      <div className="flex min-w-0 flex-col gap-3">
-                        {hosts.length === 0
-                          ? renderDockerEmptyState('未检测到可用的 Docker 主机')
-                          : hosts.map(server => {
-                              const networks = asArray(server.resources?.networks);
-                              const prunePayload = { serverId: server.id };
-                              const prunePending = isDockerActionPending(
-                                server.id,
+                            : []),
+                        ]}
+                        actions={
+                          <Button
+                            size="sm"
+                            variant={
+                              isDockerUpdateConfirmActive(pruneConfirmKey)
+                                ? 'secondary-destructive'
+                                : 'secondary'
+                            }
+                            icon={
+                              prunePending ? (
+                                <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                              ) : (
+                                <Trash className="h-3.5 w-3.5" />
+                              )
+                            }
+                            disabled={prunePending}
+                            onClick={() =>
+                              submitDockerPruneTask(
                                 'network.prune',
-                                prunePayload
-                              );
-                              const pruneConfirmKey = `network.prune.section::${server.id}`;
-                              return renderDockerHostResourceSection({
-                                server,
-                                isFirstVisible: server.id === hosts[0]?.id,
-                                icon: <Globe className="h-4 w-4 shrink-0 text-brand" />,
-                                count: networks.length,
-                                countLabel: '网络',
-                                badges:
-                                  networks.length > 0
-                                    ? [
-                                        {
-                                          label: `${new Set(networks.map(network => getDockerNetworkDriver(network))).size} 驱动`,
-                                        },
-                                      ]
-                                    : [],
-                                actions: (
+                                prunePayload,
+                                pruneConfirmKey,
+                                `清理 ${activeServer.name} 未使用网络`
+                              )
+                            }
+                          >
+                            {isDockerUpdateConfirmActive(pruneConfirmKey) ? '再次确认' : '清理网络'}
+                          </Button>
+                        }
+                        headers={[
+                          { label: '网络', primary: true },
+                          { label: '驱动', align: 'center' },
+                          { label: '范围', align: 'center' },
+                          { label: '操作', align: 'center' },
+                        ]}
+                        columns={[
+                          { id: 'network', role: 'primary', grow: 2 },
+                          { id: 'driver', role: 'type' },
+                          { id: 'scope', role: 'type' },
+                          { id: 'actions', role: 'actions-md' },
+                        ]}
+                        tableId="docker-networks"
+                        isEmpty={networks.length === 0}
+                        emptyTitle="暂无 Docker 网络"
+                        emptyDescription="该主机在当前筛选下没有网络。"
+                        emptyIcon={Globe}
+                      >
+                        {networks.map((network, i) => {
+                          const networkName = getDockerNetworkName(network);
+                          const networkId = getDockerNetworkId(network);
+                          const isBuiltinNetwork = ['bridge', 'host', 'none'].includes(networkName);
+                          const removePayload = {
+                            serverId: activeServer.id,
+                            name: networkName,
+                          };
+                          const removePending = isDockerActionPending(
+                            activeServer.id,
+                            'network.remove',
+                            removePayload
+                          );
+                          return (
+                            <Table.Row
+                              key={`${activeServer.id}-${networkId || networkName}-${i}`}
+                              className="[&>td]:align-middle"
+                            >
+                              <Table.Cell className="!px-2.5 !py-1.5">
+                                <div className="min-w-0">
+                                  <div
+                                    className="truncate text-sm leading-normal font-medium text-kumo-strong"
+                                    title={networkName}
+                                  >
+                                    {networkName}
+                                  </div>
+                                  <div
+                                    className="truncate font-mono leading-5 text-kumo-subtle"
+                                    title={networkId}
+                                  >
+                                    {networkId || '-'}
+                                  </div>
+                                </div>
+                              </Table.Cell>
+                              <Table.Cell className="!px-2 !py-1.5 text-center">
+                                <Badge variant="teal" className="font-mono text-xs">
+                                  {getDockerNetworkDriver(network)}
+                                </Badge>
+                              </Table.Cell>
+                              <Table.Cell className="!px-2 !py-1.5 text-center">
+                                <Badge variant="neutral" className="font-mono text-xs">
+                                  {getDockerNetworkScope(network)}
+                                </Badge>
+                              </Table.Cell>
+                              <Table.Cell className="!px-2 !py-1.5 text-center">
+                                <div className="flex items-center justify-center gap-1">
                                   <Button
+                                    shape="square"
                                     size="sm"
                                     variant={
-                                      isDockerUpdateConfirmActive(pruneConfirmKey)
-                                        ? 'secondary-destructive'
-                                        : 'secondary'
-                                    }
-                                    icon={
-                                      prunePending ? (
-                                        <RefreshCw className="h-3.5 w-3.5 animate-spin" />
-                                      ) : (
-                                        <Trash className="h-3.5 w-3.5" />
+                                      isArmed(
+                                        `docker.network.remove::${activeServer.id}::${networkName}`
                                       )
+                                        ? 'destructive'
+                                        : 'secondary-destructive'
                                     }
-                                    disabled={prunePending}
-                                    onClick={event => {
-                                      event.stopPropagation();
-                                      submitDockerPruneTask(
-                                        'network.prune',
-                                        prunePayload,
-                                        pruneConfirmKey,
-                                        `清理 ${server.name} 未使用网络`
-                                      );
+                                    aria-label={`删除 ${networkName || '网络'}`}
+                                    disabled={isBuiltinNetwork || removePending}
+                                    onClick={() => {
+                                      if (
+                                        !confirmPress(
+                                          `docker.network.remove::${activeServer.id}::${networkName}`,
+                                          `删除网络「${networkName || '网络'}」`
+                                        )
+                                      )
+                                        return;
+                                      submitDockerTask('network.remove', removePayload, {
+                                        skipConfirm: true,
+                                      });
                                     }}
+                                    className="text-kumo-danger disabled:opacity-40"
+                                    title={isBuiltinNetwork ? '内置网络不可删除' : '删除网络'}
                                   >
-                                    {isDockerUpdateConfirmActive(pruneConfirmKey)
-                                      ? '再次确认'
-                                      : '清理网络'}
+                                    {removePending ? (
+                                      <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                                    ) : (
+                                      <Trash className="h-3.5 w-3.5" />
+                                    )}
                                   </Button>
-                                ),
-                                children:
-                                  networks.length === 0 ? (
-                                    <div className="p-8 text-center text-xs text-kumo-subtle">
-                                      暂无 Docker 网络
-                                    </div>
-                                  ) : (
-                                    <div className="divide-y divide-kumo-line">
-                                      {networks.map((network, i) => {
-                                        const networkName = getDockerNetworkName(network);
-                                        const networkId = getDockerNetworkId(network);
-                                        const isBuiltinNetwork = [
-                                          'bridge',
-                                          'host',
-                                          'none',
-                                        ].includes(networkName);
-                                        const removePayload = {
-                                          serverId: server.id,
-                                          name: networkName,
-                                        };
-                                        const removePending = isDockerActionPending(
-                                          server.id,
-                                          'network.remove',
-                                          removePayload
-                                        );
-                                        return (
-                                          <div
-                                            key={`${server.id}-${networkId || networkName}-${i}`}
-                                            className="flex min-w-0 items-center gap-3 px-3 py-2.5 cq-sm:px-4"
-                                          >
-                                            <div className="min-w-0 flex-1">
-                                              <div
-                                                className="truncate text-xs font-semibold leading-5 text-kumo-strong"
-                                                title={networkName}
-                                              >
-                                                {networkName}
-                                              </div>
-                                              <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-kumo-subtle">
-                                                <span className="truncate font-mono">
-                                                  {networkId || '-'}
-                                                </span>
-                                                <Badge
-                                                  variant="teal"
-                                                  className="font-mono text-[10px]"
-                                                >
-                                                  {getDockerNetworkDriver(network)}
-                                                </Badge>
-                                                <Badge
-                                                  variant="neutral"
-                                                  className="font-mono text-[10px]"
-                                                >
-                                                  {getDockerNetworkScope(network)}
-                                                </Badge>
-                                              </div>
-                                            </div>
-                                            <Button
-                                              shape="square"
-                                              size="sm"
-                                              variant={
-                                                isArmed(
-                                                  `docker.network.remove::${server.id}::${networkName}`
-                                                )
-                                                  ? 'destructive'
-                                                  : 'secondary-destructive'
-                                              }
-                                              aria-label={`删除 ${networkName || '网络'}`}
-                                              disabled={isBuiltinNetwork || removePending}
-                                              onClick={() => {
-                                                if (
-                                                  !confirmPress(
-                                                    `docker.network.remove::${server.id}::${networkName}`,
-                                                    `删除网络「${networkName || '网络'}」`
-                                                  )
-                                                )
-                                                  return;
-                                                submitDockerTask('network.remove', removePayload, {
-                                                  skipConfirm: true,
-                                                });
-                                              }}
-                                              className="text-kumo-danger disabled:opacity-40"
-                                              title={
-                                                isBuiltinNetwork ? '内置网络不可删除' : '删除网络'
-                                              }
-                                            >
-                                              {removePending ? (
-                                                <RefreshCw className="h-3.5 w-3.5 animate-spin" />
-                                              ) : (
-                                                <Trash className="h-3.5 w-3.5" />
-                                              )}
-                                            </Button>
-                                          </div>
-                                        );
-                                      })}
-                                    </div>
-                                  ),
-                              });
-                            })}
-                      </div>
+                                </div>
+                              </Table.Cell>
+                            </Table.Row>
+                          );
+                        })}
+                      </DockerResourceTableCard>
                     </div>
                   );
                 })()}
@@ -1848,222 +1557,192 @@ export default function ServerDockerConsole(props) {
                   const hosts = dockerOverviewServers.filter(server =>
                     isDockerOverviewHostVisible(server, 'volumes')
                   );
+                  const activeServer =
+                    hosts.find(server => String(server.id) === String(dockerSelectedServer || '')) ||
+                    hosts[0] ||
+                    null;
+                  if (dockerOverviewServers.length === 0) {
+                    return renderDockerEmptyState('未检测到可用的 Docker 主机');
+                  }
+                  if (!activeServer) {
+                    return renderDockerEmptyState('当前筛选下没有可用的 Docker 主机');
+                  }
+                  const volumes = asArray(activeServer.resources?.volumes);
+                  const prunePayload = { serverId: activeServer.id };
+                  const prunePending = isDockerActionPending(
+                    activeServer.id,
+                    'volume.prune',
+                    prunePayload
+                  );
+                  const pruneConfirmKey = `volume.prune.section::${activeServer.id}`;
+
                   return (
                     <div className="grid min-w-0 gap-4 cq-xl:grid-cols-[22rem_minmax(0,1fr)]">
-                      {renderDockerResourceSideRail({
-                        title: '存储卷',
-                        icon: <Database className="h-4 w-4 shrink-0 text-brand" />,
-                        hosts,
-                        totalCount: dockerVolumes.length,
-                        countLabel: '存储卷',
-                        summaryItems: [
+                      <DockerManageCard
+                        hosts={hosts}
+                        statItems={[
+                          { label: '存储卷', value: dockerVolumes.length },
                           {
                             label: '驱动',
                             value: new Set(dockerVolumes.map(item => getDockerVolumeDriver(item)))
                               .size,
                           },
-                        ],
-                        getHostCount: server => asArray(server.resources?.volumes).length,
-                        getHostBadges: server => {
-                          const volumes = asArray(server.resources?.volumes);
-                          return volumes.length > 0
+                          { label: '主机', value: hosts.length, className: 'text-kumo-subtle' },
+                        ]}
+                        selectedServerId={activeServer.id}
+                        onSelectServer={setDockerSelectedServer}
+                        getHostCount={server => asArray(server.resources?.volumes).length}
+                        getHostBadges={server => {
+                          const items = asArray(server.resources?.volumes);
+                          return items.length > 0
+                            ? [
+                                {
+                                  label: `${new Set(items.map(volume => getDockerVolumeDriver(volume))).size} 驱动`,
+                                },
+                              ]
+                            : [];
+                        }}
+                        onRefresh={loadDockerResources}
+                        refreshing={dockerResourceLoading}
+                        footer={renderDockerSimpleLogCard()}
+                      />
+
+                      <DockerResourceTableCard
+                        title={activeServer.name}
+                        icon={<Database className="h-4 w-4 shrink-0 text-brand" />}
+                        badges={[
+                          { label: `${volumes.length} 存储卷` },
+                          ...(volumes.length > 0
                             ? [
                                 {
                                   label: `${new Set(volumes.map(volume => getDockerVolumeDriver(volume))).size} 驱动`,
                                 },
                               ]
-                            : [];
-                        },
-                        renderHostAction: server => {
-                          const prunePayload = { serverId: server.id };
-                          const prunePending = isDockerActionPending(
-                            server.id,
-                            'volume.prune',
-                            prunePayload
-                          );
-                          const pruneConfirmKey = `volume.prune::${server.id}`;
-                          return (
-                            <Button
-                              shape="square"
-                              size="sm"
-                              variant={
-                                isDockerUpdateConfirmActive(pruneConfirmKey)
-                                  ? 'secondary-destructive'
-                                  : 'secondary'
-                              }
-                              icon={
-                                prunePending ? (
-                                  <RefreshCw className="h-3.5 w-3.5 animate-spin" />
-                                ) : (
-                                  <Trash className="h-3.5 w-3.5" />
-                                )
-                              }
-                              disabled={prunePending}
-                              onClick={() =>
-                                submitDockerPruneTask(
-                                  'volume.prune',
-                                  prunePayload,
-                                  pruneConfirmKey,
-                                  `清理 ${server.name} 未使用存储卷`
-                                )
-                              }
-                              aria-label={
-                                isDockerUpdateConfirmActive(pruneConfirmKey)
-                                  ? `再次确认清理 ${server.name} 存储卷`
-                                  : `清理 ${server.name} 存储卷`
-                              }
-                              title={
-                                isDockerUpdateConfirmActive(pruneConfirmKey)
-                                  ? '再次点击确认清理'
-                                  : '清理未使用存储卷'
-                              }
-                            />
-                          );
-                        },
-                      })}
-                      <div className="flex min-w-0 flex-col gap-3">
-                        {hosts.length === 0
-                          ? renderDockerEmptyState('未检测到可用的 Docker 主机')
-                          : hosts.map(server => {
-                              const volumes = asArray(server.resources?.volumes);
-                              const prunePayload = { serverId: server.id };
-                              const prunePending = isDockerActionPending(
-                                server.id,
+                            : []),
+                        ]}
+                        actions={
+                          <Button
+                            size="sm"
+                            variant={
+                              isDockerUpdateConfirmActive(pruneConfirmKey)
+                                ? 'secondary-destructive'
+                                : 'secondary'
+                            }
+                            icon={
+                              prunePending ? (
+                                <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                              ) : (
+                                <Trash className="h-3.5 w-3.5" />
+                              )
+                            }
+                            disabled={prunePending}
+                            onClick={() =>
+                              submitDockerPruneTask(
                                 'volume.prune',
-                                prunePayload
-                              );
-                              const pruneConfirmKey = `volume.prune.section::${server.id}`;
-                              return renderDockerHostResourceSection({
-                                server,
-                                isFirstVisible: server.id === hosts[0]?.id,
-                                icon: <Database className="h-4 w-4 shrink-0 text-brand" />,
-                                count: volumes.length,
-                                countLabel: '存储卷',
-                                badges:
-                                  volumes.length > 0
-                                    ? [
-                                        {
-                                          label: `${new Set(volumes.map(volume => getDockerVolumeDriver(volume))).size} 驱动`,
-                                        },
-                                      ]
-                                    : [],
-                                actions: (
+                                prunePayload,
+                                pruneConfirmKey,
+                                `清理 ${activeServer.name} 未使用存储卷`
+                              )
+                            }
+                          >
+                            {isDockerUpdateConfirmActive(pruneConfirmKey)
+                              ? '再次确认'
+                              : '清理存储卷'}
+                          </Button>
+                        }
+                        headers={[
+                          { label: '存储卷', primary: true },
+                          { label: '驱动', align: 'center' },
+                          { label: '范围', align: 'center' },
+                          { label: '操作', align: 'center' },
+                        ]}
+                        columns={[
+                          { id: 'volume', role: 'primary', grow: 2 },
+                          { id: 'driver', role: 'type' },
+                          { id: 'scope', role: 'type' },
+                          { id: 'actions', role: 'actions-md' },
+                        ]}
+                        tableId="docker-volumes"
+                        isEmpty={volumes.length === 0}
+                        emptyTitle="暂无 Docker 存储卷"
+                        emptyDescription="该主机在当前筛选下没有存储卷。"
+                        emptyIcon={Database}
+                      >
+                        {volumes.map((volume, i) => {
+                          const volumeName = getDockerVolumeName(volume);
+                          const removePayload = {
+                            serverId: activeServer.id,
+                            name: volumeName,
+                          };
+                          const removePending = isDockerActionPending(
+                            activeServer.id,
+                            'volume.remove',
+                            removePayload
+                          );
+                          return (
+                            <Table.Row
+                              key={`${activeServer.id}-${volumeName}-${i}`}
+                              className="[&>td]:align-middle"
+                            >
+                              <Table.Cell className="!px-2.5 !py-1.5">
+                                <div
+                                  className="truncate text-sm leading-normal font-medium text-kumo-strong"
+                                  title={volumeName}
+                                >
+                                  {volumeName}
+                                </div>
+                              </Table.Cell>
+                              <Table.Cell className="!px-2 !py-1.5 text-center">
+                                <Badge variant="teal" className="font-mono text-xs">
+                                  {getDockerVolumeDriver(volume)}
+                                </Badge>
+                              </Table.Cell>
+                              <Table.Cell className="!px-2 !py-1.5 text-center">
+                                <Badge variant="neutral" className="font-mono text-xs">
+                                  {getDockerVolumeScope(volume)}
+                                </Badge>
+                              </Table.Cell>
+                              <Table.Cell className="!px-2 !py-1.5 text-center">
+                                <div className="flex items-center justify-center gap-1">
                                   <Button
+                                    shape="square"
                                     size="sm"
                                     variant={
-                                      isDockerUpdateConfirmActive(pruneConfirmKey)
-                                        ? 'secondary-destructive'
-                                        : 'secondary'
-                                    }
-                                    icon={
-                                      prunePending ? (
-                                        <RefreshCw className="h-3.5 w-3.5 animate-spin" />
-                                      ) : (
-                                        <Trash className="h-3.5 w-3.5" />
+                                      isArmed(
+                                        `docker.volume.remove::${activeServer.id}::${volumeName}`
                                       )
+                                        ? 'destructive'
+                                        : 'secondary-destructive'
                                     }
-                                    disabled={prunePending}
-                                    onClick={event => {
-                                      event.stopPropagation();
-                                      submitDockerPruneTask(
-                                        'volume.prune',
-                                        prunePayload,
-                                        pruneConfirmKey,
-                                        `清理 ${server.name} 未使用存储卷`
-                                      );
+                                    aria-label={`删除 ${volumeName || '存储卷'}`}
+                                    disabled={removePending}
+                                    onClick={() => {
+                                      if (
+                                        !confirmPress(
+                                          `docker.volume.remove::${activeServer.id}::${volumeName}`,
+                                          `删除存储卷「${volumeName || '存储卷'}」`
+                                        )
+                                      )
+                                        return;
+                                      submitDockerTask('volume.remove', removePayload, {
+                                        skipConfirm: true,
+                                      });
                                     }}
+                                    className="text-kumo-danger"
+                                    title="删除存储卷"
                                   >
-                                    {isDockerUpdateConfirmActive(pruneConfirmKey)
-                                      ? '再次确认'
-                                      : '清理存储卷'}
+                                    {removePending ? (
+                                      <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                                    ) : (
+                                      <Trash className="h-3.5 w-3.5" />
+                                    )}
                                   </Button>
-                                ),
-                                children:
-                                  volumes.length === 0 ? (
-                                    <div className="p-8 text-center text-xs text-kumo-subtle">
-                                      暂无 Docker 存储卷
-                                    </div>
-                                  ) : (
-                                    <div className="divide-y divide-kumo-line">
-                                      {volumes.map((volume, i) => {
-                                        const volumeName = getDockerVolumeName(volume);
-                                        const removePayload = {
-                                          serverId: server.id,
-                                          name: volumeName,
-                                        };
-                                        const removePending = isDockerActionPending(
-                                          server.id,
-                                          'volume.remove',
-                                          removePayload
-                                        );
-                                        return (
-                                          <div
-                                            key={`${server.id}-${volumeName}-${i}`}
-                                            className="flex min-w-0 items-center gap-3 px-3 py-2.5 cq-sm:px-4"
-                                          >
-                                            <div className="min-w-0 flex-1">
-                                              <div
-                                                className="truncate text-xs font-semibold leading-5 text-kumo-strong"
-                                                title={volumeName}
-                                              >
-                                                {volumeName}
-                                              </div>
-                                              <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-kumo-subtle">
-                                                <Badge
-                                                  variant="teal"
-                                                  className="font-mono text-[10px]"
-                                                >
-                                                  {getDockerVolumeDriver(volume)}
-                                                </Badge>
-                                                <Badge
-                                                  variant="neutral"
-                                                  className="font-mono text-[10px]"
-                                                >
-                                                  {getDockerVolumeScope(volume)}
-                                                </Badge>
-                                              </div>
-                                            </div>
-                                            <Button
-                                              shape="square"
-                                              size="sm"
-                                              variant={
-                                                isArmed(
-                                                  `docker.volume.remove::${server.id}::${volumeName}`
-                                                )
-                                                  ? 'destructive'
-                                                  : 'secondary-destructive'
-                                              }
-                                              aria-label={`删除 ${volumeName || '存储卷'}`}
-                                              disabled={removePending}
-                                              onClick={() => {
-                                                if (
-                                                  !confirmPress(
-                                                    `docker.volume.remove::${server.id}::${volumeName}`,
-                                                    `删除存储卷「${volumeName || '存储卷'}」`
-                                                  )
-                                                )
-                                                  return;
-                                                submitDockerTask('volume.remove', removePayload, {
-                                                  skipConfirm: true,
-                                                });
-                                              }}
-                                              className="text-kumo-danger"
-                                              title="删除存储卷"
-                                            >
-                                              {removePending ? (
-                                                <RefreshCw className="h-3.5 w-3.5 animate-spin" />
-                                              ) : (
-                                                <Trash className="h-3.5 w-3.5" />
-                                              )}
-                                            </Button>
-                                          </div>
-                                        );
-                                      })}
-                                    </div>
-                                  ),
-                              });
-                            })}
-                      </div>
+                                </div>
+                              </Table.Cell>
+                            </Table.Row>
+                          );
+                        })}
+                      </DockerResourceTableCard>
                     </div>
                   );
                 })()}

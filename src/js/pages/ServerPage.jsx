@@ -579,7 +579,7 @@ function ServerPage() {
     [expandedDockerOverviewServers]
   );
   const [showDockerTaskDetails, setShowDockerTaskDetails] = useState(false);
-  const [showDockerLogPanel, setShowDockerLogPanel] = useState(false);
+  const [showDockerLogPanel, setShowDockerLogPanel] = useState(true);
   const [dockerTasks, setDockerTasks] = useState([]);
   const [dockerTaskStreamConnected, setDockerTaskStreamConnected] = useState(false);
   const [dockerTaskStreamError, setDockerTaskStreamError] = useState('');
@@ -952,11 +952,14 @@ function ServerPage() {
 
   useEffect(() => {
     if (!dockerSelectedServer) return;
-    const stillAvailable = dockerHostOptions.some(item => item.value === dockerSelectedServer);
+    const selectedId = String(dockerSelectedServer);
+    const stillAvailable =
+      dockerHostOptions.some(item => item.value === selectedId) ||
+      dockerOverviewServers.some(server => String(server.id) === selectedId);
     if (!stillAvailable) {
       setDockerSelectedServer('');
     }
-  }, [dockerHostOptions, dockerSelectedServer]);
+  }, [dockerHostOptions, dockerOverviewServers, dockerSelectedServer]);
 
   const mergeTerminalCapabilities = (server, agentOnline) => {
     const hasSshTransport =
@@ -4311,7 +4314,7 @@ function ServerPage() {
             {tasks.length === 0 ? (
               <div className="text-xs text-kumo-subtle">暂无后台任务</div>
             ) : (
-              <div className="flex max-h-72 flex-col gap-1.5 overflow-y-auto pr-1 scrollbar-thin">
+              <div className="flex max-h-64 flex-col gap-1 overflow-y-auto pr-1 scrollbar-thin">
                 {visibleTasks.map(task => {
                   const progress = clampPercent(toNumber(task.progress, 0));
                   const showProgress = !isDockerTaskFinalState(task.state) && progress > 0;
@@ -4319,14 +4322,14 @@ function ServerPage() {
                   return (
                     <div
                       key={task.taskId}
-                      className="min-w-0 rounded-md border border-kumo-line/70 bg-kumo-recessed/20 px-2.5 py-2"
+                      className="min-w-0 rounded-md border border-kumo-line/70 bg-kumo-recessed/20 px-2 py-1.5"
                     >
-                      <div className="flex min-w-0 items-center gap-2">
+                      <div className="flex min-w-0 items-center gap-1.5">
                         <Badge variant={getDockerTaskStateVariant(task.state)} appearance="dot">
                           {getDockerTaskStateLabel(task.state)}
                         </Badge>
                         <span
-                          className="min-w-0 flex-1 truncate text-[11px] font-semibold text-kumo-strong"
+                          className="min-w-0 flex-1 truncate text-[11px] leading-4 font-semibold text-kumo-strong"
                           title={getDockerTaskDisplayTitle(task)}
                         >
                           {getDockerTaskDisplayTitle(task)}
@@ -4342,13 +4345,16 @@ function ServerPage() {
                           label={`${getDockerTaskDisplayTitle(task)}进度`}
                           value={progress}
                           showValue={false}
-                          className="mt-1.5 gap-0"
+                          className="mt-1 gap-0"
                           trackClassName="!h-1 overflow-hidden rounded-full bg-kumo-base"
                           indicatorClassName="!h-full !bg-none !bg-brand"
                         />
                       )}
                       {summary && (
-                        <div className="mt-1 truncate text-[11px] text-kumo-subtle" title={summary}>
+                        <div
+                          className="mt-0.5 truncate text-[10px] leading-4 text-kumo-subtle"
+                          title={summary}
+                        >
                           {summary}
                         </div>
                       )}
@@ -7008,6 +7014,7 @@ function ServerPage() {
         dockerResourceLoading={dockerResourceLoading}
         dockerSearchQuery={dockerSearchQuery}
         dockerSelectedContainerKeySet={dockerSelectedContainerKeySet}
+        dockerSelectedServer={dockerSelectedServer}
         dockerStats={dockerStats}
         dockerStatsHistory={dockerStatsHistory}
         dockerStatsSummary={dockerStatsSummary}
@@ -7049,6 +7056,7 @@ function ServerPage() {
         serverCurrentTab={serverCurrentTab}
         setDockerContainerStateFilter={setDockerContainerStateFilter}
         setDockerSearchQuery={setDockerSearchQuery}
+        setDockerSelectedServer={setDockerSelectedServer}
         setDockerSubTab={setDockerSubTab}
         setShowDockerTaskDetails={setShowDockerTaskDetails}
         showDockerBlockingLoading={showDockerBlockingLoading}
