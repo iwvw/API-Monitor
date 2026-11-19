@@ -672,6 +672,7 @@ func (s *Service) relayLoop(p relayLoopParams) *relayLoopResult {
 			}
 			break
 		}
+		lastKeyIndex = currentKeyIndex
 		break
 	}
 
