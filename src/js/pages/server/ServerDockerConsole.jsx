@@ -671,22 +671,15 @@ export default function ServerDockerConsole(props) {
                                       </Table.Cell>
                                       <Table.Cell className="!px-2 !py-1.5 text-center">
                                         {updatePending ? (
-                                          <div className="flex flex-col gap-1">
-                                            <span className="inline-flex items-center gap-1 text-xs font-semibold text-brand">
-                                              <RefreshCw className="h-3 w-3 animate-spin" />
-                                              更新中
-                                              {updateProgress > 0 ? ` ${updateProgress}%` : ''}
-                                            </span>
-                                            {updateProgress > 0 && (
-                                              <Meter
-                                                label={`${containerName} 更新进度`}
-                                                value={updateProgress}
-                                                showValue={false}
-                                                className="w-24 gap-0"
-                                                trackClassName="!h-1 overflow-hidden rounded-full bg-kumo-recessed"
-                                                indicatorClassName="!h-full !bg-none !bg-brand"
-                                              />
-                                            )}
+                                          <div className="flex justify-center">
+                                            <Meter
+                                              label={`${containerName} 更新进度`}
+                                              value={updateProgress}
+                                              showValue={false}
+                                              className="w-24 gap-0"
+                                              trackClassName="!h-1 overflow-hidden rounded-full bg-kumo-recessed"
+                                              indicatorClassName="!h-full !bg-none !bg-brand"
+                                            />
                                           </div>
                                         ) : updateChecking ? (
                                           <span className="inline-flex items-center gap-1 text-xs font-semibold text-kumo-subtle">
