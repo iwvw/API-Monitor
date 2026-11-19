@@ -1204,10 +1204,10 @@ export default function ServerDockerConsole(props) {
                           { label: '操作', align: 'center' },
                         ]}
                         columns={[
-                          { id: 'repository', role: 'primary', grow: 2 },
-                          { id: 'tag', role: 'type' },
-                          { id: 'size', role: 'count' },
-                          { id: 'actions', role: 'actions-md' },
+                          { id: 'repository', role: 'primary', grow: 8, minWidth: 200 },
+                          { id: 'tag', role: 'primary', grow: 1, minWidth: 88, maxWidth: 140, align: 'center' },
+                          { id: 'size', role: 'primary', grow: 1, minWidth: 88, maxWidth: 140, align: 'center' },
+                          { id: 'actions', role: 'primary', grow: 1, minWidth: 96, maxWidth: 120, align: 'center' },
                         ]}
                         tableId="docker-images"
                         isEmpty={images.length === 0}
