@@ -217,6 +217,16 @@ export function EndpointFormDialog({ endpointsApi, proxypoolPools }) {
                   className="w-full text-kumo-strong text-[0.9em] font-mono"
                 />
 
+                <Input
+                  size="sm"
+                  label="模型列表 API（可选）"
+                  type="text"
+                  value={endpointForm.modelsUrl || ''}
+                  onChange={e => setEndpointForm({ ...endpointForm, modelsUrl: e.target.value })}
+                  placeholder="模型列表不在标准路径时在此填完整地址"
+                  className="w-full text-kumo-strong text-[0.9em] font-mono"
+                />
+
                 <div className="space-y-1.5">
                   <div className="flex items-center justify-between gap-2">
                     <Label>API Key 列表</Label>
@@ -278,60 +288,95 @@ export function EndpointFormDialog({ endpointsApi, proxypoolPools }) {
 
                 <div className="space-y-1.5">
                   <Label>Key 策略</Label>
-                  <div className="rounded-lg border border-kumo-line/70 bg-kumo-recessed/20 p-3">
+                  <div className="space-y-3 rounded-lg border border-kumo-line/70 bg-kumo-recessed/20 p-3">
                     <div className="flex items-start gap-3">
-                    <div className="flex min-w-0 flex-1 flex-col gap-1">
-                      <span className="text-[11px] leading-none text-kumo-subtle">命中策略</span>
-                      <Select
-                        size="sm"
-                        aria-label="命中策略"
-                        value={endpointForm.keyStrategy || 'round_robin'}
-                        onValueChange={value => setEndpointForm(current => ({ ...current, keyStrategy: value }))}
-                        items={KEY_STRATEGY_OPTIONS}
-                        className="w-full"
-                      />
+                      <div className="flex min-w-0 flex-1 flex-col gap-1">
+                        <span className="text-[11px] leading-none text-kumo-subtle">命中策略</span>
+                        <Select
+                          size="sm"
+                          aria-label="命中策略"
+                          value={endpointForm.keyStrategy || 'round_robin'}
+                          onValueChange={value => setEndpointForm(current => ({ ...current, keyStrategy: value }))}
+                          items={KEY_STRATEGY_OPTIONS}
+                          className="w-full"
+                        />
+                      </div>
+                      <div className="flex flex-col gap-1">
+                        <span className="text-[11px] leading-none text-kumo-subtle">重试(次)</span>
+                        <Input
+                          size="sm"
+                          className="w-20"
+                          type="number"
+                          min={1}
+                          max={5}
+                          aria-label="每 key 单请求重试次数"
+                          value={endpointForm.keyRetryRounds ?? 2}
+                          onChange={e => {
+                            const value = parseInt(e.target.value, 10);
+                            setEndpointForm(current => ({
+                              ...current,
+                              keyRetryRounds: Number.isNaN(value) || value < 1 ? 1 : value,
+                            }));
+                          }}
+                        />
+                      </div>
+                      <div className="flex flex-col gap-1">
+                        <span className="text-[11px] leading-none text-kumo-subtle" title="0=关闭冷却;某 key 近期 429/401 后在冷却期内降低其命中,规避废 key 反复拉长对话">冷却(秒)</span>
+                        <Input
+                          size="sm"
+                          className="w-20"
+                          type="number"
+                          min={0}
+                          aria-label="回避冷却秒数"
+                          value={endpointForm.keyCooldownSeconds ?? 60}
+                          onChange={e => {
+                            const value = parseInt(e.target.value, 10);
+                            setEndpointForm(current => ({
+                              ...current,
+                              keyCooldownSeconds: Number.isNaN(value) || value < 0 ? 0 : value,
+                            }));
+                          }}
+                        />
+                      </div>
                     </div>
-                    <div className="flex flex-col gap-1">
-                      <span className="text-[11px] leading-none text-kumo-subtle">重试(次)</span>
-                      <Input
+                    <div className="flex min-h-8 items-center gap-2 border-t border-kumo-line/70 pt-3">
+                      <Switch
                         size="sm"
-                        className="w-20"
-                        type="number"
-                        min={1}
-                        max={5}
-                        aria-label="每 key 单请求重试次数"
-                        value={endpointForm.keyRetryRounds ?? 2}
-                        onChange={e => {
-                          const value = parseInt(e.target.value, 10);
-                          setEndpointForm(current => ({
-                            ...current,
-                            keyRetryRounds: Number.isNaN(value) || value < 1 ? 1 : value,
-                          }));
-                        }}
+                        aria-label="429等待重试"
+                        checked={!!endpointForm.rateLimitRetryEnabled}
+                        onCheckedChange={checked =>
+                          setEndpointForm(current => ({ ...current, rateLimitRetryEnabled: checked }))
+                        }
                       />
-                    </div>
-                    <div className="flex flex-col gap-1">
-                      <span className="text-[11px] leading-none text-kumo-subtle" title="0=关闭冷却；某 key 近期 429/401 后在冷却期内降低其命中，规避废 key 反复拉长对话">冷却(秒)</span>
-                      <Input
-                        size="sm"
-                        className="w-20"
-                        type="number"
-                        min={0}
-                        aria-label="回避冷却秒数"
-                        value={endpointForm.keyCooldownSeconds ?? 60}
-                        onChange={e => {
-                          const value = parseInt(e.target.value, 10);
-                          setEndpointForm(current => ({
-                            ...current,
-                            keyCooldownSeconds: Number.isNaN(value) || value < 0 ? 0 : value,
-                          }));
-                        }}
-                      />
-                    </div>
+                      <span className="text-xs text-kumo-strong">429 等待重试</span>
+                      {endpointForm.rateLimitRetryEnabled && (
+                        <div className="flex min-w-0 flex-1 items-center justify-end gap-1">
+                          <Input
+                            size="sm"
+                            className="w-20"
+                            type="number"
+                            min={1}
+                            max={60}
+                            aria-label="429 重试等待秒数"
+                            value={endpointForm.rateLimitRetryWaitSeconds ?? 10}
+                            onChange={e => {
+                              const value = parseInt(e.target.value, 10);
+                              setEndpointForm(current => ({
+                                ...current,
+                                rateLimitRetryWaitSeconds: Number.isNaN(value) ? 0 : value,
+                              }));
+                            }}
+                          />
+                          <span className="text-xs text-kumo-subtle">秒</span>
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>
+              </div>
 
+              {/* ====== 右列：连接与代理 ====== */}
+              <div className="space-y-4">
                 <div className="space-y-1.5">
                   <div className="flex items-center justify-between gap-2">
                     <Label>
@@ -399,20 +444,6 @@ export function EndpointFormDialog({ endpointsApi, proxypoolPools }) {
                   items={ENDPOINT_PROTOCOL_OPTIONS}
                   className="w-full"
                 />
-              </div>
-
-              {/* ====== 右列：连接与代理 ====== */}
-              <div className="space-y-4">
-                <Input
-                  size="sm"
-                  label="模型列表 API（可选）"
-                  type="text"
-                  value={endpointForm.modelsUrl || ''}
-                  onChange={e => setEndpointForm({ ...endpointForm, modelsUrl: e.target.value })}
-                  placeholder="模型列表不在标准路径时在此填完整地址"
-                  className="w-full text-kumo-strong text-[0.9em] font-mono"
-                />
-
                 <div className="space-y-1.5">
                   <Label>出口代理</Label>
                   <div className="space-y-3 rounded-lg border border-kumo-line/70 bg-kumo-recessed/20 p-3">
@@ -541,44 +572,6 @@ export function EndpointFormDialog({ endpointsApi, proxypoolPools }) {
                         </div>
                       </div>
                     )}
-                  </div>
-                </div>
-
-                <div className="space-y-1.5">
-                  <Label>重试策略</Label>
-                  <div className="rounded-lg border border-kumo-line/70 bg-kumo-recessed/20 p-3">
-                    <div className="flex min-h-8 items-center gap-2">
-                      <Switch
-                        size="sm"
-                        aria-label="429等待重试"
-                        checked={!!endpointForm.rateLimitRetryEnabled}
-                        onCheckedChange={checked =>
-                          setEndpointForm(current => ({ ...current, rateLimitRetryEnabled: checked }))
-                        }
-                      />
-                      <span className="text-xs text-kumo-strong">429 等待重试</span>
-                      {endpointForm.rateLimitRetryEnabled && (
-                        <div className="flex min-w-0 flex-1 items-center justify-end gap-1">
-                          <Input
-                            size="sm"
-                            className="w-20"
-                            type="number"
-                            min={1}
-                            max={60}
-                            aria-label="429 重试等待秒数"
-                            value={endpointForm.rateLimitRetryWaitSeconds ?? 10}
-                            onChange={e => {
-                              const value = parseInt(e.target.value, 10);
-                              setEndpointForm(current => ({
-                                ...current,
-                                rateLimitRetryWaitSeconds: Number.isNaN(value) ? 0 : value,
-                              }));
-                            }}
-                          />
-                          <span className="text-xs text-kumo-subtle">秒</span>
-                        </div>
-                      )}
-                    </div>
                   </div>
                 </div>
               </div>

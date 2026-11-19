@@ -354,7 +354,7 @@ export function EndpointsTab({
                     <div className="flex min-w-0 flex-1 flex-col">
                       <div className="flex min-w-0 items-start gap-2">
                         <span
-                          className="inline-flex w-7 shrink-0 items-center justify-center rounded border-2 border-kumo-line/70 font-mono text-xs font-semibold leading-5 tabular-nums text-brand"
+                          className="inline-flex w-7 shrink-0 items-center justify-center rounded border border-kumo-line/70 font-mono text-xs font-semibold leading-5 tabular-nums text-brand"
                           title="启用模型数"
                         >
                           {activeModelIdsForEndpoint(item).length}
@@ -363,7 +363,7 @@ export function EndpointsTab({
                           <div className="flex min-w-0 items-center gap-1.5">
                             {item.pluginId && (
                               <span
-                                className="shrink-0 rounded border-2 border-kumo-line/70 px-1 text-[10px] font-semibold leading-5 text-brand"
+                                className="shrink-0 rounded border border-kumo-line/70 px-1 text-[10px] font-semibold leading-5 text-brand"
                                 title="由插件注册"
                               >
                                 插件
@@ -581,14 +581,14 @@ export function EndpointsTab({
                                   <div className="min-w-0 flex-1">
                                     <div className="flex items-center gap-1.5 min-w-0">
                                       <span
-                                        className="inline-flex w-7 shrink-0 items-center justify-center rounded border-2 border-kumo-line/70 font-mono text-xs font-semibold leading-5 tabular-nums text-brand"
+                                        className="inline-flex w-7 shrink-0 items-center justify-center rounded border border-kumo-line/70 font-mono text-xs font-semibold leading-5 tabular-nums text-brand"
                                         title="启用模型数"
                                       >
                                         {activeModelIdsForEndpoint(item).length}
                                       </span>
                                       {item.pluginId && (
                                         <span
-                                          className="shrink-0 rounded border-2 border-kumo-line/70 px-1 text-[10px] font-semibold leading-5 text-brand"
+                                          className="shrink-0 rounded border border-kumo-line/70 px-1 text-[10px] font-semibold leading-5 text-brand"
                                           title="由插件注册"
                                         >
                                           插件

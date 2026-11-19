@@ -25,18 +25,18 @@ import {
 } from '../../components/ui/MobileTableCards.jsx';
 import { MobileLogDetailDialog } from './MobileLogDetailDialog.jsx';
 
-const GATEWAY_LOG_COLUMNS = [
-  { id: 'time', role: 'datetime', grow: 148, minWidth: 116, maxWidth: null, align: 'left' },
-  { id: 'endpoint', role: 'identifier', grow: 190, minWidth: 110, align: 'left' },
-  { id: 'model', role: 'identifier', grow: 230, minWidth: 110, align: 'left' },
-  { id: 'status', role: 'status', grow: 88, minWidth: 88, maxWidth: null },
-  { id: 'upstreamIp', role: 'meta', grow: 130, minWidth: 100, maxWidth: null, align: 'left' },
-  { id: 'clientIp', role: 'meta', grow: 130, minWidth: 100, maxWidth: null, align: 'left' },
-  { id: 'latency', role: 'content', grow: 176, minWidth: 110, align: 'left', verticalAlign: 'middle' },
-  { id: 'tokens', role: 'number', grow: 128, minWidth: 96, maxWidth: null, align: 'left', verticalAlign: 'middle' },
-  { id: 'cache', role: 'number', grow: 124, minWidth: 92, maxWidth: null, align: 'left', verticalAlign: 'middle' },
-  { id: 'cost', role: 'number', grow: 140, minWidth: 100, maxWidth: null, align: 'left', verticalAlign: 'middle' },
-  { id: 'speed', role: 'count', grow: 66, minWidth: 60, maxWidth: null, align: 'left' },
+const GATEWAY_LOG_COLUMN_PERCENTAGES = [
+  12.6, // 时间
+  12.4, // 端点
+  11.9, // 模型
+  5.3, // 状态
+  8.05, // 出口 IP
+  8.05, // 客户端 IP
+  10, // 流/非 首字 耗时
+  8.9, // 输入 / 输出
+  8.6, // 缓存
+  8.9, // 总消耗
+  5.3, // T/S
 ];
 
 export function GatewayLogsTab({ analytics, endpoints }) {
@@ -223,7 +223,16 @@ export function GatewayLogsTab({ analytics, endpoints }) {
               滚动、分页在内容下方，符合「移动端整页滚动」约定。 */}
           <LayerCard className="flex h-[calc(100dvh-184px)] min-h-64 w-full min-w-0 flex-col overflow-hidden p-0 shadow-none max-sm:h-auto max-sm:min-h-0">
             <div className="hidden min-h-0 min-w-0 flex-1 overflow-auto scrollbar-thin cq-md:block">
-              <AppTable tableId="gateway-logs" columns={GATEWAY_LOG_COLUMNS} className="[&_td]:!px-2 [&_td]:!py-2 [&_th]:!px-2 [&_th]:!py-2">
+              <AppTable
+                tableId="gateway-logs"
+                layout="fixed"
+                className="w-full min-w-[1180px] [&_td]:!px-2 [&_td]:!py-2 [&_th]:!px-2 [&_th]:!py-2"
+              >
+                <colgroup>
+                  {GATEWAY_LOG_COLUMN_PERCENTAGES.map((width, index) => (
+                    <col key={index} style={{ width: `${width}%` }} />
+                  ))}
+                </colgroup>
                 <Table.Header sticky variant="compact">
                   <Table.Row>
                     <Table.Head className="text-left">时间</Table.Head>
@@ -232,7 +241,7 @@ export function GatewayLogsTab({ analytics, endpoints }) {
                     <Table.Head className="text-center">状态</Table.Head>
                     <Table.Head className="text-left">出口 IP</Table.Head>
                     <Table.Head className="text-left">客户端 IP</Table.Head>
-                    <Table.Head className="text-left">耗时/首字</Table.Head>
+                    <Table.Head className="text-left">首字/耗时</Table.Head>
                     <Table.Head className="text-left">输入 / 输出</Table.Head>
                     <Table.Head className="text-left">缓存</Table.Head>
                     <Table.Head className="text-left">总消耗</Table.Head>
@@ -261,11 +270,13 @@ export function GatewayLogsTab({ analytics, endpoints }) {
                             {formatDateTime(log.timestamp)}
                           </Table.Cell>
                           <Table.Cell
-                            className="break-all text-left font-semibold text-kumo-strong"
+                            className="truncate text-left font-semibold text-kumo-strong"
                             title={log.endpointName}
                           >
-                            <span className="inline-flex min-w-0 items-center gap-2">
-                              <FailoverPathBadge path={log.failoverPath} endpointName={log.endpointName} />
+                            <span className="inline-flex w-full min-w-0 items-center gap-2">
+                              <span className="min-w-0 flex-1 truncate">
+                                <FailoverPathBadge path={log.failoverPath} endpointName={log.endpointName} />
+                              </span>
                               {typeof log.keyIndex === 'number' && log.keyIndex >= 0 && (
                                 <StatusBadge tone="info" title={`使用的 API Key 序号（0=主 key）`}>
                                   K{log.keyIndex + 1}
@@ -352,20 +363,23 @@ export function GatewayLogsTab({ analytics, endpoints }) {
                           </Table.Cell>
                           <Table.Cell className="text-left">
                             <div
-                              className="inline-flex items-center gap-2"
+                              className="inline-flex items-center gap-1"
                               title={log.stream ? '流式响应' : '非流式响应'}
                             >
-                              <StatusBadge tone={resultTone(log.statusCode, log.completionTokens, log.latencyMs)}>
-                                {(log.latencyMs / 1000).toFixed(1)}s
+                              <StatusBadge
+                                tone={log.stream ? 'info' : 'warning'}
+                                className="!px-1 !text-[10px]"
+                              >
+                                {log.stream ? '流' : '非'}
                               </StatusBadge>
-                              <StatusBadge tone={ttfbTone(log.ttfbMs)}>
+                              <StatusBadge tone={ttfbTone(log.ttfbMs)} className="!px-1 !text-[10px]">
                                 {log.ttfbMs > 0 ? (log.ttfbMs / 1000).toFixed(1) + 's' : '—'}
                               </StatusBadge>
                               <StatusBadge
-                                tone={log.stream ? 'info' : 'warning'}
-                                className="!px-1.5 !text-[10px]"
+                                tone={resultTone(log.statusCode, log.completionTokens, log.latencyMs)}
+                                className="!px-1 !text-[10px]"
                               >
-                                {log.stream ? '流' : '非流'}
+                                {(log.latencyMs / 1000).toFixed(1)}s
                               </StatusBadge>
                             </div>
                           </Table.Cell>
