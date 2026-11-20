@@ -3,8 +3,10 @@ package m365
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/iwvw/api-monitor/backend-go/internal/response"
 )
@@ -152,22 +154,6 @@ func persistPublicPageRegistration(ctx context.Context, db *sql.DB, inviteCode i
 	}
 	defer tx.Rollback()
 
-	if status == "success" || status == "partial" {
-		// 条件自增：可用性检查发生在 Graph 建号之前的窗口内，并发注册会
-		// 双双通过；此处把「已用完」的并发消耗用原子条件拒绝掉，防止双兑换。
-		result, err := tx.ExecContext(
-			ctx,
-			`UPDATE m365_invite_codes SET used_count = used_count + 1, last_used_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
-			 WHERE id = ? AND (max_uses = 0 OR used_count < max_uses)`,
-			inviteCode.ID,
-		)
-		if err != nil {
-			return err
-		}
-		if changed, _ := result.RowsAffected(); changed == 0 {
-			return errInviteCodeExhausted
-		}
-	}
 	if _, err := tx.ExecContext(
 		ctx,
 		`INSERT INTO m365_public_page_registrations
@@ -188,4 +174,42 @@ func persistPublicPageRegistration(ctx context.Context, db *sql.DB, inviteCode i
 		return err
 	}
 	return tx.Commit()
+}
+
+func reserveInviteCode(ctx context.Context, db *sql.DB, inviteCodeID int64) error {
+	result, err := db.ExecContext(
+		ctx,
+		`UPDATE m365_invite_codes SET used_count = used_count + 1, last_used_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+		 WHERE id = ? AND (max_uses = 0 OR used_count < max_uses)`,
+		inviteCodeID,
+	)
+	if err != nil {
+		return err
+	}
+	if changed, _ := result.RowsAffected(); changed == 0 {
+		return errInviteCodeExhausted
+	}
+	return nil
+}
+
+func releaseInviteCode(ctx context.Context, db *sql.DB, inviteCodeID int64) {
+	_, _ = db.ExecContext(
+		ctx,
+		`UPDATE m365_invite_codes SET used_count = CASE WHEN used_count > 0 THEN used_count - 1 ELSE 0 END, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+		inviteCodeID,
+	)
+}
+
+func reserveInviteCodeFromBatch(ctx context.Context, db *sql.DB, items []inviteCodeRecord, now time.Time) (inviteCodeRecord, error) {
+	for _, item := range items {
+		if available, _ := evaluateInviteCodeAvailability(item, now); !available {
+			continue
+		}
+		if err := reserveInviteCode(ctx, db, item.ID); err == nil {
+			return item, nil
+		} else if !errors.Is(err, errInviteCodeExhausted) {
+			return inviteCodeRecord{}, err
+		}
+	}
+	return inviteCodeRecord{}, errInviteCodeExhausted
 }
