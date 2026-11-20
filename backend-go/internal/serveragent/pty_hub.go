@@ -46,21 +46,17 @@ func (h *ptyDataHub) Subscribe(id string) (<-chan string, func()) {
 }
 
 func (h *ptyDataHub) Publish(id string, data string) bool {
-	h.mu.RLock()
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
 	subs := h.subscribers[id]
 	if len(subs) == 0 {
-		h.mu.RUnlock()
 		return false
 	}
-	targets := make([]chan string, 0, len(subs))
-	for ch := range subs {
-		targets = append(targets, ch)
-	}
-	h.mu.RUnlock()
 
 	delivered := false
 	dropped := int64(0)
-	for _, ch := range targets {
+	for ch := range subs {
 		select {
 		case ch <- data:
 			delivered = true
@@ -68,12 +64,10 @@ func (h *ptyDataHub) Publish(id string, data string) bool {
 			dropped++
 		}
 	}
-	h.mu.Lock()
 	if delivered {
 		h.published++
 	}
 	h.dropped += dropped
-	h.mu.Unlock()
 	return delivered
 }
 

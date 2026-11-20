@@ -217,12 +217,107 @@ func resolveNetworkQualityPersistInterval() time.Duration {
 	return interval
 }
 
+// uptimeBroadcastBeatKeys 是允许广播到匿名 root 命名空间的 uptime 心跳字段白名单。
+// msg/details 等原始错误文本会被丢弃:probe 失败时 msg 是 url.Error 原文,
+// 可能带内网地址与端口。错误只以归一化错误码对外暴露。
+var uptimeBroadcastBeatKeys = map[string]struct{}{
+	"id": {}, "status": {}, "state": {}, "ping": {}, "durationMs": {},
+	"time": {}, "created_at": {}, "createdAt": {}, "statusCode": {},
+	"errorCode": {}, "maintenance": {}, "monitorState": {},
+	"uptime24h": {}, "uptime30d": {},
+}
+
+var uptimeBroadcastStateKeys = map[string]struct{}{
+	"monitorId": {}, "state": {}, "failCount": {}, "recoverCount": {},
+	"activeIncidentId": {}, "lastTransitionAt": {}, "lastPing": {},
+	"sslExpiry": {}, "updatedAt": {},
+}
+
+const uptimeBroadcastFallbackErrorCode = "PROBE_FAILED"
+
 func (s *Service) BroadcastUptimeHeartbeat(monitorID int64, beat map[string]interface{}) {
 	if s.metricsHub == nil {
 		return
 	}
 	s.metricsHub.BroadcastRootEvent("uptime:heartbeat", map[string]interface{}{
 		"monitorId": monitorID,
-		"beat":      beat,
+		"beat":      sanitizeUptimeBeatForBroadcast(beat),
 	})
+}
+
+func sanitizeUptimeBeatForBroadcast(beat map[string]interface{}) map[string]interface{} {
+	if beat == nil {
+		return nil
+	}
+	down := uptimeBeatDown(beat)
+	code := normalizeUptimeErrorCode(beat)
+	out := make(map[string]interface{}, len(beat))
+	for k, v := range beat {
+		if _, ok := uptimeBroadcastBeatKeys[k]; ok {
+			out[k] = v
+		}
+	}
+	delete(out, "msg")
+	if down {
+		out["errorCode"] = code
+	} else {
+		delete(out, "errorCode")
+	}
+	if state, ok := out["monitorState"].(map[string]interface{}); ok {
+		out["monitorState"] = sanitizeUptimeStateForBroadcast(state, down, code)
+	}
+	return out
+}
+
+func sanitizeUptimeStateForBroadcast(state map[string]interface{}, down bool, code string) map[string]interface{} {
+	out := make(map[string]interface{}, len(state))
+	for k, v := range state {
+		if _, ok := uptimeBroadcastStateKeys[k]; ok {
+			out[k] = v
+		}
+	}
+	if down {
+		out["lastError"] = code
+	} else {
+		out["lastError"] = nil
+	}
+	return out
+}
+
+func normalizeUptimeErrorCode(beat map[string]interface{}) string {
+	if code, ok := beat["errorCode"].(string); ok {
+		if trimmed := strings.TrimSpace(code); trimmed != "" {
+			return trimmed
+		}
+	}
+	return uptimeBroadcastFallbackErrorCode
+}
+
+func uptimeBeatDown(beat map[string]interface{}) bool {
+	switch v := beat["status"].(type) {
+	case int:
+		return v == 0
+	case int32:
+		return v == 0
+	case int64:
+		return v == 0
+	case float64:
+		return v == 0
+	case float32:
+		return v == 0
+	case string:
+		return v != "1" && !strings.EqualFold(v, "up")
+	}
+	switch strings.ToLower(strings.TrimSpace(stringValueOf(beat["state"]))) {
+	case "down", "pending_down", "pending":
+		return true
+	}
+	return false
+}
+
+func stringValueOf(value interface{}) string {
+	if text, ok := value.(string); ok {
+		return text
+	}
+	return ""
 }

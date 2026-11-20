@@ -23,6 +23,7 @@ type Notifier interface {
 }
 
 type alertState struct {
+	mu          sync.Mutex
 	cpuHigh     bool
 	memoryHigh  bool
 	diskHigh    bool
@@ -65,6 +66,9 @@ type Service struct {
 	notifier                      Notifier
 	cloudflare                    cloudflare.ManagedTunnelAPI
 	alertStates                   sync.Map // serverID -> *alertState
+	publicServerIDsMu             sync.RWMutex
+	publicServerIDs               map[string]struct{}
+	publicServerIDsAt             time.Time
 	forwardReconcileMu            sync.Mutex
 	forwardReconcileAt            map[string]time.Time // serverID -> 最近一次转发对账时间（防风暴）
 	backgroundCtx                 context.Context
@@ -120,6 +124,7 @@ func New(cfg config.Config) *Service {
 	engineIO.service = s
 	s.presence = newAgentPresenceManager(s)
 	s.forwardReconcileAt = map[string]time.Time{}
+	metricsHub.SetVisibilityFilter(s.isServerPubliclyVisible)
 
 	s.backgroundCtx, s.backgroundCancel = context.WithCancel(context.Background())
 
@@ -1109,8 +1114,26 @@ func (s *Service) checkMetricAlerts(ctx context.Context, db *sql.DB, serverID st
 	if s.notifier == nil {
 		return
 	}
+	// 本检查由 persistMetrics 的派生 goroutine 触发,调用方的 ctx 与被复用的
+	// db 句柄会在返回后立即取消/关闭;沿用它们会让 QueryRowContext 命中已取消
+	// 的 ctx 或已关闭的连接,告警静默失效。这里改用独立 ctx 并自持连接句柄。
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+	defer cancel()
+	checkDB := db
+	if s.store != nil {
+		if opened, err := s.open(ctx); err == nil {
+			checkDB = opened
+			defer opened.Close()
+		}
+	}
+	if checkDB == nil {
+		return
+	}
+
 	val, _ := s.alertStates.LoadOrStore(serverID, &alertState{})
 	state := val.(*alertState)
+	state.mu.Lock()
+	defer state.mu.Unlock()
 
 	var serverName, serverHost string
 	var trafficLimitBytes int64
@@ -1120,7 +1143,7 @@ func (s *Service) checkMetricAlerts(ctx context.Context, db *sql.DB, serverID st
 	var cachedInfo sql.NullString
 	var trafficCycleType string
 	var trafficCycleBaseline int64
-	_ = db.QueryRowContext(ctx, `SELECT name, host, traffic_limit_bytes, COALESCE(traffic_limit_mode, 'total'), traffic_alert_enabled, traffic_alert_percent, cached_info, COALESCE(traffic_cycle_type, 'none'), COALESCE(traffic_cycle_baseline, 0) FROM server_accounts WHERE id = ?`, serverID).Scan(&serverName, &serverHost, &trafficLimitBytes, &trafficLimitMode, &trafficAlertEnabled, &trafficAlertPercent, &cachedInfo, &trafficCycleType, &trafficCycleBaseline)
+	_ = checkDB.QueryRowContext(ctx, `SELECT name, host, traffic_limit_bytes, COALESCE(traffic_limit_mode, 'total'), traffic_alert_enabled, traffic_alert_percent, cached_info, COALESCE(traffic_cycle_type, 'none'), COALESCE(traffic_cycle_baseline, 0) FROM server_accounts WHERE id = ?`, serverID).Scan(&serverName, &serverHost, &trafficLimitBytes, &trafficLimitMode, &trafficAlertEnabled, &trafficAlertPercent, &cachedInfo, &trafficCycleType, &trafficCycleBaseline)
 	if serverName == "" {
 		serverName = serverID
 	}
@@ -1212,4 +1235,71 @@ func (s *Service) checkMetricAlerts(ctx context.Context, db *sql.DB, serverID st
 			}
 		}
 	}
+}
+
+// publicServerVisibilityTTL 是公开状态页可见主机集合的缓存时长。
+// /metrics 广播是高频路径,不能每台主机每次上报都查一次库。
+const publicServerVisibilityTTL = 30 * time.Second
+
+// isServerPubliclyVisible 判断某主机是否出现在任一「公开」状态页上。
+// 匿名 /metrics 命名空间只允许广播这些主机的实时指标。结果按 TTL 缓存;
+// 查询失败时沿用上一次快照(可能为空),不因为瞬时故障放开匿名广播。
+func (s *Service) isServerPubliclyVisible(serverID string) bool {
+	if serverID == "" {
+		return false
+	}
+	s.publicServerIDsMu.RLock()
+	if s.publicServerIDs != nil && time.Since(s.publicServerIDsAt) < publicServerVisibilityTTL {
+		_, ok := s.publicServerIDs[serverID]
+		s.publicServerIDsMu.RUnlock()
+		return ok
+	}
+	s.publicServerIDsMu.RUnlock()
+
+	ctx, cancel := context.WithTimeout(s.backgroundCtx, 3*time.Second)
+	defer cancel()
+	visible, err := s.loadPublicServerIDs(ctx)
+	if err != nil {
+		s.publicServerIDsMu.RLock()
+		defer s.publicServerIDsMu.RUnlock()
+		_, ok := s.publicServerIDs[serverID]
+		return ok
+	}
+	s.publicServerIDsMu.Lock()
+	s.publicServerIDs = visible
+	s.publicServerIDsAt = time.Now()
+	_, ok := visible[serverID]
+	s.publicServerIDsMu.Unlock()
+	return ok
+}
+
+// loadPublicServerIDs 汇总所有 public = 1 的状态页绑定的主机 id。
+func (s *Service) loadPublicServerIDs(ctx context.Context) (map[string]struct{}, error) {
+	db, err := s.open(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer db.Close()
+	rows, err := db.QueryContext(ctx, `SELECT COALESCE(server_ids_json, '[]') FROM server_status_pages WHERE public = 1`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	visible := make(map[string]struct{})
+	for rows.Next() {
+		var raw string
+		if err := rows.Scan(&raw); err != nil {
+			return nil, err
+		}
+		var ids []string
+		if err := json.Unmarshal([]byte(raw), &ids); err != nil {
+			continue
+		}
+		for _, id := range ids {
+			if id = strings.TrimSpace(id); id != "" {
+				visible[id] = struct{}{}
+			}
+		}
+	}
+	return visible, rows.Err()
 }
