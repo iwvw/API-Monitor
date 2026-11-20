@@ -21,7 +21,11 @@ func (s *Service) r2Buckets(w http.ResponseWriter, r *http.Request, accountID st
 	if !ok {
 		return
 	}
-	cfAccountID, err := s.cloudflareAccountID(r.Context(), auth)
+	resolveAccountID := s.cloudflareAccountID
+	if r.Method == http.MethodPost {
+		resolveAccountID = s.cloudflareAccountIDStrict
+	}
+	cfAccountID, err := resolveAccountID(r.Context(), auth)
 	if err != nil {
 		response.JSON(w, http.StatusInternalServerError, map[string]interface{}{"error": err.Error()})
 		return
@@ -75,7 +79,7 @@ func (s *Service) deleteR2Bucket(w http.ResponseWriter, r *http.Request, account
 	if !ok {
 		return
 	}
-	cfAccountID, err := s.cloudflareAccountID(r.Context(), auth)
+	cfAccountID, err := s.cloudflareAccountIDStrict(r.Context(), auth)
 	if err != nil {
 		response.JSON(w, http.StatusInternalServerError, map[string]interface{}{"error": err.Error()})
 		return
@@ -185,7 +189,7 @@ func (s *Service) deleteR2Object(w http.ResponseWriter, r *http.Request, account
 	if !ok {
 		return
 	}
-	cfAccountID, err := s.cloudflareAccountID(r.Context(), auth)
+	cfAccountID, err := s.cloudflareAccountIDStrict(r.Context(), auth)
 	if err != nil {
 		response.JSON(w, http.StatusInternalServerError, map[string]interface{}{"error": err.Error()})
 		return
@@ -208,7 +212,7 @@ func (s *Service) uploadR2Object(w http.ResponseWriter, r *http.Request, account
 	if !ok {
 		return
 	}
-	cfAccountID, err := s.cloudflareAccountID(r.Context(), auth)
+	cfAccountID, err := s.cloudflareAccountIDStrict(r.Context(), auth)
 	if err != nil {
 		response.JSON(w, http.StatusInternalServerError, map[string]interface{}{"error": err.Error()})
 		return
@@ -432,6 +436,29 @@ func zipEntryNameSafe(rel string) bool {
 	return true
 }
 
+var r2InlinePreviewTypes = map[string]bool{
+	"image/png":                true,
+	"image/jpeg":               true,
+	"image/gif":                true,
+	"image/webp":               true,
+	"image/bmp":                true,
+	"image/x-icon":             true,
+	"image/vnd.microsoft.icon": true,
+	"image/avif":               true,
+	"image/apng":               true,
+	"image/tiff":               true,
+	"text/plain":               true,
+	"application/pdf":          true,
+}
+
+func r2PreviewInlineAllowed(contentType string) bool {
+	lower := strings.ToLower(strings.TrimSpace(contentType))
+	if index := strings.IndexByte(lower, ';'); index >= 0 {
+		lower = strings.TrimSpace(lower[:index])
+	}
+	return r2InlinePreviewTypes[lower]
+}
+
 func (s *Service) r2ObjectPreview(w http.ResponseWriter, r *http.Request, accountID, bucketName, objectKey string) {
 	if r.Method != http.MethodGet {
 		response.Error(w, http.StatusMethodNotAllowed, "method not allowed")
@@ -461,10 +488,16 @@ func (s *Service) r2ObjectPreview(w http.ResponseWriter, r *http.Request, accoun
 			contentType = "application/octet-stream"
 		}
 	}
-	w.Header().Set("Content-Type", contentType)
-	w.Header().Set("Content-Disposition", mime.FormatMediaType("inline", map[string]string{"filename": objectFileName(objectKey)}))
 	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("Content-Security-Policy", "sandbox")
 	w.Header().Set("Cache-Control", "private, max-age=60")
+	if r2PreviewInlineAllowed(contentType) {
+		w.Header().Set("Content-Type", contentType)
+		w.Header().Set("Content-Disposition", mime.FormatMediaType("inline", map[string]string{"filename": objectFileName(objectKey)}))
+	} else {
+		w.Header().Set("Content-Type", "application/octet-stream")
+		w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": objectFileName(objectKey)}))
+	}
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(raw)
 }

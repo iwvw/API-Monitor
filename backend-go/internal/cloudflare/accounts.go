@@ -416,16 +416,27 @@ func (s *Service) cloudflareUserEmail(ctx context.Context, auth map[string]strin
 }
 
 func (s *Service) cloudflareAccountID(ctx context.Context, auth map[string]string) (string, error) {
+	return s.resolveCloudflareAccountID(ctx, auth, 1, false)
+}
+
+func (s *Service) cloudflareAccountIDStrict(ctx context.Context, auth map[string]string) (string, error) {
+	return s.resolveCloudflareAccountID(ctx, auth, 5, true)
+}
+
+func (s *Service) resolveCloudflareAccountID(ctx context.Context, auth map[string]string, perPage int, requireUnique bool) (string, error) {
 	if id := strings.TrimSpace(auth["__cf_account_id"]); id != "" {
 		return id, nil
 	}
-	payload, err := s.cfRequest(ctx, http.MethodGet, "/accounts?page=1&per_page=1", auth, nil)
+	payload, err := s.cfRequest(ctx, http.MethodGet, fmt.Sprintf("/accounts?page=1&per_page=%d", perPage), auth, nil)
 	if err != nil {
 		return "", err
 	}
 	accounts := arrayValue(payload["result"])
 	if len(accounts) == 0 {
 		return "", errors.New("未找到 Cloudflare Account ID")
+	}
+	if requireUnique && len(accounts) > 1 {
+		return "", errors.New("当前 Token 可访问多个 Cloudflare 账户,无法确定目标账户,请为该账号显式配置 Cloudflare Account ID")
 	}
 	id := stringValue(objectValue(accounts[0])["id"], "")
 	if id == "" {
