@@ -651,7 +651,7 @@ func cleanupHistory(ctx context.Context, db *sql.DB, repoID int64, days int) (ma
 		for {
 			query := fmt.Sprintf("DELETE FROM %s WHERE rowid IN (SELECT rowid FROM %s WHERE %s < ?", table, table, column)
 			args := []interface{}{cutoff}
-			if repoID > 0 && table != "github_webhook_deliveries" {
+			if repoID > 0 {
 				query += " AND repository_id = ?"
 				args = append(args, repoID)
 			}

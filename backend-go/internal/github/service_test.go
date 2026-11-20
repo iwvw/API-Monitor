@@ -12,6 +12,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -615,5 +616,306 @@ func TestCleanupHistoryKeepsBoundaryDayRowsPerTimestampFormat(t *testing.T) {
 	// 保留期首日当天（cutoff 之后）的数据必须保留，只删除 cutoff 之前的行
 	if keptEvents != 1 || keptRuns != 1 {
 		t.Fatalf("keptEvents=%d keptRuns=%d, want 1/1", keptEvents, keptRuns)
+	}
+}
+
+func TestPublicPagePayloadExcludesPrivateRepositories(t *testing.T) {
+	service := New(config.Config{DataDir: t.TempDir(), DBName: "test.db"})
+	defer service.Stop()
+	db, err := service.open(t.Context())
+	if err != nil {
+		t.Fatalf("open database: %v", err)
+	}
+	publicResult, err := db.Exec(`INSERT INTO github_repositories (owner, name, full_name, private) VALUES ('acme', 'public-repo', 'acme/public-repo', 0)`)
+	if err != nil {
+		db.Close()
+		t.Fatalf("insert public repository: %v", err)
+	}
+	publicID, _ := publicResult.LastInsertId()
+	privateResult, err := db.Exec(`INSERT INTO github_repositories (owner, name, full_name, private, description) VALUES ('acme', 'private-repo', 'acme/private-repo', 1, 'secret')`)
+	if err != nil {
+		db.Close()
+		t.Fatalf("insert private repository: %v", err)
+	}
+	privateID, _ := privateResult.LastInsertId()
+	repositoryIDs := "[" + strconv.FormatInt(publicID, 10) + "," + strconv.FormatInt(privateID, 10) + "]"
+	if _, err := db.Exec(`INSERT INTO github_public_pages (slug, title, public, cache_seconds, config_json, repository_ids_json)
+		VALUES ('privacy-slug', 'Privacy', 1, 300, '{}', ?)`, repositoryIDs); err != nil {
+		db.Close()
+		t.Fatalf("insert public page: %v", err)
+	}
+	db.Close()
+
+	req := httptest.NewRequest(http.MethodGet, "/api/github/public/pages/privacy-slug", nil)
+	rec := httptest.NewRecorder()
+	service.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("public page status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var envelope struct {
+		Data struct {
+			RepositoryIDs []int64                  `json:"repositoryIds"`
+			Repositories  []map[string]interface{} `json:"repositories"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &envelope); err != nil {
+		t.Fatalf("decode public page: %v", err)
+	}
+	if len(envelope.Data.Repositories) != 1 {
+		t.Fatalf("expected only the public repository to be exposed, got %d entries: %s", len(envelope.Data.Repositories), rec.Body.String())
+	}
+	if len(envelope.Data.RepositoryIDs) != 1 || envelope.Data.RepositoryIDs[0] != publicID {
+		t.Fatalf("expected only the public repository id to be exposed, got %v", envelope.Data.RepositoryIDs)
+	}
+	if got := int64Value(envelope.Data.Repositories[0]["id"], 0); got != publicID {
+		t.Fatalf("unexpected exposed repository id: %d", got)
+	}
+	if strings.Contains(rec.Body.String(), "acme/private-repo") || strings.Contains(rec.Body.String(), "secret") {
+		t.Fatalf("public page leaked private repository data: %s", rec.Body.String())
+	}
+}
+
+func TestPublicPageRepositoryEndpointRejectsPrivateRepository(t *testing.T) {
+	service := New(config.Config{DataDir: t.TempDir(), DBName: "test.db"})
+	defer service.Stop()
+	db, err := service.open(t.Context())
+	if err != nil {
+		t.Fatalf("open database: %v", err)
+	}
+	privateResult, err := db.Exec(`INSERT INTO github_repositories (owner, name, full_name, private) VALUES ('acme', 'private-repo', 'acme/private-repo', 1)`)
+	if err != nil {
+		db.Close()
+		t.Fatalf("insert private repository: %v", err)
+	}
+	privateID, _ := privateResult.LastInsertId()
+	repositoryIDs := "[" + strconv.FormatInt(privateID, 10) + "]"
+	if _, err := db.Exec(`INSERT INTO github_public_pages (slug, title, public, cache_seconds, config_json, repository_ids_json)
+		VALUES ('private-slug', 'Private', 1, 300, '{}', ?)`, repositoryIDs); err != nil {
+		db.Close()
+		t.Fatalf("insert public page: %v", err)
+	}
+	db.Close()
+
+	req := httptest.NewRequest(http.MethodGet, "/api/github/public/pages/private-slug/repositories/"+strconv.FormatInt(privateID, 10), nil)
+	rec := httptest.NewRecorder()
+	service.ServeHTTP(rec, req)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected private repository to be hidden, status=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestPublicPagePayloadCacheServesRepeatedRequests(t *testing.T) {
+	var apiCalls int32
+	githubAPI := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&apiCalls, 1)
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case strings.HasPrefix(r.URL.Path, "/repos/acme/cache-repo/actions/runs/99/jobs"):
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{"jobs": []interface{}{}})
+		case strings.HasPrefix(r.URL.Path, "/repos/acme/cache-repo/actions/workflows"):
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{"total_count": 0, "workflows": []interface{}{}})
+		default:
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{})
+		}
+	}))
+	defer githubAPI.Close()
+
+	service := New(config.Config{DataDir: t.TempDir(), DBName: "test.db"})
+	defer service.Stop()
+	service.client.baseURL = githubAPI.URL
+
+	encrypted, err := secure.SecureEncrypt("token-1")
+	if err != nil {
+		t.Fatalf("encrypt token: %v", err)
+	}
+	db, err := service.open(t.Context())
+	if err != nil {
+		t.Fatalf("open database: %v", err)
+	}
+	if _, err := db.Exec(`INSERT INTO github_tokens (name, token_encrypted, enabled, default_token) VALUES ('primary', ?, 1, 1)`, encrypted); err != nil {
+		db.Close()
+		t.Fatalf("insert token: %v", err)
+	}
+	repoResult, err := db.Exec(`INSERT INTO github_repositories (owner, name, full_name, private) VALUES ('acme', 'cache-repo', 'acme/cache-repo', 0)`)
+	if err != nil {
+		db.Close()
+		t.Fatalf("insert repository: %v", err)
+	}
+	repoID, _ := repoResult.LastInsertId()
+	if _, err := db.Exec(`INSERT INTO github_action_runs (repository_id, run_id, workflow_name, status, conclusion, branch, commit_sha, created_at)
+		VALUES (?, 99, 'CI', 'completed', 'success', 'main', 'abc', ?)`, repoID, time.Now().UTC().Format(time.RFC3339)); err != nil {
+		db.Close()
+		t.Fatalf("insert action run: %v", err)
+	}
+	if _, err := db.Exec(`INSERT INTO github_public_pages (slug, title, public, cache_seconds, config_json, repository_ids_json)
+		VALUES ('cache-slug', 'Cache', 1, 300, '{}', ?)`, "["+strconv.FormatInt(repoID, 10)+"]"); err != nil {
+		db.Close()
+		t.Fatalf("insert public page: %v", err)
+	}
+	db.Close()
+
+	for i := 0; i < 2; i++ {
+		req := httptest.NewRequest(http.MethodGet, "/api/github/public/pages/cache-slug", nil)
+		rec := httptest.NewRecorder()
+		service.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("request %d status=%d body=%s", i, rec.Code, rec.Body.String())
+		}
+	}
+	if got := atomic.LoadInt32(&apiCalls); got != 2 {
+		t.Fatalf("expected workflow details fetched once (2 API calls) and reused from cache, got %d calls", got)
+	}
+}
+
+func TestPublicPayloadCacheHonorsMinRefreshInterval(t *testing.T) {
+	service := &Service{publicCache: map[string]publicPayloadCacheEntry{}}
+	var computations int
+	compute := func() (map[string]interface{}, error) {
+		computations++
+		return map[string]interface{}{"ok": true}, nil
+	}
+	if _, err := service.publicPayloadCached("page:1:true", time.Minute, compute); err != nil {
+		t.Fatalf("initial compute: %v", err)
+	}
+	service.publicCacheMu.Lock()
+	entry := service.publicCache["page:1:true"]
+	entry.expiresAt = time.Now().Add(-time.Second)
+	service.publicCache["page:1:true"] = entry
+	service.publicCacheMu.Unlock()
+	if _, err := service.publicPayloadCached("page:1:true", time.Minute, compute); err != nil {
+		t.Fatalf("stale read: %v", err)
+	}
+	if computations != 1 {
+		t.Fatalf("expected the minimum refresh interval to reuse the stale payload, got %d computations", computations)
+	}
+	service.publicCacheMu.Lock()
+	entry = service.publicCache["page:1:true"]
+	entry.computedAt = time.Now().Add(-2 * publicMinRefreshInterval)
+	service.publicCache["page:1:true"] = entry
+	service.publicCacheMu.Unlock()
+	if _, err := service.publicPayloadCached("page:1:true", time.Minute, compute); err != nil {
+		t.Fatalf("refresh compute: %v", err)
+	}
+	if computations != 2 {
+		t.Fatalf("expected a recompute after the minimum refresh interval, got %d computations", computations)
+	}
+}
+
+func TestWebhookRejectsInvalidSignatureWithoutStoring(t *testing.T) {
+	service := New(config.Config{DataDir: t.TempDir(), DBName: "test.db"})
+	defer service.Stop()
+	db, err := service.open(t.Context())
+	if err != nil {
+		t.Fatalf("open database: %v", err)
+	}
+	repoResult, err := db.Exec(`INSERT INTO github_repositories (owner, name, full_name, webhook_secret) VALUES ('acme', 'hook-repo', 'acme/hook-repo', 'secret')`)
+	if err != nil {
+		db.Close()
+		t.Fatalf("insert repository: %v", err)
+	}
+	repoID, _ := repoResult.LastInsertId()
+	db.Close()
+
+	raw := `{"action":"opened","repository":{"full_name":"acme/hook-repo"}}`
+	req := httptest.NewRequest(http.MethodPost, "/api/github/webhook/"+strconv.FormatInt(repoID, 10), strings.NewReader(raw))
+	req.Header.Set("X-GitHub-Event", "issues")
+	req.Header.Set("X-GitHub-Delivery", "invalid-delivery")
+	req.Header.Set("X-Hub-Signature-256", "sha256=deadbeef")
+	rec := httptest.NewRecorder()
+	service.ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("expected invalid signature to be rejected, status=%d body=%s", rec.Code, rec.Body.String())
+	}
+
+	db, err = service.open(t.Context())
+	if err != nil {
+		t.Fatalf("reopen database: %v", err)
+	}
+	defer db.Close()
+	var count int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM github_webhook_deliveries WHERE delivery_id = 'invalid-delivery'`).Scan(&count); err != nil {
+		t.Fatalf("count deliveries: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("invalid signature must not be stored, got %d rows", count)
+	}
+}
+
+func TestWebhookRejectsOversizedPayload(t *testing.T) {
+	service := New(config.Config{DataDir: t.TempDir(), DBName: "test.db"})
+	defer service.Stop()
+	db, err := service.open(t.Context())
+	if err != nil {
+		t.Fatalf("open database: %v", err)
+	}
+	repoResult, err := db.Exec(`INSERT INTO github_repositories (owner, name, full_name, webhook_secret) VALUES ('acme', 'big-repo', 'acme/big-repo', 'secret')`)
+	if err != nil {
+		db.Close()
+		t.Fatalf("insert repository: %v", err)
+	}
+	repoID, _ := repoResult.LastInsertId()
+	db.Close()
+
+	raw := strings.Repeat("a", maxWebhookBodyBytes+1)
+	req := httptest.NewRequest(http.MethodPost, "/api/github/webhook/"+strconv.FormatInt(repoID, 10), strings.NewReader(raw))
+	req.Header.Set("X-GitHub-Event", "issues")
+	req.Header.Set("X-GitHub-Delivery", "oversized-delivery")
+	rec := httptest.NewRecorder()
+	service.ServeHTTP(rec, req)
+	if rec.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("expected oversized payload to be rejected, status=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestCleanupHistoryScopesWebhookDeliveriesToRepository(t *testing.T) {
+	service := New(config.Config{DataDir: t.TempDir(), DBName: "test.db"})
+	defer service.Stop()
+	db, err := service.open(t.Context())
+	if err != nil {
+		t.Fatalf("open database: %v", err)
+	}
+	defer db.Close()
+	ctx := context.Background()
+
+	firstResult, err := db.Exec(`INSERT INTO github_repositories (owner, name, full_name) VALUES ('acme', 'repo-one', 'acme/repo-one')`)
+	if err != nil {
+		t.Fatalf("insert first repository: %v", err)
+	}
+	firstID, _ := firstResult.LastInsertId()
+	secondResult, err := db.Exec(`INSERT INTO github_repositories (owner, name, full_name) VALUES ('acme', 'repo-two', 'acme/repo-two')`)
+	if err != nil {
+		t.Fatalf("insert second repository: %v", err)
+	}
+	secondID, _ := secondResult.LastInsertId()
+
+	oldAt := time.Now().AddDate(0, 0, -60).UTC().Format("2006-01-02 15:04:05")
+	for _, item := range []struct {
+		repoID     int64
+		deliveryID string
+	}{
+		{firstID, "first-old"},
+		{secondID, "second-old"},
+	} {
+		if _, err := db.Exec(`INSERT INTO github_webhook_deliveries (repository_id, delivery_id, event_type, created_at) VALUES (?, ?, 'issues', ?)`, item.repoID, item.deliveryID, oldAt); err != nil {
+			t.Fatalf("insert delivery %s: %v", item.deliveryID, err)
+		}
+	}
+
+	if _, err := cleanupHistory(ctx, db, firstID, 30); err != nil {
+		t.Fatalf("cleanup history: %v", err)
+	}
+
+	var firstCount, secondCount int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM github_webhook_deliveries WHERE delivery_id = 'first-old'`).Scan(&firstCount); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.QueryRow(`SELECT COUNT(*) FROM github_webhook_deliveries WHERE delivery_id = 'second-old'`).Scan(&secondCount); err != nil {
+		t.Fatal(err)
+	}
+	if firstCount != 0 {
+		t.Fatalf("expected the scoped repository deliveries to be deleted, got %d", firstCount)
+	}
+	if secondCount != 1 {
+		t.Fatalf("cleanup must not touch other repositories' deliveries, got %d rows", secondCount)
 	}
 }

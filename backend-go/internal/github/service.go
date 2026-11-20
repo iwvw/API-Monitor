@@ -46,6 +46,8 @@ type Service struct {
 	webhookRefreshMu    sync.Mutex
 	webhookRefreshBusy  map[int64]bool
 	webhookRefreshTimer map[int64]*time.Timer
+	publicCacheMu       sync.Mutex
+	publicCache         map[string]publicPayloadCacheEntry
 }
 
 func New(cfg config.Config) *Service {
@@ -59,6 +61,7 @@ func New(cfg config.Config) *Service {
 		actionLastPoll:      map[int64]time.Time{},
 		webhookRefreshBusy:  map[int64]bool{},
 		webhookRefreshTimer: map[int64]*time.Timer{},
+		publicCache:         map[string]publicPayloadCacheEntry{},
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -250,6 +253,7 @@ func (s *Service) publicPages(w http.ResponseWriter, r *http.Request) {
 			response.Error(w, http.StatusNotFound, "公开页不存在")
 			return
 		}
+		s.invalidatePublicPageCache(page.ID)
 		response.OK(w, page)
 	default:
 		response.Error(w, http.StatusMethodNotAllowed, "method not allowed")
@@ -285,6 +289,7 @@ func (s *Service) publicPageByID(w http.ResponseWriter, r *http.Request, idText 
 			response.Error(w, http.StatusNotFound, "公开页不存在")
 			return
 		}
+		s.invalidatePublicPageCache(page.ID)
 		response.OK(w, page)
 	case http.MethodDelete:
 		result, err := db.ExecContext(r.Context(), `DELETE FROM github_public_pages WHERE id = ?`, id)
@@ -297,6 +302,7 @@ func (s *Service) publicPageByID(w http.ResponseWriter, r *http.Request, idText 
 			response.Error(w, http.StatusNotFound, "公开页不存在")
 			return
 		}
+		s.invalidatePublicPageCache(id)
 		response.OK(w, map[string]interface{}{"deleted": true})
 	default:
 		response.Error(w, http.StatusMethodNotAllowed, "method not allowed")
@@ -322,7 +328,7 @@ func (s *Service) publicPageBySlug(w http.ResponseWriter, r *http.Request, slug 
 	}
 
 	summary := boolQuery(r, "summary", false)
-	payload, err := s.publicPagePayload(r.Context(), db, page, !summary)
+	payload, err := s.cachedPublicPagePayload(r.Context(), db, page, !summary)
 	if err != nil {
 		response.Error(w, http.StatusInternalServerError, err.Error())
 		return
@@ -355,7 +361,7 @@ func (s *Service) publicPageByDomain(w http.ResponseWriter, r *http.Request) {
 	}
 
 	summary := boolQuery(r, "summary", false)
-	payload, err := s.publicPagePayload(r.Context(), db, page, !summary)
+	payload, err := s.cachedPublicPagePayload(r.Context(), db, page, !summary)
 	if err != nil {
 		response.Error(w, http.StatusInternalServerError, err.Error())
 		return
@@ -407,24 +413,37 @@ func (s *Service) publicPageRepositoryBySlug(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	item, _, latestRun, ok, err := s.publicRepositorySummaryItem(r.Context(), db, repoID)
+	ctx := r.Context()
+	allowPrivate := publicPageAllowsPrivate(page)
+	runIDParam := strings.TrimSpace(r.URL.Query().Get("run_id"))
+	cacheKey := "repo:" + strconv.FormatInt(repoID, 10) + ":" + runIDParam
+	item, err := s.publicPayloadCached(cacheKey, publicWorkflowCacheTTL(page), func() (map[string]interface{}, error) {
+		item, repo, latestRun, ok, err := s.publicRepositorySummaryItem(ctx, db, repoID)
+		if err != nil {
+			return nil, err
+		}
+		if !ok || (repo.Private && !allowPrivate) {
+			return nil, nil
+		}
+		if runIDParam != "" {
+			if rid, parseErr := strconv.ParseInt(runIDParam, 10, 64); parseErr == nil && rid > 0 {
+				if specificRun, ok, _ := getActionRunByRunID(ctx, db, repoID, rid); ok {
+					latestRun = specificRun
+					item["latest_run"] = specificRun
+				}
+			}
+		}
+		s.attachPublicRepositoryWorkflowDetail(ctx, db, item, latestRun, allowPrivate)
+		return item, nil
+	})
 	if err != nil {
 		response.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	if !ok {
+	if item == nil {
 		response.Error(w, http.StatusNotFound, "仓库不存在")
 		return
 	}
-	if runIDParam := r.URL.Query().Get("run_id"); runIDParam != "" {
-		if rid, parseErr := strconv.ParseInt(runIDParam, 10, 64); parseErr == nil && rid > 0 {
-			if specificRun, ok, _ := getActionRunByRunID(r.Context(), db, repoID, rid); ok {
-				latestRun = specificRun
-				item["latest_run"] = specificRun
-			}
-		}
-	}
-	s.attachPublicRepositoryWorkflowDetail(r.Context(), db, item, latestRun)
 	setPublicPageCacheControl(w, page, true)
 	response.OK(w, item)
 }
@@ -435,6 +454,97 @@ func setPublicPageCacheControl(w http.ResponseWriter, page PublicPage, realtime 
 		return
 	}
 	w.Header().Set("Cache-Control", fmt.Sprintf("public, max-age=%d", clamp(page.CacheSeconds, 30, 86400)))
+}
+
+type publicPayloadCacheEntry struct {
+	payload    map[string]interface{}
+	computedAt time.Time
+	expiresAt  time.Time
+}
+
+const publicMinRefreshInterval = 15 * time.Second
+
+func publicPageAllowsPrivate(page PublicPage) bool {
+	if page.Config == nil {
+		return false
+	}
+	return boolValue(page.Config["allowPrivateRepositories"], false)
+}
+
+func publicWorkflowCacheTTL(page PublicPage) time.Duration {
+	return time.Duration(clamp(page.CacheSeconds, 15, 60)) * time.Second
+}
+
+func publicPageCacheTTL(page PublicPage) time.Duration {
+	return time.Duration(clamp(page.CacheSeconds, 30, 86400)) * time.Second
+}
+
+func (s *Service) publicPayloadCached(key string, ttl time.Duration, compute func() (map[string]interface{}, error)) (map[string]interface{}, error) {
+	if ttl < publicMinRefreshInterval {
+		ttl = publicMinRefreshInterval
+	}
+	now := time.Now()
+	s.publicCacheMu.Lock()
+	entry, ok := s.publicCache[key]
+	s.publicCacheMu.Unlock()
+	if ok && entry.payload != nil && (now.Before(entry.expiresAt) || now.Sub(entry.computedAt) < publicMinRefreshInterval) {
+		return entry.payload, nil
+	}
+	payload, err := compute()
+	if err != nil {
+		return nil, err
+	}
+	if payload == nil {
+		return nil, nil
+	}
+	s.publicCacheMu.Lock()
+	if s.publicCache == nil {
+		s.publicCache = map[string]publicPayloadCacheEntry{}
+	}
+	s.publicCache[key] = publicPayloadCacheEntry{payload: payload, computedAt: now, expiresAt: now.Add(ttl)}
+	s.publicCacheMu.Unlock()
+	return payload, nil
+}
+
+func (s *Service) cachedPublicPagePayload(ctx context.Context, db *sql.DB, page PublicPage, includeWorkflowDetails bool) (map[string]interface{}, error) {
+	key := "page:" + strconv.FormatInt(page.ID, 10) + ":" + strconv.FormatBool(includeWorkflowDetails)
+	ttl := publicPageCacheTTL(page)
+	if includeWorkflowDetails {
+		ttl = publicWorkflowCacheTTL(page)
+	}
+	return s.publicPayloadCached(key, ttl, func() (map[string]interface{}, error) {
+		return s.publicPagePayload(ctx, db, page, includeWorkflowDetails)
+	})
+}
+
+func (s *Service) invalidatePublicPageCache(pageID int64) {
+	if pageID <= 0 {
+		return
+	}
+	prefix := "page:" + strconv.FormatInt(pageID, 10) + ":"
+	s.publicCacheMu.Lock()
+	for key := range s.publicCache {
+		if strings.HasPrefix(key, prefix) {
+			delete(s.publicCache, key)
+		}
+	}
+	s.publicCacheMu.Unlock()
+}
+
+func (s *Service) publicPageVisibleRepositoryIDs(ctx context.Context, db *sql.DB, page PublicPage) (map[int64]struct{}, error) {
+	allowPrivate := publicPageAllowsPrivate(page)
+	result := make(map[int64]struct{}, len(page.RepositoryIDs))
+	for _, id := range page.RepositoryIDs {
+		repo, ok, err := getRepository(ctx, db, id)
+		if err != nil {
+			return nil, err
+		}
+		if !ok || (repo.Private && !allowPrivate) {
+			continue
+		}
+		result[id] = struct{}{}
+	}
+	return result, nil
 }
 
 func (s *Service) publicPageEventStream(w http.ResponseWriter, r *http.Request, slug string) {
@@ -450,19 +560,21 @@ func (s *Service) publicPageEventStream(w http.ResponseWriter, r *http.Request, 
 		return
 	}
 	page, found, pageErr := getPublicPageBySlug(r.Context(), db, slug, true)
-	db.Close()
 	if pageErr != nil {
+		db.Close()
 		response.Error(w, http.StatusInternalServerError, pageErr.Error())
 		return
 	}
 	if !found {
+		db.Close()
 		response.Error(w, http.StatusNotFound, "公开页不存在或未公开")
 		return
 	}
-
-	repositoryIDs := make(map[int64]struct{}, len(page.RepositoryIDs))
-	for _, repositoryID := range page.RepositoryIDs {
-		repositoryIDs[repositoryID] = struct{}{}
+	repositoryIDs, err := s.publicPageVisibleRepositoryIDs(r.Context(), db, page)
+	db.Close()
+	if err != nil {
+		response.Error(w, http.StatusInternalServerError, err.Error())
+		return
 	}
 
 	w.Header().Set("Content-Type", "text/event-stream")
@@ -515,19 +627,25 @@ func publicPageEventPayload(repositoryIDs map[int64]struct{}, event map[string]i
 }
 
 func (s *Service) publicPagePayload(ctx context.Context, db *sql.DB, page PublicPage, includeWorkflowDetails bool) (map[string]interface{}, error) {
+	allowPrivate := publicPageAllowsPrivate(page)
 	repositories := make([]map[string]interface{}, 0, len(page.RepositoryIDs))
+	visibleIDs := make([]int64, 0, len(page.RepositoryIDs))
 	for _, repoID := range page.RepositoryIDs {
-		item, _, latestRun, ok, err := s.publicRepositorySummaryItem(ctx, db, repoID)
+		item, repo, latestRun, ok, err := s.publicRepositorySummaryItem(ctx, db, repoID)
 		if err != nil {
 			return nil, err
 		}
 		if !ok {
 			continue
 		}
+		if repo.Private && !allowPrivate {
+			continue
+		}
 		if includeWorkflowDetails {
-			s.attachPublicRepositoryWorkflowDetail(ctx, db, item, latestRun)
+			s.attachPublicRepositoryWorkflowDetail(ctx, db, item, latestRun, allowPrivate)
 		}
 		repositories = append(repositories, item)
+		visibleIDs = append(visibleIDs, repoID)
 	}
 
 	return map[string]interface{}{
@@ -539,7 +657,7 @@ func (s *Service) publicPagePayload(ctx context.Context, db *sql.DB, page Public
 		"public":        page.Public,
 		"cacheSeconds":  page.CacheSeconds,
 		"config":        page.Config,
-		"repositoryIds": page.RepositoryIDs,
+		"repositoryIds": visibleIDs,
 		"repositories":  repositories,
 		"createdAt":     page.CreatedAt,
 		"updatedAt":     page.UpdatedAt,
@@ -593,7 +711,7 @@ func (s *Service) publicRepositorySummaryItem(ctx context.Context, db *sql.DB, r
 	return item, repo, latestRun, true, nil
 }
 
-func (s *Service) attachPublicRepositoryWorkflowDetail(ctx context.Context, db *sql.DB, item map[string]interface{}, latestRun map[string]interface{}) {
+func (s *Service) attachPublicRepositoryWorkflowDetail(ctx context.Context, db *sql.DB, item map[string]interface{}, latestRun map[string]interface{}, allowPrivate bool) {
 	if item == nil || latestRun == nil {
 		return
 	}
@@ -604,6 +722,9 @@ func (s *Service) attachPublicRepositoryWorkflowDetail(ctx context.Context, db *
 		Name:          asString(item["name"]),
 		DefaultBranch: asString(item["default_branch"]),
 		Private:       boolValue(item["private"], false),
+	}
+	if repo.Private && !allowPrivate {
+		return
 	}
 
 	token, err := s.tokenForRepository(ctx, db, repo)
@@ -1639,6 +1760,8 @@ func actionPermissionDenied(err error) bool {
 		strings.Contains(message, "requires actions: write")
 }
 
+const maxWebhookBodyBytes = 10 << 20
+
 func (s *Service) webhook(w http.ResponseWriter, r *http.Request, parts []string) {
 	if r.Method != http.MethodPost {
 		response.Error(w, http.StatusMethodNotAllowed, "method not allowed")
@@ -1648,9 +1771,13 @@ func (s *Service) webhook(w http.ResponseWriter, r *http.Request, parts []string
 	if len(parts) >= 2 {
 		repoID, _ = parseID(parts[1])
 	}
-	raw, err := io.ReadAll(io.LimitReader(r.Body, 10<<20))
+	raw, err := io.ReadAll(io.LimitReader(r.Body, maxWebhookBodyBytes+1))
 	if err != nil {
 		response.Error(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if len(raw) > maxWebhookBodyBytes {
+		response.Error(w, http.StatusRequestEntityTooLarge, "webhook payload too large")
 		return
 	}
 	db, err := s.open(r.Context())
@@ -1678,9 +1805,12 @@ func (s *Service) webhook(w http.ResponseWriter, r *http.Request, parts []string
 		}
 		repoID = repo.ID
 	}
+	if !verifySignature(raw, repo.WebhookSecret, r.Header.Get("X-Hub-Signature-256")) {
+		response.Error(w, http.StatusUnauthorized, "GitHub webhook signature invalid")
+		return
+	}
 	delivery := r.Header.Get("X-GitHub-Delivery")
 	eventType := r.Header.Get("X-GitHub-Event")
-	valid := verifySignature(raw, repo.WebhookSecret, r.Header.Get("X-Hub-Signature-256"))
 	duplicate := false
 	if delivery != "" {
 		var count int
@@ -1689,11 +1819,7 @@ func (s *Service) webhook(w http.ResponseWriter, r *http.Request, parts []string
 	}
 	storedPayload, _ := json.Marshal(compactWebhookDeliveryPayload(eventType, payload, raw))
 	_, _ = db.ExecContext(r.Context(), `INSERT OR IGNORE INTO github_webhook_deliveries (repository_id, delivery_id, event_type, signature_valid, duplicate, payload_json)
-		VALUES (?, ?, ?, ?, ?, ?)`, repoID, delivery, eventType, boolInt(valid), boolInt(duplicate), string(storedPayload))
-	if !valid {
-		response.Error(w, http.StatusUnauthorized, "GitHub webhook signature invalid")
-		return
-	}
+		VALUES (?, ?, ?, 1, ?, ?)`, repoID, delivery, eventType, boolInt(duplicate), string(storedPayload))
 	if duplicate {
 		response.OK(w, map[string]interface{}{"duplicate": true})
 		return
