@@ -151,6 +151,7 @@ func (s *Service) StartBackgroundCleanup() {
 	if s.cleanupCancel != nil {
 		return
 	}
+	s.applyLogFileMaxSize(context.Background())
 	ctx, cancel := context.WithCancel(context.Background())
 	s.cleanupCancel = cancel
 	s.cleanupWG.Add(1)
@@ -244,6 +245,15 @@ func (s *Service) walMaintenanceOnce(ctx context.Context) bool {
 	}
 	applog.Info(ctx, "settings", fmt.Sprintf("wal checkpoint passived (wal before=%s)", sizeMBString(before)))
 	return ok
+}
+
+func (s *Service) applyLogFileMaxSize(ctx context.Context) {
+	db, err := s.store.Open(ctx)
+	if err != nil {
+		return
+	}
+	defer db.Close()
+	applog.SetMaxFileSizeMB(getConfigInt(ctx, db, "log_file_max_size_mb", 10))
 }
 
 func (s *Service) runBackgroundCleanup(ctx context.Context) {
@@ -977,6 +987,7 @@ func (s *Service) saveLogSettings(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	applog.SetMaxFileSizeMB(logFileSizeMB)
 
 	response.JSON(w, http.StatusOK, map[string]interface{}{
 		"success":  true,
@@ -1178,6 +1189,15 @@ func (s *Service) runVacuum(ctx context.Context) {
 }
 
 func (s *Service) clearLogs(w http.ResponseWriter, r *http.Request) {
+	if !database.SwapMutex().TryLock() {
+		response.JSON(w, http.StatusConflict, map[string]interface{}{
+			"success": false,
+			"message": errDatabaseSwapInProgress.Error(),
+		})
+		return
+	}
+	defer database.SwapMutex().Unlock()
+
 	db, err := s.store.Open(r.Context())
 	if err != nil {
 		response.Error(w, http.StatusInternalServerError, err.Error())
@@ -1210,6 +1230,15 @@ func (s *Service) enforceLogLimits(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+
+	if !database.SwapMutex().TryLock() {
+		response.JSON(w, http.StatusConflict, map[string]interface{}{
+			"success": false,
+			"message": errDatabaseSwapInProgress.Error(),
+		})
+		return
+	}
+	defer database.SwapMutex().Unlock()
 
 	db, err := s.store.Open(r.Context())
 	if err != nil {

@@ -354,3 +354,26 @@ func TestMiddlewareValidatesClientRequestID(t *testing.T) {
 		})
 	}
 }
+
+func TestSetMaxFileSizeMBUpdatesRotationLimit(t *testing.T) {
+	mu.Lock()
+	original := maxSize
+	mu.Unlock()
+	defer func() { SetMaxFileSizeMB(int(original / (1024 * 1024))) }()
+
+	SetMaxFileSizeMB(3)
+	mu.Lock()
+	got := maxSize
+	mu.Unlock()
+	if got != int64(3)*1024*1024 {
+		t.Fatalf("maxSize after SetMaxFileSizeMB(3) = %d, want %d", got, int64(3)*1024*1024)
+	}
+
+	SetMaxFileSizeMB(0)
+	mu.Lock()
+	got = maxSize
+	mu.Unlock()
+	if got != int64(defaultMaxMB)*1024*1024 {
+		t.Fatalf("maxSize after SetMaxFileSizeMB(0) = %d, want default %d", got, int64(defaultMaxMB)*1024*1024)
+	}
+}

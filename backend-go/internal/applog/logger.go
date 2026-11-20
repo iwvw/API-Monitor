@@ -80,6 +80,15 @@ func Init(dataDir string, maxFileSizeMB int) error {
 	return nil
 }
 
+func SetMaxFileSizeMB(maxFileSizeMB int) {
+	mu.Lock()
+	defer mu.Unlock()
+	if maxFileSizeMB < 1 {
+		maxFileSizeMB = defaultMaxMB
+	}
+	maxSize = int64(maxFileSizeMB) * 1024 * 1024
+}
+
 // stdlogWriter 把标准库 log 的每一行转成 applog 日志，统一格式。
 type stdlogWriter struct{}
 
