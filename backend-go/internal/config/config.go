@@ -2,11 +2,14 @@ package config
 
 import (
 	"fmt"
+	"log"
 	"net"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
+
+	"github.com/iwvw/api-monitor/backend-go/internal/secure"
 )
 
 type Config struct {
@@ -82,18 +85,21 @@ func (c Config) IsProduction() bool {
 }
 
 func (c Config) ValidateSecurity() error {
-	if !c.IsProduction() {
-		return nil
+	encryptionKey := strings.TrimSpace(os.Getenv("ENCRYPTION_KEY"))
+	if encryptionKey == "" {
+		if c.IsProduction() || secure.StrictEncryptionRequired() {
+			return fmt.Errorf("ENCRYPTION_KEY is required; set it to a random string of at least 32 characters")
+		}
+		if !secure.AllowInsecureDefaultKey() {
+			log.Printf("SECURITY WARNING: ENCRYPTION_KEY is not set; all sensitive fields are encrypted with the built-in default key. Set ENCRYPTION_KEY to a random string of at least 32 characters before production; set %s=1 to acknowledge this for local development only.", secure.InsecureDefaultKeyEnv)
+		}
 	}
-	for _, item := range []struct {
-		name  string
-		value string
-	}{
-		{name: "ENCRYPTION_KEY", value: os.Getenv("ENCRYPTION_KEY")},
-		{name: "JWT_SECRET", value: os.Getenv("JWT_SECRET")},
-	} {
-		if len(strings.TrimSpace(item.value)) < 32 {
-			return fmt.Errorf("production requires %s with at least 32 characters", item.name)
+	if c.IsProduction() {
+		if len(encryptionKey) < 32 {
+			return fmt.Errorf("production requires ENCRYPTION_KEY with at least 32 characters")
+		}
+		if len(strings.TrimSpace(os.Getenv("JWT_SECRET"))) < 32 {
+			return fmt.Errorf("production requires JWT_SECRET with at least 32 characters")
 		}
 	}
 	return nil

@@ -20,6 +20,20 @@ import (
 // defaultEncryptKey is for testing only. Production must set ENCRYPTION_KEY.
 const defaultEncryptKey = "default-encryption-key-change-in-production-32bytes"
 
+const InsecureDefaultKeyEnv = "API_MONITOR_ALLOW_INSECURE_DEFAULT_KEY"
+
+func AllowInsecureDefaultKey() bool {
+	value := strings.ToLower(strings.TrimSpace(os.Getenv(InsecureDefaultKeyEnv)))
+	return value == "1" || value == "true"
+}
+
+const StrictEncryptionEnv = "API_MONITOR_STRICT_ENCRYPTION"
+
+func StrictEncryptionRequired() bool {
+	value := strings.ToLower(strings.TrimSpace(os.Getenv(StrictEncryptionEnv)))
+	return value == "1" || value == "true"
+}
+
 var encryptedPattern = regexp.MustCompile(`^[0-9a-fA-F]+:[0-9a-fA-F]+:[0-9a-fA-F]+$`)
 
 func IsEncrypted(value string) bool {
@@ -128,12 +142,22 @@ func EncryptNodeGCM(plain string) (string, error) {
 	return fmt.Sprintf("%s:%s:%s", hex.EncodeToString(iv), hex.EncodeToString(authTag), hex.EncodeToString(cipherText)), nil
 }
 
-// encryptionKey 用于加解密。生产环境的密钥强度由 config.ValidateSecurity
-// 强制校验（ENCRYPTION_KEY 至少 32 字符）；未配置时回退默认密钥仅适用于
-// 开发/测试，正式部署必须设置真实密钥。
+// encryptionKey 用于加解密。ENCRYPTION_KEY 缺失时回退内置默认密钥：未显式承认
+// （API_MONITOR_ALLOW_INSECURE_DEFAULT_KEY）时每次使用都打告警，已承认时只打一次。
+var defaultKeyWarnOnce sync.Once
+
+func warnDefaultEncryptionKey() {
+	log.Printf("SECURITY WARNING: ENCRYPTION_KEY is not set; using the built-in default encryption key. TOTP seeds, API keys and client secrets are NOT protected. Set ENCRYPTION_KEY to a random string of at least 32 characters; set %s=1 to acknowledge this for local development only.", InsecureDefaultKeyEnv)
+}
+
 func encryptionKey() []byte {
-	keySource := os.Getenv("ENCRYPTION_KEY")
+	keySource := strings.TrimSpace(os.Getenv("ENCRYPTION_KEY"))
 	if keySource == "" {
+		if AllowInsecureDefaultKey() {
+			defaultKeyWarnOnce.Do(warnDefaultEncryptionKey)
+		} else {
+			warnDefaultEncryptionKey()
+		}
 		keySource = defaultEncryptKey
 	}
 	key := sha256.Sum256([]byte(keySource))

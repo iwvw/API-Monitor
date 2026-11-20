@@ -1,8 +1,10 @@
 package config
 
 import (
+	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -175,5 +177,51 @@ func TestProductionSecurityValidation(t *testing.T) {
 
 	if err := (Config{Environment: "development"}).ValidateSecurity(); err != nil {
 		t.Fatalf("development should not require production secrets: %v", err)
+	}
+}
+
+func TestValidateSecurityAllowsMissingKeyOutsideProductionWithWarning(t *testing.T) {
+	t.Setenv("ENCRYPTION_KEY", "")
+	t.Setenv("API_MONITOR_ALLOW_INSECURE_DEFAULT_KEY", "")
+	t.Setenv("API_MONITOR_STRICT_ENCRYPTION", "")
+
+	var buf strings.Builder
+	previous := log.Writer()
+	log.SetOutput(&buf)
+	t.Cleanup(func() { log.SetOutput(previous) })
+
+	if err := (Config{Environment: "development"}).ValidateSecurity(); err != nil {
+		t.Fatalf("development without ENCRYPTION_KEY should start with a warning, got: %v", err)
+	}
+	if !strings.Contains(buf.String(), "ENCRYPTION_KEY") {
+		t.Fatalf("expected a warning mentioning ENCRYPTION_KEY, got %q", buf.String())
+	}
+}
+
+func TestValidateSecurityAcknowledgedDefaultKeyStaysQuiet(t *testing.T) {
+	t.Setenv("ENCRYPTION_KEY", "")
+	t.Setenv("API_MONITOR_STRICT_ENCRYPTION", "")
+	t.Setenv("API_MONITOR_ALLOW_INSECURE_DEFAULT_KEY", "1")
+
+	var buf strings.Builder
+	previous := log.Writer()
+	log.SetOutput(&buf)
+	t.Cleanup(func() { log.SetOutput(previous) })
+
+	if err := (Config{Environment: "development"}).ValidateSecurity(); err != nil {
+		t.Fatalf("acknowledged insecure default key should not block startup: %v", err)
+	}
+	if strings.Contains(buf.String(), "SECURITY WARNING") {
+		t.Fatalf("acknowledged insecure default key should not warn, got %q", buf.String())
+	}
+}
+
+func TestValidateSecurityStrictEncryptionRejectsMissingKey(t *testing.T) {
+	t.Setenv("ENCRYPTION_KEY", "")
+	t.Setenv("API_MONITOR_ALLOW_INSECURE_DEFAULT_KEY", "1")
+	t.Setenv("API_MONITOR_STRICT_ENCRYPTION", "1")
+
+	if err := (Config{Environment: "development"}).ValidateSecurity(); err == nil {
+		t.Fatal("strict encryption should reject missing ENCRYPTION_KEY outside production")
 	}
 }

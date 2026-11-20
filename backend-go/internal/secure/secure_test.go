@@ -1,6 +1,7 @@
 package secure
 
 import (
+	"log"
 	"strings"
 	"testing"
 )
@@ -198,5 +199,57 @@ func TestEncryptionKeyDerivation(t *testing.T) {
 	fallback := encryptionKey()
 	if len(fallback) != 32 {
 		t.Fatalf("encryptionKey len = %d, want 32 (sha256)", len(fallback))
+	}
+}
+
+func TestAllowInsecureDefaultKey(t *testing.T) {
+	t.Setenv("API_MONITOR_ALLOW_INSECURE_DEFAULT_KEY", "1")
+	if !AllowInsecureDefaultKey() {
+		t.Fatal("expected 1 to enable the insecure default key")
+	}
+	t.Setenv("API_MONITOR_ALLOW_INSECURE_DEFAULT_KEY", "true")
+	if !AllowInsecureDefaultKey() {
+		t.Fatal("expected true to enable the insecure default key")
+	}
+	t.Setenv("API_MONITOR_ALLOW_INSECURE_DEFAULT_KEY", "0")
+	if AllowInsecureDefaultKey() {
+		t.Fatal("expected 0 to disable the insecure default key")
+	}
+	t.Setenv("API_MONITOR_ALLOW_INSECURE_DEFAULT_KEY", "")
+	if AllowInsecureDefaultKey() {
+		t.Fatal("expected empty to disable the insecure default key")
+	}
+}
+
+func TestStrictEncryptionRequired(t *testing.T) {
+	t.Setenv("API_MONITOR_STRICT_ENCRYPTION", "1")
+	if !StrictEncryptionRequired() {
+		t.Fatal("expected 1 to require strict encryption")
+	}
+	t.Setenv("API_MONITOR_STRICT_ENCRYPTION", "true")
+	if !StrictEncryptionRequired() {
+		t.Fatal("expected true to require strict encryption")
+	}
+	t.Setenv("API_MONITOR_STRICT_ENCRYPTION", "")
+	if StrictEncryptionRequired() {
+		t.Fatal("expected empty to not require strict encryption")
+	}
+}
+
+func TestEncryptionKeyWarnsOnEveryDefaultUse(t *testing.T) {
+	t.Setenv("ENCRYPTION_KEY", "")
+	t.Setenv("API_MONITOR_ALLOW_INSECURE_DEFAULT_KEY", "")
+
+	var buf strings.Builder
+	previous := log.Writer()
+	log.SetOutput(&buf)
+	t.Cleanup(func() { log.SetOutput(previous) })
+
+	if key := encryptionKey(); len(key) != 32 {
+		t.Fatalf("encryptionKey len = %d, want 32", len(key))
+	}
+	encryptionKey()
+	if strings.Count(buf.String(), "SECURITY WARNING") < 2 {
+		t.Fatalf("expected a warning on every default-key use, got %q", buf.String())
 	}
 }
