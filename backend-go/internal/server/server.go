@@ -2,6 +2,9 @@ package server
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/subtle"
+	"encoding/hex"
 	"fmt"
 	"net"
 	"net/http"
@@ -101,6 +104,8 @@ type Server struct {
 	aiagent     *aiagent.Service
 	assets      *assets.Service
 
+	internalCronToken string
+
 	// warmupCancel 在 Shutdown 时取消代理池预热 goroutine，避免后台任务
 	// 在 Gate 结束后继续访问数据目录（测试 teardown 也会受影响）。
 	warmupCancel context.CancelFunc
@@ -199,6 +204,11 @@ func newServer(cfg config.Config) (*Server, error) {
 		return nil, fmt.Errorf("initialize assets schema: %w", err)
 	}
 	assetsService.SetNotifier(notifyService)
+	internalCronToken, err := newInternalCronToken()
+	if err != nil {
+		return nil, fmt.Errorf("generate internal cron token: %w", err)
+	}
+	_ = os.Setenv(internalCronTokenEnv, internalCronToken)
 	server := &Server{
 		cfg:         cfg,
 		auth:        authService,
@@ -241,6 +251,7 @@ func newServer(cfg config.Config) (*Server, error) {
 		aiagent:     aiagentService,
 		assets:      assetsService,
 	}
+	server.internalCronToken = internalCronToken
 	server.onepanel.SetAgentRunner(serverAgentService)
 	server.filebox.SetNodeProvider(serverAgentService)
 	server.filebox.SetAgentFileSource(serverAgentService)
@@ -501,7 +512,7 @@ func (s *Server) authorizeGoRoute(w http.ResponseWriter, r *http.Request, route 
 	// 本机定时任务内部调用（cronjobs internal 任务）：仅放行登记的内部接口，
 	// 且来源必须是本机回环地址，防止外部伪造 X-Internal-Cron 头绕过会话鉴权。
 	// 方法级校验限制为只读动作（admin-ai cron 回调除外），杜绝无会话写操作。
-	if r.Header.Get("X-Internal-Cron") == "true" && isLoopbackRemoteAddr(r.RemoteAddr) && isInternalCronRoute(r.URL.Path) && s.internalCronAllowsMethod(r) {
+	if isLoopbackRemoteAddr(r.RemoteAddr) && isInternalCronRoute(r.URL.Path) && s.internalCronAllowsMethod(r) && s.internalCronAuthorized(r) {
 		return true
 	}
 	// 仅本机内部调用：网关转发等 loopback 来源免密钥放行，外部一律拒绝。
@@ -607,12 +618,17 @@ func apiKeyRequiresSession(path string) bool {
 			return true
 		}
 	}
-	protectedSettings := map[string]bool{
-		"/api/settings/database/import":           true,
-		"/api/settings/export-database":           true,
-		"/api/settings/cleanup-deprecated-tables": true,
+	protectedSettings := []string{
+		"/api/settings/database/import",
+		"/api/settings/export-database",
+		"/api/settings/cleanup-deprecated-tables",
 	}
-	return protectedSettings[path]
+	for _, prefix := range protectedSettings {
+		if path == prefix || strings.HasPrefix(path, prefix+"/") {
+			return true
+		}
+	}
+	return false
 }
 
 // isLoopbackRemoteAddr 判断请求来源是否为本机回环地址。
@@ -624,6 +640,39 @@ func isLoopbackRemoteAddr(remoteAddr string) bool {
 	host = strings.Trim(host, "[]")
 	ip := net.ParseIP(host)
 	return ip != nil && ip.IsLoopback()
+}
+
+const (
+	internalCronHeader      = "X-Internal-Cron"
+	internalCronTokenHeader = "X-Internal-Cron-Token"
+	internalCronTokenEnv    = "API_MONITOR_INTERNAL_CRON_TOKEN"
+	internalCronStrictEnv   = "API_MONITOR_INTERNAL_CRON_STRICT"
+)
+
+func newInternalCronToken() (string, error) {
+	buf := make([]byte, 32)
+	if _, err := rand.Read(buf); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(buf), nil
+}
+
+// internalCronAuthorized 校验本机内部调用令牌:优先比对本进程启动时生成的随机
+// token(经 API_MONITOR_INTERNAL_CRON_TOKEN 下发给同进程/子进程调用方),固定
+// 字面量不再作为首选。对暂时无法共享 token 的本机调用方,保留回环地址 + 旧字面量
+// 校验作为兜底(残余风险:反代把外部请求变成回环来源时仍可伪造);把
+// API_MONITOR_INTERNAL_CRON_STRICT 设为 true 即可关闭该兜底,只认随机 token。
+func (s *Server) internalCronAuthorized(r *http.Request) bool {
+	if s.internalCronToken != "" {
+		provided := strings.TrimSpace(r.Header.Get(internalCronTokenHeader))
+		if subtle.ConstantTimeCompare([]byte(provided), []byte(s.internalCronToken)) == 1 {
+			return true
+		}
+	}
+	if strings.EqualFold(strings.TrimSpace(os.Getenv(internalCronStrictEnv)), "true") {
+		return false
+	}
+	return r.Header.Get(internalCronHeader) == "true"
 }
 
 // isInternalCronRoute 判断路径是否为登记的本机定时任务内部接口。
@@ -679,7 +728,6 @@ var internalCronReadonlyPrefixes = []string{
 	"/api/cloudflare/zones",
 	"/api/modelhub/analytics",
 	"/api/modelhub/endpoints",
-	"/api/totp",
 	"/api/notification",
 	"/api/scheduler",
 	"/api/backup",
@@ -1117,12 +1165,32 @@ func (s *Server) originAllowedByConfig(origin string) bool {
 }
 
 func (s *Server) originCheckHost(r *http.Request) string {
-	if s.trustForwardedHost(r) {
+	if s.trustForwardedHost(r) && isInternalHostPort(r.Host) {
 		if forwarded := firstForwardedValue(r.Header.Get("X-Forwarded-Host")); forwarded != "" {
 			return forwarded
 		}
 	}
 	return r.Host
+}
+
+// isInternalHostPort 判断 Host 是否为回环/私有地址(带或不带端口)。
+// 仅当后端看到的 Host 本身就是内部地址(反向代理未回写公网 Host)时,
+// 才允许用 X-Forwarded-Host 参与同源判定;否则一律以 Host 为准,
+// 避免客户端注入 X-Forwarded-Host 绕过 CSRF 同源校验。
+func isInternalHostPort(hostPort string) bool {
+	host := strings.TrimSpace(hostPort)
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		host = h
+	}
+	host = strings.Trim(host, "[]")
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return false
+	}
+	return ip.IsLoopback() || ip.IsPrivate()
 }
 
 // requestIsHTTPS 判断请求是否来自 HTTPS(含受信反向代理注入的 X-Forwarded-Proto)。

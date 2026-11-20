@@ -1577,6 +1577,7 @@ func TestInternalCronReadonlyWhitelist(t *testing.T) {
 	cronReq := func(method, path string) *httptest.ResponseRecorder {
 		req := httptest.NewRequest(method, path, nil)
 		req.Header.Set("X-Internal-Cron", "true")
+		req.Header.Set("X-Internal-Cron-Token", handler.internalCronToken)
 		req.RemoteAddr = "127.0.0.1:12345"
 		res := httptest.NewRecorder()
 		handler.ServeHTTP(res, req)
@@ -1589,7 +1590,6 @@ func TestInternalCronReadonlyWhitelist(t *testing.T) {
 		"/api/server/s",
 		"/api/cloudflare/zones",
 		"/api/modelhub/analytics/summary",
-		"/api/totp/accounts",
 		"/api/notification/channels",
 		"/api/drawio/documents",
 		"/api/prompts/entries",
@@ -1630,6 +1630,62 @@ func TestInternalCronReadonlyWhitelist(t *testing.T) {
 	handler.ServeHTTP(resFake, req)
 	if resFake.Code != http.StatusUnauthorized {
 		t.Fatalf("external addr with internal cron header status = %d (want 401) body=%s", resFake.Code, resFake.Body.String())
+	}
+
+	// /api/totp 已移出内部只读白名单:即使带合法 token + 回环也不放行
+	resTotp := cronReq(http.MethodGet, "/api/totp/accounts")
+	if resTotp.Code != http.StatusUnauthorized {
+		t.Fatalf("GET /api/totp/accounts via cron status = %d (want 401) body=%s", resTotp.Code, resTotp.Body.String())
+	}
+}
+
+func TestInternalCronLegacyFallbackByDefault(t *testing.T) {
+	handler := newTestServer(t, config.Config{
+		Version: "test",
+		Host:    "127.0.0.1",
+		Port:    0,
+		DataDir: t.TempDir(),
+		DBName:  "data.db",
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/system/host-metrics", nil)
+	req.Header.Set("X-Internal-Cron", "true")
+	req.RemoteAddr = "127.0.0.1:12345"
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+	if res.Code != http.StatusOK {
+		t.Fatalf("legacy loopback fallback status = %d (want 200) body=%s", res.Code, res.Body.String())
+	}
+}
+
+func TestInternalCronRequiresTokenInStrictMode(t *testing.T) {
+	t.Setenv(internalCronStrictEnv, "true")
+
+	handler := newTestServer(t, config.Config{
+		Version: "test",
+		Host:    "127.0.0.1",
+		Port:    0,
+		DataDir: t.TempDir(),
+		DBName:  "data.db",
+	})
+
+	legacy := httptest.NewRequest(http.MethodGet, "/api/system/host-metrics", nil)
+	legacy.Header.Set("X-Internal-Cron", "true")
+	legacy.RemoteAddr = "127.0.0.1:12345"
+	resLegacy := httptest.NewRecorder()
+	handler.ServeHTTP(resLegacy, legacy)
+	if resLegacy.Code != http.StatusUnauthorized {
+		t.Fatalf("strict mode loopback literal status = %d (want 401) body=%s", resLegacy.Code, resLegacy.Body.String())
+	}
+
+	withToken := httptest.NewRequest(http.MethodGet, "/api/system/host-metrics", nil)
+	withToken.Header.Set("X-Internal-Cron", "true")
+	withToken.Header.Set("X-Internal-Cron-Token", handler.internalCronToken)
+	withToken.RemoteAddr = "127.0.0.1:12345"
+	resToken := httptest.NewRecorder()
+	handler.ServeHTTP(resToken, withToken)
+	if resToken.Code != http.StatusOK {
+		t.Fatalf("strict mode with token status = %d (want 200) body=%s", resToken.Code, resToken.Body.String())
 	}
 }
 
@@ -1900,10 +1956,22 @@ func TestOpenAIServerRouting(t *testing.T) {
 		t.Fatalf("list gateway keys status = %d body=%s", res.Code, res.Body.String())
 	}
 	var listedKeys []struct {
-		APIKey string `json:"apiKey"`
+		APIKey    string `json:"apiKey"`
+		MaskedKey string `json:"maskedKey"`
+		HasKey    bool   `json:"hasKey"`
 	}
-	if err := json.Unmarshal(res.Body.Bytes(), &listedKeys); err != nil || len(listedKeys) != 1 || listedKeys[0].APIKey != keyPayload.APIKey {
-		t.Fatalf("listed gateway key is not recoverable: %v body=%s", err, res.Body.String())
+	if err := json.Unmarshal(res.Body.Bytes(), &listedKeys); err != nil || len(listedKeys) != 1 {
+		t.Fatalf("list gateway keys decode: %v body=%s", err, res.Body.String())
+	}
+	listed := listedKeys[0]
+	if !listed.HasKey || listed.MaskedKey == "" {
+		t.Fatalf("listed gateway key should expose mask and hasKey: body=%s", res.Body.String())
+	}
+	if listed.APIKey != listed.MaskedKey {
+		t.Fatalf("listed apiKey should be the mask, got %q want %q", listed.APIKey, listed.MaskedKey)
+	}
+	if listed.APIKey == keyPayload.APIKey {
+		t.Fatalf("listed gateway key must not expose plaintext: body=%s", res.Body.String())
 	}
 
 	req = httptest.NewRequest(http.MethodGet, "/v1/models", nil)
