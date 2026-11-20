@@ -206,19 +206,27 @@ func (s *Service) aiAccessOverview(r *http.Request) (map[string]interface{}, err
 	if err != nil {
 		return nil, err
 	}
+	maskedKey := maskSecret(key)
+	agentKeyPayload := map[string]interface{}{
+		"value":     key,
+		"masked":    maskedKey,
+		"createdAt": createdAt,
+		"header":    "Authorization: Bearer " + key,
+	}
+	guideKey := key
+	if s.isAISubjectRequest(r) {
+		agentKeyPayload["value"] = maskedKey
+		agentKeyPayload["header"] = "Authorization: Bearer " + maskedKey
+		guideKey = maskedKey
+	}
 	return map[string]interface{}{
-		"agentKey": map[string]interface{}{
-			"value":     key,
-			"masked":    maskSecret(key),
-			"createdAt": createdAt,
-			"header":    "Authorization: Bearer " + key,
-		},
+		"agentKey": agentKeyPayload,
 		"endpoints": map[string]string{
 			"manifest": manifestURL,
 			"mcp":      mcpURL,
 			"openapi":  openAPIURL,
 		},
-		"guide": s.aiAccessGuide(mcpURL, manifestURL, openAPIURL, baseURL, key, tools),
+		"guide": s.aiAccessGuide(mcpURL, manifestURL, openAPIURL, baseURL, guideKey, tools),
 		"tools": tools,
 		"policy": map[string]interface{}{
 			"allowedMethods": []string{http.MethodGet, http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete},
@@ -308,7 +316,26 @@ func (s *Service) getAIAgentAccessPolicy(ctx context.Context, db *sql.DB) (strin
 	return AIAccessPolicyDefault, nil
 }
 
+const aiAgentCallerHeader = "X-AI-Agent"
+
+var errAISubjectForbidden = fmt.Errorf("该操作仅允许管理员会话执行,AI 主体无权调用")
+
+func (s *Service) isAISubjectRequest(r *http.Request) bool {
+	if strings.EqualFold(strings.TrimSpace(r.Header.Get(aiAgentCallerHeader)), "api-monitor") {
+		return true
+	}
+	if s.apiKeys != nil {
+		if _, err := s.apiKeys.Authorize(r.Context(), r, apikeys.ScopeAIMCP); err == nil {
+			return true
+		}
+	}
+	return false
+}
+
 func (s *Service) setAIAgentAccessPolicy(r *http.Request) (map[string]interface{}, error) {
+	if s.isAISubjectRequest(r) {
+		return nil, errAISubjectForbidden
+	}
 	var payload struct {
 		Policy string `json:"policy"`
 	}
@@ -2279,6 +2306,9 @@ func (s *Service) listAIAuditPage(r *http.Request) (map[string]interface{}, erro
 }
 
 func (s *Service) clearAIAudit(r *http.Request) (map[string]interface{}, error) {
+	if s.isAISubjectRequest(r) {
+		return nil, errAISubjectForbidden
+	}
 	db, err := s.store.Open(r.Context())
 	if err != nil {
 		return nil, err
@@ -2291,6 +2321,7 @@ func (s *Service) clearAIAudit(r *http.Request) (map[string]interface{}, error) 
 	if err != nil {
 		return nil, err
 	}
+	_ = s.insertAIAudit(r.Context(), db, "admin", "clear_audit", "/api/system/ai-access/audit/clear", "success", 0, "AI 接入审计记录已清空", s.clientIP(r), r.UserAgent())
 	return s.aiAccessOverview(r)
 }
 

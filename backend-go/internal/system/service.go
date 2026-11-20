@@ -498,6 +498,10 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		payload, err := s.setAIAgentAccessPolicy(r)
 		if err != nil {
+			if errors.Is(err, errAISubjectForbidden) {
+				response.Error(w, http.StatusForbidden, err.Error())
+				return
+			}
 			response.Error(w, http.StatusBadRequest, err.Error())
 			return
 		}
@@ -564,6 +568,10 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		payload, err := s.clearAIAudit(r)
 		if err != nil {
+			if errors.Is(err, errAISubjectForbidden) {
+				response.Error(w, http.StatusForbidden, err.Error())
+				return
+			}
 			response.Error(w, http.StatusInternalServerError, err.Error())
 			return
 		}
