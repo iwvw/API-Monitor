@@ -25,13 +25,12 @@ export function formatBytes(bytes) {
 
 export function r2PreviewKind(key = '') {
   const extension = String(key).split('?')[0].split('#')[0].split('.').pop()?.toLowerCase() || '';
-  if (['png', 'jpg', 'jpeg', 'gif', 'webp', 'avif', 'bmp', 'svg'].includes(extension)) return 'image';
+  if (['png', 'jpg', 'jpeg', 'gif', 'webp', 'avif', 'bmp'].includes(extension)) return 'image';
   if (['mp4', 'webm', 'mov', 'm4v', 'ogg'].includes(extension)) return 'video';
   if (['mp3', 'wav', 'm4a', 'aac', 'flac', 'oga'].includes(extension)) return 'audio';
   if (extension === 'pdf') return 'frame';
   if ([
-    'txt', 'log', 'json', 'xml', 'csv', 'md', 'yaml', 'yml', 'html', 'css', 'js', 'jsx', 'ts', 'tsx',
-    'go', 'py', 'sh', 'sql', 'ini', 'env', 'toml',
+    'txt', 'log', 'json', 'xml', 'csv', 'md', 'yaml', 'yml', 'ini', 'env', 'toml',
   ].includes(extension)) return 'frame';
   return 'unknown';
 }

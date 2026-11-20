@@ -91,13 +91,6 @@ function PublicSharePage() {
         const res = await axios.get(`/api/filebox/public/${encodeURIComponent(code)}`);
         const nextEntry = res.data?.data || null;
         if (!cancelled) setEntry(nextEntry);
-        if (nextEntry?.type === 'text' && !nextEntry.requiresPassword) {
-          const contentRes = await axios.get(fileboxDownloadEndpoint(nextEntry.code), {
-            responseType: 'blob',
-          });
-          const content = await contentRes.data.text();
-          if (!cancelled) setTextPreview(content);
-        }
       } catch (err) {
         if (!cancelled) setError(err.response?.data?.error || '分享不存在或已过期');
       } finally {

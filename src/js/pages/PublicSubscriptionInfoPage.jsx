@@ -24,14 +24,17 @@ function subscriptionTokenFromPath() {
   return match ? decodeURIComponent(match[1]) : '';
 }
 
-function copySubLink(base, token, format = '') {
+function subLink(base, token, format = '') {
   const suffix = format ? `?format=${format}` : '';
-  const text = `${base}/sub/${token}${suffix}`;
+  return `${base}/sub/${token}${suffix}`;
+}
+
+function copySubLink(base, token, format = '') {
+  const text = subLink(base, token, format);
   navigator.clipboard
     ?.writeText(text)
     .then(() => toast.success('订阅链接已复制'))
     .catch(() => toast.error('复制失败'));
-  return text;
 }
 
 function PublicSubscriptionInfoPage() {
@@ -152,25 +155,25 @@ function PublicSubscriptionInfoPage() {
                 <div className="grid gap-2 sm:grid-cols-2">
                   <ClipboardText
                     size="sm"
-                    text={copySubLink(base, token)}
+                    text={subLink(base, token)}
                     tooltip={{ text: '复制自适应订阅链接（按客户端自动识别）', copiedText: '自适应订阅链接已复制' }}
                     labels={{ copyAction: '复制自适应订阅' }}
                   />
                   <ClipboardText
                     size="sm"
-                    text={copySubLink(base, token, 'clash')}
+                    text={subLink(base, token, 'clash')}
                     tooltip={{ text: '复制 Mihomo / Clash 链接', copiedText: 'Mihomo / Clash 链接已复制' }}
                     labels={{ copyAction: '复制 Clash（YAML）' }}
                   />
                   <ClipboardText
                     size="sm"
-                    text={copySubLink(base, token, 'base64')}
+                    text={subLink(base, token, 'base64')}
                     tooltip={{ text: '复制 Base64 链接（sing-box 官方 / v2rayN）', copiedText: 'Base64 链接已复制' }}
                     labels={{ copyAction: '复制 Base64' }}
                   />
                   <ClipboardText
                     size="sm"
-                    text={copySubLink(base, token, 'raw')}
+                    text={subLink(base, token, 'raw')}
                     tooltip={{ text: '复制 Raw 链接', copiedText: 'Raw 链接已复制' }}
                     labels={{ copyAction: '复制 Raw' }}
                   />
