@@ -274,7 +274,7 @@ export function GatewayKeyDialogs({ keysApi, endpointsApi }) {
             API 密钥已创建
           </LayerDialog.Title>
           <LayerDialog.Description>
-            可立即复制，也可稍后从 API 密钥列表查看并复制。
+            请立即复制并妥善保管,关闭后无法再次查看明文。
           </LayerDialog.Description>
           <LayerDialog.Body>
             <div className="space-y-4">

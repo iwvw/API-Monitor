@@ -245,14 +245,13 @@ export function EndpointsTab({
                 tooltip={{ text: '复制 API Base URL', copiedText: '地址已复制', side: 'bottom' }}
                 labels={{ copyAction: '复制 API Base URL' }}
               />
-              {defaultGatewayKey?.apiKey ? (
-                <ClipboardText
-                  size="sm"
-                  text={defaultGatewayKey.apiKey}
-                  className="min-w-0 max-w-md flex-1 font-mono text-[0.9em]"
-                  tooltip={{ text: '复制默认密钥', copiedText: '密钥已复制', side: 'bottom' }}
-                  labels={{ copyAction: '复制默认密钥' }}
-                />
+              {defaultGatewayKey ? (
+                <span
+                  className="min-w-0 max-w-md flex-1 truncate font-mono text-[0.9em] text-kumo-subtle"
+                  title="掩码不可复制,创建或轮换后可复制"
+                >
+                  {defaultGatewayKey.maskedKey}
+                </span>
               ) : (
                 <span className="shrink-0 text-xs font-medium text-kumo-subtle">
                   未设置默认密钥
@@ -724,11 +723,8 @@ export function EndpointsTab({
                           size="sm"
                           variant="secondary"
                           aria-label="复制 API Key"
-                          title="复制 API Key（默认首个）"
-                          onClick={() => {
-                            const keys = [endpoint.apiKey, ...(endpoint.apiKeys || [])].filter(Boolean);
-                            copyTextHelper(keys[0], keys.length > 1 ? '首个 API Key' : 'API Key');
-                          }}
+                          title="创建或轮换后可复制"
+                          disabled
                         >
                           密钥
                         </Button>

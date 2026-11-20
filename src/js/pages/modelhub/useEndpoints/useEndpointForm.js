@@ -48,6 +48,7 @@ export function useEndpointForm({ loadEndpoints, loadAllModels, confirmState }) 
   const [endpointFormError, setEndpointFormError] = useState('');
   const [endpointSaving, setEndpointSaving] = useState(false);
   const [endpointKeyEpoch, setEndpointKeyEpoch] = useState(0);
+  const [endpointKeysDirty, setEndpointKeysDirty] = useState(false);
 
   const openAddEndpointModal = () => {
     setEditingEndpoint(null);
@@ -73,6 +74,7 @@ export function useEndpointForm({ loadEndpoints, loadAllModels, confirmState }) 
       proxyPoolId: '',
     });
     setEndpointFormError('');
+    setEndpointKeysDirty(false);
     setEndpointFormOpen(true);
   };
 
@@ -82,8 +84,8 @@ export function useEndpointForm({ loadEndpoints, loadAllModels, confirmState }) 
       name: endpoint.name || '',
       baseUrl: endpoint.baseUrl || '',
       modelsUrl: endpoint.modelsUrl || '',
-      apiKey: endpoint.apiKey || '',
-      apiKeys: Array.isArray(endpoint.apiKeys) ? endpoint.apiKeys : [],
+      apiKey: '',
+      apiKeys: [],
       headers: Array.isArray(endpoint.headers) ? endpoint.headers : [],
       proxyPool: Array.isArray(endpoint.proxyPool) ? endpoint.proxyPool : [],
       proxyBatches: Array.isArray(endpoint.proxyBatches) ? endpoint.proxyBatches : [],
@@ -100,6 +102,7 @@ export function useEndpointForm({ loadEndpoints, loadAllModels, confirmState }) 
       proxyPoolId: endpoint.proxyPoolId || '',
     });
     setEndpointFormError('');
+    setEndpointKeysDirty(false);
     setEndpointFormOpen(true);
   };
 
@@ -520,10 +523,18 @@ export function useEndpointForm({ loadEndpoints, loadAllModels, confirmState }) 
         ? `/api/modelhub/endpoints/${editingEndpoint.id}`
         : '/api/modelhub/endpoints';
       const apiKeys = (endpointForm.apiKeys || []).map(k => (k || '').trim()).filter(Boolean);
+      const payload = { ...endpointForm, forceProxy: !endpointForm.allowDirectFallback };
+      if (!editingEndpoint || endpointKeysDirty) {
+        payload.apiKey = (endpointForm.apiKey || '').trim();
+        payload.apiKeys = apiKeys;
+      } else {
+        delete payload.apiKey;
+        delete payload.apiKeys;
+      }
       const response = await fetch(url, {
         method: editingEndpoint ? 'PUT' : 'POST',
         headers: getAuthHeaders(),
-        body: JSON.stringify({ ...endpointForm, apiKeys, forceProxy: !endpointForm.allowDirectFallback }),
+        body: JSON.stringify(payload),
       });
       const data = await response.json();
       if (response.ok && (data.success || data.endpoint || data.id)) {
@@ -542,6 +553,7 @@ export function useEndpointForm({ loadEndpoints, loadAllModels, confirmState }) 
   };
 
   const appendEndpointKey = useCallback(() => {
+    setEndpointKeysDirty(true);
     setEndpointForm(current => ({
       ...current,
       apiKeys: [...(current.apiKeys || []), ''],
@@ -549,6 +561,7 @@ export function useEndpointForm({ loadEndpoints, loadAllModels, confirmState }) 
   }, [setEndpointForm]);
 
   const updateEndpointKey = useCallback((rowIndex, value) => {
+    setEndpointKeysDirty(true);
     setEndpointForm(current => {
       if (rowIndex === 0) return { ...current, apiKey: value };
       return {
@@ -564,6 +577,7 @@ export function useEndpointForm({ loadEndpoints, loadAllModels, confirmState }) 
   const removeEndpointKey = useCallback((rowIndex) => {
     if (!confirmPress(`modelhub-endpoint-key:${endpointKeyEpoch}:${rowIndex}`, '删除此 Key')) return;
     setEndpointKeyEpoch(epoch => epoch + 1);
+    setEndpointKeysDirty(true);
     setEndpointForm(current => {
       const keys = [current.apiKey || '', ...(current.apiKeys || [])];
       keys.splice(rowIndex, 1);
@@ -589,6 +603,8 @@ export function useEndpointForm({ loadEndpoints, loadAllModels, confirmState }) 
     setEndpointFormError,
     endpointSaving,
     setEndpointSaving,
+    endpointKeysDirty,
+    setEndpointKeysDirty,
     openAddEndpointModal,
     openEditEndpointModal,
     updateEndpointProxy,

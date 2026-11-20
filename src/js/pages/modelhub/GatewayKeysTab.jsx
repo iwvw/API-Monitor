@@ -1,6 +1,6 @@
 import { Button } from '@cloudflare/kumo/components/button';
 import { SkeletonLine } from '@cloudflare/kumo/components/loader';
-import { ClipboardText, LayerCard, Table } from '@cloudflare/kumo';
+import { LayerCard, Table } from '@cloudflare/kumo';
 import { handleEditableRowDoubleClick } from '../../modules/tableInteractions.js';
 import { formatDateTime } from '../../modules/utils.js';
 import { StatusBadge, AppTable } from '../../components/ui/AppPrimitives.jsx';
@@ -133,14 +133,13 @@ export function GatewayKeysTab({ keys, isArmed }) {
         </div>
       </div>
       <div className="mt-2 min-w-0">
-        {item.apiKey ? (
-          <ClipboardText
-            size="sm"
-            text={item.apiKey}
-            className="w-full min-w-0 font-mono text-[0.9em]"
-            tooltip={{ text: '复制 API Key', copiedText: 'API Key 已复制', side: 'bottom' }}
-            labels={{ copyAction: `复制 ${item.name} 的 API Key` }}
-          />
+        {item.hasKey && item.maskedKey ? (
+          <span
+            className="block truncate font-mono text-[0.9em] text-kumo-subtle"
+            title="掩码不可复制,创建或轮换后可复制"
+          >
+            {item.maskedKey}
+          </span>
         ) : (
           <span className="text-xs text-kumo-subtle">轮换后可查看并复制</span>
         )}
@@ -242,14 +241,13 @@ export function GatewayKeysTab({ keys, isArmed }) {
                       {item.name || '未命名密钥'}
                     </Table.Cell>
                     <Table.Cell className="text-center">
-                      {item.apiKey ? (
-                        <ClipboardText
-                          size="sm"
-                          text={item.apiKey}
-                          className="min-w-0 w-full font-mono text-[0.9em]"
-                          tooltip={{ text: '复制 API Key', copiedText: 'API Key 已复制', side: 'bottom' }}
-                          labels={{ copyAction: `复制 ${item.name} 的 API Key` }}
-                        />
+                      {item.hasKey && item.maskedKey ? (
+                        <span
+                          className="inline-block max-w-full truncate font-mono text-[0.9em] text-kumo-subtle"
+                          title="掩码不可复制,创建或轮换后可复制"
+                        >
+                          {item.maskedKey}
+                        </span>
                       ) : (
                         <span className="text-sm text-kumo-subtle">轮换后可查看并复制</span>
                       )}
