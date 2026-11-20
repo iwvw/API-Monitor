@@ -27,6 +27,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"io"
 	"math/big"
@@ -37,6 +38,7 @@ import (
 	"time"
 
 	"github.com/iwvw/api-monitor/backend-go/internal/applog"
+	"github.com/iwvw/api-monitor/backend-go/internal/proxypool"
 )
 
 const (
@@ -223,12 +225,20 @@ func (s *Service) httpClientFor(sessionKey string) *http.Client {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	raw, err := s.externalPool.SelectProxy(ctx, poolID, sessionKey)
-	if err != nil || strings.TrimSpace(raw) == "" {
+	if err != nil {
+		applog.Warn(ctx, "qoder", "proxy pool selection failed, refusing direct connection", "pool", poolID, "error", err.Error())
+		return failClosedClient(err)
+	}
+	if strings.TrimSpace(raw) == "" {
 		return sharedHTTPClient()
 	}
 	u, err := url.Parse(strings.TrimSpace(raw))
 	if err != nil || u.Host == "" {
-		return sharedHTTPClient()
+		if err == nil {
+			err = fmt.Errorf("代理地址非法")
+		}
+		applog.Warn(ctx, "qoder", "proxy pool returned invalid proxy, refusing direct connection", "pool", poolID, "error", err.Error())
+		return failClosedClient(err)
 	}
 	return &http.Client{
 		Timeout: 5 * time.Minute,
@@ -239,6 +249,27 @@ func (s *Service) httpClientFor(sessionKey string) *http.Client {
 			MaxIdleConnsPerHost: 5,
 		},
 	}
+}
+
+// proxyPoolUnavailableError 表示代理池已配置但没有可用出口(或选路失败)。
+type proxyPoolUnavailableError struct{ err error }
+
+func (e *proxyPoolUnavailableError) Error() string {
+	if errors.Is(e.err, proxypool.ErrPoolUnavailable) {
+		return "代理池无可用出口,已拒绝直连"
+	}
+	return "代理池选择失败,已拒绝直连: " + e.err.Error()
+}
+
+func (e *proxyPoolUnavailableError) Unwrap() error { return e.err }
+
+// failClosedTransport 让请求在发出前立即失败,确保不经直连出网。
+type failClosedTransport struct{ err error }
+
+func (t failClosedTransport) RoundTrip(*http.Request) (*http.Response, error) { return nil, t.err }
+
+func failClosedClient(err error) *http.Client {
+	return &http.Client{Transport: failClosedTransport{err: &proxyPoolUnavailableError{err: err}}}
 }
 
 // -----------------------------------------------------------------------------

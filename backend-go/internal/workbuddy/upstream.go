@@ -14,6 +14,7 @@ import (
 	"crypto/tls"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -24,6 +25,9 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/iwvw/api-monitor/backend-go/internal/applog"
+	"github.com/iwvw/api-monitor/backend-go/internal/proxypool"
 )
 
 // upstreamImplemented 标记上游协议层是否已补全（管理面据此展示状态）。
@@ -385,7 +389,7 @@ func newLoginClient() *http.Client {
 }
 
 // httpClientFor 返回本次出网要用的客户端：配置了代理池时经 ProxyPoolSelector 选出口，
-// 否则用共享客户端。选路失败时静默回退直连，避免代理池故障直接打断转发。
+// 否则用共享客户端。池已配置但没有可用出口(或选路失败)时 fail-closed，拒绝直连。
 // 注意：带代理的客户端按请求新建（连接不复用），换来的是出口可随请求轮换。
 func (s *Service) httpClientFor(sessionKey string) *http.Client {
 	poolID := strings.TrimSpace(s.Settings().ProxyPoolID)
@@ -395,12 +399,20 @@ func (s *Service) httpClientFor(sessionKey string) *http.Client {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	raw, err := s.externalPool.SelectProxy(ctx, poolID, sessionKey)
-	if err != nil || strings.TrimSpace(raw) == "" {
+	if err != nil {
+		applog.Warn(ctx, "workbuddy", "proxy pool selection failed, refusing direct connection", "pool", poolID, "error", err.Error())
+		return failClosedClient(err)
+	}
+	if strings.TrimSpace(raw) == "" {
 		return sharedHTTPClient()
 	}
 	u, err := url.Parse(strings.TrimSpace(raw))
 	if err != nil || u.Host == "" {
-		return sharedHTTPClient()
+		if err == nil {
+			err = fmt.Errorf("代理地址非法")
+		}
+		applog.Warn(ctx, "workbuddy", "proxy pool returned invalid proxy, refusing direct connection", "pool", poolID, "error", err.Error())
+		return failClosedClient(err)
 	}
 	return &http.Client{
 		Timeout: 120 * time.Second,
@@ -411,6 +423,27 @@ func (s *Service) httpClientFor(sessionKey string) *http.Client {
 			MaxIdleConnsPerHost: 5,
 		},
 	}
+}
+
+// proxyPoolUnavailableError 表示代理池已配置但没有可用出口(或选路失败)。
+type proxyPoolUnavailableError struct{ err error }
+
+func (e *proxyPoolUnavailableError) Error() string {
+	if errors.Is(e.err, proxypool.ErrPoolUnavailable) {
+		return "代理池无可用出口,已拒绝直连"
+	}
+	return "代理池选择失败,已拒绝直连: " + e.err.Error()
+}
+
+func (e *proxyPoolUnavailableError) Unwrap() error { return e.err }
+
+// failClosedTransport 让请求在发出前立即失败,确保不经直连出网。
+type failClosedTransport struct{ err error }
+
+func (t failClosedTransport) RoundTrip(*http.Request) (*http.Response, error) { return nil, t.err }
+
+func failClosedClient(err error) *http.Client {
+	return &http.Client{Transport: failClosedTransport{err: &proxyPoolUnavailableError{err: err}}}
 }
 
 // commonHeaders 施加按区域派生的通用请求头。
@@ -1032,6 +1065,10 @@ func (s *Service) chatCompletions(ctx context.Context, w http.ResponseWriter, re
 	backendHeaders(httpReq, &req.Account, req.ConversationID)
 	resp, err := s.httpClientFor(req.Account.ID).Do(httpReq)
 	if err != nil {
+		var poolErr *proxyPoolUnavailableError
+		if errors.As(err, &poolErr) {
+			return &upstreamError{msg: poolErr.Error()}
+		}
 		return &upstreamError{msg: fmt.Sprintf("上游请求失败: %v", err), retryable: true}
 	}
 	defer resp.Body.Close()

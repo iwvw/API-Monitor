@@ -2,6 +2,7 @@ package proxypool
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/iwvw/api-monitor/backend-go/internal/config"
@@ -130,17 +131,48 @@ func TestSelectEmptyPool(t *testing.T) {
 		t.Fatal(err)
 	}
 	sel, err := s.SelectProxy(ctx, "pool-empty", "")
-	if err != nil {
-		t.Fatal(err)
+	if !errors.Is(err, ErrPoolUnavailable) {
+		t.Fatalf("empty pool err=%v, want ErrPoolUnavailable", err)
 	}
 	if sel != "" {
 		t.Fatalf("empty pool should return empty proxy, got %s", sel)
 	}
 	sel, err = s.SelectProxy(ctx, "missing", "")
-	if err != nil {
-		t.Fatal(err)
+	if !errors.Is(err, ErrPoolUnavailable) {
+		t.Fatalf("missing pool err=%v, want ErrPoolUnavailable", err)
 	}
 	if sel != "" {
 		t.Fatalf("missing pool should return empty proxy, got %s", sel)
+	}
+	if sel, err = s.SelectProxy(ctx, "", ""); err != nil || sel != "" {
+		t.Fatalf("unconfigured pool should return empty proxy without error, got %q err=%v", sel, err)
+	}
+}
+
+func TestSelectPoolUnavailableWhenAllBlocked(t *testing.T) {
+	ctx := context.Background()
+	s := New(testCfg(t))
+
+	proxies := []string{"socks5://a:1080", "socks5://b:1080"}
+	if _, err := s.Create(ctx, "pool-all-blocked", "blocked", proxies); err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range proxies {
+		if err := s.ReportResult(ctx, "pool-all-blocked", p, false, true, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	sel, err := s.SelectProxy(ctx, "pool-all-blocked", "")
+	if !errors.Is(err, ErrPoolUnavailable) {
+		t.Fatalf("all-blocked pool err=%v, want ErrPoolUnavailable", err)
+	}
+	if sel != "" {
+		t.Fatalf("all-blocked pool should return empty proxy, got %s", sel)
+	}
+	if err := s.UnbanPool(ctx, "pool-all-blocked"); err != nil {
+		t.Fatal(err)
+	}
+	if sel, err = s.SelectProxy(ctx, "pool-all-blocked", ""); err != nil || sel == "" {
+		t.Fatalf("after unban should select a proxy, got %q err=%v", sel, err)
 	}
 }
