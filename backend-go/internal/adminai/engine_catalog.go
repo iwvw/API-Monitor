@@ -144,6 +144,21 @@ func isCatalogMetaEndpoint(prefix string) bool {
 	return false
 }
 
+var manifestOnlyCallableRoutes = []string{
+	"/api/cloudflare/accounts/{accountId}/r2/buckets/{bucketName}/objects/{objectKey}/download",
+	"/api/cloudflare/accounts/{accountId}/r2/buckets/{bucketName}/objects/folder-download",
+	"/api/cloudflare/accounts/{accountId}/r2/buckets/{bucketName}/objects/{objectKey}/preview",
+}
+
+func manifestOnlyRouteAllowed(path string) bool {
+	for _, template := range manifestOnlyCallableRoutes {
+		if catalogTemplateMatches(template, path) {
+			return true
+		}
+	}
+	return false
+}
+
 // compactSchemaSummary 将请求体 JSON Schema 压缩成单行字段摘要：
 // 「字段名:类型(必填)(枚举a|b) 说明」多字段以逗号分隔，超出长度截断。
 func compactSchemaSummary(r map[string]interface{}) string {

@@ -44,6 +44,40 @@ func authorizeByWhitelist(db *sql.DB, channelID, userID string) bool {
 	return hit > 0
 }
 
+// channelAuthorizer 构造 per-channel 授权:白名单来自 bindings 表,allowFrom 为频道内联白名单。
+// 两者均未配置时默认拒绝(不放行任何入站消息),避免未接授权导致静默越权。
+func (s *Service) channelAuthorizer(channelID string, allowFrom []string) channel.AuthorizeFunc {
+	allow := make(map[string]struct{}, len(allowFrom))
+	for _, uid := range allowFrom {
+		if uid = strings.TrimSpace(uid); uid != "" {
+			allow[uid] = struct{}{}
+		}
+	}
+	return func(userID, username, chatType string) bool {
+		if userID == "" {
+			return false
+		}
+		if _, ok := allow[userID]; ok {
+			return true
+		}
+		db, err := s.open(context.Background())
+		if err != nil {
+			return false
+		}
+		defer db.Close()
+		var total int
+		if err := db.QueryRowContext(context.Background(),
+			`SELECT COUNT(*) FROM admin_ai_channel_bindings WHERE channel_id = ?`, channelID).Scan(&total); err != nil {
+			return false
+		}
+		if total == 0 {
+			slog.Warn("channel-authorize-not-configured", "channelId", channelID, "userId", userID)
+			return false
+		}
+		return authorizeByWhitelist(db, channelID, userID)
+	}
+}
+
 // resolveBotToken 解析频道的 bot token：优先取来源通知渠道（telegram 且启用）的 bot_token，
 // 否则沿用旧配置内联的 botToken（零迁移兼容：旧频道在重新选择来源前继续可用）。
 func (s *Service) resolveBotToken(ctx context.Context, notificationChannelID string, cfg channel.TelegramConfig) (string, error) {
@@ -226,6 +260,7 @@ func (s *Service) reloadChannels(auth func(userID, username, chatType string) bo
 				continue
 			}
 			wc := channel.NewWeChatChannel(id, wcfg, s.chanMgr.registry)
+			wc.SetAuthorize(s.channelAuthorizer(id, wcfg.AllowFrom))
 			s.chanMgr.registry.Register(wc)
 		case "wecom":
 			var wccfg channel.WeComConfig
@@ -233,6 +268,7 @@ func (s *Service) reloadChannels(auth func(userID, username, chatType string) bo
 				continue
 			}
 			wc := channel.NewWeComChannel(id, wccfg, s.chanMgr.registry)
+			wc.SetAuthorize(s.channelAuthorizer(id, nil))
 			s.chanMgr.registry.Register(wc)
 		}
 	}
@@ -295,6 +331,7 @@ func (s *Service) startChannelInstance(ctx context.Context, id string) error {
 			return fmt.Errorf("频道配置解密失败: %w", err)
 		}
 		wc := channel.NewWeChatChannel(id, wcfg, s.chanMgr.registry)
+		wc.SetAuthorize(s.channelAuthorizer(id, wcfg.AllowFrom))
 		ch = wc
 	case "wecom":
 		var wccfg channel.WeComConfig
@@ -302,6 +339,7 @@ func (s *Service) startChannelInstance(ctx context.Context, id string) error {
 			return fmt.Errorf("频道配置解密失败: %w", err)
 		}
 		wcc := channel.NewWeComChannel(id, wccfg, s.chanMgr.registry)
+		wcc.SetAuthorize(s.channelAuthorizer(id, nil))
 		ch = wcc
 	default:
 		return fmt.Errorf("不支持的频道类型: %s", ctype)
@@ -309,6 +347,11 @@ func (s *Service) startChannelInstance(ctx context.Context, id string) error {
 
 	runCtx, cancel := context.WithCancel(context.Background())
 	s.chanMgr.mu.Lock()
+	if _, running := s.chanMgr.cancels[id]; running {
+		s.chanMgr.mu.Unlock()
+		cancel()
+		return nil // 并发启动竞争:已有实例在运行
+	}
 	s.chanMgr.cancels[id] = cancel
 	s.chanMgr.mu.Unlock()
 
@@ -348,7 +391,9 @@ func (s *Service) sendChannelStartNotify(channelID string) {
 	defer db.Close()
 	// 去重：telegram.go Start() 已给 AllowFrom 用户发送就绪消息，这里排除，避免同一用户收两条。
 	var chType, encrypted string
-	_ = db.QueryRowContext(context.Background(), `SELECT type, config FROM admin_ai_channels WHERE id = ?`, channelID).Scan(&chType, &encrypted)
+	if err := db.QueryRowContext(context.Background(), `SELECT type, config_encrypted FROM admin_ai_channels WHERE id = ?`, channelID).Scan(&chType, &encrypted); err != nil {
+		slog.Warn("channel-start-notify-config", "channelId", channelID, "err", err.Error())
+	}
 	allowFrom := map[string]bool{}
 	if chType == "telegram" && encrypted != "" {
 		var cfg channel.TelegramConfig

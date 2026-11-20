@@ -512,7 +512,11 @@ func (w *WeComChannel) handleInbound(frame wecomFrame) {
 	w.dedupMu.Unlock()
 
 	// 授权检查
-	if w.authorize != nil && !w.authorize(msg.From.UserID, "", "dm") {
+	if w.authorize == nil {
+		slog.Warn("wecom-authorize-not-configured", "channelId", w.id, "userId", msg.From.UserID)
+		return
+	}
+	if !w.authorize(msg.From.UserID, "", "dm") {
 		slog.Info("wecom-unauthorized", "channelId", w.id, "userId", msg.From.UserID)
 		return
 	}

@@ -832,3 +832,89 @@ func TestApprovalInsertFailureCleansWaiter(t *testing.T) {
 		t.Fatalf("落库失败不得执行写调用，实际 %d 次", writeCalls)
 	}
 }
+
+// 写操作全局开关是硬上限:会话级写授权与完全批准模式关闭时均不得放行写操作。
+func TestWriteGlobalSwitchHardCeiling(t *testing.T) {
+	s := newTestService(t)
+	var writeCalls int32
+	s.SetAICaller(func(_ context.Context, req systemmetrics.AICallRequest) (systemmetrics.AICallResponse, error) {
+		if req.Method == http.MethodPost {
+			atomic.AddInt32(&writeCalls, 1)
+		}
+		return systemmetrics.AICallResponse{StatusCode: 200, Body: []byte(`{}`)}, nil
+	})
+	db, err := s.open(context.Background())
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer db.Close()
+	now := time.Now().UTC().Format(time.RFC3339)
+	if _, err := db.ExecContext(context.Background(),
+		`INSERT OR IGNORE INTO admin_ai_sessions (id, source, title, write_enabled, created_at, updated_at, last_activity_at) VALUES ('aas_hard_ceiling', 'web', '测试', 1, ?, ?, ?)`,
+		now, now, now); err != nil {
+		t.Fatalf("insert session: %v", err)
+	}
+	eventCh := make(chan SSEEvent, 8)
+	args := map[string]interface{}{"method": "POST", "path": "/api/demo/write"}
+
+	if _, err := s.executeCallAPITool(context.Background(), db, args, "aas_hard_ceiling", "tc_hc1", eventCh); err == nil || !strings.Contains(err.Error(), "写操作未启用") {
+		t.Fatalf("会话级授权不得突破全局开关,实际 err=%v", err)
+	}
+	if _, err := db.ExecContext(context.Background(),
+		`INSERT INTO system_config (key, value) VALUES ('admin_ai_auto_approve', 'true') ON CONFLICT(key) DO UPDATE SET value = 'true'`); err != nil {
+		t.Fatalf("set auto approve: %v", err)
+	}
+	if _, err := s.executeCallAPITool(context.Background(), db, args, "aas_hard_ceiling", "tc_hc2", eventCh); err == nil || !strings.Contains(err.Error(), "写操作未启用") {
+		t.Fatalf("完全批准模式不得突破全局开关,实际 err=%v", err)
+	}
+	if atomic.LoadInt32(&writeCalls) != 0 {
+		t.Fatalf("全局开关关闭时不得发起写调用,实际 %d 次", writeCalls)
+	}
+}
+
+// 危险命令分级:只有完全批准模式注入完全批准头;会话级授权不注入,危险命令仍按
+// AI 接入权限模式(standard 档)判定。
+func TestFullApproveHeaderOnlyForAutoApprove(t *testing.T) {
+	s := newTestService(t)
+	var lastHeader string
+	s.SetAICaller(func(_ context.Context, req systemmetrics.AICallRequest) (systemmetrics.AICallResponse, error) {
+		if req.Method == http.MethodPost {
+			lastHeader = req.Headers["X-Admin-AI-Full-Approve"]
+		}
+		return systemmetrics.AICallResponse{StatusCode: 200, Body: []byte(`{}`)}, nil
+	})
+	db, err := s.open(context.Background())
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer db.Close()
+	now := time.Now().UTC().Format(time.RFC3339)
+	if _, err := db.ExecContext(context.Background(),
+		`INSERT OR IGNORE INTO admin_ai_sessions (id, source, title, write_enabled, created_at, updated_at, last_activity_at) VALUES ('aas_hdr', 'web', '测试', 1, ?, ?, ?)`,
+		now, now, now); err != nil {
+		t.Fatalf("insert session: %v", err)
+	}
+	if _, err := db.ExecContext(context.Background(),
+		`INSERT INTO system_config (key, value) VALUES ('admin_ai_write_enabled', 'true') ON CONFLICT(key) DO UPDATE SET value = 'true'`); err != nil {
+		t.Fatalf("set write enabled: %v", err)
+	}
+	eventCh := make(chan SSEEvent, 8)
+	args := map[string]interface{}{"method": "POST", "path": "/api/demo/write"}
+
+	if _, err := s.executeCallAPITool(context.Background(), db, args, "aas_hdr", "tc_hdr1", eventCh); err != nil {
+		t.Fatalf("会话级授权写操作应放行,实际 err=%v", err)
+	}
+	if lastHeader != "" {
+		t.Fatalf("会话级授权不得注入完全批准头,实际 %q", lastHeader)
+	}
+	if _, err := db.ExecContext(context.Background(),
+		`INSERT INTO system_config (key, value) VALUES ('admin_ai_auto_approve', 'true') ON CONFLICT(key) DO UPDATE SET value = 'true'`); err != nil {
+		t.Fatalf("set auto approve: %v", err)
+	}
+	if _, err := s.executeCallAPITool(context.Background(), db, args, "aas_hdr", "tc_hdr2", eventCh); err != nil {
+		t.Fatalf("完全批准模式写操作应放行,实际 err=%v", err)
+	}
+	if lastHeader != "true" {
+		t.Fatalf("完全批准模式应注入完全批准头,实际 %q", lastHeader)
+	}
+}

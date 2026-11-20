@@ -28,9 +28,8 @@ const (
 	// 可经设置 admin_ai_max_concurrent_runs 调整（RunLoop 时读取）。
 	maxConcurrentRunsDefault = 8
 
-	// adminAIFullApproveHeader 内部头：管理 AI 引擎在写操作已授权（完全批准/
-	// cron allow/会话级授权/用户批准）后注入，供命令执行等受危险操作拦截的
-	// 端点识别放行。配合服务端 ai_caller 注入的 X-AI-Agent 头使用，防止外部伪造。
+	// adminAIFullApproveHeader 内部头：仅管理 AI「完全批准模式」注入，供命令执行等
+	// 受危险操作拦截的端点识别放行；会话级授权/定时 allow/单次审批不注入、不解除危险命令拦截。
 	adminAIFullApproveHeader = "X-Admin-AI-Full-Approve"
 
 	// toolLoopWarnThreshold/toolLoopBlockThreshold 是跨轮重复调用（工具循环）的风暴阈值：
@@ -40,7 +39,6 @@ const (
 
 	toolErrorMaxChars = 2000 // 进入 LLM 上下文/审计的错误文本上限
 )
-
 
 // RunLoop 创建一个运行中的执行并立即返回 runId；推理过程在后台 goroutine 中执行，
 // 事件通过通道下推（由 stream.go 的 SSE handler 消费）。
@@ -621,6 +619,9 @@ func (s *Service) runInference(ctx context.Context, runID, sessionID, source, pr
 				// 只缓存成功结果（含调用链上无副作用路径的 GET），后续同参调用直接复用
 				if st.callErr == nil && !st.hit && st.cacheKey != "" {
 					toolCache[st.cacheKey] = st.result
+				}
+				if st.callErr == nil && toolCallIsWrite(st.tc.Function.Name, st.args) {
+					clear(toolCache)
 				}
 				status := "success"
 				summary := ""

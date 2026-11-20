@@ -180,3 +180,33 @@ func TestValidateCallAPIPathManifestFallback(t *testing.T) {
 		t.Fatalf("臆造路径拦截提示异常: %s", hint)
 	}
 }
+
+func TestValidateCallAPIPathDeniesSecretManifestRoute(t *testing.T) {
+	s := newTestService(t)
+	s.aiCaller = func(_ context.Context, req system.AICallRequest) (system.AICallResponse, error) {
+		return system.AICallResponse{
+			StatusCode: 200,
+			Body:       map[string]interface{}{"routes": catalogTestRoutes()},
+		}, nil
+	}
+	s.apiCatalogText(context.Background())
+
+	for _, path := range []string{
+		"/api/system/ai-access",
+		"/api/ai-access",
+		"/api/system/openapi.json",
+		"/api/system/api-docs",
+	} {
+		if hint, ok := s.validateCallAPIPath("GET", path); ok {
+			t.Fatalf("%s 未被清单收录,应默认拒绝", path)
+		} else if !strings.Contains(hint, "不在可调用接口清单") {
+			t.Fatalf("%s 拒绝提示异常: %s", path, hint)
+		}
+	}
+	if hint, ok := s.validateCallAPIPath("GET", "/api/cloudflare/accounts/a1/r2/buckets/b1/objects/k1/download"); !ok {
+		t.Fatalf("白名单内 R2 下载代理应放行,got %q", hint)
+	}
+	if _, ok := s.validateCallAPIPath("DELETE", "/api/cloudflare/accounts/a1/r2/buckets/b1/objects/k1/download"); ok {
+		t.Fatal("白名单接口的写方法应拒绝")
+	}
+}

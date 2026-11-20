@@ -80,6 +80,7 @@ func newTestWeChatChannel(cfg WeChatConfig, reg *Registry) (*WeChatChannel, *moc
 	mock := newMockILinkServer()
 	wc := NewWeChatChannel("wechat", cfg, reg)
 	wc.SetBaseURL(mock.server.URL)
+	wc.SetAuthorize(func(userID, username, chatType string) bool { return true })
 	return wc, mock
 }
 
@@ -241,6 +242,28 @@ func TestWeChatHandleMessageUnauthorized(t *testing.T) {
 	})
 	if called {
 		t.Fatal("未授权用户不应触发入站回调")
+	}
+}
+
+func TestWeChatHandleMessageDeniesWithoutAuthorizer(t *testing.T) {
+	reg := NewRegistry()
+	wc, mock := newTestWeChatChannel(WeChatConfig{BotToken: "t"}, reg)
+	defer mock.Close()
+
+	called := false
+	reg.SetOnInbound(func(InboundEnvelope) { called = true })
+	wc.authorize = nil
+
+	wc.handleMessage(map[string]interface{}{
+		"message_type":  float64(1),
+		"from_user_id":  "wxid_abc@im.wechat",
+		"context_token": "ctx-1",
+		"item_list": []interface{}{
+			map[string]interface{}{"type": float64(1), "text_item": map[string]interface{}{"text": "hi"}},
+		},
+	})
+	if called {
+		t.Fatal("未注入 authorizer 时应默认拒绝入站")
 	}
 }
 
