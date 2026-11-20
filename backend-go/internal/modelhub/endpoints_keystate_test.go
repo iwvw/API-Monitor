@@ -13,11 +13,14 @@ import (
 func TestEndpointKeyStateRoute(t *testing.T) {
 	s := newOpenAIService(t)
 
+	mainKey := "sk-kcool-aaaa1111"
+	okKey := "sk-kok-bbbb2222"
+	coolKey := "sk-kcool-cccc3333"
 	createPayload := `{
 		"name": "Key State",
 		"baseUrl": "http://127.0.0.1:1",
-		"apiKey": "k-cool",
-		"apiKeys": ["k-ok", "k-also-cool"],
+		"apiKey": "` + mainKey + `",
+		"apiKeys": ["` + okKey + `", "` + coolKey + `"],
 		"keyCooldownSeconds": 3600,
 		"skipVerify": true
 	}`
@@ -36,8 +39,8 @@ func TestEndpointKeyStateRoute(t *testing.T) {
 		t.Fatal("created endpoint has empty id")
 	}
 
-	s.armKeyCooldown(id, "k-cool", 3600)
-	s.armKeyCooldown(id, "k-also-cool", 3600)
+	s.armKeyCooldown(id, mainKey, 3600)
+	s.armKeyCooldown(id, coolKey, 3600)
 
 	wState := httptest.NewRecorder()
 	rState, _ := http.NewRequest("GET", "/api/modelhub/endpoints/"+id+"/key-state", nil)
@@ -56,22 +59,30 @@ func TestEndpointKeyStateRoute(t *testing.T) {
 	if len(stateRes.Keys) != 3 {
 		t.Fatalf("expect 3 keys, got %d: %+v", len(stateRes.Keys), stateRes.Keys)
 	}
+	for _, raw := range []string{mainKey, okKey, coolKey} {
+		if strings.Contains(wState.Body.String(), raw) {
+			t.Fatalf("key-state must not leak plaintext key %q: %s", raw, wState.Body.String())
+		}
+	}
+	mainMask := maskSecretValue(mainKey)
+	okMask := maskSecretValue(okKey)
+	coolMask := maskSecretValue(coolKey)
 	cooled := map[string]endpointKeyRuntimeItem{}
 	for _, item := range stateRes.Keys {
 		cooled[item.Key] = item
 	}
-	if !cooled["k-cool"].Cooled || cooled["k-cool"].CooldownUntil == "" {
-		t.Fatalf("k-cool should be cooled with deadline, got %+v", cooled["k-cool"])
+	if !cooled[mainMask].Cooled || cooled[mainMask].CooldownUntil == "" {
+		t.Fatalf("main key should be cooled with deadline, got %+v", cooled[mainMask])
 	}
-	if !cooled["k-also-cool"].Cooled {
-		t.Fatalf("k-also-cool should be cooled, got %+v", cooled["k-also-cool"])
+	if !cooled[coolMask].Cooled {
+		t.Fatalf("extra cooled key should be cooled, got %+v", cooled[coolMask])
 	}
-	if cooled["k-ok"].Cooled {
-		t.Fatalf("k-ok should not be cooled, got %+v", cooled["k-ok"])
+	if cooled[okMask].Cooled {
+		t.Fatalf("ok key should not be cooled, got %+v", cooled[okMask])
 	}
 
 	// 成功转发清除冷却后接口应同步归零，避免前端一直标红。
-	s.markKeySuccess(id, "k-cool")
+	s.markKeySuccess(id, mainKey)
 	wAfter := httptest.NewRecorder()
 	rAfter, _ := http.NewRequest("GET", "/api/modelhub/endpoints/"+id+"/key-state", nil)
 	s.ServeHTTP(wAfter, rAfter)
@@ -83,8 +94,8 @@ func TestEndpointKeyStateRoute(t *testing.T) {
 	}
 	mustDecode(t, wAfter.Body.String(), &afterRes)
 	for _, item := range afterRes.Keys {
-		if item.Key == "k-cool" && item.Cooled {
-			t.Fatalf("k-cool cooldown should be cleared after markKeySuccess, got %+v", item)
+		if item.Key == mainMask && item.Cooled {
+			t.Fatalf("main key cooldown should be cleared after markKeySuccess, got %+v", item)
 		}
 	}
 }

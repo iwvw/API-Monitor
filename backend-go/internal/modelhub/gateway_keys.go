@@ -9,8 +9,8 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"net"
 	"net/http"
+	"os"
 	"sort"
 	"strings"
 	"time"
@@ -31,6 +31,7 @@ type GatewayKey struct {
 	KeySuffix        string   `json:"keySuffix"`
 	MaskedKey        string   `json:"maskedKey"`
 	APIKey           string   `json:"apiKey,omitempty"`
+	HasKey           bool     `json:"hasKey"`
 	Enabled          bool     `json:"enabled"`
 	IsDefault        bool     `json:"isDefault"`
 	CreatedAt        string   `json:"createdAt"`
@@ -65,11 +66,10 @@ func gatewayKeyFromContext(ctx context.Context) gatewayKeyIdentity {
 }
 
 func (s *Service) AuthorizeGatewayRequest(r *http.Request) (*http.Request, error) {
-	// 本机内部调用（管理 AI 会话 / 部署脚本等）免密钥放行，以“internal”身份进入网关。
-	// 信任边界：运行本后台的宿主机上的任何进程（loopback 来源）都被视为内部可信调用，
-	// 可免密钥消费/路由/审计网关能力。这与单机部署的既有信任模型一致；若需多租户或
-	// 暴露到不可信网络，应改由 API Key 强制鉴权并移除该放行。
-	if host, _, err := net.SplitHostPort(r.RemoteAddr); err == nil && (host == "127.0.0.1" || host == "::1") {
+	// 本机来源免密钥放行改为显式开关（默认关闭，MODELHUB_GATEWAY_ALLOW_LOCAL_WITHOUT_KEY）。
+	// 判定依据是可信代理链解析出的真实来源而非直连地址：同机反向代理转发进来的
+	// 外部请求真实来源是外网地址，不会再因为直连地址是 127.0.0.1 而整体绕过鉴权。
+	if gatewayLocalBypassEnabled() && isLoopbackHost(s.resolveClientIP(r)) {
 		return r.WithContext(context.WithValue(r.Context(), gatewayKeyContextKey{}, gatewayKeyIdentity{ID: "internal", Name: "内部调用"})), nil
 	}
 	rawKey := strings.TrimSpace(r.Header.Get("X-API-Key"))
@@ -239,6 +239,7 @@ func (s *Service) createGatewayKey(w http.ResponseWriter, r *http.Request) {
 			KeyPrefix:        prefix,
 			KeySuffix:        suffix,
 			MaskedKey:        maskGatewayKey(prefix, suffix),
+			HasKey:           true,
 			Enabled:          true,
 			CreatedAt:        createdAt,
 			ExpiresAt:        nullableStringPointer(expiresAt),
@@ -256,10 +257,14 @@ func (s *Service) updateGatewayKey(w http.ResponseWriter, r *http.Request, id st
 		AllowedModels    []string `json:"allowedModels"`
 		AllowedEndpoints []string `json:"allowedEndpoints"`
 		MaxTokensQuota   *int64   `json:"maxTokensQuota"`
+		APIKey           *string  `json:"apiKey"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		response.JSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
+	}
+	if req.APIKey != nil && isMaskedSecretValue(*req.APIKey) {
+		applog.Warn(r.Context(), "modelhub", "ignored masked gateway key on update", "key_id", id)
 	}
 	req.Name = strings.TrimSpace(req.Name)
 	if req.Name == "" {
@@ -446,9 +451,8 @@ func scanGatewayKey(scanner interface {
 	key.Enabled = enabled == 1
 	key.IsDefault = isDefault == 1
 	key.MaskedKey = maskGatewayKey(key.KeyPrefix, key.KeySuffix)
-	if keyCipher.Valid {
-		key.APIKey = secure.SecureDecrypt(keyCipher.String)
-	}
+	key.HasKey = keyCipher.Valid && strings.TrimSpace(keyCipher.String) != ""
+	key.APIKey = key.MaskedKey
 	if lastUsed.Valid {
 		key.LastUsed = &lastUsed.String
 	}
@@ -495,6 +499,78 @@ func gatewayKeyParts(rawKey string) (string, string) {
 
 func maskGatewayKey(prefix, suffix string) string {
 	return prefix + "..." + suffix
+}
+
+// gatewayLocalBypassEnv 是「本机来源免密钥」显式开关的环境变量名,默认关闭。
+const gatewayLocalBypassEnv = "MODELHUB_GATEWAY_ALLOW_LOCAL_WITHOUT_KEY"
+
+func gatewayLocalBypassEnabled() bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv(gatewayLocalBypassEnv))) {
+	case "1", "true", "yes", "on":
+		return true
+	}
+	return false
+}
+
+// maskSecretValue 把密钥掩码为「前缀...后缀」形式,仅用于回显,绝不返回明文。
+func maskSecretValue(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+	if len(value) <= 12 {
+		return "***"
+	}
+	return value[:6] + "..." + value[len(value)-4:]
+}
+
+func maskSecretList(values []string) []string {
+	if len(values) == 0 {
+		return values
+	}
+	out := make([]string, len(values))
+	for i, value := range values {
+		out[i] = maskSecretValue(value)
+	}
+	return out
+}
+
+func isMaskedSecretValue(value string) bool {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return false
+	}
+	return value == "***" || strings.Contains(value, "...")
+}
+
+func resolveMaskedAPIKeys(submitted, stored []string) ([]string, int) {
+	plainByMask := make(map[string]string, len(stored))
+	for _, key := range stored {
+		key = strings.TrimSpace(key)
+		if key == "" {
+			continue
+		}
+		plainByMask[maskSecretValue(key)] = key
+	}
+	out := make([]string, 0, len(submitted))
+	resolved := 0
+	for _, value := range submitted {
+		trimmed := strings.TrimSpace(value)
+		if trimmed == "" {
+			continue
+		}
+		if plain, ok := plainByMask[trimmed]; ok {
+			out = append(out, plain)
+			resolved++
+			continue
+		}
+		if isMaskedSecretValue(trimmed) {
+			resolved++
+			continue
+		}
+		out = append(out, trimmed)
+	}
+	return out, resolved
 }
 
 func normalizeGatewayKeyExpiry(value string) (interface{}, error) {

@@ -13,40 +13,73 @@ import (
 
 // resolveClientIP 返回调用网关的客户端 IP：
 // 仅当直连地址属于受信代理网关时才会采信 X-Forwarded-For / X-Real-IP，
-// 防止伪造代理头。逻辑与 apikeys.requestIP 保持一致。
+// 防止伪造代理头。X-Forwarded-For 从最右端(离本机最近的一跳)向左回溯,
+// 跳过受信代理跳,取第一个非受信地址作为真实客户端:最左值可被客户端任意
+// 自填,不能作为来源。
 func (s *Service) resolveClientIP(r *http.Request) string {
-	direct := ""
-	if host, _, err := net.SplitHostPort(strings.TrimSpace(r.RemoteAddr)); err == nil {
-		direct = host
-	} else if r.RemoteAddr != "" {
-		direct = strings.Trim(strings.TrimSpace(r.RemoteAddr), "[]")
-	}
+	direct, directIP := hostFromRemoteAddr(r.RemoteAddr)
 	if direct == "" {
 		return ""
 	}
-	ip := net.ParseIP(direct)
-	trusted := false
-	if ip != nil {
-		if isTrustedProxy(ip, s.cfg.TrustedProxyCIDRs) {
-			trusted = true
-		} else if !s.cfg.IsProduction() && ip.IsLoopback() {
-			trusted = true
-		}
+	if directIP == nil {
+		return direct
 	}
-	if trusted {
-		if forwarded := strings.TrimSpace(r.Header.Get("X-Forwarded-For")); forwarded != "" {
-			candidate := strings.TrimSpace(strings.Split(forwarded, ",")[0])
-			if parsed := net.ParseIP(candidate); parsed != nil {
-				return parsed.String()
-			}
-		}
-		if candidate := strings.TrimSpace(r.Header.Get("X-Real-IP")); candidate != "" {
-			if parsed := net.ParseIP(candidate); parsed != nil {
-				return parsed.String()
-			}
+	trusted := isTrustedProxy(directIP, s.cfg.TrustedProxyCIDRs) || (!s.cfg.IsProduction() && directIP.IsLoopback())
+	if !trusted {
+		return direct
+	}
+	if client := rightmostForwardedClient(r.Header.Get("X-Forwarded-For"), s.cfg.TrustedProxyCIDRs, s.cfg.IsProduction()); client != nil {
+		return client.String()
+	}
+	if candidate := strings.TrimSpace(r.Header.Get("X-Real-IP")); candidate != "" {
+		if parsed := net.ParseIP(candidate); parsed != nil {
+			return parsed.String()
 		}
 	}
 	return direct
+}
+
+func isLoopbackHost(host string) bool {
+	if host == "" {
+		return false
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
+}
+
+// hostFromRemoteAddr 从 RemoteAddr(host:port 或裸地址)解析出主机串与 IP。
+func hostFromRemoteAddr(remoteAddr string) (string, net.IP) {
+	trimmed := strings.TrimSpace(remoteAddr)
+	if trimmed == "" {
+		return "", nil
+	}
+	host := ""
+	if h, _, err := net.SplitHostPort(trimmed); err == nil {
+		host = h
+	} else {
+		host = strings.Trim(trimmed, "[]")
+	}
+	if host == "" {
+		return "", nil
+	}
+	return host, net.ParseIP(host)
+}
+
+// rightmostForwardedClient 从 X-Forwarded-For 最右端向左跳过受信代理跳,
+// 返回第一个非受信地址;全部为受信跳或无法解析时返回 nil(调用方回退直连地址)。
+func rightmostForwardedClient(header string, trustedCIDRs []string, production bool) net.IP {
+	parts := strings.Split(header, ",")
+	for i := len(parts) - 1; i >= 0; i-- {
+		ip := net.ParseIP(strings.TrimSpace(parts[i]))
+		if ip == nil {
+			continue
+		}
+		if isTrustedProxy(ip, trustedCIDRs) || (!production && ip.IsLoopback()) {
+			continue
+		}
+		return ip
+	}
+	return nil
 }
 
 func isTrustedProxy(ip net.IP, entries []string) bool {

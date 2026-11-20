@@ -238,7 +238,7 @@ func (s *Service) exportEndpointsRoute(w http.ResponseWriter, r *http.Request) {
 	}
 	defer rows.Close()
 
-	endpoints := []Endpoint{}
+	endpoints := []endpointView{}
 	for rows.Next() {
 		var ep Endpoint
 		var headersRaw, modelsRaw, disabledRaw, proxyRaw, proxyBatchesRaw, mappingsRaw, modelNamesRaw, apiKeysRaw, protocolRaw, pricingRaw, modelsUrlRaw, upstreamTypeRaw, keyStrategyRaw sql.NullString
@@ -251,7 +251,9 @@ func (s *Service) exportEndpointsRoute(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		ep.APIKey = secure.SecureDecrypt(ep.APIKey)
+		rawKey := secure.SecureDecrypt(ep.APIKey)
+		hasKey := strings.TrimSpace(rawKey) != ""
+		ep.APIKey = maskSecretValue(rawKey)
 		ep.Enabled = enabledInt == 1
 		ep.AutoSwitch = autoSwitchInt == 1
 		ep.ProxyEnabled = proxyEnabledInt == 1
@@ -271,6 +273,10 @@ func (s *Service) exportEndpointsRoute(w http.ResponseWriter, r *http.Request) {
 		}
 		if apiKeysRaw.Valid && apiKeysRaw.String != "" {
 			_ = json.Unmarshal([]byte(secure.SecureDecrypt(apiKeysRaw.String)), &ep.APIKeys)
+			if len(ep.APIKeys) > 0 {
+				hasKey = true
+			}
+			ep.APIKeys = maskSecretList(ep.APIKeys)
 		}
 		ep.CreatedAt = created.String
 		if used.Valid {
@@ -307,7 +313,7 @@ func (s *Service) exportEndpointsRoute(w http.ResponseWriter, r *http.Request) {
 		if proxyBatchesRaw.Valid && proxyBatchesRaw.String != "" {
 			_ = json.Unmarshal([]byte(proxyBatchesRaw.String), &ep.ProxyBatches)
 		}
-		endpoints = append(endpoints, ep)
+		endpoints = append(endpoints, endpointView{Endpoint: ep, HasKey: hasKey})
 	}
 
 	response.JSON(w, http.StatusOK, map[string]interface{}{

@@ -439,8 +439,14 @@ func TestGatewayKeyIsStoredEncrypted(t *testing.T) {
 	service.ServeHTTP(listRecorder, listRequest)
 	var listed []GatewayKey
 	mustDecode(t, listRecorder.Body.String(), &listed)
-	if len(listed) != 1 || listed[0].APIKey != created.APIKey {
-		t.Fatalf("gateway key list did not return plaintext: %+v", listed)
+	if len(listed) != 1 || !listed[0].HasKey {
+		t.Fatalf("gateway key list should mark hasKey: %+v", listed)
+	}
+	if listed[0].APIKey == created.APIKey || listed[0].APIKey == "" {
+		t.Fatalf("gateway key list must return a mask, got apiKey=%q", listed[0].APIKey)
+	}
+	if strings.Contains(listRecorder.Body.String(), created.APIKey) {
+		t.Fatalf("gateway key list must not leak plaintext: %s", listRecorder.Body.String())
 	}
 }
 
@@ -4227,8 +4233,11 @@ func TestEndpointExportImportPreservesAllFields(t *testing.T) {
 	if ep2.Priority != 3 || ep2.Weight != 7 || len(ep2.ProxyBatches) != 1 || len(ep2.APIKeys) != 2 || ep2.ModelMappings["deepseek-chat"] != "deepseek-v3" || !ep2.ProxyEnabled || !ep2.ForceProxy {
 		t.Errorf("round-trip lost fields: %#v", ep2)
 	}
-	if ep2.APIKey != "main-key-123" {
-		t.Errorf("round-trip apiKey mismatch: %q", ep2.APIKey)
+	if ep2.APIKey == "main-key-123" || ep2.APIKey == "" {
+		t.Errorf("export must mask apiKey, got %q", ep2.APIKey)
+	}
+	if strings.Contains(wExport2.Body.String(), "main-key-123") || strings.Contains(wExport2.Body.String(), "extra-key-456") {
+		t.Errorf("export must not leak plaintext keys: %s", wExport2.Body.String())
 	}
 }
 
@@ -4756,10 +4765,10 @@ func TestEgressOutboundIPSingleflightAndNegativeCache(t *testing.T) {
 	}
 }
 
-// TestImportExportExtendedKeysRoundTrip 导出的扩展 key 是明文，导入时必须对
-// 整个明文 JSON 数组整串加密（与读取端对称）：导出→导入→列表读取应还原明文 key。
-// 此前导入端逐 key 加密后组数组，读取端整串解密失败，导入的扩展 key 全部失效。
-func TestImportExportExtendedKeysRoundTrip(t *testing.T) {
+// TestImportExportExtendedKeysMasked 固化导出/列表的响应契约：只回显掩码并带
+// hasKey，绝不回传明文密钥；导入端仍按「整个明文 JSON 数组整串加密」写库，
+// 库内可整串解密还原明文扩展 key。
+func TestImportExportExtendedKeysMasked(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
@@ -4789,7 +4798,13 @@ func TestImportExportExtendedKeysRoundTrip(t *testing.T) {
 	}
 	mustDecode(t, wExport.Body.String(), &exported)
 	if len(exported.Endpoints) != 1 || len(exported.Endpoints[0].APIKeys) != 2 {
-		t.Fatalf("export should carry plaintext extended keys, got %+v", exported.Endpoints)
+		t.Fatalf("export should carry the extended key slots, got %+v", exported.Endpoints)
+	}
+	if exported.Endpoints[0].APIKeys[0] == "ext-a" || exported.Endpoints[0].APIKeys[1] == "ext-b" {
+		t.Fatalf("export must mask extended keys, got %+v", exported.Endpoints[0].APIKeys)
+	}
+	if strings.Contains(wExport.Body.String(), "ext-a") || strings.Contains(wExport.Body.String(), "ext-b") {
+		t.Fatalf("export must not leak plaintext extended keys: %s", wExport.Body.String())
 	}
 
 	// 导入（覆盖）。
@@ -4811,8 +4826,11 @@ func TestImportExportExtendedKeysRoundTrip(t *testing.T) {
 		t.Fatalf("imported endpoints = %d, want 1", len(list))
 	}
 	keys := list[0].APIKeys
-	if len(keys) != 2 || keys[0] != "ext-a" || keys[1] != "ext-b" {
-		t.Fatalf("extended keys must round-trip to plaintext, got %+v", keys)
+	if len(keys) != 2 || keys[0] == "ext-a" || keys[1] == "ext-b" {
+		t.Fatalf("list must return masked keys, got %+v", keys)
+	}
+	if strings.Contains(wList.Body.String(), "ext-a") || strings.Contains(wList.Body.String(), "ext-b") {
+		t.Fatalf("list must not leak plaintext extended keys: %s", wList.Body.String())
 	}
 }
 

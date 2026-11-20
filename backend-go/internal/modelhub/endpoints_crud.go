@@ -13,6 +13,13 @@ import (
 	"github.com/iwvw/api-monitor/backend-go/internal/secure"
 )
 
+// endpointView 是端点列表/导出响应的视图:在端点字段之上附带 hasKey,
+// 密钥字段只回显掩码,绝不回传明文。
+type endpointView struct {
+	Endpoint
+	HasKey bool `json:"hasKey"`
+}
+
 func (s *Service) updateModelMappings(w http.ResponseWriter, r *http.Request, endpointID string) {
 	ctx := r.Context()
 	var payload struct {
@@ -111,7 +118,7 @@ func (s *Service) listEndpoints(w http.ResponseWriter, r *http.Request) {
 	}
 	defer rows.Close()
 
-	endpoints := []Endpoint{}
+	endpoints := []endpointView{}
 	for rows.Next() {
 		var ep Endpoint
 		var headersRaw, modelsRaw, disabledRaw, proxyRaw, batchesRaw, mappingsRaw, modelNamesRaw, protocolRaw, apiKeysRaw, pricingRaw, modelsUrlRaw, pluginIDRaw, proxyPoolIDRaw, upstreamTypeRaw, keyStrategyRaw sql.NullString
@@ -127,7 +134,9 @@ func (s *Service) listEndpoints(w http.ResponseWriter, r *http.Request) {
 		ep.ProxyPoolID = proxyPoolIDRaw.String
 		ep.UpstreamType = normalizeUpstreamType(upstreamTypeRaw.String)
 
-		ep.APIKey = secure.SecureDecrypt(ep.APIKey)
+		rawKey := secure.SecureDecrypt(ep.APIKey)
+		hasKey := strings.TrimSpace(rawKey) != ""
+		ep.APIKey = maskSecretValue(rawKey)
 		ep.Enabled = enabledInt == 1
 		ep.AutoSwitch = autoSwitchInt == 1
 		ep.ProxyEnabled = proxyEnabledInt == 1
@@ -151,6 +160,10 @@ func (s *Service) listEndpoints(w http.ResponseWriter, r *http.Request) {
 		}
 		if apiKeysRaw.Valid && apiKeysRaw.String != "" {
 			_ = json.Unmarshal([]byte(secure.SecureDecrypt(apiKeysRaw.String)), &ep.APIKeys)
+			if len(ep.APIKeys) > 0 {
+				hasKey = true
+			}
+			ep.APIKeys = maskSecretList(ep.APIKeys)
 		}
 		if mappingsRaw.Valid && mappingsRaw.String != "" {
 			_ = json.Unmarshal([]byte(mappingsRaw.String), &ep.ModelMappings)
@@ -184,7 +197,7 @@ func (s *Service) listEndpoints(w http.ResponseWriter, r *http.Request) {
 		if batchesRaw.Valid && batchesRaw.String != "" {
 			_ = json.Unmarshal([]byte(batchesRaw.String), &ep.ProxyBatches)
 		}
-		endpoints = append(endpoints, ep)
+		endpoints = append(endpoints, endpointView{Endpoint: ep, HasKey: hasKey})
 	}
 
 	response.JSON(w, http.StatusOK, endpoints)
