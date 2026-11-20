@@ -27,6 +27,7 @@ import (
 	"github.com/iwvw/api-monitor/backend-go/internal/accountpick"
 	"github.com/iwvw/api-monitor/backend-go/internal/config"
 	"github.com/iwvw/api-monitor/backend-go/internal/database"
+	"github.com/iwvw/api-monitor/backend-go/internal/secure"
 	"github.com/iwvw/api-monitor/backend-go/internal/timeutil"
 )
 
@@ -218,13 +219,22 @@ func (s *Service) loadSettings(ctx context.Context, db *sql.DB) {
 		s.mu.Lock()
 		s.settings = cfg
 		s.mu.Unlock()
-		data, _ := json.Marshal(cfg)
-		_, _ = db.ExecContext(ctx, `INSERT INTO raccoon_settings (id, data) VALUES (1, ?)`, string(data))
+		data, _ := secure.EncryptJSON(cfg)
+		_, _ = db.ExecContext(ctx, `INSERT INTO raccoon_settings (id, data) VALUES (1, ?)`, data)
 		return
 	}
 	cfg := defaultSettings()
-	if err := json.Unmarshal([]byte(raw), &cfg); err != nil {
-		cfg = defaultSettings()
+	if secure.IsEncrypted(raw) {
+		if err := secure.DecryptJSON(raw, &cfg); err != nil {
+			cfg = defaultSettings()
+		}
+	} else {
+		if err := json.Unmarshal([]byte(raw), &cfg); err != nil {
+			cfg = defaultSettings()
+		}
+		if enc, err := secure.EncryptJSON(cfg); err == nil {
+			_, _ = db.ExecContext(ctx, `UPDATE raccoon_settings SET data = ? WHERE id = 1`, enc)
+		}
 	}
 	if cfg.DisabledModels == nil {
 		cfg.DisabledModels = []string{}
@@ -245,7 +255,17 @@ func (s *Service) Settings() Settings {
 	defer s.mu.RUnlock()
 	out := s.settings
 	out.DisabledModels = append([]string(nil), s.settings.DisabledModels...)
-	out.Accounts = append([]Account(nil), s.settings.Accounts...)
+	out.Accounts = make([]Account, len(s.settings.Accounts))
+	copy(out.Accounts, s.settings.Accounts)
+	for i := range out.Accounts {
+		if src := s.settings.Accounts[i].OnboardingGrants; src != nil {
+			grants := make(map[string]string, len(src))
+			for k, v := range src {
+				grants[k] = v
+			}
+			out.Accounts[i].OnboardingGrants = grants
+		}
+	}
 	return out
 }
 
@@ -283,10 +303,13 @@ func (s *Service) SaveSettings(ctx context.Context, next Settings) error {
 	}
 	defer db.Close()
 	next.DisabledModels = dedupeSorted(next.DisabledModels)
-	data, _ := json.Marshal(next)
+	enc, err := secure.EncryptJSON(next)
+	if err != nil {
+		return fmt.Errorf("raccoon settings encrypt: %w", err)
+	}
 	if _, err := db.ExecContext(ctx, `
 		INSERT INTO raccoon_settings (id, data) VALUES (1, ?)
-		ON CONFLICT(id) DO UPDATE SET data = excluded.data`, string(data)); err != nil {
+		ON CONFLICT(id) DO UPDATE SET data = excluded.data`, enc); err != nil {
 		return err
 	}
 	s.mu.Lock()

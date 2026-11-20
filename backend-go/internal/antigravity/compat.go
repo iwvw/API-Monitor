@@ -369,7 +369,10 @@ func (s *Service) forwardOpenAIChat(ctx context.Context, w http.ResponseWriter, 
 	}
 	claudeReq.Stream = oaiReq.Stream
 
-	proxyURI := s.resolveProxy(ctx)
+	proxyURI, err := s.resolveProxy(ctx)
+	if err != nil {
+		return err
+	}
 	agClient, err := engineag.NewClient(proxyURI)
 	if err != nil {
 		return fmt.Errorf("构造客户端失败: %w", err)

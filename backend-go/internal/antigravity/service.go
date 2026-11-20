@@ -459,16 +459,25 @@ func (s *Service) externalSelector() ProxyPoolSelector {
 }
 
 // resolveProxy 从设置解析出口代理；空表示直连。
-func (s *Service) resolveProxy(ctx context.Context) string {
+func (s *Service) resolveProxy(ctx context.Context) (string, error) {
 	st := s.Settings()
 	if st.ProxyPoolID == "" {
-		return ""
+		return "", nil
 	}
-	if sel := s.externalSelector(); sel != nil {
-		p, _ := sel.SelectProxy(ctx, st.ProxyPoolID, "")
-		return p
+	sel := s.externalSelector()
+	if sel == nil {
+		return "", fmt.Errorf("代理池已配置但未初始化选择器")
 	}
-	return ""
+	p, err := sel.SelectProxy(ctx, st.ProxyPoolID, "")
+	if err != nil {
+		applog.Warn(ctx, "antigravity", "proxy pool select failed, refusing direct fallback", "pool", st.ProxyPoolID, "error", err.Error())
+		return "", fmt.Errorf("代理池无可用出口: %w", err)
+	}
+	if strings.TrimSpace(p) == "" {
+		applog.Warn(ctx, "antigravity", "proxy pool returned empty exit, refusing direct fallback", "pool", st.ProxyPoolID)
+		return "", fmt.Errorf("代理池无可用出口")
+	}
+	return p, nil
 }
 
 // incrementCall 记录一次账号被选中处理推理请求（计入未落盘增量，定期合并落库）。
@@ -657,7 +666,10 @@ func (s *Service) ForwardClaude(ctx context.Context, w http.ResponseWriter, body
 	originalModel := claudeReq.Model
 	mappedModel := s.resolveUpstreamModel(claudeReq.Model)
 
-	proxyURI := s.resolveProxy(ctx)
+	proxyURI, err := s.resolveProxy(ctx)
+	if err != nil {
+		return err
+	}
 	agClient, err := engineag.NewClient(proxyURI)
 	if err != nil {
 		return fmt.Errorf("构造客户端失败: %w", err)
@@ -815,7 +827,10 @@ func (s *Service) FetchModels(ctx context.Context, email string) (map[string]eng
 	if err != nil {
 		return nil, err
 	}
-	proxyURI := s.resolveProxy(ctx)
+	proxyURI, err := s.resolveProxy(ctx)
+	if err != nil {
+		return nil, err
+	}
 	agClient, err := engineag.NewClient(proxyURI)
 	if err != nil {
 		return nil, err
@@ -846,7 +861,10 @@ func (s *Service) FetchQuota(ctx context.Context, email string) (*QuotaView, err
 	if err != nil {
 		return nil, err
 	}
-	proxyURI := s.resolveProxy(ctx)
+	proxyURI, err := s.resolveProxy(ctx)
+	if err != nil {
+		return nil, err
+	}
 	agClient, err := engineag.NewClient(proxyURI)
 	if err != nil {
 		return nil, err

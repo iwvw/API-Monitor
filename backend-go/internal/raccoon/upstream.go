@@ -16,6 +16,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/iwvw/api-monitor/backend-go/internal/applog"
 )
 
 const (
@@ -47,18 +49,27 @@ func sharedHTTPClient() *http.Client {
 // httpClientFor 返回本次出网要用的客户端：配置了代理池时经 ProxyPoolSelector 选出口。
 func (s *Service) httpClientFor(sessionKey string) *http.Client {
 	poolID := strings.TrimSpace(s.Settings().ProxyPoolID)
-	if poolID == "" || s.externalPool == nil {
+	if poolID == "" {
 		return sharedHTTPClient()
+	}
+	if s.externalPool == nil {
+		return errClient(fmt.Errorf("代理池已配置但未初始化选择器"))
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	raw, err := s.externalPool.SelectProxy(ctx, poolID, sessionKey)
-	if err != nil || strings.TrimSpace(raw) == "" {
-		return sharedHTTPClient()
+	if err != nil {
+		applog.Warn(ctx, "raccoon", "proxy pool select failed, refusing direct fallback", "pool", poolID, "error", err.Error())
+		return errClient(fmt.Errorf("代理池无可用出口: %w", err))
+	}
+	if strings.TrimSpace(raw) == "" {
+		applog.Warn(ctx, "raccoon", "proxy pool returned empty exit, refusing direct fallback", "pool", poolID)
+		return errClient(fmt.Errorf("代理池无可用出口"))
 	}
 	u, err := httpProxyURL(strings.TrimSpace(raw))
 	if err != nil {
-		return sharedHTTPClient()
+		applog.Warn(ctx, "raccoon", "proxy address invalid, refusing direct fallback", "pool", poolID, "error", err.Error())
+		return errClient(fmt.Errorf("代理地址非法: %w", err))
 	}
 	return &http.Client{
 		Timeout: 0,
@@ -78,6 +89,16 @@ func httpProxyURL(raw string) (*url.URL, error) {
 		return nil, fmt.Errorf("代理地址非法")
 	}
 	return u, nil
+}
+
+func errClient(err error) *http.Client {
+	return &http.Client{Timeout: 0, Transport: errTransport{err: err}}
+}
+
+type errTransport struct{ err error }
+
+func (t errTransport) RoundTrip(*http.Request) (*http.Response, error) {
+	return nil, t.err
 }
 
 // doJSON 发一次请求并读取响应体（受 limit 限制）。timeout > 0 时套请求级总超时。

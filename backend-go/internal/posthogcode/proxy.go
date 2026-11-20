@@ -11,33 +11,42 @@ import (
 	"sync"
 	"time"
 
+	"github.com/iwvw/api-monitor/backend-go/internal/applog"
 	"golang.org/x/net/proxy"
 )
 
 // resolveProxy 从设置解析注册/自动登录要用的出口代理；空串表示直连。
 // 目的是绕过 PostHog 对注册的 IP 限流与人机验证。
-func (s *Service) resolveProxy(ctx context.Context) string {
+func (s *Service) resolveProxy(ctx context.Context) (string, error) {
 	return s.resolveProxyWith(ctx, "")
 }
 
 // resolveProxyWith 在设置值之上支持按次覆盖（注册对话框里临时选的池）。
-func (s *Service) resolveProxyWith(ctx context.Context, override string) string {
+func (s *Service) resolveProxyWith(ctx context.Context, override string) (string, error) {
 	poolID := strings.TrimSpace(override)
 	if poolID == "" {
 		st := s.Settings()
 		poolID = strings.TrimSpace(st.ProxyPoolID)
 	}
 	if poolID == "" {
-		return ""
+		return "", nil
 	}
 	s.mu.RLock()
 	sel := s.externalPool
 	s.mu.RUnlock()
 	if sel == nil {
-		return ""
+		return "", fmt.Errorf("代理池已配置但未初始化选择器")
 	}
-	p, _ := sel.SelectProxy(ctx, poolID, "")
-	return p
+	p, err := sel.SelectProxy(ctx, poolID, "")
+	if err != nil {
+		applog.Warn(ctx, "posthogcode", "proxy pool select failed, refusing direct fallback", "pool", poolID, "error", err.Error())
+		return "", fmt.Errorf("代理池无可用出口:%w", err)
+	}
+	if strings.TrimSpace(p) == "" {
+		applog.Warn(ctx, "posthogcode", "proxy pool returned empty exit, refusing direct fallback", "pool", poolID)
+		return "", fmt.Errorf("代理池无可用出口")
+	}
+	return p, nil
 }
 
 // autologinClient 包装一个带独立 cookie jar 的客户端，并记录该会话的出口代理。
@@ -52,7 +61,10 @@ func (s *Service) newAutologinClientWith(ctx context.Context, override string) (
 	if err != nil {
 		return nil, nil, "", err
 	}
-	proxyURL := s.resolveProxyWith(ctx, override)
+	proxyURL, err := s.resolveProxyWith(ctx, override)
+	if err != nil {
+		return nil, nil, "", err
+	}
 	if proxyURL == "" {
 		return &http.Client{Timeout: 30 * time.Second, Jar: jar}, jar, "", nil
 	}
