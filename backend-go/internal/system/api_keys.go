@@ -2,6 +2,7 @@ package system
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strings"
 	"time"
@@ -27,7 +28,7 @@ func (s *Service) handleAPIKeyCollection(w http.ResponseWriter, r *http.Request)
 		}
 		key, err := s.apiKeys.Create(r.Context(), input)
 		if err != nil {
-			response.Error(w, http.StatusBadRequest, err.Error())
+			writeAPIKeyMutationError(w, err)
 			return
 		}
 		w.Header().Set("Cache-Control", "no-store")
@@ -52,7 +53,7 @@ func (s *Service) handleAPIKeyItem(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if err := s.apiKeys.Update(r.Context(), id, input); err != nil {
-			response.Error(w, http.StatusBadRequest, err.Error())
+			writeAPIKeyMutationError(w, err)
 			return
 		}
 		response.JSON(w, http.StatusOK, map[string]bool{"success": true})
@@ -61,7 +62,7 @@ func (s *Service) handleAPIKeyItem(w http.ResponseWriter, r *http.Request) {
 	if len(parts) == 2 && parts[1] == "rotate" && r.Method == http.MethodPost {
 		key, err := s.apiKeys.Rotate(r.Context(), id)
 		if err != nil {
-			response.Error(w, http.StatusBadRequest, err.Error())
+			writeAPIKeyMutationError(w, err)
 			return
 		}
 		w.Header().Set("Cache-Control", "no-store")
@@ -70,7 +71,7 @@ func (s *Service) handleAPIKeyItem(w http.ResponseWriter, r *http.Request) {
 	}
 	if len(parts) == 2 && parts[1] == "revoke" && r.Method == http.MethodPost {
 		if err := s.apiKeys.Revoke(r.Context(), id); err != nil {
-			response.Error(w, http.StatusBadRequest, err.Error())
+			writeAPIKeyMutationError(w, err)
 			return
 		}
 		response.JSON(w, http.StatusOK, map[string]bool{"success": true})
@@ -105,4 +106,25 @@ func apiKeyOverview(keys []apikeys.Key) map[string]interface{} {
 			{"value": apikeys.ScopeAPIWrite, "label": "修改后台 API"},
 		},
 	}
+}
+
+func writeAPIKeyMutationError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, apikeys.ErrNotFound):
+		response.Error(w, http.StatusNotFound, "API Key 不存在")
+	case isAPIKeyStorageError(err):
+		response.Error(w, http.StatusInternalServerError, "API Key 操作失败")
+	default:
+		response.Error(w, http.StatusBadRequest, err.Error())
+	}
+}
+
+func isAPIKeyStorageError(err error) bool {
+	msg := strings.ToLower(err.Error())
+	for _, marker := range []string{"constraint", "sqlite", "no such", "database", "malformed", "disk i/o"} {
+		if strings.Contains(msg, marker) {
+			return true
+		}
+	}
+	return false
 }

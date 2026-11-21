@@ -575,7 +575,7 @@ var apiDocSeeds = []apiDocSeed{
 		Docs: apiRouteDocs{Methods: []string{"GET", "POST"}}},
 	{Route: manifest.Route{Prefix: "/api/system/api-keys/{id}", Module: "system-api-keys", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "Central API key update/revoke", MatchMode: manifest.MatchPattern},
 		Docs: apiRouteDocs{Methods: []string{"PUT", "POST"}}},
-	{Route: manifest.Route{Prefix: "/api/ai/manifest", Module: "ai-access", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "AI access capability manifest", MatchMode: manifest.MatchExact},
+	{Route: manifest.Route{Prefix: "/api/ai/manifest", Module: "ai-access", Owner: manifest.OwnerGo, Auth: manifest.AuthAgent, ResponseMode: manifest.ResponseJSON, Description: "AI access capability manifest", MatchMode: manifest.MatchExact},
 		Docs: apiRouteDocs{Methods: []string{"GET"}}},
 
 	// ai-access 别名路径（/api/ai-access/*，与 /api/system/ai-access/* 同 handler 不同前缀）
@@ -1473,7 +1473,7 @@ func authHeaders(mode manifest.AuthMode) []apiDocParameter {
 		}
 	case manifest.AuthAgent:
 		return []apiDocParameter{
-			{Name: "Authorization", In: "header", Required: true, Description: "AI Agent Key，格式为 Bearer Token", Example: "Bearer am-xxx"},
+			{Name: "Authorization", In: "header", Required: true, Description: "AI Agent Key，格式为 Bearer Token", Example: "Bearer aik_xxxx"},
 		}
 	default:
 		return nil

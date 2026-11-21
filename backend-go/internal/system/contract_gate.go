@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"sort"
 	"strings"
+
+	"github.com/iwvw/api-monitor/backend-go/internal/manifest"
 )
 
 // ValidateAICallBody 在写操作落库前按路由契约校验请求体参数（ACI 防错参数设计）。
@@ -26,15 +28,22 @@ func (s *Service) ValidateAICallBody(method, path string, body json.RawMessage) 
 	best := (*apiDocRoute)(nil)
 	for i := range items {
 		item := &items[i]
-		if !routePrefixMatches(item.Prefix, item.MatchMode, path) {
+		if item.MatchMode == manifest.MatchPrefix {
+			if item.Prefix != path {
+				continue
+			}
+		} else if !routePrefixMatches(item.Prefix, item.MatchMode, path) {
 			continue
 		}
-		if best == nil || len(item.Prefix) > len(best.Prefix) {
+		if best == nil || manifest.CompareRouteSpecificity(item.Prefix, best.Prefix) > 0 {
 			best = item
 		}
 	}
 	if best == nil || best.RequestSchema == nil {
 		return nil
+	}
+	if declared := seedDeclaredMethods(best.Prefix); len(declared) > 0 && !methodInList(declared, method) {
+		return fmt.Errorf("接口 %s 不支持 %s 方法(契约方法:%s);请先用 get_route 查询真实可用方法", best.Prefix, method, strings.Join(declared, "/"))
 	}
 	var payload map[string]interface{}
 	if err := json.Unmarshal(body, &payload); err != nil {
@@ -174,4 +183,26 @@ func stringOrInterfaceList(v interface{}) []string {
 	default:
 		return nil
 	}
+}
+
+// seedDeclaredMethods 返回该前缀在 apiDocSeeds 中显式声明的方法集合(后者覆盖前者)。
+// 仅显式声明的方法可作为「文档方法 vs 调用方法」的判定依据:推断方法与真实 handler 可能不一致,不能据此拒绝调用。
+func seedDeclaredMethods(prefix string) []string {
+	var declared []string
+	for _, seed := range apiDocSeeds {
+		if seed.Route.Prefix != prefix || len(seed.Docs.Methods) == 0 {
+			continue
+		}
+		declared = seed.Docs.Methods
+	}
+	return declared
+}
+
+func methodInList(methods []string, method string) bool {
+	for _, m := range methods {
+		if strings.EqualFold(m, method) {
+			return true
+		}
+	}
+	return false
 }

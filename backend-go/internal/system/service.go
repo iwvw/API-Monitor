@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/iwvw/api-monitor/backend-go/internal/apikeys"
+	"github.com/iwvw/api-monitor/backend-go/internal/applog"
 	"github.com/iwvw/api-monitor/backend-go/internal/config"
 	"github.com/iwvw/api-monitor/backend-go/internal/database"
 	"github.com/iwvw/api-monitor/backend-go/internal/manifest"
@@ -98,6 +99,10 @@ type Service struct {
 	// 主机指标 1 分钟滚动采样（约 5s 一点，保留 12 点），供前端图表显示"1 分钟前到现在"并实时滚动
 	hostMetricsMu      sync.Mutex
 	hostMetricsSamples []hostMetricSample
+
+	hostCacheMu  sync.Mutex
+	hostCacheAt  time.Time
+	hostCacheVal map[string]interface{}
 
 	// apiDocsCache 缓存接口目录：构建一次约 550KB/7ms，而每次 MCP 工具调用
 	// （call_api 的契约校验、find_api、get_route、list_apis）都要读它。
@@ -185,12 +190,21 @@ func (s *Service) runFlushLoop() {
 	for {
 		select {
 		case <-ticker.C:
-			s.flushToDB()
+			s.guardBackground("flush-stats", s.flushToDB)
 		case <-s.stopChan:
-			s.flushToDB()
+			s.guardBackground("flush-stats", s.flushToDB)
 			return
 		}
 	}
+}
+
+func (s *Service) guardBackground(name string, fn func()) {
+	defer func() {
+		if r := recover(); r != nil {
+			applog.Error(context.Background(), "system", "background task panic recovered", "task", name, "panic", fmt.Sprint(r))
+		}
+	}()
+	fn()
 }
 
 func (s *Service) runHostMonitorLoop() {
@@ -201,7 +215,7 @@ func (s *Service) runHostMonitorLoop() {
 	for {
 		select {
 		case <-ticker.C:
-			s.checkHostAlerts()
+			s.guardBackground("host-alerts", s.checkHostAlerts)
 		case <-s.stopChan:
 			return
 		}
@@ -241,55 +255,56 @@ func (s *Service) checkHostAlerts() {
 		"disk_usage":  diskVal,
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
 	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	// CPU
+	var events []string
 	if cpuVal >= 90 {
 		if !s.alertState.cpuHigh {
 			s.alertState.cpuHigh = true
-			eventData["eventType"] = "cpu_high"
-			_ = s.notifier.Trigger(ctx, "system", "cpu_high", eventData)
+			events = append(events, "cpu_high")
 		}
 	} else if cpuVal < 85 {
 		if s.alertState.cpuHigh {
 			s.alertState.cpuHigh = false
-			eventData["eventType"] = "cpu_normal"
-			_ = s.notifier.Trigger(ctx, "system", "cpu_normal", eventData)
+			events = append(events, "cpu_normal")
 		}
 	}
 
-	// Memory
 	if memVal >= 90 {
 		if !s.alertState.memoryHigh {
 			s.alertState.memoryHigh = true
-			eventData["eventType"] = "memory_high"
-			_ = s.notifier.Trigger(ctx, "system", "memory_high", eventData)
+			events = append(events, "memory_high")
 		}
 	} else if memVal < 85 {
 		if s.alertState.memoryHigh {
 			s.alertState.memoryHigh = false
-			eventData["eventType"] = "memory_normal"
-			_ = s.notifier.Trigger(ctx, "system", "memory_normal", eventData)
+			events = append(events, "memory_normal")
 		}
 	}
 
-	// Disk
 	if diskVal >= 90 {
 		if !s.alertState.diskHigh {
 			s.alertState.diskHigh = true
-			eventData["eventType"] = "disk_high"
-			_ = s.notifier.Trigger(ctx, "system", "disk_high", eventData)
+			events = append(events, "disk_high")
 		}
 	} else if diskVal < 85 {
 		if s.alertState.diskHigh {
 			s.alertState.diskHigh = false
-			eventData["eventType"] = "disk_normal"
-			_ = s.notifier.Trigger(ctx, "system", "disk_normal", eventData)
+			events = append(events, "disk_normal")
 		}
+	}
+	s.mu.Unlock()
+
+	for _, eventType := range events {
+		data := make(map[string]interface{}, len(eventData)+1)
+		for k, v := range eventData {
+			data[k] = v
+		}
+		data["eventType"] = eventType
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		if err := s.notifier.Trigger(ctx, "system", eventType, data); err != nil {
+			applog.Warn(context.Background(), "system", "host alert notification failed", "event", eventType, "error", err.Error())
+		}
+		cancel()
 	}
 }
 
@@ -312,12 +327,14 @@ func (s *Service) flushToDB() {
 
 	db, err := s.store.Open(ctx)
 	if err != nil {
+		applog.Warn(context.Background(), "system", "flush api stats: open db failed", "error", err.Error())
 		return
 	}
 	defer db.Close()
 
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
+		applog.Warn(context.Background(), "system", "flush api stats: begin tx failed", "error", err.Error())
 		return
 	}
 	defer tx.Rollback()
@@ -331,17 +348,20 @@ func (s *Service) flushToDB() {
 			updated_at = CURRENT_TIMESTAMP
 	`)
 	if err != nil {
+		applog.Warn(context.Background(), "system", "flush api stats: prepare failed", "error", err.Error())
 		return
 	}
 	defer stmt.Close()
 
 	for date, counters := range statsToSave {
 		if _, err := stmt.ExecContext(ctx, date, counters.Audit, counters.Ops); err != nil {
+			applog.Warn(context.Background(), "system", "flush api stats: exec failed", "date", date, "error", err.Error())
 			return
 		}
 	}
 
 	if err := tx.Commit(); err != nil {
+		applog.Warn(context.Background(), "system", "flush api stats: commit failed", "error", err.Error())
 		return
 	}
 
@@ -502,17 +522,6 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				response.Error(w, http.StatusForbidden, err.Error())
 				return
 			}
-			response.Error(w, http.StatusBadRequest, err.Error())
-			return
-		}
-		response.OK(w, payload)
-	case "/api/ai-access/policy":
-		if r.Method != http.MethodPut {
-			response.Error(w, http.StatusMethodNotAllowed, "method not allowed")
-			return
-		}
-		payload, err := s.setAIAgentAccessPolicy(r)
-		if err != nil {
 			response.Error(w, http.StatusBadRequest, err.Error())
 			return
 		}
@@ -1834,7 +1843,8 @@ func (s *Service) apiStatsWindow(days, minutes int) (map[string]interface{}, err
 	}
 	s.apiStatsMu.Unlock()
 
-	now := time.Now()
+	loc := s.siteLocation()
+	now := time.Now().In(loc)
 	startDateStr := now.AddDate(0, 0, -(days - 1)).Format("2006-01-02")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -1897,7 +1907,7 @@ func (s *Service) apiStatsWindow(days, minutes int) (map[string]interface{}, err
 	// 汇总最近 days 天的词元用量（模型网关）与订阅实际用量（流量），并按天对齐趋势桶。
 	var totalTokens, totalTraffic int64
 	nowUTC := time.Now().UTC()
-	tokensByDay, trafficByDay := systemUsageDaily(ctx, db, nowUTC, days)
+	tokensByDay, trafficByDay := systemUsageDaily(ctx, db, nowUTC, loc, days)
 	for _, item := range trend {
 		bucket := item["bucket"].(string)
 		tokens := tokensByDay[bucket]
@@ -1940,41 +1950,48 @@ func (s *Service) apiStatsWindow(days, minutes int) (map[string]interface{}, err
 
 // systemUsageDaily 按天汇总最近 days 天的模型网关词元消耗与订阅实际流量（上传+下载字节）。
 // now 须为 UTC：两表时间列均以 UTC 文本存储，直接与列比较可命中索引，
-// 避免 datetime() 函数包裹导致全表扫描。返回以 "2006-01-02"（UTC 日）为键的逐日用量表，缺失日期返回 0。
-func systemUsageDaily(ctx context.Context, db *sql.DB, now time.Time, days int) (map[string]int64, map[string]int64) {
-	start := now.AddDate(0, 0, -(days - 1)).Format("2006-01-02 15:04:05")
-	startRFC3339 := now.AddDate(0, 0, -(days - 1)).Format(time.RFC3339)
+// 避免 datetime() 函数包裹导致全表扫描。返回以 "2006-01-02"（站点时区日）为键的逐日用量表，缺失日期返回 0。
+func systemUsageDaily(ctx context.Context, db *sql.DB, now time.Time, loc *time.Location, days int) (map[string]int64, map[string]int64) {
+	if loc == nil {
+		loc = time.UTC
+	}
+	firstDay := now.In(loc).AddDate(0, 0, -(days - 1))
+	startUTC := time.Date(firstDay.Year(), firstDay.Month(), firstDay.Day(), 0, 0, 0, 0, loc).UTC()
 	tokensByDay := make(map[string]int64)
 	if rows, err := db.QueryContext(ctx, `
-		SELECT strftime('%Y-%m-%d', hour) AS day, COALESCE(SUM(total_tokens), 0)
+		SELECT hour, COALESCE(SUM(total_tokens), 0)
 		FROM modelhub_gateway_stats_hourly
 		WHERE hour >= ? AND route != 'models'
-		GROUP BY day`, start); err != nil {
+		GROUP BY hour`, startUTC.Format("2006-01-02 15:04:05")); err != nil {
 		// 表可能尚未建好，返回空表即可。
 		tokensByDay = nil
 	} else {
 		for rows.Next() {
-			var day string
+			var hourKey string
 			var tokens int64
-			if err := rows.Scan(&day, &tokens); err == nil {
-				tokensByDay[day] = tokens
+			if err := rows.Scan(&hourKey, &tokens); err == nil {
+				if h, perr := time.ParseInLocation("2006-01-02 15:04:05", hourKey, time.UTC); perr == nil {
+					tokensByDay[h.In(loc).Format("2006-01-02")] += tokens
+				}
 			}
 		}
 		rows.Close()
 	}
 	trafficByDay := make(map[string]int64)
 	if rows, err := db.QueryContext(ctx, `
-		SELECT strftime('%Y-%m-%d', hour) AS day, COALESCE(SUM(upload_bytes + download_bytes), 0)
+		SELECT hour, COALESCE(SUM(upload_bytes + download_bytes), 0)
 		FROM subscription_usage_hourly
 		WHERE hour >= ?
-		GROUP BY day`, startRFC3339); err != nil {
+		GROUP BY hour`, startUTC.Format(time.RFC3339)); err != nil {
 		trafficByDay = nil
 	} else {
 		for rows.Next() {
-			var day string
+			var hourKey string
 			var traffic int64
-			if err := rows.Scan(&day, &traffic); err == nil {
-				trafficByDay[day] = traffic
+			if err := rows.Scan(&hourKey, &traffic); err == nil {
+				if h, perr := time.Parse(time.RFC3339, hourKey); perr == nil {
+					trafficByDay[h.In(loc).Format("2006-01-02")] += traffic
+				}
 			}
 		}
 		rows.Close()
@@ -1988,6 +2005,18 @@ func (s *Service) Shutdown() {
 }
 
 func (s *Service) hostMetrics() (map[string]interface{}, error) {
+	s.hostCacheMu.Lock()
+	defer s.hostCacheMu.Unlock()
+	if s.hostCacheVal != nil && time.Since(s.hostCacheAt) < 2*time.Second {
+		return s.hostCacheVal, nil
+	}
+	payload := s.collectHostMetrics()
+	s.hostCacheVal = payload
+	s.hostCacheAt = time.Now()
+	return payload, nil
+}
+
+func (s *Service) collectHostMetrics() map[string]interface{} {
 	hostInfo, _ := host.Info()
 	cpuPercent := readCPUPercent()
 	cpuInfo := readCPUInfo()
@@ -2055,17 +2084,22 @@ func (s *Service) hostMetrics() (map[string]interface{}, error) {
 		"timestamp":   time.Now().UTC().Format(time.RFC3339Nano),
 		"serverTime":  authTime,
 		"displayTime": fmt.Sprintf("%s (%s)", authTime["local"], authTime["timezone"]),
-	}, nil
+	}
 }
 
 // siteLocation 返回站点时区的 *time.Location（带 1 分钟 TTL 缓存），
 // 供高频路径（如 API 统计日报的日期键）使用，避免每次请求查询 user_settings。
 // 读取失败回退服务器本地时区。
 func (s *Service) siteLocation() *time.Location {
+	_, loc := s.siteZone()
+	return loc
+}
+
+func (s *Service) siteZone() (string, *time.Location) {
 	s.siteTzMu.Lock()
 	defer s.siteTzMu.Unlock()
 	if s.siteTzName != "" && time.Since(s.siteTzRefreshAt) < time.Minute {
-		return timeutil.LocationFromName(s.siteTzName)
+		return s.siteTzName, timeutil.LocationFromName(s.siteTzName)
 	}
 	zone := "system"
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
@@ -2077,21 +2111,14 @@ func (s *Service) siteLocation() *time.Location {
 	}
 	s.siteTzName = zone
 	s.siteTzRefreshAt = time.Now()
-	return timeutil.LocationFromName(zone)
+	return zone, timeutil.LocationFromName(zone)
 }
 
 // authoritativeTime 返回站点设置的权威时间信息（供 AI 工具读取，避免模型凭记忆编造时间）。
 // 含 UTC 时刻、站点时区名与站点本地时间；读设置失败时回退服务器本地时区。
 func (s *Service) authoritativeTime() map[string]interface{} {
 	now := time.Now().UTC()
-	loc := time.Local
-	zone := "system"
-	db, err := s.store.Open(context.Background())
-	if err == nil {
-		zone = timeutil.ReadTimeZone(context.Background(), db)
-		_ = db.Close()
-		loc = timeutil.LocationFromName(zone)
-	}
+	zone, loc := s.siteZone()
 	return map[string]interface{}{
 		"utc":        now.Format(time.RFC3339Nano),
 		"timezone":   zone,
