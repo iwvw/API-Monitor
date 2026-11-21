@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Button, Loader, DropdownMenu } from '@cloudflare/kumo';
 import { Input, Textarea } from '@cloudflare/kumo/components/input';
 import { ChevronDown, ChevronRight, Check } from '../../Icons.jsx';
@@ -32,9 +32,9 @@ function formatRemaining(ms) {
   return `${mins}分${secs}秒`;
 }
 
-export default function ApprovalCard({ approval, onResolve, remaining = 0 }) {
+export default function ApprovalCard({ approval, onResolve, onExpire, remaining = 0 }) {
   const {
-    id,
+    id: partId,
     planSummary,
     method,
     path,
@@ -43,6 +43,7 @@ export default function ApprovalCard({ approval, onResolve, remaining = 0 }) {
     status,
     errorMessage,
   } = approval || {};
+  const id = partId ?? approval?.approvalId;
   const [resolving, setResolving] = useState(false);
   const [showDiff, setShowDiff] = useState(false);
   const [requestText, setRequestText] = useState('');
@@ -52,6 +53,16 @@ export default function ApprovalCard({ approval, onResolve, remaining = 0 }) {
   const remainingMs = useRemainingMs(expiresAt, status === 'pending');
   const expired = remainingMs !== null && remainingMs <= 0;
   const countdown = formatRemaining(remainingMs);
+
+  const expiredNotifiedRef = useRef(false);
+  useEffect(() => {
+    expiredNotifiedRef.current = false;
+  }, [id]);
+  useEffect(() => {
+    if (!expired || status !== 'pending' || expiredNotifiedRef.current || !id) return;
+    expiredNotifiedRef.current = true;
+    onExpire?.(id);
+  }, [expired, status, id, onExpire]);
 
   // 确认态允许取消：展开菜单时重置，避免上次的待确认状态残留。
   const closeMenu = () => setConfirmAllow(false);

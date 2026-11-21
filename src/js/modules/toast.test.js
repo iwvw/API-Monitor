@@ -101,14 +101,16 @@ describe('toast manager', () => {
     expect(mockAdd.mock.calls[0][0]).toMatchObject({ title: '注意', variant: 'warning' });
   });
 
-  it('info without isManual is suppressed', () => {
-    expect(toast.info('静默')).toBeNull();
-    expect(mockAdd).not.toHaveBeenCalled();
+  it('info is shown by default', () => {
+    toast.info('可见');
+    expect(mockAdd).toHaveBeenCalledTimes(1);
+    expect(mockAdd.mock.calls[0][0]).toMatchObject({ title: '可见', variant: 'info' });
   });
 
-  it('show with no type defaults to info and is suppressed', () => {
-    expect(toast.show()).toBeNull();
-    expect(mockAdd).not.toHaveBeenCalled();
+  it('show with no type defaults to info and is shown', () => {
+    toast.show();
+    expect(mockAdd).toHaveBeenCalledTimes(1);
+    expect(mockAdd.mock.calls[0][0]).toMatchObject({ variant: 'info' });
   });
 
   it('show passes type through from options', () => {

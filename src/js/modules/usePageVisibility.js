@@ -25,16 +25,21 @@ export function useVisiblePolling(callback, intervalMs, deps = []) {
       }
     };
 
+    const invoke = () => {
+      const result = callbackRef.current?.();
+      if (result && typeof result.then === 'function') result.catch(() => {});
+    };
+
     const start = () => {
       if (timer !== null) return;
-      timer = window.setInterval(() => callbackRef.current(), intervalMs);
+      timer = window.setInterval(invoke, intervalMs);
     };
 
     const handleVisibilityChange = () => {
       if (document.hidden) {
         stop();
       } else {
-        callbackRef.current();
+        invoke();
         start();
       }
     };

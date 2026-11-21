@@ -86,7 +86,10 @@ const imageTag = (image = {}) => {
   const repoTags = Array.isArray(image.RepoTags || image.repoTags) ? (image.RepoTags || image.repoTags) : [];
   const firstRepoTag = repoTags.find(Boolean) || '';
   if (image.tag || image.Tag) return image.tag || image.Tag;
-  if (firstRepoTag.includes(':')) return firstRepoTag.split(':').pop();
+  if (firstRepoTag.includes('@')) return '-';
+  const lastSlash = firstRepoTag.lastIndexOf('/');
+  const lastColon = firstRepoTag.lastIndexOf(':');
+  if (lastColon > lastSlash) return firstRepoTag.slice(lastColon + 1);
   return '-';
 };
 

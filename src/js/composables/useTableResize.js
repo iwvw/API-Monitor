@@ -33,6 +33,9 @@ export default function useTableResize(initialWidths) {
     document.removeEventListener('mouseup', stopResize);
     document.removeEventListener('touchmove', onTouchMove);
     document.removeEventListener('touchend', stopResize);
+    document.removeEventListener('touchcancel', stopResize);
+    document.removeEventListener('pointercancel', stopResize);
+    window.removeEventListener('blur', stopResize);
     document.body.style.cursor = '';
     document.body.style.userSelect = '';
   }, [onMouseMove, onTouchMove]);
@@ -50,6 +53,9 @@ export default function useTableResize(initialWidths) {
     document.addEventListener('mouseup', stopResize);
     document.addEventListener('touchmove', onTouchMove, { passive: false });
     document.addEventListener('touchend', stopResize);
+    document.addEventListener('touchcancel', stopResize);
+    document.addEventListener('pointercancel', stopResize);
+    window.addEventListener('blur', stopResize);
   }, [widths, onMouseMove, onTouchMove, stopResize]);
 
   useEffect(() => stopResize, [stopResize]);

@@ -88,7 +88,10 @@ export function useDraggableScroll(viewportRef, { disabled = false } = {}) {
       moved: false,
     };
 
-    element.setPointerCapture?.(event.pointerId);
+    try {
+      element.setPointerCapture?.(event.pointerId);
+    } catch {
+    }
   }, [disabled, viewportRef]);
 
   const onPointerMoveCapture = useCallback((event) => {

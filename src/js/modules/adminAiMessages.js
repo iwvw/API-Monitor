@@ -245,6 +245,9 @@ export function applyAiEvent(messages, event, targetId) {
       });
       break;
     case 'approval':
+      if (event.approvalId && (msg.parts || []).some((p) => p.type === 'approval' && p.approvalId === event.approvalId)) {
+        break;
+      }
       msg = appendPart(msg, {
         type: 'approval',
         approvalId: event.approvalId,

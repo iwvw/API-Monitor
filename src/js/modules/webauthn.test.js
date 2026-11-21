@@ -15,6 +15,7 @@ const stubWebAuthn = (overrides = {}) => {
     btoa: globalThis.btoa,
     atob: globalThis.atob,
     PublicKeyCredential: class PublicKeyCredential {},
+    isSecureContext: true,
     ...overrides.window,
   });
   vi.stubGlobal('navigator', {
@@ -44,10 +45,16 @@ describe('browserSupportsWebAuthn', () => {
   });
 
   it('returns truthy when everything is present', () => {
-    vi.stubGlobal('window', { PublicKeyCredential: class {} });
+    vi.stubGlobal('window', { PublicKeyCredential: class {}, isSecureContext: true });
     vi.stubGlobal('navigator', { credentials: {} });
     expect(browserSupportsWebAuthn()).toBeTruthy();
-    expect(browserSupportsWebAuthn()).toBe(navigator.credentials);
+    expect(browserSupportsWebAuthn()).toBe(true);
+  });
+
+  it('returns false in an insecure context', () => {
+    vi.stubGlobal('window', { PublicKeyCredential: class {}, isSecureContext: false });
+    vi.stubGlobal('navigator', { credentials: {} });
+    expect(browserSupportsWebAuthn()).toBe(false);
   });
 });
 

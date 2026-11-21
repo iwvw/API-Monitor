@@ -1,4 +1,4 @@
-import React, { forwardRef, useCallback, useEffect, useImperativeHandle, useState } from 'react';
+import React, { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import { Loader } from '@cloudflare/kumo/components/loader';
 import { toast } from '../../modules/toast.js';
 import useConfirmPress from '../../hooks/useConfirmPress.js';
@@ -29,6 +29,12 @@ const ForwardPanel = forwardRef(function ForwardPanel(_props, ref) {
   });
   // 站点标准两段式删除（4 秒确认窗 + toast 提示 + 自动复位）
   const { isArmed, confirmPress } = useConfirmPress();
+  const pollTimersRef = useRef(new Set());
+
+  useEffect(() => () => {
+    pollTimersRef.current.forEach((timer) => clearInterval(timer));
+    pollTimersRef.current.clear();
+  }, []);
 
   const loadForwards = useCallback(async () => {
     try {
@@ -76,15 +82,18 @@ const ForwardPanel = forwardRef(function ForwardPanel(_props, ref) {
             const finished = status === 'running' || status === 'failed' || status === 'stopped';
             if (!finished && attempts <= 10) return;
             clearInterval(poll);
+            pollTimersRef.current.delete(poll);
             setDeploying((prev) => { const n = new Set(prev); n.delete(id); return n; });
             loadForwards();
             if (status === 'running') toast.success('部署成功');
             else if (status === 'failed') toast.error(j.data?.last_error || '部署失败');
           } catch (e) {
             clearInterval(poll);
+            pollTimersRef.current.delete(poll);
             setDeploying((prev) => { const n = new Set(prev); n.delete(id); return n; });
           }
         }, 3000);
+        pollTimersRef.current.add(poll);
       } else {
         toast.error(json.error || '部署失败');
         setDeploying((prev) => { const n = new Set(prev); n.delete(id); return n; });

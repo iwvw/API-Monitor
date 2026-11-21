@@ -65,8 +65,9 @@ const serializeCredential = (credential) => {
   };
 };
 
-export const browserSupportsWebAuthn = () => (
+export const browserSupportsWebAuthn = () => Boolean(
   typeof window !== 'undefined'
+  && window.isSecureContext
   && typeof window.PublicKeyCredential !== 'undefined'
   && typeof navigator !== 'undefined'
   && navigator.credentials

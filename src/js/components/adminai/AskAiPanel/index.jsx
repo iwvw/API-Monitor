@@ -531,6 +531,7 @@ import {
     es.onerror = () => {
       // 连接层失败（网络断开/服务端退出）：先关闭当前 EventSource（避免浏览器
       // 对同 URL 无限自动重连、走后端 404 循环），再手动指数退避重连。
+      if (es !== eventSource.current) return;
       if (healthTimerRef.current) {
         clearTimeout(healthTimerRef.current);
         healthTimerRef.current = null;
@@ -939,6 +940,19 @@ import {
     }
   };
 
+  const handleApprovalExpired = (approvalId) => {
+    setPendingApprovals((prev) => prev.filter((p) => p.approvalId !== approvalId));
+    setMessages((prev) => prev.map((m) => {
+      if (!m.parts || !m.parts.some((p) => p.type === 'approval' && p.approvalId === approvalId)) return m;
+      return {
+        ...m,
+        parts: m.parts.map((p) => (p.type === 'approval' && p.approvalId === approvalId && p.status === 'pending'
+          ? { ...p, status: 'error', errorMessage: '审批已过期' }
+          : p)),
+      };
+    }));
+  };
+
   /* 撤销当前会话的「允许此对话」写授权（后端写入即清 write_enabled 与有效期） */
   const handleRevokeSessionWrite = async (sessionId) => {
     if (!sessionId) return;
@@ -970,7 +984,7 @@ import {
     if (!current) return null;
     return (
       <div className={`askai-modal-in absolute z-40 ${positionClass}`}>
-        <ApprovalCard approval={approvalProps(current)} onResolve={handleResolveApproval} remaining={pendingApprovals.length} />
+        <ApprovalCard key={current.approvalId} approval={approvalProps(current)} onResolve={handleResolveApproval} onExpire={handleApprovalExpired} remaining={pendingApprovals.length} />
       </div>
     );
   };
@@ -1159,8 +1173,8 @@ import {
       style={{
         '--sidebar-active-bg': 'var(--color-kumo-tint)',
         '--sidebar-bg': 'var(--color-kumo-base)',
-        '--sidebar-animation-duration': '250ms',
-        '--sidebar-easing': 'cubic-bezier(0.77, 0, 0.175, 1)',
+        '--sidebar-animation-duration': 'var(--motion-duration-medium)',
+        '--sidebar-easing': 'var(--motion-ease-panel)',
       }}
     >
       <div className="relative flex h-full w-full flex-1 overflow-hidden rounded-2xl border-[3px] border-brand/80 bg-kumo-canvas">
@@ -1294,7 +1308,7 @@ import {
                       <EmptyState onPrompt={(p) => { setInput(p); textareaRef.current?.focus(); }} />
                     )
                   ) : (
-                    <MessageList messages={messages} mode={behavior} live={streaming ? null : liveRun} hasMoreOlder={hasMoreOlder} loadingOlder={loadingOlder} onLoadOlder={() => loadOlderMessages(activeSessionIdRef.current)} onResolveApproval={handleResolveApproval} onRetry={handleSend} onEditResend={handleEditResend} onRegenerate={handleRegenerate} />
+                    <MessageList messages={messages} mode={behavior} live={streaming ? null : liveRun} hasMoreOlder={hasMoreOlder} loadingOlder={loadingOlder} onLoadOlder={() => loadOlderMessages(activeSessionIdRef.current)} onResolveApproval={handleResolveApproval} onApprovalExpire={handleApprovalExpired} onRetry={handleSend} onEditResend={handleEditResend} onRegenerate={handleRegenerate} />
                   )}
                 </div>
                 {/* 全屏输入区（实底不透明，与消息区无缝衔接）；机器人会话只读不渲染输入框 */}
@@ -1457,7 +1471,7 @@ import {
               className="z-40 w-64 overflow-hidden p-0"
             >
               <div
-                style={{ '--sidebar-active-bg': 'var(--color-kumo-tint)', '--sidebar-animation-duration': '250ms' }}
+                style={{ '--sidebar-active-bg': 'var(--color-kumo-tint)', '--sidebar-animation-duration': 'var(--motion-duration-medium)' }}
               >
               <div className="border-b border-kumo-line p-1.5">
                 <Tabs
@@ -1572,7 +1586,7 @@ import {
                   <EmptyState onPrompt={(p) => { setInput(p); setTimeout(() => textareaRef.current?.focus(), 0); }} />
                 )
               ) : (
-                <MessageList messages={messages} mode={behavior} live={streaming ? null : liveRun} hasMoreOlder={hasMoreOlder} loadingOlder={loadingOlder} onLoadOlder={() => loadOlderMessages(activeSessionIdRef.current)} onResolveApproval={handleResolveApproval} onRetry={handleSend} onEditResend={handleEditResend} onRegenerate={handleRegenerate} />
+                <MessageList messages={messages} mode={behavior} live={streaming ? null : liveRun} hasMoreOlder={hasMoreOlder} loadingOlder={loadingOlder} onLoadOlder={() => loadOlderMessages(activeSessionIdRef.current)} onResolveApproval={handleResolveApproval} onApprovalExpire={handleApprovalExpired} onRetry={handleSend} onEditResend={handleEditResend} onRegenerate={handleRegenerate} />
               )}
             </div>
           </div>

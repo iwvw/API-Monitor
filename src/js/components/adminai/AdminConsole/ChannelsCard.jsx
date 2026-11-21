@@ -236,6 +236,7 @@ function ChannelsCard() {
   // ---- 微信扫码登录 ----
   const [qrState, setQrState] = useState({ channelId: null, loading: false, qrcode: '', qrcodeImg: '', imgSrc: '', status: '' });
   const qrPollRef = useRef(null);
+  const qrPollGenRef = useRef(0);
 
   // 根据后端返回生成可显示的二维码图片：
   // 优先用完整链接在本地生成（qrcode 库），兼容 base64 图片 / URL 两种后端返回。
@@ -279,7 +280,9 @@ function ChannelsCard() {
 
   const pollQRStatus = async (channelId, qrcode) => {
     if (qrPollRef.current) clearTimeout(qrPollRef.current);
+    const gen = ++qrPollGenRef.current;
     const poll = async () => {
+      if (gen !== qrPollGenRef.current) return;
       try {
         const res = await fetch(`/api/admin-ai/channels/${channelId}/wechat/qrcode/status?qrcode=${encodeURIComponent(qrcode)}`);
         const data = await res.json();
@@ -293,8 +296,10 @@ function ChannelsCard() {
           return;
         }
         if (status === 'expired') return;
+        if (gen !== qrPollGenRef.current) return;
         qrPollRef.current = setTimeout(poll, 2000);
       } catch {
+        if (gen !== qrPollGenRef.current) return;
         qrPollRef.current = setTimeout(poll, 3000);
       }
     };
@@ -302,11 +307,12 @@ function ChannelsCard() {
   };
 
   const cancelQRLogin = () => {
+    qrPollGenRef.current++;
     if (qrPollRef.current) clearTimeout(qrPollRef.current);
     setQrState({ channelId: null, loading: false, qrcode: '', qrcodeImg: '', imgSrc: '', status: '' });
   };
 
-  useEffect(() => () => { if (qrPollRef.current) clearTimeout(qrPollRef.current); }, []);
+  useEffect(() => () => { qrPollGenRef.current++; if (qrPollRef.current) clearTimeout(qrPollRef.current); }, []);
 
   // 微信未授权频道：打开编辑表单即自动拉取二维码（不显示手动按钮）。
   const qrAutoRef = useRef(null);

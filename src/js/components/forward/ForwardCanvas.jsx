@@ -223,6 +223,10 @@ export default function ForwardCanvas({ forwards, servers, deploying, acting, on
     prevStatusRef.current = next;
   }, [forwards]);
 
+  useEffect(() => () => {
+    if (flashTimerRef.current) window.clearTimeout(flashTimerRef.current);
+  }, []);
+
   const handleCanvasClick = useCallback((event) => {
     // 点到卡片或详情框以外（含内容区空白、连线层）即关闭信息框
     const t = event.target;

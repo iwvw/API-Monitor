@@ -402,7 +402,7 @@ function ToolResultLine({ part }) {
 }
 
 /* ---------- timeline part 分发（按时间序逐行渲染） ---------- */
-function TimelinePart({ part, streaming, isLastPart, onResolveApproval, onRetry, className }) {
+function TimelinePart({ part, streaming, isLastPart, onResolveApproval, onApprovalExpire, onRetry, className }) {
   switch (part.type) {
     case 'reasoning':
       return <ReasoningPart part={part} streaming={streaming} isLastPart={isLastPart} />;
@@ -423,7 +423,7 @@ function TimelinePart({ part, streaming, isLastPart, onResolveApproval, onRetry,
       return className ? <div className={className}>{content}</div> : content;
     }
     case 'approval':
-      return <ApprovalCard approval={part} onResolve={onResolveApproval} />;
+      return <ApprovalCard approval={part} onResolve={onResolveApproval} onExpire={onApprovalExpire} />;
     case 'notice':
       return (
         <div className="flex items-center gap-1.5 text-[11px] text-kumo-subtle/70">
@@ -503,7 +503,7 @@ function MessageActions({ msg, streaming, onRegenerate }) {
 }
 
 /* ---------- 助手消息（timeline：推理/工具/正文按时间序） ---------- */
-function AssistantMessage({ msg, streaming, live, onResolveApproval, onRetry, onEditResend, onRegenerate, isCollapsed, toggleCollapse, mode }) {
+function AssistantMessage({ msg, streaming, live, onResolveApproval, onApprovalExpire, onRetry, onEditResend, onRegenerate, isCollapsed, toggleCollapse, mode }) {
   const parts = msg.parts || [];
   // 仅本条消息处于流式/占位状态才打 live 徽章：markLiveMessage 只把目标消息标 STREAMING，
   // 否则多轮会话里每条历史 assistant 消息都会误显示「正在执行工具…」
@@ -594,6 +594,7 @@ function AssistantMessage({ msg, streaming, live, onResolveApproval, onRetry, on
                     streaming={!liveActive && streaming && (isText ? (textSeq === lastTextIdx && part.text === lastText) : true)}
                     className={prevIsTool && isText ? 'mt-1' : undefined}
                     onResolveApproval={onResolveApproval}
+                    onApprovalExpire={onApprovalExpire}
                     onRetry={onRetry}
                   />
                 );
@@ -615,7 +616,7 @@ function livePhaseLabel(phase) {
 }
 
 /* ---------- 消息列表 ---------- */
-export default function MessageList({ messages, mode, live, hasMoreOlder, loadingOlder, onLoadOlder, onResolveApproval, onRetry, onEditResend, onRegenerate }) {
+export default function MessageList({ messages, mode, live, hasMoreOlder, loadingOlder, onLoadOlder, onResolveApproval, onApprovalExpire, onRetry, onEditResend, onRegenerate }) {
   const listRef = useRef(null);
   const userScrolledUp = useRef(false);
   const [collapsedIds, setCollapsedIds] = useState({});
@@ -816,6 +817,7 @@ export default function MessageList({ messages, mode, live, hasMoreOlder, loadin
                 streaming={streaming}
                 live={live}
                 onResolveApproval={onResolveApproval}
+                onApprovalExpire={onApprovalExpire}
                 onRetry={onRetry}
                 onRegenerate={onRegenerate}
                 isCollapsed={isCollapsed}

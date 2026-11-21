@@ -21,15 +21,22 @@ export const ALLOWED_URI_REGEXP =
  * DOMPurify 配置:所有 Markdown 输出(含解析异常回退)共用同一套策略。
  */
 const SANITIZE_OPTIONS = {
-  ADD_ATTR: ['target', 'title', 'rel', 'open', 'class', 'style', 'aria-hidden', 'viewBox', 'd', 'fill'],
+  ADD_ATTR: ['target', 'title', 'rel', 'open', 'class', 'aria-hidden', 'viewBox', 'd', 'fill'],
   ADD_TAGS: ['a', 'img', 'div', 'details', 'summary', 'i', 'span', 'svg', 'path', 'math', 'semantics', 'mrow', 'annotation', 'mstyle', 'mo', 'mi', 'mn', 'msup', 'msub', 'mfrac', 'msqrt', 'root', 'mtd', 'mtr', 'mtable'],
+  FORBID_ATTR: ['style'],
   // 允许 data:image/ 位图(Base64 图片预览);data:text/html 与
   // data:image/svg+xml 等可执行脚本的 data URL 一律不放行。
   ALLOWED_URI_REGEXP,
 };
 
-function sanitizeMarkdownHtml(html) {
-  return DOMPurify.sanitize(html, SANITIZE_OPTIONS);
+const MATH_SANITIZE_OPTIONS = {
+  ...SANITIZE_OPTIONS,
+  ADD_ATTR: [...SANITIZE_OPTIONS.ADD_ATTR, 'style'],
+  FORBID_ATTR: [],
+};
+
+function sanitizeMarkdownHtml(html, options = SANITIZE_OPTIONS) {
+  return DOMPurify.sanitize(html, options);
 }
 
 /**
@@ -84,8 +91,9 @@ export function renderMarkdown(text) {
   const mathBlocks = [];
   const addMath = (content, displayMode) => {
     try {
-      const html = katex.renderToString(content.trim(), { displayMode, throwOnError: false });
-      mathBlocks.push(displayMode ? `<div class="math-block">${html}</div>` : `<span class="math-inline">${html}</span>`);
+      const katexHtml = katex.renderToString(content.trim(), { displayMode, throwOnError: false });
+      const safe = sanitizeMarkdownHtml(katexHtml, MATH_SANITIZE_OPTIONS);
+      mathBlocks.push(displayMode ? `<div class="math-block">${safe}</div>` : `<span class="math-inline">${safe}</span>`);
       return `@@MATH_${mathBlocks.length - 1}@@`;
     } catch (e) {
       return content;
@@ -110,12 +118,12 @@ export function renderMarkdown(text) {
     // 渲染 Markdown
     let rawHtml = marked.parse(source, { breaks: true, gfm: true });
 
-    // 6. 还原数学公式
+    rawHtml = sanitizeMarkdownHtml(rawHtml);
     mathBlocks.forEach((html, index) => {
       rawHtml = rawHtml.replace(`@@MATH_${index}@@`, html);
     });
 
-    return sanitizeMarkdownHtml(rawHtml);
+    return rawHtml;
   } catch (e) {
     console.error('Markdown 解析失败:', e);
     // 异常分支同样必须净化,避免 marked 抛错时旁路 DOMPurify。
