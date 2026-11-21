@@ -579,6 +579,18 @@ func insertSnapshot(ctx context.Context, db *sql.DB, repoID int64, snapshot Snap
 	return err
 }
 
+func lastEventFingerprint(ctx context.Context, db *sql.DB, repoID int64) (string, error) {
+	var fingerprint string
+	err := db.QueryRowContext(ctx, `SELECT fingerprint FROM github_events WHERE repository_id = ? ORDER BY id DESC LIMIT 1`, repoID).Scan(&fingerprint)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	return fingerprint, nil
+}
+
 func insertEvent(ctx context.Context, db *sql.DB, repoID *int64, eventType, severity, title, message, source string, payload map[string]interface{}, fingerprint string, notified bool) error {
 	body, _ := json.Marshal(compactStoredEventPayload(eventType, payload))
 	var id interface{}

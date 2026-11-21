@@ -282,6 +282,7 @@ func (s *Service) refreshRepositoryWithDB(ctx context.Context, db *sql.DB, repo 
 			releaseCount = 1
 		}
 	}
+	var writeErr error
 	commitCount := 0
 	if commits, nextRate, err := s.client.fetchCommits(ctx, token, repo.Owner, repo.Name, time.Now().AddDate(0, 0, -30)); err == nil {
 		commitCount = len(commits)
@@ -291,16 +292,20 @@ func (s *Service) refreshRepositoryWithDB(ctx context.Context, db *sql.DB, repo 
 	if contributors, nextRate, err := s.client.fetchContributors(ctx, token, repo.Owner, repo.Name); err == nil {
 		contributorCount = len(contributors)
 		rate = mergeRate(rate, nextRate)
-		_, _ = db.ExecContext(ctx, `DELETE FROM github_contributors WHERE repository_id = ?`, repo.ID)
+		if _, err := db.ExecContext(ctx, `DELETE FROM github_contributors WHERE repository_id = ?`, repo.ID); err != nil {
+			writeErr = firstError(writeErr, err)
+		}
 		for _, contributor := range contributors {
-			_, _ = db.ExecContext(ctx, `INSERT OR REPLACE INTO github_contributors (repository_id, login, avatar_url, html_url, contributions, collected_at)
-				VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`, repo.ID, asString(contributor["login"]), asString(contributor["avatar_url"]), asString(contributor["html_url"]), intFromAny(contributor["contributions"]))
+			if _, err := db.ExecContext(ctx, `INSERT OR REPLACE INTO github_contributors (repository_id, login, avatar_url, html_url, contributions, collected_at)
+				VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`, repo.ID, asString(contributor["login"]), asString(contributor["avatar_url"]), asString(contributor["html_url"]), intFromAny(contributor["contributions"])); err != nil {
+				writeErr = firstError(writeErr, err)
+			}
 		}
 	}
 	actionsTotal, actionsSuccess, actionsFailed := 0, 0, 0
 	if runs, nextRate, err := s.client.fetchWorkflowRuns(ctx, token, repo.Owner, repo.Name, 50); err == nil {
 		rate = mergeRate(rate, nextRate)
-		actionsTotal = runs.TotalCount
+		actionsTotal = len(runs.WorkflowRuns)
 		for i, run := range runs.WorkflowRuns {
 			if run.Conclusion == "success" {
 				actionsSuccess++
@@ -312,11 +317,13 @@ func (s *Service) refreshRepositoryWithDB(ctx context.Context, db *sql.DB, repo 
 				repo.LatestActionStatus = run.Status
 				repo.LatestActionConclusion = run.Conclusion
 			}
-			_, _ = db.ExecContext(ctx, `INSERT OR REPLACE INTO github_action_runs (
+			if _, err := db.ExecContext(ctx, `INSERT OR REPLACE INTO github_action_runs (
 				repository_id, run_id, workflow_name, display_title, status, conclusion, event, branch,
 				commit_sha, commit_message, actor, html_url, run_started_at, created_at, updated_at, collected_at
 			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`,
-				repo.ID, run.ID, run.Name, run.DisplayTitle, run.Status, run.Conclusion, run.Event, run.Branch, run.SHA, run.HeadCommit.Message, run.Actor.Login, run.HTMLURL, nullEmpty(run.RunStartedAt), nullEmpty(run.CreatedAt), nullEmpty(run.UpdatedAt))
+				repo.ID, run.ID, run.Name, run.DisplayTitle, run.Status, run.Conclusion, run.Event, run.Branch, run.SHA, run.HeadCommit.Message, run.Actor.Login, run.HTMLURL, nullEmpty(run.RunStartedAt), nullEmpty(run.CreatedAt), nullEmpty(run.UpdatedAt)); err != nil {
+				writeErr = firstError(writeErr, err)
+			}
 		}
 	}
 	trafficViews, trafficUniques, trafficClones, trafficCloneUniques := 0, 0, 0, 0
@@ -326,8 +333,10 @@ func (s *Service) refreshRepositoryWithDB(ctx context.Context, db *sql.DB, repo 
 		trafficUniques = traffic["view_uniques"]
 		trafficClones = traffic["clones"]
 		trafficCloneUniques = traffic["clone_uniques"]
-		_, _ = db.ExecContext(ctx, `INSERT INTO github_traffic_samples (repository_id, views, view_uniques, clones, clone_uniques)
-			VALUES (?, ?, ?, ?, ?)`, repo.ID, trafficViews, trafficUniques, trafficClones, trafficCloneUniques)
+		if _, err := db.ExecContext(ctx, `INSERT INTO github_traffic_samples (repository_id, views, view_uniques, clones, clone_uniques)
+			VALUES (?, ?, ?, ?, ?)`, repo.ID, trafficViews, trafficUniques, trafficClones, trafficCloneUniques); err != nil {
+			writeErr = firstError(writeErr, err)
+		}
 	}
 	snapshot := Snapshot{
 		Stars: repo.Stars, Forks: repo.Forks, Watchers: repo.Watchers, OpenIssues: repo.OpenIssues, OpenPullRequests: repo.OpenPullRequests,
@@ -335,12 +344,20 @@ func (s *Service) refreshRepositoryWithDB(ctx context.Context, db *sql.DB, repo 
 		ActionsSuccess: actionsSuccess, ActionsFailed: actionsFailed, TrafficViews: trafficViews, TrafficUniques: trafficUniques,
 		TrafficClones: trafficClones, TrafficCloneUniques: trafficCloneUniques,
 	}
-	_ = insertSnapshot(ctx, db, repo.ID, snapshot)
+	if err := insertSnapshot(ctx, db, repo.ID, snapshot); err != nil {
+		writeErr = firstError(writeErr, err)
+	}
+	lastStatus := "success"
+	lastErrorValue := ""
+	if writeErr != nil {
+		lastStatus = "failed"
+		lastErrorValue = "采集写库失败: " + writeErr.Error()
+	}
 	_, err = db.ExecContext(ctx, `UPDATE github_repositories SET html_url = ?, description = ?, private = ?, owned_by_token = ?, can_operate_actions = ?, default_branch = ?,
-		language = ?, last_status = 'success', last_error = '', last_collected_at = CURRENT_TIMESTAMP, stars = ?, forks = ?,
+		language = ?, last_status = ?, last_error = ?, last_collected_at = CURRENT_TIMESTAMP, stars = ?, forks = ?,
 		watchers = ?, open_issues = ?, open_pull_requests = ?, latest_release = ?, latest_release_url = ?,
 		latest_action_status = ?, latest_action_conclusion = ?, rate_limit_remaining = ?, rate_limit_reset = ?, updated_at = CURRENT_TIMESTAMP
-		WHERE id = ?`, repo.HTMLURL, repo.Description, boolInt(repo.Private), boolInt(repo.OwnedByToken), boolInt(repo.CanOperateActions), repo.DefaultBranch, repo.Language, repo.Stars, repo.Forks,
+		WHERE id = ?`, repo.HTMLURL, repo.Description, boolInt(repo.Private), boolInt(repo.OwnedByToken), boolInt(repo.CanOperateActions), repo.DefaultBranch, repo.Language, lastStatus, lastErrorValue, repo.Stars, repo.Forks,
 		repo.Watchers, repo.OpenIssues, repo.OpenPullRequests, repo.LatestRelease, repo.LatestReleaseURL, repo.LatestActionStatus,
 		repo.LatestActionConclusion, rate.Remaining, timeOrNil(rate.Reset), repo.ID)
 	if err != nil {
@@ -394,6 +411,9 @@ func (s *Service) emitRepositoryEvent(ctx context.Context, db *sql.DB, repo Repo
 	payload["severity"] = severity
 	payload["collectedAt"] = nowString()
 	fingerprint := fmt.Sprintf("%d:%s:%s", repo.ID, eventType, strings.TrimSpace(message))
+	if existing, err := lastEventFingerprint(ctx, db, repo.ID); err == nil && existing != "" && existing == fingerprint {
+		return
+	}
 	notified := false
 	if repo.NotifyEnabled && s.notifier != nil {
 		if err := s.notifier.Trigger(ctx, "github", eventType, payload); err == nil {
@@ -444,12 +464,13 @@ func (s *Service) handleWebhookEvent(ctx context.Context, db *sql.DB, repo Repos
 }
 
 // scheduleWebhookRefresh 调度 webhook 触发的仓库刷新：同一仓库刷新进行中
-// 时不再并发发起（事件风暴去重）；刷新刚结束的 5 秒内到达的事件会被抖动
+// 时不再并发发起（事件风暴去重）；刷新期间或刚结束的 5 秒内到达的事件会被抖动
 // 延迟合并为一次补刷，避免每个事件都开一个 goroutine 打爆 GitHub API。
 func (s *Service) scheduleWebhookRefresh(repoID int64, refresh func(context.Context, int64, string) error, reason string) {
 	const cooldown = 5 * time.Second
 	s.webhookRefreshMu.Lock()
 	if s.webhookRefreshBusy[repoID] {
+		s.webhookRefreshPending[repoID] = true
 		s.webhookRefreshMu.Unlock()
 		return
 	}
@@ -461,19 +482,32 @@ func (s *Service) scheduleWebhookRefresh(repoID int64, refresh func(context.Cont
 	timer := time.AfterFunc(cooldown, func() {
 		s.webhookRefreshMu.Lock()
 		if s.webhookRefreshBusy[repoID] {
+			s.webhookRefreshPending[repoID] = true
 			s.webhookRefreshMu.Unlock()
 			return
 		}
 		s.webhookRefreshBusy[repoID] = true
 		delete(s.webhookRefreshTimer, repoID)
 		s.webhookRefreshMu.Unlock()
-		refresh(context.Background(), repoID, reason)
-		s.webhookRefreshMu.Lock()
-		delete(s.webhookRefreshBusy, repoID)
-		s.webhookRefreshMu.Unlock()
+		s.runWebhookRefresh(repoID, refresh, reason)
 	})
 	s.webhookRefreshTimer[repoID] = timer
 	s.webhookRefreshMu.Unlock()
+}
+
+func (s *Service) runWebhookRefresh(repoID int64, refresh func(context.Context, int64, string) error, reason string) {
+	defer func() {
+		s.webhookRefreshMu.Lock()
+		delete(s.webhookRefreshBusy, repoID)
+		pending := s.webhookRefreshPending[repoID]
+		delete(s.webhookRefreshPending, repoID)
+		s.webhookRefreshMu.Unlock()
+		if pending {
+			s.scheduleWebhookRefresh(repoID, refresh, reason)
+		}
+	}()
+	defer func() { _ = recover() }()
+	refresh(context.Background(), repoID, reason)
 }
 
 func webhookUsesActionsRefresh(eventType string) bool {
@@ -486,10 +520,10 @@ func webhookUsesActionsRefresh(eventType string) bool {
 }
 
 func mergeRate(a, b rateLimitInfo) rateLimitInfo {
-	if b.Limit != 0 {
+	if b.Limit > 0 {
 		a.Limit = b.Limit
 	}
-	if b.Remaining != 0 || a.Remaining == 0 {
+	if b.Remaining >= 0 {
 		a.Remaining = b.Remaining
 	}
 	if !b.Reset.IsZero() {

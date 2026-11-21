@@ -23,6 +23,8 @@ const (
 	// 超限响应大概率异常（超大内容文件解析、响应异常），直接拒绝，
 	// 避免瞬时大分配抬高 GC 峰值水位（小内存主机收益最大）。
 	maxGitHubBodyBytes = 4 << 20
+	// maxListPages 限制列表端点翻页上限,避免大仓库把 GitHub 额度打满。
+	maxListPages = 3
 )
 
 type apiClient struct {
@@ -116,20 +118,25 @@ func (c *apiClient) do(ctx context.Context, token, method, path string, payload 
 }
 
 func parseRateLimit(header http.Header) rateLimitInfo {
-	limit, _ := strconv.Atoi(header.Get("X-RateLimit-Limit"))
-	remaining, _ := strconv.Atoi(header.Get("X-RateLimit-Remaining"))
-	resetUnix, _ := strconv.ParseInt(header.Get("X-RateLimit-Reset"), 10, 64)
-	var reset time.Time
-	if resetUnix > 0 {
-		reset = time.Unix(resetUnix, 0).UTC()
+	rate := rateLimitInfo{Remaining: -1}
+	if raw := strings.TrimSpace(header.Get("X-RateLimit-Limit")); raw != "" {
+		if limit, err := strconv.Atoi(raw); err == nil {
+			rate.Limit = limit
+		}
 	}
-	return rateLimitInfo{
-		Limit:          limit,
-		Remaining:      remaining,
-		Reset:          reset,
-		OAuthScopes:    header.Get("X-OAuth-Scopes"),
-		AcceptedScopes: header.Get("X-Accepted-OAuth-Scopes"),
+	if raw := strings.TrimSpace(header.Get("X-RateLimit-Remaining")); raw != "" {
+		if remaining, err := strconv.Atoi(raw); err == nil {
+			rate.Remaining = remaining
+		}
 	}
+	if raw := strings.TrimSpace(header.Get("X-RateLimit-Reset")); raw != "" {
+		if resetUnix, err := strconv.ParseInt(raw, 10, 64); err == nil && resetUnix > 0 {
+			rate.Reset = time.Unix(resetUnix, 0).UTC()
+		}
+	}
+	rate.OAuthScopes = header.Get("X-OAuth-Scopes")
+	rate.AcceptedScopes = header.Get("X-Accepted-OAuth-Scopes")
+	return rate
 }
 
 func (c *apiClient) fetchRepository(ctx context.Context, token, owner, repo string) (githubRepoResponse, rateLimitInfo, error) {
@@ -158,14 +165,46 @@ func (c *apiClient) fetchWorkflowRuns(ctx context.Context, token, owner, repo st
 
 func (c *apiClient) fetchWorkflowJobs(ctx context.Context, token, owner, repo string, runID int64) (workflowJobResponse, rateLimitInfo, error) {
 	var result workflowJobResponse
-	rate, err := c.get(ctx, token, fmt.Sprintf("/repos/%s/%s/actions/runs/%d/jobs?per_page=100", url.PathEscape(owner), url.PathEscape(repo), runID), &result)
-	return result, rate, err
+	rate := rateLimitInfo{Remaining: -1}
+	base := fmt.Sprintf("/repos/%s/%s/actions/runs/%d/jobs?per_page=100", url.PathEscape(owner), url.PathEscape(repo), runID)
+	for page := 1; page <= maxListPages; page++ {
+		var batch workflowJobResponse
+		next, err := c.get(ctx, token, fmt.Sprintf("%s&page=%d", base, page), &batch)
+		rate = mergeRate(rate, next)
+		if err != nil {
+			return result, rate, err
+		}
+		if page == 1 {
+			result.TotalCount = batch.TotalCount
+		}
+		result.Jobs = append(result.Jobs, batch.Jobs...)
+		if len(batch.Jobs) < 100 {
+			break
+		}
+	}
+	return result, rate, nil
 }
 
 func (c *apiClient) fetchWorkflows(ctx context.Context, token, owner, repo string) (workflowListResponse, rateLimitInfo, error) {
 	var result workflowListResponse
-	rate, err := c.get(ctx, token, fmt.Sprintf("/repos/%s/%s/actions/workflows?per_page=100", url.PathEscape(owner), url.PathEscape(repo)), &result)
-	return result, rate, err
+	rate := rateLimitInfo{Remaining: -1}
+	base := fmt.Sprintf("/repos/%s/%s/actions/workflows?per_page=100", url.PathEscape(owner), url.PathEscape(repo))
+	for page := 1; page <= maxListPages; page++ {
+		var batch workflowListResponse
+		next, err := c.get(ctx, token, fmt.Sprintf("%s&page=%d", base, page), &batch)
+		rate = mergeRate(rate, next)
+		if err != nil {
+			return result, rate, err
+		}
+		if page == 1 {
+			result.TotalCount = batch.TotalCount
+		}
+		result.Workflows = append(result.Workflows, batch.Workflows...)
+		if len(batch.Workflows) < 100 {
+			break
+		}
+	}
+	return result, rate, nil
 }
 
 func (c *apiClient) fetchWorkflowFile(ctx context.Context, token, owner, repo, path, ref string) (string, workflowFileContentResponse, rateLimitInfo, error) {
@@ -206,19 +245,44 @@ func (c *apiClient) fetchLatestRelease(ctx context.Context, token, owner, repo s
 }
 
 func (c *apiClient) fetchCommits(ctx context.Context, token, owner, repo string, since time.Time) ([]map[string]interface{}, rateLimitInfo, error) {
-	var result []map[string]interface{}
-	path := fmt.Sprintf("/repos/%s/%s/commits?per_page=100", url.PathEscape(owner), url.PathEscape(repo))
+	result := []map[string]interface{}{}
+	rate := rateLimitInfo{Remaining: -1}
+	base := fmt.Sprintf("/repos/%s/%s/commits?per_page=100", url.PathEscape(owner), url.PathEscape(repo))
 	if !since.IsZero() {
-		path += "&since=" + url.QueryEscape(since.UTC().Format(time.RFC3339))
+		base += "&since=" + url.QueryEscape(since.UTC().Format(time.RFC3339))
 	}
-	rate, err := c.get(ctx, token, path, &result)
-	return result, rate, err
+	for page := 1; page <= maxListPages; page++ {
+		var batch []map[string]interface{}
+		next, err := c.get(ctx, token, fmt.Sprintf("%s&page=%d", base, page), &batch)
+		rate = mergeRate(rate, next)
+		if err != nil {
+			return result, rate, err
+		}
+		result = append(result, batch...)
+		if len(batch) < 100 {
+			break
+		}
+	}
+	return result, rate, nil
 }
 
 func (c *apiClient) fetchContributors(ctx context.Context, token, owner, repo string) ([]map[string]interface{}, rateLimitInfo, error) {
-	var result []map[string]interface{}
-	rate, err := c.get(ctx, token, fmt.Sprintf("/repos/%s/%s/contributors?per_page=100", url.PathEscape(owner), url.PathEscape(repo)), &result)
-	return result, rate, err
+	result := []map[string]interface{}{}
+	rate := rateLimitInfo{Remaining: -1}
+	base := fmt.Sprintf("/repos/%s/%s/contributors?per_page=100", url.PathEscape(owner), url.PathEscape(repo))
+	for page := 1; page <= maxListPages; page++ {
+		var batch []map[string]interface{}
+		next, err := c.get(ctx, token, fmt.Sprintf("%s&page=%d", base, page), &batch)
+		rate = mergeRate(rate, next)
+		if err != nil {
+			return result, rate, err
+		}
+		result = append(result, batch...)
+		if len(batch) < 100 {
+			break
+		}
+	}
+	return result, rate, nil
 }
 
 func (c *apiClient) fetchTraffic(ctx context.Context, token, owner, repo string) (map[string]int, rateLimitInfo, error) {

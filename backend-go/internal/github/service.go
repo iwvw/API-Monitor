@@ -43,25 +43,27 @@ type Service struct {
 	actionPollMu   sync.Mutex
 	actionLastPoll map[int64]time.Time
 	// webhook 刷新的每仓库去重：事件风暴时同一仓库不并发发起多个 GitHub API 刷新
-	webhookRefreshMu    sync.Mutex
-	webhookRefreshBusy  map[int64]bool
-	webhookRefreshTimer map[int64]*time.Timer
-	publicCacheMu       sync.Mutex
-	publicCache         map[string]publicPayloadCacheEntry
+	webhookRefreshMu      sync.Mutex
+	webhookRefreshBusy    map[int64]bool
+	webhookRefreshPending map[int64]bool
+	webhookRefreshTimer   map[int64]*time.Timer
+	publicCacheMu         sync.Mutex
+	publicCache           map[string]publicPayloadCacheEntry
 }
 
 func New(cfg config.Config) *Service {
 	s := &Service{
-		cfg:                 cfg,
-		store:               database.New(cfg),
-		client:              newAPIClient(),
-		stop:                make(chan struct{}),
-		stopped:             make(chan struct{}),
-		streams:             map[int64]chan map[string]interface{}{},
-		actionLastPoll:      map[int64]time.Time{},
-		webhookRefreshBusy:  map[int64]bool{},
-		webhookRefreshTimer: map[int64]*time.Timer{},
-		publicCache:         map[string]publicPayloadCacheEntry{},
+		cfg:                   cfg,
+		store:                 database.New(cfg),
+		client:                newAPIClient(),
+		stop:                  make(chan struct{}),
+		stopped:               make(chan struct{}),
+		streams:               map[int64]chan map[string]interface{}{},
+		actionLastPoll:        map[int64]time.Time{},
+		webhookRefreshBusy:    map[int64]bool{},
+		webhookRefreshPending: map[int64]bool{},
+		webhookRefreshTimer:   map[int64]*time.Timer{},
+		publicCache:           map[string]publicPayloadCacheEntry{},
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -950,7 +952,47 @@ func (s *Service) testToken(w http.ResponseWriter, r *http.Request, idText strin
 }
 
 func (s *Service) rotateToken(w http.ResponseWriter, r *http.Request, idText string) {
-	s.tokenByID(w, r, idText)
+	if r.Method != http.MethodPost {
+		s.tokenByID(w, r, idText)
+		return
+	}
+	id, err := parseID(idText)
+	if err != nil {
+		response.Error(w, http.StatusBadRequest, "invalid token id")
+		return
+	}
+	db, err := s.open(r.Context())
+	if err != nil {
+		response.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	defer db.Close()
+	payload, err := readObject(r)
+	if err != nil {
+		response.Error(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	newToken := strings.TrimSpace(stringValue(payload, "token", ""))
+	if newToken == "" {
+		response.Error(w, http.StatusBadRequest, "新 Token 不能为空")
+		return
+	}
+	encrypted, err := secure.SecureEncrypt(newToken)
+	if err != nil {
+		response.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	result, err := db.ExecContext(r.Context(), `UPDATE github_tokens SET token_encrypted = ?, last_test_status = 'unknown', last_test_error = '', updated_at = CURRENT_TIMESTAMP WHERE id = ?`, encrypted, id)
+	if err != nil {
+		response.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if affected, _ := result.RowsAffected(); affected == 0 {
+		response.Error(w, http.StatusNotFound, "GitHub Token 不存在")
+		return
+	}
+	token, _, _ := getToken(r.Context(), db, id)
+	response.OK(w, safeToken(token))
 }
 
 func (s *Service) repositories(w http.ResponseWriter, r *http.Request) {
@@ -1733,11 +1775,26 @@ func (s *Service) workflowDispatch(w http.ResponseWriter, r *http.Request, idTex
 		return
 	}
 	defer db.Close()
-	payload, _ := readObject(r)
+	payload, err := readObject(r)
+	if err != nil {
+		response.Error(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	ref := firstNonEmpty(stringValue(payload, "ref", ""), repo.DefaultBranch)
 	inputs := objectValue(payload["inputs"])
-	_, err := s.client.dispatchWorkflow(r.Context(), token, repo.Owner, repo.Name, workflowID, ref, inputs)
-	s.auditOperation(r.Context(), db, repo.ID, "workflow_dispatch", workflowID, payload, map[string]interface{}{"ref": ref}, err)
+	_, err = s.client.dispatchWorkflow(r.Context(), token, repo.Owner, repo.Name, workflowID, ref, inputs)
+	auditPayload := make(map[string]interface{}, len(payload))
+	for key, value := range payload {
+		auditPayload[key] = value
+	}
+	if rawInputs, ok := auditPayload["inputs"].(map[string]interface{}); ok && len(rawInputs) > 0 {
+		masked := make(map[string]interface{}, len(rawInputs))
+		for key := range rawInputs {
+			masked[key] = "[REDACTED]"
+		}
+		auditPayload["inputs"] = masked
+	}
+	s.auditOperation(r.Context(), db, repo.ID, "workflow_dispatch", workflowID, auditPayload, map[string]interface{}{"ref": ref}, err)
 	if err != nil {
 		status := http.StatusBadGateway
 		if actionPermissionDenied(err) {
@@ -1811,18 +1868,18 @@ func (s *Service) webhook(w http.ResponseWriter, r *http.Request, parts []string
 	}
 	delivery := r.Header.Get("X-GitHub-Delivery")
 	eventType := r.Header.Get("X-GitHub-Event")
-	duplicate := false
-	if delivery != "" {
-		var count int
-		_ = db.QueryRowContext(r.Context(), `SELECT COUNT(*) FROM github_webhook_deliveries WHERE delivery_id = ?`, delivery).Scan(&count)
-		duplicate = count > 0
-	}
 	storedPayload, _ := json.Marshal(compactWebhookDeliveryPayload(eventType, payload, raw))
-	_, _ = db.ExecContext(r.Context(), `INSERT OR IGNORE INTO github_webhook_deliveries (repository_id, delivery_id, event_type, signature_valid, duplicate, payload_json)
-		VALUES (?, ?, ?, 1, ?, ?)`, repoID, delivery, eventType, boolInt(duplicate), string(storedPayload))
-	if duplicate {
-		response.OK(w, map[string]interface{}{"duplicate": true})
+	insertResult, err := db.ExecContext(r.Context(), `INSERT OR IGNORE INTO github_webhook_deliveries (repository_id, delivery_id, event_type, signature_valid, duplicate, payload_json)
+		VALUES (?, ?, ?, 1, 0, ?)`, repoID, delivery, eventType, string(storedPayload))
+	if err != nil {
+		response.Error(w, http.StatusInternalServerError, err.Error())
 		return
+	}
+	if delivery != "" {
+		if affected, err := insertResult.RowsAffected(); err == nil && affected == 0 {
+			response.OK(w, map[string]interface{}{"duplicate": true})
+			return
+		}
 	}
 	s.handleWebhookEvent(r.Context(), db, repo, eventType, payload)
 	response.OK(w, map[string]interface{}{"received": true, "event": eventType})
@@ -1879,6 +1936,17 @@ func (s *Service) repoAndTokenForRequest(w http.ResponseWriter, r *http.Request,
 	return repo, token, db, true
 }
 
+func decryptToken(token Token) (string, error) {
+	if strings.TrimSpace(token.TokenEncrypted) == "" {
+		return "", nil
+	}
+	plain := secure.SecureDecrypt(token.TokenEncrypted)
+	if plain == "" {
+		return "", errors.New("GitHub Token 解密失败:密钥不匹配或数据已损坏")
+	}
+	return plain, nil
+}
+
 func (s *Service) tokenForRepository(ctx context.Context, db *sql.DB, repo Repository) (string, error) {
 	if repo.TokenID != nil {
 		token, ok, err := getToken(ctx, db, *repo.TokenID)
@@ -1888,12 +1956,12 @@ func (s *Service) tokenForRepository(ctx context.Context, db *sql.DB, repo Repos
 		if !ok || !token.Enabled {
 			return "", errors.New("仓库绑定的 GitHub Token 不可用")
 		}
-		return secure.SecureDecrypt(token.TokenEncrypted), nil
+		return decryptToken(token)
 	}
 	if token, ok, err := getDefaultToken(ctx, db); err != nil {
 		return "", err
 	} else if ok {
-		return secure.SecureDecrypt(token.TokenEncrypted), nil
+		return decryptToken(token)
 	}
 	if repo.Private {
 		return "", errors.New("私有仓库需要 GitHub Token")
