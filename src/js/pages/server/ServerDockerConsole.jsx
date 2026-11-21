@@ -21,7 +21,7 @@ const DOCKER_CONTAINER_TABLE_COLUMNS = [
   { id: 'container', role: 'primary', grow: 2 },
   { id: 'state', role: 'status' },
   { id: 'ports', role: 'meta', align: 'center', minWidth: 112, idealWidth: 160, maxWidth: 220 },
-  { id: 'update', role: 'status', minWidth: 104, width: 120, maxWidth: 136 },
+  { id: 'update', role: 'status', minWidth: 96, width: 100, maxWidth: 116 },
   { id: 'actions', role: 'actions-lg' },
 ];
 
@@ -690,16 +690,14 @@ export default function ServerDockerConsole(props) {
                                       </Table.Cell>
                                       <Table.Cell className="!px-2 !py-1.5 text-center">
                                         {updatePending ? (
-                                          <div className="flex justify-center">
-                                            <Meter
-                                              label={`${containerName} 更新进度`}
-                                              value={updateProgress}
-                                              showValue={false}
-                                              className="w-24 gap-0"
-                                              trackClassName="!h-1 overflow-hidden rounded-full bg-kumo-recessed"
-                                              indicatorClassName="!h-full !bg-none !bg-brand"
-                                            />
-                                          </div>
+                                          <span
+                                            className="inline-flex items-center gap-1 text-[10px] font-semibold text-brand"
+                                            title={`${containerName} 更新进度`}
+                                          >
+                                            <RefreshCw className="h-3 w-3 animate-spin" />
+                                            更新中
+                                            {updateProgress > 0 ? ` ${updateProgress}%` : ''}
+                                          </span>
                                         ) : updateChecking ? (
                                           <span className="inline-flex items-center gap-1 text-xs font-semibold text-kumo-subtle">
                                             <RefreshCw className="h-3 w-3 animate-spin" />
