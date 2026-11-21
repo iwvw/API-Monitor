@@ -3,8 +3,8 @@ import { Button, Loader, Textarea, Input, Dialog, Table, LayerCard, Badge } from
 import { SectionCard, FieldRow, EmptyState, AppTable } from '../../../components/ui/AppPrimitives.jsx';
 import { Globe, Plus, RefreshCw, Trash, Upload } from '../../../components/Icons.jsx';
 import { toast } from '../../../modules/toast.js';
-import { useConfirmPress } from '../../../hooks/useConfirmPress.js';
-import { getAuthHeaders } from '../utils.js';
+import { dialog } from '../../../modules/dialog.js';
+import { getAuthHeaders, parseProxyEntry } from '../utils.js';
 
 const API = '/api/proxypool';
 
@@ -17,7 +17,6 @@ const PROXY_POOL_COLUMNS = [
 // 提供可被其他插件或网关端点复用的出口代理池：
 // CRUD、批量添加、文件导入、订阅导入、批量测试探活、一键解封。
 export function ProxyPoolPlugin() {
-  const { isArmed, confirmPress } = useConfirmPress();
   const [pools, setPools] = useState(null);
   const [loading, setLoading] = useState(true);
   const [dialog, setDialog] = useState(null); // null | {mode:'create'|'edit', pool}
@@ -156,12 +155,17 @@ export function ProxyPoolPlugin() {
 
   // 订阅链接导入：拉取订阅内容并解析出 socks/http 代理 URL。
   const importSubscription = async () => {
-    if (!subscriptionUrl.trim()) return;
+    const trimmed = subscriptionUrl.trim();
+    if (!trimmed) return;
+    if (!/^https?:\/\//i.test(trimmed)) {
+      toast.error('订阅链接需以 http:// 或 https:// 开头');
+      return;
+    }
     try {
       const res = await fetch(`${API}/subscription`, {
         method: 'POST',
         headers: getAuthHeaders(),
-        body: JSON.stringify({ url: subscriptionUrl.trim() }),
+        body: JSON.stringify({ url: trimmed }),
       });
       const data = await res.json();
       if (!res.ok || !data?.success) throw new Error(data?.error || '订阅导入失败');
@@ -179,7 +183,7 @@ export function ProxyPoolPlugin() {
   };
 
   const removePool = async pool => {
-    if (!confirmPress(`proxy-pool-delete:${pool.id}`, `删除代理池「${pool.name || pool.id}」`)) return;
+    if (!(await dialog.deleteResource({ message: `确定删除代理池「${pool.name || pool.id}」吗?此操作不可撤销。` }))) return;
     try {
       const res = await fetch(`${API}/${encodeURIComponent(pool.id)}`, { method: 'DELETE', headers: getAuthHeaders() });
       const data = await res.json();
@@ -309,11 +313,11 @@ export function ProxyPoolPlugin() {
                   </Button>
                   <Button
                     size="sm"
-                    variant={isArmed(`proxy-pool-delete:${selected.id}`) ? 'destructive' : 'secondary-destructive'}
-                    title={isArmed(`proxy-pool-delete:${selected.id}`) ? '再次点击确认删除' : `删除 ${selected.name || selected.id}`}
+                    variant="secondary-destructive"
+                    title={`删除 ${selected.name || selected.id}`}
                     onClick={() => removePool(selected)}
                   >
-                    <Trash className="h-3.5 w-3.5" /> {isArmed(`proxy-pool-delete:${selected.id}`) ? '再次确认' : '删除'}
+                    <Trash className="h-3.5 w-3.5" /> 删除
                   </Button>
                 </>
               }
@@ -385,9 +389,10 @@ export function ProxyPoolPlugin() {
                   const ms = st?.lastProbeMs;
                   const reachable = st?.reachable;
                   const disabled = st && (st.cooldownUntil || st.rateLimitedUntil || st.sunkUntil);
+                  const displayProxy = parseProxyEntry(p).host || p;
                   return (
                     <div key={i} className="flex items-center justify-between gap-2 border-b border-kumo-line/50 py-1.5 last:border-b-0">
-                      <span className="min-w-0 flex-1 truncate font-mono text-xs text-kumo-strong" title={p}>{p}</span>
+                      <span className="min-w-0 flex-1 truncate font-mono text-xs text-kumo-strong" title={displayProxy}>{displayProxy}</span>
                       <span className="flex shrink-0 items-center gap-2">
                         {disabled && <Badge variant="warning" className="text-xs">禁用</Badge>}
                         {reachable !== undefined && (

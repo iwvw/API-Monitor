@@ -82,7 +82,6 @@ export function EndpointFormDialog({ endpointsApi, proxypoolPools }) {
     endpointFormError,
     endpointSaving,
     saveEndpoint,
-    setEndpointKeysDirty,
   } = endpointsApi;
   const [endpointKeyBatchOpen, setEndpointKeyBatchOpen] = useState(false);
   const [endpointKeyBatchText, setEndpointKeyBatchText] = useState('');
@@ -111,7 +110,6 @@ export function EndpointFormDialog({ endpointsApi, proxypoolPools }) {
       apiKey: keys[0] || '',
       apiKeys: keys.slice(1),
     }));
-    setEndpointKeysDirty(true);
     setEndpointKeyBatchOpen(false);
     setEndpointKeyBatchText('');
   };
@@ -231,12 +229,7 @@ export function EndpointFormDialog({ endpointsApi, proxypoolPools }) {
 
                 <div className="space-y-1.5">
                   <div className="flex items-center justify-between gap-2">
-                    <Label>
-                      API Key 列表
-                      {editingEndpoint?.hasKey && (
-                        <span className="font-normal text-kumo-subtle">已配置,留空表示不修改</span>
-                      )}
-                    </Label>
+                    <Label>API Key 列表</Label>
                     <div className="flex items-center gap-1.5">
                       {/* 仅当确有 Key 处于冷却时才出现：无冻结时空按钮只会增加噪音。 */}
                       {keyRuntimeCooledCount > 0 && (

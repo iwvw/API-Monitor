@@ -1,7 +1,6 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { CalendarDotsIcon } from '@phosphor-icons/react';
 import { toast } from '../../modules/toast.js';
-import { dialog } from '../../modules/dialog.js';
 import { Button, RefreshButton } from '@cloudflare/kumo/components/button';
 import { ChartPalette, Popover, Tabs, Toolbar } from '@cloudflare/kumo';
 import { MODULE_TABS_PROPS } from '../../modules/kumoTabs.js';
@@ -97,7 +96,7 @@ function ModelHubPage() {
   const analyticsApi = useAnalytics(activeTab, endpointsApi.endpoints);
   const {
     analyticsDays, setAnalyticsDays,
-    analyticsMinutes,
+    analyticsMinutes, setAnalyticsMinutes,
     analyticsGranularity, setAnalyticsGranularity,
     analyticsRangeLabel, setAnalyticsRangeLabel, applyAnalyticsRange,
     analyticsSummary,
@@ -388,13 +387,6 @@ function ModelHubPage() {
 
   // ==================== 2. Models 联动（健康检测结果驱动的批量关停） ====================
 
-  useEffect(() => {
-    if (activeTab === 'keys') {
-      loadGatewayKeys();
-    }
-  }, [activeTab, loadGatewayKeys]);
-
-
   const trendSeries = useMemo(() => {
     const buckets = Array.isArray(analyticsCharts.daily) ? analyticsCharts.daily : [];
     const build = (color, pick, name) => {
@@ -511,72 +503,6 @@ function ModelHubPage() {
     }
     await batchToggleEndpointModels(endpoint, targets, false, `已关闭 ${targets.length} 个非有效模型`);
   };
-
-  // 兼容旧调用：全局一键关闭失败的模型（保留，供顶栏使用）。
-  const batchCloseFailedModels = async endpoint => {
-    if (modelBatchActionLoading) return;
-    const failed = failedModelIdsForEndpoint(endpoint).filter(modelId =>
-      modelEnabledForEndpoint(endpoint, modelId)
-    );
-    if (failed.length === 0) {
-      toast.info('当前端点没有检测失败的模型', { isManual: true });
-      return;
-    }
-    await batchToggleEndpointModels(endpoint, failed, false, `已关闭 ${failed.length} 个检测失败的模型`);
-  };
-
-  // 全局一键：跨全部启用端点，关闭所有检测失败的模型（仅停用，不隐藏）。
-  const batchCloseAllFailedModels = async () => {
-    if (modelBatchActionLoading) return;
-    const byEndpoint = {};
-    endpoints.forEach(endpoint => {
-      if (!endpoint.enabled) return;
-      failedModelIdsForEndpoint(endpoint).forEach(modelId => {
-        if (modelEnabledForEndpoint(endpoint, modelId)) {
-          byEndpoint[endpoint.id] = byEndpoint[endpoint.id] || { endpoint, models: [] };
-          byEndpoint[endpoint.id].models.push(modelId);
-        }
-      });
-    });
-    const entries = Object.values(byEndpoint);
-    const total = entries.reduce((sum, entry) => sum + entry.models.length, 0);
-    if (total === 0) {
-      toast.info('当前没有检测失败的模型', { isManual: true });
-      return;
-    }
-    if (!(await dialog.confirm(`确认关闭全部 ${total} 个检测失败的模型吗？（仅停用对应模型）`))) {
-      return;
-    }
-    setModelBatchActionLoading(true);
-    try {
-      for (const entry of entries) {
-        const response = await fetch(
-          `/api/modelhub/endpoints/${entry.endpoint.id}/models/toggle-batch`,
-          {
-            method: 'POST',
-            headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
-            body: JSON.stringify({ models: entry.models, enabled: false }),
-          }
-        );
-        const data = await response.json().catch(() => ({}));
-        if (!response.ok || !data.success) throw new Error(data.error || '更新失败');
-        setEndpoints(prev =>
-          prev.map(e =>
-            e.id === entry.endpoint.id
-              ? { ...e, disabledModels: Array.isArray(data.disabledModels) ? data.disabledModels : [] }
-              : e
-          )
-        );
-      }
-      await loadAllModels(true);
-      toast.success(`已关闭 ${total} 个检测失败的模型`);
-    } catch (error) {
-      toast.error(`批量更新失败: ${error.message}`);
-    } finally {
-      setModelBatchActionLoading(false);
-    }
-  };
-
 
   return (
     <PageStack viewport>
@@ -708,6 +634,7 @@ function ModelHubPage() {
                       value: String(analyticsDays),
                       onValueChange: val => {
                         setAnalyticsDays(Number(val));
+                        setAnalyticsMinutes(null);
                         const d = Number(val);
                         setAnalyticsRangeLabel(d === 1 ? '过去 24 小时' : d === 30 ? '过去 30 天' : '过去 7 天');
                         setAnalyticsPage(1);

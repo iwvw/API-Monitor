@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Button } from '@cloudflare/kumo/components/button';
 import { Combobox } from '@cloudflare/kumo/components/combobox';
 import { Select } from '@cloudflare/kumo/components/select';
@@ -65,6 +65,29 @@ export function GatewayLogsTab({ analytics, endpoints }) {
   );
 
   const [logDetailCard, setLogDetailCard] = useState(null);
+
+  // 筛选输入防抖:输入框即时回显,300ms 后才落到查询筛选(避免逐键触发
+  // summary+charts+logs 三连请求的风暴)。外部清空筛选时回同步输入框。
+  const [modelInput, setModelInput] = useState(logModelFilter);
+  const [endpointInput, setEndpointInput] = useState(logEndpointFilter);
+  useEffect(() => { setModelInput(logModelFilter); }, [logModelFilter]);
+  useEffect(() => { setEndpointInput(logEndpointFilter); }, [logEndpointFilter]);
+  useEffect(() => {
+    if (modelInput === logModelFilter) return undefined;
+    const timer = setTimeout(() => {
+      setLogModelFilter(modelInput);
+      setAnalyticsPage(1);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [modelInput, logModelFilter, setLogModelFilter, setAnalyticsPage]);
+  useEffect(() => {
+    if (endpointInput === logEndpointFilter) return undefined;
+    const timer = setTimeout(() => {
+      setLogEndpointFilter(endpointInput);
+      setAnalyticsPage(1);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [endpointInput, logEndpointFilter, setLogEndpointFilter, setAnalyticsPage]);
 
   const renderLogCard = log => {
     const detail = costDetailsFor(log, endpoints);
@@ -149,11 +172,8 @@ export function GatewayLogsTab({ analytics, endpoints }) {
             <Combobox
               size="sm"
               items={modelOptions}
-              inputValue={logModelFilter}
-              onInputValueChange={value => {
-                setLogModelFilter(value || '');
-                setAnalyticsPage(1);
-              }}
+              inputValue={modelInput}
+              onInputValueChange={value => setModelInput(value || '')}
             >
               <Combobox.TriggerInput
                 className="w-full cq-sm:w-52"
@@ -175,11 +195,8 @@ export function GatewayLogsTab({ analytics, endpoints }) {
             <Combobox
               size="sm"
               items={endpointOptions}
-              inputValue={logEndpointFilter}
-              onInputValueChange={value => {
-                setLogEndpointFilter(value || '');
-                setAnalyticsPage(1);
-              }}
+              inputValue={endpointInput}
+              onInputValueChange={value => setEndpointInput(value || '')}
             >
               <Combobox.TriggerInput
                 className="w-full cq-sm:w-52"
@@ -207,6 +224,8 @@ export function GatewayLogsTab({ analytics, endpoints }) {
                   setLogStatusFilter('');
                   setLogModelFilter('');
                   setLogEndpointFilter('');
+                  setModelInput('');
+                  setEndpointInput('');
                   setAnalyticsPage(1);
                 }}
                 icon={<X className="h-3.5 w-3.5" />}

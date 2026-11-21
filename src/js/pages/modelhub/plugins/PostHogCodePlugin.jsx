@@ -3,7 +3,7 @@ import { Button, Switch, Loader, Dialog, LayerCard, Input, Badge, Table, Meter, 
 import { SectionCard, FieldRow, EmptyState, AppTable } from '../../../components/ui/AppPrimitives.jsx';
 import { Rocket, PostHogBrand, Settings as SettingsIcon, Plus, RefreshCw, Trash, ExternalLink, ShieldCheck, TrendingUp, Upload, Download } from '../../../components/Icons.jsx';
 import { toast } from '../../../modules/toast.js';
-import { useConfirmPress } from '../../../hooks/useConfirmPress.js';
+import { dialog } from '../../../modules/dialog.js';
 import { getAuthHeaders } from '../utils.js';
 
 const API = '/api/posthogcode';
@@ -53,7 +53,6 @@ const fmtLeft = seconds => {
 // 鉴权走 PostHog OAuth 2.0 PKCE（llm_gateway:read 是 privileged scope，个人 API Key 拿不到），
 // 插件内嵌授权码流程与 refresh token 自动轮换。
 export function PostHogCodePlugin() {
-  const { isArmed, confirmPress } = useConfirmPress();
   const [settings, setSettings] = useState(null);
   const [status, setStatus] = useState(null);
   const [accounts, setAccounts] = useState([]);
@@ -94,6 +93,7 @@ export function PostHogCodePlugin() {
   const [autoLoginDetail, setAutoLoginDetail] = useState('');
 
   const fileInputRef = useRef(null);
+  const settingsSeqRef = useRef(0);
 
   const load = async () => {
     try {
@@ -213,8 +213,12 @@ export function PostHogCodePlugin() {
     }
   }, [status?.availableCount]);
 
-  const save = async (next, msg = '设置已保存') => {
-    if (!next) return;
+  const save = async (next, msg = '设置已保存', snapshot) => {
+    if (!next) {
+      toast.error('插件设置尚未加载,无法保存');
+      return false;
+    }
+    const seq = ++settingsSeqRef.current;
     setSaving(true);
     try {
       const res = await fetch(`${API}/settings`, {
@@ -224,20 +228,42 @@ export function PostHogCodePlugin() {
       });
       const data = await res.json();
       if (!res.ok || !data?.success) throw new Error(data?.error || '保存失败');
-      setSettings(data.settings);
-      setAccounts(data.settings?.accounts || []);
+      if (seq === settingsSeqRef.current) {
+        setSettings(data.settings);
+        setAccounts(data.settings?.accounts || []);
+      }
       toast.success(msg);
+      return true;
     } catch (e) {
-      toast.error(`保存失败：${e.message}`);
+      if (seq === settingsSeqRef.current) {
+        if (snapshot !== undefined) setSettings(snapshot);
+        toast.error(`保存失败：${e.message}`);
+      }
+      return false;
     } finally {
-      setSaving(false);
+      if (seq === settingsSeqRef.current) setSaving(false);
     }
   };
 
-  const update = patch => {
-    const next = { ...(settings || {}), ...patch };
+  const update = (patch, silent = false) => {
+    if (!settings) {
+      toast.error('插件设置尚未加载,暂不能修改');
+      return;
+    }
+    const snapshot = settings;
+    const next = { ...settings, ...patch };
     setSettings(next);
-    void save(next);
+    if (!silent) void save(next, '设置已保存', snapshot);
+  };
+
+  // 启用开关:先落库设置,成功后再接入/移除网关端点。
+  const toggleEnabled = async enabled => {
+    if (!settings) {
+      toast.error('插件设置尚未加载,暂不能修改');
+      return;
+    }
+    const ok = await save({ ...settings, enabled }, '设置已保存', settings);
+    if (ok) await linkPlugin(enabled ? 'link' : 'unlink');
   };
 
   const commitModelPrefix = () => {
@@ -313,7 +339,7 @@ export function PostHogCodePlugin() {
         body: '{}',
       });
       const data = await res.json();
-      if (!data?.success) throw new Error(data?.error || '测试失败');
+      if (!res.ok || !data?.success) throw new Error(data?.error || '测试失败');
       toast.success('token 刷新成功');
     } catch (e) {
       toast.error(`刷新失败：${e.message}`);
@@ -324,7 +350,7 @@ export function PostHogCodePlugin() {
   };
 
   const deleteAccount = async id => {
-    if (!confirmPress(`posthogcode-account-delete:${id}`, `删除账号 ${id}`)) return;
+    if (!(await dialog.deleteResource({ message: `确定删除账号 ${id} 吗?该账号凭据将从本机移除。` }))) return;
     try {
       const res = await fetch(`${API}/accounts/${encodeURIComponent(id)}`, {
         method: 'DELETE',
@@ -436,6 +462,8 @@ export function PostHogCodePlugin() {
       }
     }
     setAutoLoginSessionId('');
+    setAutoLoginPassword('');
+    setAutoLoginCode('');
     setAutoLoginPhase('form');
   };
 
@@ -549,12 +577,8 @@ export function PostHogCodePlugin() {
           <FieldRow title={<span title="总开关：同时控制中继与模型网关接入。打开后启用中继并注册为网关端点；关闭后中继拒服并移除端点">启用中继</span>}>
             <Switch
               checked={!!settings?.enabled}
-              disabled={linkBusy}
-              onCheckedChange={v => {
-                update({ enabled: v });
-                if (v) linkPlugin('link');
-                else linkPlugin('unlink');
-              }}
+              disabled={saving || linkBusy}
+              onCheckedChange={toggleEnabled}
             />
           </FieldRow>
           <FieldRow title={<span title="PostHog Cloud 区域：us（ai-gateway.us.posthog.com）或 eu（ai-gateway.eu.posthog.com）。切换后需重新授权">区域</span>}>
@@ -755,9 +779,9 @@ export function PostHogCodePlugin() {
                           <Button
                             size="sm"
                             shape="square"
-                            variant={isArmed(`posthogcode-account-delete:${a.id}`) ? 'destructive' : 'secondary-destructive'}
-                            aria-label={isArmed(`posthogcode-account-delete:${a.id}`) ? `再次确认删除 ${a.id}` : `删除 ${a.id}`}
-                            title={isArmed(`posthogcode-account-delete:${a.id}`) ? '再次点击确认删除' : `删除 ${a.id}`}
+                            variant="secondary-destructive"
+                            aria-label={`删除 ${a.id}`}
+                            title={`删除 ${a.id}`}
                             onClick={() => deleteAccount(a.id)}
                           >
                             <Trash className="h-3 w-3" />

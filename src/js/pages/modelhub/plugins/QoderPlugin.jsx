@@ -3,7 +3,7 @@ import { Button, Switch, Loader, Dialog, Input, Textarea, Badge, Table, Toolbar,
 import { SectionCard, FieldRow, EmptyState, AppTable } from '../../../components/ui/AppPrimitives.jsx';
 import { Rocket, Users, Layers, TrendingUp, RefreshCw, Plus, Trash, Edit, Clock, Upload, Download, QoderBrand } from '../../../components/Icons.jsx';
 import { toast } from '../../../modules/toast.js';
-import { useConfirmPress } from '../../../hooks/useConfirmPress.js';
+import { dialog } from '../../../modules/dialog.js';
 import { getAuthHeaders, formatCompact } from '../utils.js';
 
 const API = '/api/qoder';
@@ -183,7 +183,6 @@ const multiplierTitle = m => {
 // 通过设备登录授权后，插件把 Qoder 上游包装成 OpenAI 兼容端点，
 // 可一键接入网关端点列表；并支持每日自动签到（领取每日 100 Credits）与余额检测。
 export function QoderPlugin() {
-  const { isArmed, confirmPress } = useConfirmPress();
   const fileInputRef = useRef(null);
   const [settings, setSettings] = useState(null);
   const [status, setStatus] = useState(null);
@@ -210,6 +209,7 @@ export function QoderPlugin() {
   const [refreshBusy, setRefreshBusy] = useState(false);
   const [quotaAccount, setQuotaAccount] = useState(null);
   const quotaSeqRef = useRef(0);
+  const settingsSeqRef = useRef(0);
   const [quotaData, setQuotaData] = useState(null);
   const [quotaBusy, setQuotaBusy] = useState(false);
   const [historyAccount, setHistoryAccount] = useState(null);
@@ -309,12 +309,14 @@ export function QoderPlugin() {
 
   useEffect(() => {
     if (!loginOpen || !login.state || login.phase === 'success') return undefined;
+    const controller = new AbortController();
     const timer = setInterval(async () => {
       try {
         const res = await fetch(`${API}/login/poll`, {
           method: 'POST',
           headers: getAuthHeaders(),
           body: JSON.stringify({ state: login.state }),
+          signal: controller.signal,
         });
         const data = await res.json();
         if (!res.ok || !data?.success) throw new Error(data?.error || '轮询失败');
@@ -325,10 +327,14 @@ export function QoderPlugin() {
           setLoginOpen(false);
         }
       } catch (e) {
+        if (e?.name === 'AbortError') return;
         setLogin(prev => (prev.phase === 'success' ? prev : { ...prev, phase: 'error', error: e.message }));
       }
     }, POLL_INTERVAL_MS);
-    return () => clearInterval(timer);
+    return () => {
+      clearInterval(timer);
+      controller.abort();
+    };
   }, [loginOpen, login.state, login.phase]);
 
   const startLogin = async (region = loginRegion) => {
@@ -367,8 +373,12 @@ export function QoderPlugin() {
     if (!next) setLogin({ phase: 'idle', state: '', url: '', error: '' });
   };
 
-  const save = async (next, msg = '设置已保存') => {
-    if (!next) return;
+  const save = async (next, msg = '设置已保存', snapshot) => {
+    if (!next) {
+      toast.error('插件设置尚未加载,无法保存');
+      return false;
+    }
+    const seq = ++settingsSeqRef.current;
     setSaving(true);
     try {
       const res = await fetch(`${API}/settings`, {
@@ -378,25 +388,45 @@ export function QoderPlugin() {
       });
       const data = await res.json();
       if (!res.ok || !data?.success) throw new Error(data?.error || '保存失败');
-      setSettings(data.settings);
+      if (seq === settingsSeqRef.current) setSettings(data.settings);
       toast.success(msg);
+      return true;
     } catch (e) {
-      toast.error(`保存失败：${e.message}`);
+      if (seq === settingsSeqRef.current) {
+        if (snapshot !== undefined) setSettings(snapshot);
+        toast.error(`保存失败：${e.message}`);
+      }
+      return false;
     } finally {
-      setSaving(false);
+      if (seq === settingsSeqRef.current) setSaving(false);
     }
   };
 
   const update = (patch, silent = false) => {
-    const next = { ...(settings || {}), ...patch };
+    if (!settings) {
+      toast.error('插件设置尚未加载,暂不能修改');
+      return;
+    }
+    const snapshot = settings;
+    const next = { ...settings, ...patch };
     setSettings(next);
-    if (!silent) void save(next);
+    if (!silent) void save(next, '设置已保存', snapshot);
   };
 
   const commitModelPrefix = () => {
     const v = String(prefixDraft ?? '').trim();
     setPrefixDraft(null);
-    if (v !== (settings?.modelPrefix || '')) update({ modelPrefix: v }, true);
+    if (v !== (settings?.modelPrefix || '')) update({ modelPrefix: v });
+  };
+
+  // 启用开关:先落库设置,成功后再接入/移除网关端点。
+  const toggleEnabled = async enabled => {
+    if (!settings) {
+      toast.error('插件设置尚未加载,暂不能修改');
+      return;
+    }
+    const ok = await save({ ...settings, enabled }, '设置已保存', settings);
+    if (ok) await linkPlugin(enabled ? 'link' : 'unlink');
   };
 
   const toggleAccount = async (account, enabled) => {
@@ -419,7 +449,7 @@ export function QoderPlugin() {
   };
 
   const deleteAccount = async account => {
-    if (!confirmPress(`qoder-account-delete:${account.id}`, `删除账号 ${account.id}`)) return;
+    if (!(await dialog.deleteResource({ message: `确定删除账号 ${account.id} 吗?该账号凭据将从本机移除。` }))) return;
     try {
       const res = await fetch(`${API}/accounts/${encodeURIComponent(account.id)}`, {
         method: 'DELETE',
@@ -736,12 +766,8 @@ export function QoderPlugin() {
           <FieldRow title={<span title="总开关：同时控制中继与模型网关接入。打开后启用中继并注册为网关端点；关闭后中继拒服并移除端点">启用中继</span>}>
             <Switch
               checked={!!settings?.enabled}
-              disabled={linkBusy}
-              onCheckedChange={v => {
-                update({ enabled: v });
-                if (v) linkPlugin('link');
-                else linkPlugin('unlink');
-              }}
+              disabled={saving || linkBusy}
+              onCheckedChange={toggleEnabled}
             />
           </FieldRow>
           <FieldRow title={<span title="站点时区自动为全部账号签到（领取每日 100 Credits），并刷新余额。关闭后仅可手动签到">每日自动签到</span>}>
@@ -1135,9 +1161,9 @@ export function QoderPlugin() {
                             <Button
                               size="sm"
                               shape="square"
-                              variant={isArmed(`qoder-account-delete:${a.id}`) ? 'destructive' : 'secondary-destructive'}
-                              aria-label={isArmed(`qoder-account-delete:${a.id}`) ? `再次确认删除 ${a.id}` : `删除 ${a.id}`}
-                              title={isArmed(`qoder-account-delete:${a.id}`) ? '再次点击确认删除' : `删除 ${a.id}`}
+                              variant="secondary-destructive"
+                              aria-label={`删除 ${a.id}`}
+                              title={`删除 ${a.id}`}
                               onClick={() => deleteAccount(a)}
                             >
                               <Trash className="h-3 w-3" />

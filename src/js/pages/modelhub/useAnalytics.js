@@ -296,7 +296,7 @@ export function useAnalytics(activeTab, endpoints = []) {
 
   return {
     analyticsDays, setAnalyticsDays,
-    analyticsMinutes,
+    analyticsMinutes, setAnalyticsMinutes,
     analyticsGranularity, setAnalyticsGranularity,
     analyticsRangeLabel, setAnalyticsRangeLabel, applyAnalyticsRange,
     analyticsSummary,

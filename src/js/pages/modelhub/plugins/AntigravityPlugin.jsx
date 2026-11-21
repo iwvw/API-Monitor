@@ -3,7 +3,7 @@ import { Button, Switch, Select, Loader, Input, Dialog, Table, Badge, Toolbar, L
 import { SectionCard, FieldRow, EmptyState, AppTable } from '../../../components/ui/AppPrimitives.jsx';
 import { AntigravityBrand, Plus, Upload, Download, Trash, RefreshCw, Edit, Rocket, TrendingUp, Users } from '../../../components/Icons.jsx';
 import { toast } from '../../../modules/toast.js';
-import { useConfirmPress } from '../../../hooks/useConfirmPress.js';
+import { dialog } from '../../../modules/dialog.js';
 import { getAuthHeaders, formatCompact } from '../utils.js';
 
 const API = '/api/antigravity';
@@ -99,7 +99,6 @@ const fmtLeft = seconds => {
 // AntigravityPlugin：模型网关「插件中心」详情——Claude 订阅转 API。
 // Google 账号授权后，对外提供 Anthropic Messages 兼容端点。
 export function AntigravityPlugin() {
-  const { isArmed, confirmPress } = useConfirmPress();
   const [settings, setSettings] = useState(null);
   const [status, setStatus] = useState(null);
   const [accounts, setAccounts] = useState([]);
@@ -124,6 +123,7 @@ export function AntigravityPlugin() {
   const [accountsRefreshing, setAccountsRefreshing] = useState(false);
   const quotaPrevRef = useRef(null); // 上次 remainingFraction 快照，用于检测窗口是否在消耗
   const fileInputRef = useRef(null);
+  const settingsSeqRef = useRef(0);
   const [prefixDraft, setPrefixDraft] = useState(null);
 
   const load = async () => {
@@ -260,8 +260,12 @@ export function AntigravityPlugin() {
     return () => { cancelled = true; };
   }, []);
 
-  const save = async (next, msg = '设置已保存') => {
-    if (!next) return false;
+  const save = async (next, msg = '设置已保存', snapshot) => {
+    if (!next) {
+      toast.error('插件设置尚未加载,无法保存');
+      return false;
+    }
+    const seq = ++settingsSeqRef.current;
     setSaving(true);
     try {
       const res = await fetch(`${API}/settings`, {
@@ -271,21 +275,39 @@ export function AntigravityPlugin() {
       });
       const data = await res.json();
       if (!res.ok || !data?.success) throw new Error(data?.error || '保存失败');
-      setSettings(data.settings);
+      if (seq === settingsSeqRef.current) setSettings(data.settings);
       toast.success(msg);
       return true;
     } catch (e) {
-      toast.error(`保存失败：${e.message}`);
+      if (seq === settingsSeqRef.current) {
+        if (snapshot !== undefined) setSettings(snapshot);
+        toast.error(`保存失败：${e.message}`);
+      }
       return false;
     } finally {
-      setSaving(false);
+      if (seq === settingsSeqRef.current) setSaving(false);
     }
   };
 
   const update = (patch, silent = false) => {
-    const next = { ...(settings || {}), ...patch };
+    if (!settings) {
+      toast.error('插件设置尚未加载,暂不能修改');
+      return;
+    }
+    const snapshot = settings;
+    const next = { ...settings, ...patch };
     setSettings(next);
-    if (!silent) void save(next);
+    if (!silent) void save(next, '设置已保存', snapshot);
+  };
+
+  // 启用开关:先落库设置,成功后再接入/移除网关端点。
+  const toggleEnabled = async enabled => {
+    if (!settings) {
+      toast.error('插件设置尚未加载,暂不能修改');
+      return;
+    }
+    const ok = await save({ ...settings, enabled }, '设置已保存', settings);
+    if (ok) await linkPlugin(enabled ? 'link' : 'unlink');
   };
 
   const startOAuth = async () => {
@@ -333,7 +355,7 @@ export function AntigravityPlugin() {
   };
 
   const deleteAccount = async email => {
-    if (!confirmPress(`antigravity-account-delete:${email}`, `删除账号 ${email}`)) return;
+    if (!(await dialog.deleteResource({ message: `确定删除账号 ${email} 吗?该账号凭据将从本机移除。` }))) return;
     try {
       const res = await fetch(`${API}/accounts/${encodeURIComponent(email)}`, { method: 'DELETE', headers: getAuthHeaders() });
       const data = await res.json();
@@ -481,12 +503,8 @@ export function AntigravityPlugin() {
             '总开关：同时控制中继与模型网关接入。打开后启用中继并注册为网关端点；关闭后中继拒服并移除端点',
             <Switch
               checked={!!settings?.enabled}
-              disabled={linkBusy}
-              onCheckedChange={v => {
-                update({ enabled: v });
-                if (v) linkPlugin('link');
-                else linkPlugin('unlink');
-              }}
+              disabled={saving || linkBusy}
+              onCheckedChange={toggleEnabled}
             />
           )}
           {field(
@@ -650,9 +668,9 @@ export function AntigravityPlugin() {
                         <Button
                           size="sm"
                           shape="square"
-                          variant={isArmed(`antigravity-account-delete:${a.email}`) ? 'destructive' : 'secondary-destructive'}
-                          aria-label={isArmed(`antigravity-account-delete:${a.email}`) ? `再次确认删除 ${a.email}` : `删除 ${a.email}`}
-                          title={isArmed(`antigravity-account-delete:${a.email}`) ? '再次点击确认删除' : `删除 ${a.email}`}
+                          variant="secondary-destructive"
+                          aria-label={`删除 ${a.email}`}
+                          title={`删除 ${a.email}`}
                           onClick={() => deleteAccount(a.email)}
                         >
                           <Trash className="h-3 w-3" />

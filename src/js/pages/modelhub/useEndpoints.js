@@ -46,8 +46,6 @@ export function useEndpoints() {
     setEndpointFormError: formApi.setEndpointFormError,
     endpointSaving: formApi.endpointSaving,
     setEndpointSaving: formApi.setEndpointSaving,
-    endpointKeysDirty: formApi.endpointKeysDirty,
-    setEndpointKeysDirty: formApi.setEndpointKeysDirty,
     endpointKeyChecks: formApi.endpointKeyChecks,
     setEndpointKeyChecks: formApi.setEndpointKeyChecks,
     endpointKeyChecking: formApi.endpointKeyChecking,
