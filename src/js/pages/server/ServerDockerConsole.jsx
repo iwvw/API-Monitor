@@ -1,20 +1,17 @@
-import { ChartPalette, LayerCard, Meter, Table, Tabs } from '@cloudflare/kumo';
+import { LayerCard, Table, Tabs } from '@cloudflare/kumo';
 import { Badge } from '@cloudflare/kumo/components/badge';
 import { Button } from '@cloudflare/kumo/components/button';
 import { Checkbox } from '@cloudflare/kumo/components/checkbox';
 import { Input } from '@cloudflare/kumo/components/input';
 import { Select } from '@cloudflare/kumo/components/select';
 import { SkeletonLine } from '@cloudflare/kumo/components/loader';
-import { AppCard, AppTable, ChartBoundaryBox, EmptyState } from '../../components/ui/AppPrimitives.jsx';
+import { AppCard, AppTable, EmptyState } from '../../components/ui/AppPrimitives.jsx';
 import { DockerManageCard, DockerResourceTableCard } from './DockerResourceCards.jsx';
-import AnimatedCollapse from '../../components/AnimatedCollapse.jsx';
-import SiteFontTimeseriesChart from '../../components/SiteFontTimeseriesChart.jsx';
-import { Activity, Box, ChevronDown, ChevronUp, Database, FileText, FolderOpen, Globe, HardDrive, Pause, Play, RefreshCw, RotateCw, Search, Settings, Square, Trash, Upload } from '../../components/Icons.jsx';
+import { Box, Database, FileText, FolderOpen, Globe, HardDrive, Pause, Play, RefreshCw, RotateCw, Search, Settings, Square, Trash, Upload } from '../../components/Icons.jsx';
 import { TOOL_TABS_PROPS } from '../../modules/kumoTabs.js';
-import { isDockerImagePruneCandidate, summarizeDockerTaskMessage } from '../../modules/dockerTasks.js';
-import { asArray, buildDockerPairSeries, buildDockerStatSeries, formatComposeStatusLabel, getComposeConfigFiles, getComposePrimaryConfigFile, getComposeProjectName, getComposeStatus, getComposeWorkingDir, getDockerImageId, getDockerImageRepository, getDockerImageSize, getDockerImageTag, getDockerNetworkDriver, getDockerNetworkId, getDockerNetworkName, getDockerNetworkScope, getDockerTaskActionLabel, getDockerTaskStateLabel, getDockerVolumeDriver, getDockerVolumeName, getDockerVolumeScope, isComposeConfigMissing, isDockerOverviewHostVisible } from './serverHelpers.js';
-import { clampPercent, formatBytesValue, formatPercentAxis, toNumber } from './utils.js';
-import { SERVER_FAST_CHART_UPDATE_BEHAVIOR, SERVER_SECONDARY_TABS_GROUP_CLASS, SERVER_SECTION_HEADER_CLASS } from './constants.js';
+import { isDockerImagePruneCandidate } from '../../modules/dockerTasks.js';
+import { asArray, formatComposeStatusLabel, getComposeConfigFiles, getComposePrimaryConfigFile, getComposeProjectName, getComposeStatus, getComposeWorkingDir, getDockerImageId, getDockerImageRepository, getDockerImageSize, getDockerImageTag, getDockerNetworkDriver, getDockerNetworkId, getDockerNetworkName, getDockerNetworkScope, getDockerVolumeDriver, getDockerVolumeName, getDockerVolumeScope, isComposeConfigMissing, isDockerOverviewHostVisible } from './serverHelpers.js';
+import { SERVER_SECONDARY_TABS_GROUP_CLASS, SERVER_SECTION_HEADER_CLASS } from './constants.js';
 
 const DOCKER_CONTAINER_TABLE_COLUMNS = [
   { id: 'select', role: 'check' },
@@ -49,15 +46,8 @@ export default function ServerDockerConsole(props) {
     dockerSearchQuery,
     dockerSelectedContainerKeySet,
     dockerSelectedServer,
-    dockerStats,
-    dockerStatsHistory,
-    dockerStatsSummary,
     dockerSubTab,
-    dockerTaskStreamConnected,
-    dockerTasks,
     dockerVolumes,
-    expandedChartXAxisTickFormat,
-    fastTimeseriesEcharts,
     getDockerActionProgress,
     getDockerContainerId,
     getDockerContainerImage,
@@ -72,7 +62,6 @@ export default function ServerDockerConsole(props) {
     getUpdatableDockerContainers,
     handleDockerContainerUpdate,
     isArmed,
-    isCompactViewport,
     isDockerActionPending,
     isDockerContainerUpdateChecking,
     isDockerHostExpanded,
@@ -84,8 +73,6 @@ export default function ServerDockerConsole(props) {
     pruneDockerNetworksForHosts,
     renderDockerEmptyState,
     renderDockerFilterChip,
-    renderDockerHostResourceSection,
-    renderDockerResourceSideRail,
     renderDockerSimpleLogCard,
     selectedUpdatableDockerContainers,
     serverCurrentTab,
@@ -93,12 +80,9 @@ export default function ServerDockerConsole(props) {
     setDockerSearchQuery,
     setDockerSelectedServer,
     setDockerSubTab,
-    setShowDockerTaskDetails,
     showDockerBlockingLoading,
-    showDockerTaskDetails,
     submitDockerPruneTask,
     submitDockerTask,
-    theme,
     toggleDockerContainerSelection,
     toggleDockerOverviewServer,
     visibleDockerContainerServers,
@@ -157,24 +141,6 @@ export default function ServerDockerConsole(props) {
                       <span className="inline-flex items-center gap-1.5">
                         <HardDrive className="w-3.5 h-3.5" />
                         存储卷
-                      </span>
-                    ),
-                  },
-                  {
-                    value: 'stats',
-                    label: (
-                      <span className="inline-flex items-center gap-1.5">
-                        <Activity className="w-3.5 h-3.5" />
-                        实时统计
-                      </span>
-                    ),
-                  },
-                  {
-                    value: 'task-center',
-                    label: (
-                      <span className="inline-flex items-center gap-1.5">
-                        <Database className="w-3.5 h-3.5" />
-                        任务中心
                       </span>
                     ),
                   },
@@ -270,119 +236,6 @@ export default function ServerDockerConsole(props) {
               )}
             </div>
           </div>
-
-          {/* Docker 任务中心 */}
-          {dockerSubTab !== 'containers' &&
-            dockerSubTab === 'task-center' &&
-            dockerTasks.length > 0 && (
-              <AppCard padding="none" className="bg-kumo-recessed p-2.5 text-xs text-kumo-default">
-                {(() => {
-                  const latestTask = dockerTasks[0];
-                  const progress = clampPercent(toNumber(latestTask.progress, 0));
-                  const showProgress =
-                    !['success', 'failed', 'timeout', 'cancelled'].includes(latestTask.state) &&
-                    progress > 0;
-                  const stateVariant =
-                    latestTask.state === 'success'
-                      ? 'success'
-                      : latestTask.state === 'failed'
-                        ? 'error'
-                        : 'warning';
-                  return (
-                    <>
-                      <div className="flex flex-wrap items-center justify-between gap-2">
-                        <div className="flex min-w-0 items-center gap-2">
-                          <Activity className="h-3.5 w-3.5 shrink-0 text-brand" />
-                          <span className="shrink-0 font-semibold text-brand">Docker 任务</span>
-                          <Badge variant={stateVariant} appearance="dot">
-                            {getDockerTaskStateLabel(latestTask.state)}
-                          </Badge>
-                          <span className="min-w-0 truncate text-kumo-subtle">
-                            {getDockerTaskActionLabel(latestTask.action)}
-                          </span>
-                          <span className="min-w-0 truncate text-kumo-subtle">
-                            {summarizeDockerTaskMessage(latestTask)}
-                          </span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <Badge
-                            variant={dockerTaskStreamConnected ? 'success' : 'warning'}
-                            appearance="dot"
-                          >
-                            {dockerTaskStreamConnected ? '实时连接' : '重连中'}
-                          </Badge>
-                          <Button
-                            size="sm"
-                            variant="secondary"
-                            icon={
-                              showDockerTaskDetails ? (
-                                <ChevronUp className="h-3.5 w-3.5" />
-                              ) : (
-                                <ChevronDown className="h-3.5 w-3.5" />
-                              )
-                            }
-                            onClick={() => setShowDockerTaskDetails(v => !v)}
-                          >
-                            {showDockerTaskDetails ? '收起' : `详情 ${dockerTasks.length}`}
-                          </Button>
-                        </div>
-                      </div>
-                      {showProgress && (
-                        <Meter
-                          label="Docker 任务进度"
-                          value={progress}
-                          showValue={false}
-                          className="mt-2 gap-0"
-                          trackClassName="!h-1 overflow-hidden rounded-full bg-kumo-base"
-                          indicatorClassName="!h-full !bg-none !bg-brand"
-                        />
-                      )}
-                    </>
-                  );
-                })()}
-                <AnimatedCollapse open={showDockerTaskDetails} keepMounted>
-                  <div className="mt-2 max-h-36 overflow-y-auto border-t border-kumo-line pt-2">
-                    <div className="flex flex-col gap-1.5">
-                      {dockerTasks.slice(0, 12).map(t => {
-                        const progress = clampPercent(toNumber(t.progress, 0));
-                        const showProgress =
-                          !['success', 'failed', 'timeout', 'cancelled'].includes(t.state) &&
-                          progress > 0;
-                        const stateVariant =
-                          t.state === 'success'
-                            ? 'success'
-                            : t.state === 'failed'
-                              ? 'error'
-                              : 'warning';
-                        return (
-                          <div
-                            key={t.taskId}
-                            className="grid min-w-0 grid-cols-[7rem_minmax(0,1fr)_minmax(0,1.25fr)] items-center gap-2 text-[11px]"
-                          >
-                            <Badge variant={stateVariant} appearance="dot">
-                              {getDockerTaskStateLabel(t.state)}
-                            </Badge>
-                            <span
-                              className="truncate font-semibold text-kumo-strong"
-                              title={getDockerTaskActionLabel(t.action)}
-                            >
-                              {getDockerTaskActionLabel(t.action)}
-                            </span>
-                            <span
-                              className="truncate text-kumo-subtle"
-                              title={String(t.message || '')}
-                            >
-                              {showProgress ? `${progress}% · ` : ''}
-                              {summarizeDockerTaskMessage(t)}
-                            </span>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                </AnimatedCollapse>
-              </AppCard>
-            )}
 
           {/* 内容区域 */}
           {showDockerBlockingLoading ? (
@@ -1768,230 +1621,6 @@ export default function ServerDockerConsole(props) {
                   );
                 })()}
 
-              {/* 6. 实时统计 */}
-              {dockerSubTab === 'stats' &&
-                (() => {
-                  const hosts = dockerOverviewServers.filter(server =>
-                    isDockerOverviewHostVisible(server, 'stats')
-                  );
-                  return (
-                    <div className="grid min-w-0 gap-4 cq-xl:grid-cols-[22rem_minmax(0,1fr)]">
-                      {renderDockerResourceSideRail({
-                        title: '实时统计',
-                        icon: <Activity className="h-4 w-4 shrink-0 text-brand" />,
-                        hosts,
-                        totalCount: dockerStats.length,
-                        countLabel: '容器',
-                        summaryItems: [
-                          {
-                            label: 'CPU',
-                            value: `${dockerStatsSummary.cpu.toFixed(1)}%`,
-                            className: 'text-kumo-success',
-                          },
-                          {
-                            label: '内存',
-                            value: `${dockerStatsSummary.memory.toFixed(1)}%`,
-                            className: 'text-kumo-info',
-                          },
-                          {
-                            label: '网络',
-                            value: `${formatBytesValue(dockerStatsSummary.netIn)} / ${formatBytesValue(dockerStatsSummary.netOut)}`,
-                          },
-                          {
-                            label: '磁盘',
-                            value: `${formatBytesValue(dockerStatsSummary.blockRead)} / ${formatBytesValue(dockerStatsSummary.blockWrite)}`,
-                          },
-                        ],
-                        getHostCount: server => asArray(server.resources?.stats).length,
-                        getHostBadges: server => {
-                          const serverHistory = dockerStatsHistory
-                            .map(snapshot => snapshot.filter(item => item.serverId === server.id))
-                            .filter(snapshot => snapshot.length > 0);
-                          const latest = serverHistory[serverHistory.length - 1] || [];
-                          const summary = latest.reduce(
-                            (acc, item) => ({
-                              cpu: acc.cpu + toNumber(item.cpu, 0),
-                              memory: acc.memory + toNumber(item.memory, 0),
-                            }),
-                            { cpu: 0, memory: 0 }
-                          );
-                          return latest.length > 0
-                            ? [
-                                {
-                                  label: `CPU ${summary.cpu.toFixed(1)}%`,
-                                  variant: 'success',
-                                  appearance: 'dot',
-                                },
-                                {
-                                  label: `内存 ${summary.memory.toFixed(1)}%`,
-                                  variant: 'info',
-                                  appearance: 'dot',
-                                },
-                              ]
-                            : [];
-                        },
-                      })}
-                      <div className="flex min-w-0 flex-col gap-3">
-                        {hosts.length === 0
-                          ? renderDockerEmptyState('未检测到可用的 Docker 主机')
-                          : hosts.map(server => {
-                              const currentStats = asArray(server.resources?.stats);
-                              const serverHistory = dockerStatsHistory
-                                .map(snapshot =>
-                                  snapshot.filter(item => item.serverId === server.id)
-                                )
-                                .filter(snapshot => snapshot.length > 0);
-                              const latest = serverHistory[serverHistory.length - 1] || [];
-                              const summary = latest.reduce(
-                                (acc, item) => ({
-                                  cpu: acc.cpu + toNumber(item.cpu, 0),
-                                  memory: acc.memory + toNumber(item.memory, 0),
-                                  netIn: acc.netIn + toNumber(item.netIn, 0),
-                                  netOut: acc.netOut + toNumber(item.netOut, 0),
-                                  blockRead: acc.blockRead + toNumber(item.blockRead, 0),
-                                  blockWrite: acc.blockWrite + toNumber(item.blockWrite, 0),
-                                }),
-                                {
-                                  cpu: 0,
-                                  memory: 0,
-                                  netIn: 0,
-                                  netOut: 0,
-                                  blockRead: 0,
-                                  blockWrite: 0,
-                                }
-                              );
-                              const isDarkMode = theme === 'dark';
-                              const netInColor = ChartPalette.categorical(0, isDarkMode);
-                              const netOutColor = ChartPalette.semantic('Success', isDarkMode);
-                              const readColor = ChartPalette.semantic('Warning', isDarkMode);
-                              const writeColor = ChartPalette.categorical(3, isDarkMode);
-                              const charts = [
-                                {
-                                  key: 'cpu',
-                                  title: 'CPU 使用率',
-                                  description: '容器 CPU 趋势',
-                                  data: buildDockerStatSeries(serverHistory, 'cpu', isDarkMode),
-                                  value: `${summary.cpu.toFixed(1)}%`,
-                                  yAxisTickFormat: formatPercentAxis,
-                                  tooltipValueFormat: value => `${toNumber(value, 0).toFixed(2)}%`,
-                                },
-                                {
-                                  key: 'memory',
-                                  title: '内存使用率',
-                                  description: '容器内存趋势',
-                                  data: buildDockerStatSeries(serverHistory, 'memory', isDarkMode),
-                                  value: `${summary.memory.toFixed(1)}%`,
-                                  yAxisTickFormat: formatPercentAxis,
-                                  tooltipValueFormat: value => `${toNumber(value, 0).toFixed(2)}%`,
-                                },
-                                {
-                                  key: 'network',
-                                  title: '网络 I/O',
-                                  description: '容器网络流量',
-                                  data: buildDockerPairSeries(serverHistory, [
-                                    { key: 'netIn', name: '接收', color: netInColor },
-                                    { key: 'netOut', name: '发送', color: netOutColor },
-                                  ]),
-                                  value: `${formatBytesValue(summary.netIn)} / ${formatBytesValue(summary.netOut)}`,
-                                  yAxisTickFormat: formatBytesValue,
-                                  tooltipValueFormat: formatBytesValue,
-                                },
-                                {
-                                  key: 'disk',
-                                  title: '磁盘 I/O',
-                                  description: '容器磁盘流量',
-                                  data: buildDockerPairSeries(serverHistory, [
-                                    { key: 'blockRead', name: '读取', color: readColor },
-                                    { key: 'blockWrite', name: '写入', color: writeColor },
-                                  ]),
-                                  value: `${formatBytesValue(summary.blockRead)} / ${formatBytesValue(summary.blockWrite)}`,
-                                  yAxisTickFormat: formatBytesValue,
-                                  tooltipValueFormat: formatBytesValue,
-                                },
-                              ];
-                              return renderDockerHostResourceSection({
-                                server,
-                                isFirstVisible: server.id === hosts[0]?.id,
-                                icon: <Activity className="h-4 w-4 shrink-0 text-brand" />,
-                                count: currentStats.length,
-                                countLabel: '容器',
-                                badges:
-                                  currentStats.length > 0
-                                    ? [
-                                        {
-                                          label: `CPU ${summary.cpu.toFixed(1)}%`,
-                                          variant: 'success',
-                                          appearance: 'dot',
-                                        },
-                                        {
-                                          label: `内存 ${summary.memory.toFixed(1)}%`,
-                                          variant: 'info',
-                                          appearance: 'dot',
-                                        },
-                                      ]
-                                    : [],
-                                children:
-                                  currentStats.length === 0 ? (
-                                    <div className="p-8 text-center text-xs text-kumo-subtle">
-                                      暂无 Docker 资源统计
-                                    </div>
-                                  ) : (
-                                    <div className="grid gap-3 cq-xl:grid-cols-2">
-                                      {charts.map(chart => (
-                                        <ChartBoundaryBox
-                                          key={chart.key}
-                                          className="min-w-0 rounded-md border border-kumo-line bg-kumo-base p-3"
-                                        >
-                                          {tooltipBoundary => (
-                                            <div className="min-w-0">
-                                              <div className="mb-3 flex min-w-0 items-start justify-between gap-3">
-                                                <div className="min-w-0">
-                                                  <div className="truncate text-sm font-semibold text-kumo-strong">
-                                                    {chart.title}
-                                                  </div>
-                                                  <div className="mt-0.5 truncate text-xs text-kumo-subtle">
-                                                    {chart.description}
-                                                  </div>
-                                                </div>
-                                                <Badge variant="neutral">{chart.value}</Badge>
-                                              </div>
-                                              {chart.data.length === 0 ? (
-                                                <div className="flex h-[220px] items-center justify-center rounded-md border border-dashed border-kumo-line text-center text-xs text-kumo-subtle">
-                                                  暂无可绘制数据
-                                                </div>
-                                              ) : (
-                                                <SiteFontTimeseriesChart
-                                                  echarts={fastTimeseriesEcharts}
-                                                  data={chart.data}
-                                                  height={220}
-                                                  isDarkMode={isDarkMode}
-                                                  gradient
-                                                  loading={dockerResourceLoading}
-                                                  tooltipBoundary={tooltipBoundary ?? undefined}
-                                                  tooltipFollowCursor="x"
-                                                  xAxisTickCount={isCompactViewport ? 3 : 5}
-                                                  yAxisTickCount={4}
-                                                  xAxisTickFormat={expandedChartXAxisTickFormat}
-                                                  yAxisTickFormat={chart.yAxisTickFormat}
-                                                  tooltipValueFormat={chart.tooltipValueFormat}
-                                                  optionUpdateBehavior={
-                                                    SERVER_FAST_CHART_UPDATE_BEHAVIOR
-                                                  }
-                                                  ariaDescription={`${server.name} ${chart.title}`}
-                                                />
-                                              )}
-                                            </div>
-                                          )}
-                                        </ChartBoundaryBox>
-                                      ))}
-                                    </div>
-                                  ),
-                              });
-                            })}
-                      </div>
-                    </div>
-                  );
-                })()}
             </div>
           )}
         </>
