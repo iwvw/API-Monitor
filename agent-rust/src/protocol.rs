@@ -153,6 +153,8 @@ pub struct DockerImageUpdateStatus {
     pub latest_digest: String,
     #[serde(rename = "has_update")]
     pub has_update: bool,
+    #[serde(default)]
+    pub skipped: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
 }

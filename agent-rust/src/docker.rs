@@ -1163,14 +1163,23 @@ impl DockerBridge {
                 current_digest: String::new(),
                 latest_digest: String::new(),
                 has_update: false,
+                skipped: false,
                 error: None,
             };
 
+            // 本地构建、从未 pull/push 过的镜像没有 RepoDigests,说明它没有外部
+            // registry 来源,无法比对远端摘要:标记为 skipped 而非报错。
+            let mut inspect_ok = false;
+            let mut has_external_reference = false;
             let inspect_error = match docker_client.inspect_image(&image).await {
                 Ok(img_inspect) => {
+                    inspect_ok = true;
+                    let repo_digests = img_inspect.repo_digests.as_deref();
+                    has_external_reference = repo_digests
+                        .map(|digests| !digests.is_empty())
+                        .unwrap_or(false);
                     status.current_digest =
-                        select_local_digest(img_inspect.repo_digests.as_deref(), &image)
-                            .unwrap_or_default();
+                        select_local_digest(repo_digests, &image).unwrap_or_default();
                     None
                 }
                 Err(e) => Some(e.to_string()),
@@ -1184,7 +1193,13 @@ impl DockerBridge {
                 }
             }
 
-            if status.error.is_none() && !image.starts_with("sha256:") {
+            if status.error.is_none()
+                && (image.starts_with("sha256:") || (inspect_ok && !has_external_reference))
+            {
+                status.skipped = true;
+            }
+
+            if status.error.is_none() && !status.skipped {
                 let (registry, repo, tag) = parse_image_name(&image);
                 let cache_key = remote_digest_cache_key(&registry, &repo, &tag);
                 if let Some(cached) = self.cached_remote_digest(&cache_key) {
@@ -1227,7 +1242,7 @@ impl DockerBridge {
             }
 
             for status in results.iter_mut() {
-                if status.error.is_some() || status.image.starts_with("sha256:") {
+                if status.error.is_some() || status.skipped || status.image.starts_with("sha256:") {
                     continue;
                 }
                 if !status.latest_digest.is_empty() {
