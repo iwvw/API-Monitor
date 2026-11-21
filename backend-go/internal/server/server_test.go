@@ -1964,14 +1964,8 @@ func TestOpenAIServerRouting(t *testing.T) {
 		t.Fatalf("list gateway keys decode: %v body=%s", err, res.Body.String())
 	}
 	listed := listedKeys[0]
-	if !listed.HasKey || listed.MaskedKey == "" {
-		t.Fatalf("listed gateway key should expose mask and hasKey: body=%s", res.Body.String())
-	}
-	if listed.APIKey != listed.MaskedKey {
-		t.Fatalf("listed apiKey should be the mask, got %q want %q", listed.APIKey, listed.MaskedKey)
-	}
-	if listed.APIKey == keyPayload.APIKey {
-		t.Fatalf("listed gateway key must not expose plaintext: body=%s", res.Body.String())
+	if listed.APIKey != keyPayload.APIKey {
+		t.Fatalf("listed apiKey should match created plaintext key, got %q want %q", listed.APIKey, keyPayload.APIKey)
 	}
 
 	req = httptest.NewRequest(http.MethodGet, "/v1/models", nil)

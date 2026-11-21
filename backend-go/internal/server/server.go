@@ -19,6 +19,7 @@ import (
 	"github.com/iwvw/api-monitor/backend-go/internal/aiagent"
 	"github.com/iwvw/api-monitor/backend-go/internal/aliyun"
 	"github.com/iwvw/api-monitor/backend-go/internal/antigravity"
+	"github.com/iwvw/api-monitor/backend-go/internal/applog"
 	"github.com/iwvw/api-monitor/backend-go/internal/assets"
 	"github.com/iwvw/api-monitor/backend-go/internal/auth"
 	"github.com/iwvw/api-monitor/backend-go/internal/backup"
@@ -404,10 +405,6 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if s.serveSystemControlRoute(w, r) {
-		return
-	}
-
 	if strings.HasPrefix(r.URL.Path, "/sub/") {
 		s.system.RecordAPICall(r.Method, r.URL.Path)
 		s.sub.ServeHTTP(w, r)
@@ -466,48 +463,6 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	s.serveStatic(w, r)
 }
 
-func (s *Server) serveSystemControlRoute(w http.ResponseWriter, r *http.Request) bool {
-	path := r.URL.Path
-	isSessionSystemRoute := path == "/api/system/api-docs" ||
-		path == "/api/openapi.json" ||
-		path == "/api/system/openapi.json" ||
-		strings.HasPrefix(path, "/api/api-keys") ||
-		strings.HasPrefix(path, "/api/system/api-keys") ||
-		path == "/api/ai-access" ||
-		path == "/api/ai-access/key/rotate" ||
-		path == "/api/ai-access/policy" ||
-		path == "/api/ai-access/audit" ||
-		path == "/api/ai-access/audit/clear" ||
-		path == "/api/ai-access/mcp-servers" ||
-		path == "/api/ai-access/skills" ||
-		strings.HasPrefix(path, "/api/ai-access/mcp-servers/") ||
-		strings.HasPrefix(path, "/api/ai-access/skills/") ||
-		path == "/api/system/ai-access" ||
-		path == "/api/system/ai-access/key/rotate" ||
-		path == "/api/system/ai-access/policy" ||
-		path == "/api/system/ai-access/audit" ||
-		path == "/api/system/ai-access/audit/clear" ||
-		path == "/api/system/ai-access/mcp-servers" ||
-		path == "/api/system/ai-access/skills" ||
-		strings.HasPrefix(path, "/api/system/ai-access/mcp-servers/") ||
-		strings.HasPrefix(path, "/api/system/ai-access/skills/")
-	if isSessionSystemRoute {
-		route := manifest.Route{Prefix: path, Module: "system-control", Owner: manifest.OwnerGo, Auth: manifest.AuthSession}
-		if !s.authorizeGoRoute(w, r, route) {
-			return true
-		}
-		s.system.RecordAPICall(r.Method, r.URL.Path)
-		s.system.ServeHTTP(w, r)
-		return true
-	}
-	if path == "/api/ai/manifest" || path == "/api/ai/mcp" {
-		s.system.RecordAPICall(r.Method, r.URL.Path)
-		s.system.ServeHTTP(w, r)
-		return true
-	}
-	return false
-}
-
 func (s *Server) authorizeGoRoute(w http.ResponseWriter, r *http.Request, route manifest.Route) bool {
 	// 本机定时任务内部调用（cronjobs internal 任务）：仅放行登记的内部接口，
 	// 且来源必须是本机回环地址，防止外部伪造 X-Internal-Cron 头绕过会话鉴权。
@@ -552,7 +507,8 @@ func (s *Server) authorizeGoRoute(w http.ResponseWriter, r *http.Request, route 
 	if r.Method == http.MethodGet && r.URL.Path == "/api/totp/accounts" {
 		pluginAuthorized, err := s.auth.IsPluginToken(r.Context(), r)
 		if err != nil {
-			response.Error(w, http.StatusInternalServerError, err.Error())
+			applog.Error(r.Context(), "server-auth", "plugin token check failed", "error", err)
+			response.Error(w, http.StatusInternalServerError, "服务器内部错误")
 			return false
 		}
 		if pluginAuthorized {
@@ -563,7 +519,8 @@ func (s *Server) authorizeGoRoute(w http.ResponseWriter, r *http.Request, route 
 		write := r.Method != http.MethodGet && r.Method != http.MethodHead && r.Method != http.MethodOptions
 		keyAuthorized, err := s.auth.IsAPIKeyAuthorized(r.Context(), r, write)
 		if err != nil {
-			response.Error(w, http.StatusInternalServerError, err.Error())
+			applog.Error(r.Context(), "server-auth", "api key check failed", "error", err)
+			response.Error(w, http.StatusInternalServerError, "服务器内部错误")
 			return false
 		}
 		if keyAuthorized {
@@ -576,7 +533,8 @@ func (s *Server) authorizeGoRoute(w http.ResponseWriter, r *http.Request, route 
 	}
 	ok, err := s.auth.IsAuthenticated(r.Context(), r)
 	if err != nil {
-		response.Error(w, http.StatusInternalServerError, err.Error())
+		applog.Error(r.Context(), "server-auth", "session check failed", "error", err)
+		response.Error(w, http.StatusInternalServerError, "服务器内部错误")
 		return false
 	}
 	if !ok {
@@ -853,6 +811,9 @@ func (s *Server) servePublicPageFavicon(w http.ResponseWriter, r *http.Request) 
 		return false
 	}
 	if err != nil || !found {
+		if err != nil {
+			applog.Warn(r.Context(), "server-public-favicon", "resolve public page favicon failed", "error", err)
+		}
 		http.Redirect(w, r, "/logo-default.svg", http.StatusTemporaryRedirect)
 		return true
 	}
@@ -1099,15 +1060,12 @@ func (s *Server) applySecurityHeaders(w http.ResponseWriter, r *http.Request) {
 		w.Header().Add("Vary", "Origin")
 		return
 	}
-	for _, allowed := range s.cfg.CORSAllowedOrigins {
-		if origin != "" && origin == allowed {
-			w.Header().Set("Access-Control-Allow-Origin", origin)
-			w.Header().Set("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS")
-			w.Header().Set("Access-Control-Allow-Headers", allowHeadersAgent)
-			w.Header().Set("Access-Control-Max-Age", "7200")
-			w.Header().Add("Vary", "Origin")
-			break
-		}
+	if origin != "" && originpkg.AllowedByConfig(s.cfg.CORSAllowedOrigins, origin) {
+		w.Header().Set("Access-Control-Allow-Origin", origin)
+		w.Header().Set("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", allowHeadersAgent)
+		w.Header().Set("Access-Control-Max-Age", "7200")
+		w.Header().Add("Vary", "Origin")
 	}
 }
 
@@ -1322,7 +1280,8 @@ func (s *Server) serveV1Models(w http.ResponseWriter, r *http.Request) int {
 	if oaiModels, err := s.modelhub.GetModelsList(ctx, true); err == nil {
 		mergedModels = append(mergedModels, oaiModels...)
 	} else {
-		response.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		applog.Error(ctx, "server-gateway", "list models failed", "error", err)
+		response.JSON(w, http.StatusInternalServerError, map[string]string{"error": "服务器内部错误"})
 		return http.StatusInternalServerError
 	}
 	mergedModels = s.modelhub.FilterModelsListByKey(ctx, mergedModels)

@@ -119,7 +119,6 @@ func buildRoutes() []Route {
 		{Prefix: "/api/system/ai-access/skills/{id}", Module: "system-ai-access", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "AI Skill update/delete", MatchMode: MatchPattern},
 		{Prefix: "/api/system/ai-access/skills", Module: "system-ai-access", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "AI Skill list/create", MatchMode: MatchExact},
 		{Prefix: "/api/system/ai-access/audit", Module: "system-ai-access", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Paginated AI access audit entries", MatchMode: MatchExact},
-		{Prefix: "/api/system/ai-access/audit", Module: "system-ai-access", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Paginated AI access audit", MatchMode: MatchExact},
 		{Prefix: "/api/system/ai-access/audit/clear", Module: "system-ai-access", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Clear AI access audit entries", MatchMode: MatchExact},
 		{Prefix: "/api/system/ai-access/policy", Module: "system-ai-access", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "AI agent access policy (minimal/sensitive/standard/full)", MatchMode: MatchExact},
 		{Prefix: "/api/system/ai-access", Module: "system-ai-access", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "AI access management", MatchMode: MatchExact},
@@ -129,7 +128,6 @@ func buildRoutes() []Route {
 		{Prefix: "/api/ai-access/skills/{id}", Module: "system-ai-access", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "AI Skill update/delete", MatchMode: MatchPattern},
 		{Prefix: "/api/ai-access/skills", Module: "system-ai-access", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "AI Skill list/create", MatchMode: MatchExact},
 		{Prefix: "/api/ai-access/audit", Module: "system-ai-access", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Paginated AI access audit entries", MatchMode: MatchExact},
-		{Prefix: "/api/ai-access/audit", Module: "system-ai-access", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Paginated AI access audit", MatchMode: MatchExact},
 		{Prefix: "/api/ai-access/audit/clear", Module: "system-ai-access", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Clear AI access audit entries", MatchMode: MatchExact},
 		{Prefix: "/api/ai-access/policy", Module: "system-ai-access", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "AI agent access policy (minimal/sensitive/standard/full)", MatchMode: MatchExact},
 		{Prefix: "/api/ai-access", Module: "system-ai-access", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "AI access management", MatchMode: MatchExact},
@@ -665,12 +663,13 @@ func literalSpecificity(prefix string) (segments, chars int) {
 }
 
 func routeScore(route Route) int {
-	score := len(route.Prefix)
+	segments, chars := literalSpecificity(route.Prefix)
+	score := segments*10000 + chars
 	switch route.MatchMode {
 	case MatchExact:
-		score += 2000
+		score += 100000000
 	case MatchPattern:
-		score += 1000
+		score += 1000000
 	}
 	return score
 }
