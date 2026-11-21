@@ -38,11 +38,12 @@ var (
 func poolFor(dbPath string) *connPool {
 	poolsMu.Lock()
 	defer poolsMu.Unlock()
-	if p, ok := pools[dbPath]; ok {
-		return p
+	p, ok := pools[dbPath]
+	if !ok {
+		p = &connPool{dbPath: dbPath}
+		pools[dbPath] = p
 	}
-	p := &connPool{dbPath: dbPath}
-	pools[dbPath] = p
+	p.refs.Add(1)
 	return p
 }
 
@@ -87,7 +88,7 @@ type connPool struct {
 	dbPath string
 	mu     sync.Mutex
 	idle   []driver.Conn
-	refs   int
+	refs   atomic.Int64
 	// schemaMu/schemaDone 串行化同一池内的 core schema 保障；schemaOnce
 	// 语义（失败也固化）会让一次瞬时失败永久粘池——进程内所有后续 Open
 	// 持续报错直到重启，因此改为「成功才缓存，失败不缓存」。
@@ -113,29 +114,23 @@ func (p *connPool) ensureSchema(ctx context.Context, db *sql.DB) error {
 	return nil
 }
 
-// addRef 记录一个存活的 *sql.DB 逻辑句柄。
-func (p *connPool) addRef() {
-	p.mu.Lock()
-	p.refs++
-	p.mu.Unlock()
-}
-
 // release 在逻辑句柄 Close 时回调；最后一个句柄关闭后排空空闲物理连接，
 // 释放数据库文件句柄（Windows 下测试的 TempDir 清理依赖这一点）。
 // 生产进程通过常驻的 pin 句柄（server 启动时打开、进程存活期间不关）
 // 使 refs 恒 >0，池保持常暖。
 func (p *connPool) release() {
-	p.mu.Lock()
-	p.refs--
-	var drained []driver.Conn
-	if p.refs <= 0 {
-		drained = p.idle
-		p.idle = nil
-		poolsMu.Lock()
-		delete(pools, p.dbPath)
-		poolsMu.Unlock()
+	if p.refs.Add(-1) > 0 {
+		return
 	}
+	p.mu.Lock()
+	drained := p.idle
+	p.idle = nil
 	p.mu.Unlock()
+	poolsMu.Lock()
+	if pools[p.dbPath] == p {
+		delete(pools, p.dbPath)
+	}
+	poolsMu.Unlock()
 	for _, conn := range drained {
 		_ = conn.Close()
 	}
@@ -164,7 +159,7 @@ func (p *connPool) get(ctx context.Context) (driver.Conn, error) {
 
 func (p *connPool) put(conn driver.Conn) error {
 	p.mu.Lock()
-	if p.refs > 0 && len(p.idle) < maxIdlePhysicalConns {
+	if p.refs.Load() > 0 && len(p.idle) < maxIdlePhysicalConns {
 		p.idle = append(p.idle, conn)
 		p.mu.Unlock()
 		return nil

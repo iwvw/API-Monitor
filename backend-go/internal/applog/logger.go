@@ -247,6 +247,13 @@ func (w *rotatingWriter) Write(p []byte) (int, error) {
 	if err := rotateLocked(); err != nil {
 		return 0, err
 	}
+	if logFile == nil {
+		file, err := os.OpenFile(w.path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
+		if err != nil {
+			return 0, err
+		}
+		logFile = file
+	}
 	return logFile.Write(p)
 }
 

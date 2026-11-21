@@ -19,44 +19,6 @@ func walFileSize(path string) int64 {
 	return st.Size()
 }
 
-func TestWALCheckpointTruncateShrinksWal(t *testing.T) {
-	cfg := config.Config{DataDir: t.TempDir(), DBName: "wal-truncate.db"}
-	store := New(cfg)
-	db, err := store.Open(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-
-	if _, err := db.ExecContext(context.Background(), `CREATE TABLE t (id INTEGER PRIMARY KEY, payload TEXT)`); err != nil {
-		t.Fatal(err)
-	}
-	// 关闭自动 checkpoint，让 WAL 先累积到可见大小。
-	if _, err := db.ExecContext(context.Background(), `PRAGMA wal_autocheckpoint = 0`); err != nil {
-		t.Fatal(err)
-	}
-	for i := 0; i < 20000; i++ {
-		if _, err := db.ExecContext(context.Background(), `INSERT INTO t(payload) VALUES (?)`, strings.Repeat("x", 200)); err != nil {
-			t.Fatal(err)
-		}
-	}
-
-	if walFileSize(store.DatabasePath()) <= 0 {
-		t.Fatal("expected a non-empty WAL file before checkpoint")
-	}
-
-	busy, _, _, err := WALCheckpointTruncate(context.Background(), store.DatabasePath())
-	if err != nil {
-		t.Fatalf("WALCheckpointTruncate: %v", err)
-	}
-	if busy {
-		t.Fatal("WALCheckpointTruncate reported busy on an idle connection")
-	}
-	if after := walFileSize(store.DatabasePath()); after > 0 {
-		t.Fatalf("expected WAL truncated to zero, got %d bytes", after)
-	}
-}
-
 // WALMaintenance 只做 PASSIVE：在写满 WAL 后应能正常完成一轮（不报错），
 // 且在有活跃读者时同样不被阻塞（PASSIVE 不要求"零读者"，这是结构选型的核心）。
 func TestWALMaintenancePassiveCompactsWithReaders(t *testing.T) {

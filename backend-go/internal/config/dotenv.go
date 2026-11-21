@@ -18,17 +18,12 @@ func LoadDotEnv(dirs ...string) {
 	if len(dirs) == 0 {
 		dirs = dotEnvCandidates()
 	}
-	loaded := 0
 	for _, dir := range dirs {
 		values := readDotEnvFile(filepath.Join(dir, ".env"))
 		for key, value := range values {
 			if os.Getenv(key) == "" {
 				_ = os.Setenv(key, value)
-				loaded++
 			}
-		}
-		if loaded > 0 {
-			return
 		}
 	}
 }

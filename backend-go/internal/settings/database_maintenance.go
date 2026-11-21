@@ -293,7 +293,7 @@ func (s *Service) cleanupDeprecatedTables(w http.ResponseWriter, r *http.Request
 
 // reclaimDroppedTableSpace 按 auto_vacuum 模式回收 DROP 后的空闲页：
 // INCREMENTAL 库在用户主动操作（interactive=true，设置页动作）时分批增量回收
-// 并用 TRUNCATE checkpoint 立即归还空间；自动路径（interactive=false，服务
+// 并用 PASSIVE checkpoint 推进 WAL 回写；自动路径（interactive=false，服务
 // 启动清理）只做 PASSIVE checkpoint——硬性规则禁止自动路径 TRUNCATE/RESTART
 // （常驻轮询读者 + modernc 驱动会无限阻塞，是 database is locked 风暴根因），
 // 增量回收留给下一次用户主动压缩。
@@ -312,7 +312,7 @@ func (s *Service) reclaimDroppedTableSpace(ctx context.Context, db *sql.DB, inte
 			}
 			_, _ = db.ExecContext(ctx, `PRAGMA incremental_vacuum(4096)`)
 		}
-		_, _ = db.ExecContext(ctx, `PRAGMA wal_checkpoint(TRUNCATE)`)
+		_, _ = db.ExecContext(ctx, `PRAGMA wal_checkpoint(PASSIVE)`)
 	} else if modeErr == nil && mode == 0 {
 		_, _ = s.enqueueVacuumTask(ctx)
 	}
@@ -322,6 +322,7 @@ func (s *Service) reclaimDroppedTableSpace(ctx context.Context, db *sql.DB, inte
 // 仅当存在按 deprecatedTableRules 匹配的表时，先备份数据库再 DROP 并回收空间；
 // 无候选时静默跳过。供系统更新/重启后的启动流程调用，替代手动到设置页清理。
 func (s *Service) StartupCleanupDeprecatedTables(ctx context.Context) {
+	s.cleanupStaleImportPreviews(time.Now())
 	db, err := s.store.Open(ctx)
 	if err != nil {
 		applog.Warn(ctx, "settings", "startup deprecated table cleanup skipped", "error", err.Error())

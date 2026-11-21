@@ -5,35 +5,6 @@ import (
 	"database/sql"
 )
 
-// WALCheckpointTruncate 在独立维护连接上执行 PRAGMA wal_checkpoint(TRUNCATE)。
-//
-// 仅供有明确干净窗口的场景使用（如手动数据库压缩）：TRUNCATE 需要"完全无活跃
-// 读者"才能重置 WAL 文件，在有读者时 modernc 驱动的 wal_checkpoint 会无视
-// busy_timeout 与 ctx 无限阻塞（见 WALMaintenance 说明），不可用于周期任务。
-func WALCheckpointTruncate(ctx context.Context, dbPath string) (busy bool, logFrames, checkpointed int64, err error) {
-	handle, err := sql.Open("sqlite", dbPath)
-	if err != nil {
-		return false, 0, 0, err
-	}
-	defer handle.Close()
-
-	for _, stmt := range []string{
-		"PRAGMA journal_mode = WAL",
-		"PRAGMA busy_timeout = 60000",
-		"PRAGMA wal_autocheckpoint = 256",
-	} {
-		if _, err := handle.ExecContext(ctx, stmt); err != nil {
-			return false, 0, 0, err
-		}
-	}
-
-	var b, l, c int64
-	if err := handle.QueryRowContext(ctx, `PRAGMA wal_checkpoint(TRUNCATE)`).Scan(&b, &l, &c); err != nil {
-		return false, 0, 0, err
-	}
-	return b != 0, l, c, nil
-}
-
 // WALMaintenance 执行一次周期 WAL 维护：以 wal_checkpoint(PASSIVE) 把当前可落
 // 地的帧写回主库，让已回写部分可被后续写复用，避免 WAL 内帧无限累积。
 //

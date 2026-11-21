@@ -12,6 +12,7 @@ import (
 
 	"github.com/iwvw/api-monitor/backend-go/internal/config"
 	"github.com/iwvw/api-monitor/backend-go/internal/database"
+	"github.com/iwvw/api-monitor/backend-go/internal/timeutil"
 )
 
 func newSwapTestService(t *testing.T) *Service {
@@ -223,7 +224,8 @@ func TestStatisticsRetentionCutoffKeepsBoundaryDay(t *testing.T) {
 	}
 	defer db.Close()
 
-	today := time.Now().UTC()
+	loc := timeutil.LocationFromSettings(ctx, db)
+	today := time.Now().In(loc)
 	dates := map[string]bool{ // value: 是否应保留
 		today.AddDate(0, 0, -statisticsRetentionDays).Format("2006-01-02"):       true,  // 边界日：保留
 		today.AddDate(0, 0, -(statisticsRetentionDays + 1)).Format("2006-01-02"): false, // 超期一天：删除

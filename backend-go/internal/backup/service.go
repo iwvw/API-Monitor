@@ -34,6 +34,8 @@ type Notifier interface {
 	Trigger(ctx context.Context, sourceModule, eventType string, eventData map[string]interface{}) error
 }
 
+const maxRestoreUncompressedBytes = int64(8 << 30)
+
 type Service struct {
 	cfg       config.Config
 	store     *database.Store
@@ -337,8 +339,15 @@ func (s *Service) createBackup(ctx context.Context) (Record, error) {
 	}
 	snapshotPath, err := s.snapshotDatabase(ctx)
 	if err != nil {
-		// VACUUM INTO fails only for non-SQLite files; fall back to copying the
-		// live file as-is so edge cases still produce a restorable backup.
+		// VACUUM INTO 只对非 SQLite 文件报错;此时回退为拷贝活库主文件
+		// (边缘情形仍产出可恢复备份)。活库是合法 SQLite(含 WAL 模式)时
+		// 快照失败必须报错:仅拷贝主文件会漏掉尚未 checkpoint 的 -wal 帧,
+		// 产出「成功但缺最新事务」的误导性备份。
+		if isSQLiteDatabaseFile(s.cfg.DatabasePath()) {
+			_ = file.Close()
+			_ = os.Remove(target)
+			return Record{}, fmt.Errorf("数据库快照失败: %w", err)
+		}
 		snapshotPath = ""
 	}
 	if snapshotPath != "" {
@@ -397,6 +406,19 @@ func (s *Service) createBackup(ctx context.Context) (Record, error) {
 	return record, nil
 }
 
+func isSQLiteDatabaseFile(path string) bool {
+	file, err := os.Open(path)
+	if err != nil {
+		return false
+	}
+	defer file.Close()
+	header := make([]byte, 16)
+	if _, err := io.ReadFull(file, header); err != nil {
+		return false
+	}
+	return string(header) == "SQLite format 3\x00"
+}
+
 func (s *Service) snapshotDatabase(ctx context.Context) (string, error) {
 	if _, err := os.Stat(s.cfg.DatabasePath()); err != nil {
 		return "", err
@@ -406,6 +428,8 @@ func (s *Service) snapshotDatabase(ctx context.Context) (string, error) {
 		return "", err
 	}
 	defer db.Close()
+	db.SetMaxOpenConns(1)
+	_, _ = db.ExecContext(ctx, `PRAGMA busy_timeout = 30000`)
 	tmp, err := os.CreateTemp("", "api-monitor-backup-snapshot-*.db")
 	if err != nil {
 		return "", err
@@ -801,6 +825,7 @@ func (s *Service) restoreFromZip(path string) error {
 
 	dbPath := s.cfg.DatabasePath()
 	restoredDB := false
+	var restoredBytes int64
 	for _, file := range reader.File {
 		if file.FileInfo().IsDir() {
 			continue
@@ -833,13 +858,19 @@ func (s *Service) restoreFromZip(path string) error {
 			src.Close()
 			return err
 		}
-		_, err = io.Copy(dst, src)
+		remaining := maxRestoreUncompressedBytes - restoredBytes
+		written, err := io.Copy(dst, io.LimitReader(src, remaining+1))
 		closeErr := dst.Close()
 		src.Close()
 		if err != nil {
 			_ = os.Remove(tmp)
 			return err
 		}
+		if written > remaining {
+			_ = os.Remove(tmp)
+			return fmt.Errorf("备份解压体积超过上限")
+		}
+		restoredBytes += written
 		if closeErr != nil {
 			_ = os.Remove(tmp)
 			return closeErr

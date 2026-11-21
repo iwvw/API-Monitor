@@ -24,6 +24,7 @@ import (
 	"github.com/iwvw/api-monitor/backend-go/internal/config"
 	"github.com/iwvw/api-monitor/backend-go/internal/database"
 	"github.com/iwvw/api-monitor/backend-go/internal/response"
+	"github.com/iwvw/api-monitor/backend-go/internal/timeutil"
 )
 
 type Service struct {
@@ -120,6 +121,8 @@ const (
 	databaseImportTTL      = 30 * time.Minute
 )
 
+var errInvalidTimeZone = errors.New("无效的时区设置")
+
 func New(cfg config.Config) *Service {
 	return &Service{
 		cfg:            cfg,
@@ -129,9 +132,12 @@ func New(cfg config.Config) *Service {
 }
 
 const (
-	defaultAutoCleanupHours = 24
-	initialAutoCleanupDelay = time.Minute
-	autoCleanupTimeout      = 2 * time.Minute
+	defaultAutoCleanupHours   = 24
+	defaultAutoCleanupEnabled = 1
+	defaultRetentionDays      = 30
+	defaultLogMaxDBSizeMB     = 500
+	initialAutoCleanupDelay   = time.Minute
+	autoCleanupTimeout        = 2 * time.Minute
 )
 
 // 周期 WAL 维护参数。面板有常驻轮询读者，重置型 checkpoint（TRUNCATE/RESTART）
@@ -298,16 +304,16 @@ func (s *Service) autoCleanupOnce(ctx context.Context) {
 	defer db.Close()
 	// 总开关未显式关闭（system_config 中无该键）时默认启用自动清理。
 	// 显式写入 0 的用户仍可整体关闭。
-	if getConfigInt(ctx, db, "log_auto_cleanup", 1) == 0 {
+	if getConfigInt(ctx, db, "log_auto_cleanup", defaultAutoCleanupEnabled) == 0 {
 		return
 	}
 	// 未显式配置时启用内置保护默认：日志表 30 天截断、库文件 500MB 空间红线
 	// （仅增量回收 freelist，绝不触发行删除）防生产库无界膨胀；统计表独立
 	// 长保留（statisticsRetentionDays）不受 days 影响。显式配置（含 0=不限）
 	// 优先。
-	days := getConfigInt(ctx, db, "log_retention_days", 30)
+	days := getConfigInt(ctx, db, "log_retention_days", defaultRetentionDays)
 	count := getConfigInt(ctx, db, "log_max_count", 0)
-	dbSizeMB := getConfigInt(ctx, db, "log_max_db_size_mb", 500)
+	dbSizeMB := getConfigInt(ctx, db, "log_max_db_size_mb", defaultLogMaxDBSizeMB)
 	if days == 0 && count == 0 && dbSizeMB == 0 {
 		return
 	}
@@ -483,6 +489,11 @@ func (s *Service) getSettings(w http.ResponseWriter, r *http.Request) {
 func (s *Service) saveSettings(w http.ResponseWriter, r *http.Request, mergeCurrent bool) {
 	var payload map[string]interface{}
 	if !decodeJSON(w, r, &payload) {
+		return
+	}
+
+	if err := validateTimeZoneSetting(payload); err != nil {
+		response.JSON(w, http.StatusBadRequest, map[string]interface{}{"success": false, "error": err.Error()})
 		return
 	}
 
@@ -897,11 +908,12 @@ func (s *Service) getLogSettings(w http.ResponseWriter, r *http.Request) {
 	}
 	defer db.Close()
 
-	days := getConfigInt(r.Context(), db, "log_retention_days", 0)
+	days := getConfigInt(r.Context(), db, "log_retention_days", defaultRetentionDays)
 	count := getConfigInt(r.Context(), db, "log_max_count", 0)
-	dbSizeMB := getConfigInt(r.Context(), db, "log_max_db_size_mb", 0)
-	// Auto-cleanup toggles default OFF so existing deployments do not change behavior silently.
-	autoCleanup := getConfigInt(r.Context(), db, "log_auto_cleanup", 0)
+	dbSizeMB := getConfigInt(r.Context(), db, "log_max_db_size_mb", defaultLogMaxDBSizeMB)
+	// 展示默认值必须与 autoCleanupOnce 的实际执行默认一致,否则用户看到的
+	// 策略与后台真实策略相反。
+	autoCleanup := getConfigInt(r.Context(), db, "log_auto_cleanup", defaultAutoCleanupEnabled)
 	autoCleanupHours := getConfigInt(r.Context(), db, "log_auto_cleanup_hours", defaultAutoCleanupHours)
 	if autoCleanupHours < 1 {
 		autoCleanupHours = defaultAutoCleanupHours
@@ -1060,10 +1072,11 @@ func (s *Service) vacuumDatabase(w http.ResponseWriter, r *http.Request) {
 // 返回 errDatabaseSwapInProgress 表示数据库导入/替换/恢复进行中。
 func (s *Service) enqueueVacuumTask(ctx context.Context) (bool, error) {
 	s.vacuumMu.Lock()
-	defer s.vacuumMu.Unlock()
 	if s.vacuumRunning {
+		s.vacuumMu.Unlock()
 		return false, nil
 	}
+	s.vacuumMu.Unlock()
 	// 换库互斥必须用 TryLock 在此真实取得，而非依赖 vacuumRunning 标志：
 	// 标志只反映「压缩任务自身」，无法与导入/恢复竞速（TOCTOU）。锁由
 	// runVacuum 在收尾时释放；TryLock 失败说明导入/替换/恢复持有互斥，
@@ -1071,12 +1084,19 @@ func (s *Service) enqueueVacuumTask(ctx context.Context) (bool, error) {
 	if !database.SwapMutex().TryLock() {
 		return false, errDatabaseSwapInProgress
 	}
+	s.vacuumMu.Lock()
+	if s.vacuumRunning {
+		s.vacuumMu.Unlock()
+		database.SwapMutex().Unlock()
+		return false, nil
+	}
 	s.vacuumRunning = true
 	s.vacuumStarted = time.Now()
 	s.vacuumDone = time.Time{}
 	s.vacuumError = ""
 	s.vacuumBefore = 0
 	s.vacuumAfter = 0
+	s.vacuumMu.Unlock()
 
 	// 探测 auto_vacuum 模式决定压缩路径：NONE 需首次全量迁移（建立
 	// pointer-map，耗时数分钟），INCREMENTAL/FULL 走增量回收（秒级）。
@@ -1089,14 +1109,18 @@ func (s *Service) enqueueVacuumTask(ctx context.Context) (bool, error) {
 		return autoVacuumMode(ctx, db)
 	}()
 	if err != nil {
+		s.vacuumMu.Lock()
 		s.vacuumRunning = false
+		s.vacuumMu.Unlock()
 		database.SwapMutex().Unlock()
 		return false, err
 	}
+	s.vacuumMu.Lock()
 	s.vacuumMode = vacuumModeIncremental
 	if mode == 0 {
 		s.vacuumMode = vacuumModeMigrate
 	}
+	s.vacuumMu.Unlock()
 
 	s.cleanupWG.Add(1)
 	go s.runVacuum(context.Background())
@@ -1627,6 +1651,21 @@ func assignJSON(updates map[string]interface{}, column string, settings map[stri
 	if err == nil {
 		updates[column] = string(encoded)
 	}
+}
+
+func validateTimeZoneSetting(settings map[string]interface{}) error {
+	value, ok := firstValue(settings, "timezone", "timeZone", "time_zone")
+	if !ok || value == nil {
+		return nil
+	}
+	name := strings.TrimSpace(fmt.Sprint(value))
+	if name == "" || name == "system" {
+		return nil
+	}
+	if _, err := time.LoadLocation(name); err != nil {
+		return fmt.Errorf("%w: %s", errInvalidTimeZone, name)
+	}
+	return nil
 }
 
 func firstValue(settings map[string]interface{}, keys ...string) (interface{}, bool) {
@@ -2343,7 +2382,7 @@ func enforceLogTableLimits(ctx context.Context, db *sql.DB, dbPath string, days,
 		}
 		quotedTable := quoteIdentifier(table)
 		quotedTime := quoteIdentifier(timeColumn)
-		cutoff := time.Now().UTC().AddDate(0, 0, -statisticsRetentionDays).Format(logCutoffFormat(timeColumn))
+		cutoff := logCutoff(ctx, db, timeColumn, statisticsRetentionDays)
 		for ctx.Err() == nil {
 			result, err := db.ExecContext(ctx, `
 				DELETE FROM `+quotedTable+`
@@ -2383,7 +2422,7 @@ func enforceLogTableLimits(ctx context.Context, db *sql.DB, dbPath string, days,
 		quotedTime := quoteIdentifier(timeColumn)
 
 		if days > 0 {
-			cutoff := time.Now().UTC().AddDate(0, 0, -days).Format(logCutoffFormat(timeColumn))
+			cutoff := logCutoff(ctx, db, timeColumn, days)
 			// 分批删除旧数据：每次只删 cleanupBatchSize 行，避免长事务锁库。
 			for ctx.Err() == nil {
 				result, err := db.ExecContext(ctx, `
@@ -2545,11 +2584,6 @@ func planLogTableLimits(ctx context.Context, db *sql.DB, days, count int) ([]log
 	if err != nil {
 		return nil, err
 	}
-	var cutoffTime time.Time
-	hasCutoff := days > 0
-	if hasCutoff {
-		cutoffTime = time.Now().UTC().AddDate(0, 0, -days)
-	}
 	plans := make([]logTablePlan, 0, len(tables))
 	for _, table := range tables {
 		timeColumn, err := logTimeColumn(ctx, db, table)
@@ -2561,10 +2595,7 @@ func planLogTableLimits(ctx context.Context, db *sql.DB, days, count int) ([]log
 		}
 		// 预览口径必须与 enforceLogTableLimits 的实际删除一致（含 cutoff
 		// 格式），否则预览统计与执行结果出现边界日偏差。
-		cutoff := ""
-		if hasCutoff {
-			cutoff = cutoffTime.Format(logCutoffFormat(timeColumn))
-		}
+		cutoff := logCutoff(ctx, db, timeColumn, days)
 		total, err := countTableRows(ctx, db, table)
 		if err != nil {
 			return nil, err
@@ -2612,6 +2643,20 @@ func logTimeColumn(ctx context.Context, db *sql.DB, table string) (string, error
 		}
 	}
 	return "", nil
+}
+
+// logCutoff 计算清理 cutoff 字符串。时间戳列以 UTC 写入(CURRENT_TIMESTAMP),
+// 用 UTC 基准;date 列(system_api_stats.date)由写入端按站点时区归属,因此
+// 必须用站点时区取「今天」,否则边界日会因 UTC/本地日界差少删或多删一天。
+func logCutoff(ctx context.Context, db *sql.DB, timeColumn string, days int) string {
+	if days <= 0 {
+		return ""
+	}
+	base := time.Now().UTC()
+	if timeColumn == "date" {
+		base = time.Now().In(timeutil.LocationFromSettings(ctx, db))
+	}
+	return base.AddDate(0, 0, -days).Format(logCutoffFormat(timeColumn))
 }
 
 // logCutoffFormat 返回清理 cutoff 的时间格式，必须与表内实际存储格式一致：
@@ -2788,6 +2833,37 @@ func (s *Service) cleanupExpiredImportsLocked(now time.Time) {
 			_ = os.Remove(pending.Path)
 			delete(s.pendingImports, token)
 		}
+	}
+}
+
+func (s *Service) cleanupStaleImportPreviews(now time.Time) {
+	dir := filepath.Join(s.cfg.DataDir, "temp")
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+	removed := 0
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		if !strings.HasPrefix(name, "database-import-") || !strings.HasSuffix(name, ".db") {
+			continue
+		}
+		info, err := entry.Info()
+		if err != nil {
+			continue
+		}
+		if now.Sub(info.ModTime()) < databaseImportTTL {
+			continue
+		}
+		if err := os.Remove(filepath.Join(dir, name)); err == nil {
+			removed++
+		}
+	}
+	if removed > 0 {
+		applog.Info(context.Background(), "settings", fmt.Sprintf("removed %d stale database import previews", removed))
 	}
 }
 
