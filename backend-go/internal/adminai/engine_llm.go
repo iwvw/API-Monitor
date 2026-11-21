@@ -140,8 +140,8 @@ func (s *Service) callLLMWithBody(ctx context.Context, reqBody map[string]interf
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
 
-	// 单次请求等待响应头上限 180s（与 modelhub 网关的 headerTimeout 一致，推理模型
-	// 思考阶段可能超过 60s）；响应体时长不受限。整体执行时长仍由 runCtx 总预算管控。
+	// 非流式调用:单次请求(连接 + 响应头 + 响应体读取)总时长上限 180s;
+	// 整体执行时长仍由 runCtx 总预算管控。
 	client := &http.Client{Timeout: 180 * time.Second}
 	resp, err := client.Do(httpReq)
 	if err != nil {
@@ -206,7 +206,10 @@ func (s *Service) callLLMStream(ctx context.Context, model string, messages []ma
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
 
-	client := &http.Client{Timeout: 180 * time.Second}
+	// 流式响应不能用 Client.Timeout 卡整条流(它会覆盖连接+响应头+响应体的总时长,
+	// 长思考/长输出会被中途掐断);总时长由 runCtx 预算控制,这里仅用 Transport
+	// 约束连接与响应头,首块等待另有 firstTokenTimeout 兜底。
+	client := &http.Client{Transport: &http.Transport{ResponseHeaderTimeout: 180 * time.Second}}
 	resp, err := client.Do(httpReq)
 	if err != nil {
 		return nil, fmt.Errorf("LLM 调用失败: %w", err)

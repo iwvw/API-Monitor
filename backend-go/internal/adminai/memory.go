@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"math"
 	"net/http"
 	"sort"
@@ -510,6 +511,25 @@ func (s *Service) searchMemories(ctx context.Context, db *sql.DB, q string, limi
 	return items, nil
 }
 
+// purgeExpiredMemories 按 admin_ai_memories_retention_days 清理超期长期记忆
+// (0/未配置 = 不自动清理);pinned 记忆永久保留,不受保留期约束。
+func (s *Service) purgeExpiredMemories() {
+	days := s.getIntSetting(context.Background(), adminAIKeyMemoriesRetention, 0)
+	if days <= 0 {
+		return
+	}
+	db, err := s.open(context.Background())
+	if err != nil {
+		return
+	}
+	defer db.Close()
+	cutoff := time.Now().UTC().Add(-time.Duration(days) * 24 * time.Hour).Format(time.RFC3339)
+	if _, err := db.ExecContext(context.Background(),
+		`DELETE FROM admin_ai_memories WHERE pinned = 0 AND updated_at < ?`, cutoff); err != nil {
+		slog.Warn("purge-memories", "err", err.Error())
+	}
+}
+
 // bootstrapMemories 为 system prompt 组装常驻记忆区块：
 // 置顶与高重要性优先，按字符预算截断；返回空串表示无记忆。
 func (s *Service) bootstrapMemories(ctx context.Context, db *sql.DB, maxChars int) string {
@@ -530,7 +550,7 @@ func (s *Service) bootstrapMemories(ctx context.Context, db *sql.DB, maxChars in
 		if scanErr != nil {
 			continue
 		}
-		line := fmt.Sprintf("- [重要度 %d] %s", it.Importance, it.Content)
+		line := sanitizeExternalData(fmt.Sprintf("- [重要度 %d] %s", it.Importance, it.Content))
 		runes := len([]rune(line)) + 2
 		if runes > budget {
 			continue

@@ -113,6 +113,7 @@ func (s *Service) approvalCleanerLoop(stop <-chan struct{}) {
 			s.expireOverdueApprovals()
 		case <-retentionTicker.C:
 			s.purgeRetainedAudit()
+			s.purgeExpiredMemories()
 		}
 	}
 }
@@ -219,6 +220,7 @@ func (s *Service) listApprovals(w http.ResponseWriter, r *http.Request) {
 			response.Error(w, http.StatusInternalServerError, err.Error())
 			return
 		}
+		item.BodySnapshot = redactSensitiveJSON(item.BodySnapshot)
 		items = append(items, item)
 	}
 	if err := rows.Err(); err != nil {
@@ -256,6 +258,7 @@ func (s *Service) getApproval(w http.ResponseWriter, r *http.Request, approvalID
 		response.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	item.BodySnapshot = redactSensitiveJSON(item.BodySnapshot)
 	response.OK(w, item)
 }
 
@@ -280,6 +283,7 @@ var adminAISettingDefs = []struct {
 	{"admin_ai_timeout_seconds", "600", "单轮执行超时秒数"},
 	{"admin_ai_context_window", "40000", "上下文窗口 token 上限"},
 	{"admin_ai_audit_retention_days", "90", "审计记录保留天数"},
+	{"admin_ai_memories_retention_days", "0", "长期记忆保留天数(0=不自动清理;pinned 记忆永久保留)"},
 	{"admin_ai_session_write_ttl_hours", "24", "会话级写授权时效（小时），0 表示不自动过期"},
 	{"admin_ai_max_concurrent_runs", "8", "管理 AI 全局并发执行上限"},
 	{"admin_ai_memories_enabled", "true", "长期记忆总开关（跨会话持久事实与偏好）"},

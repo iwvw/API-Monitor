@@ -235,6 +235,9 @@ func (s *Service) executeCallAPITool(ctx context.Context, db *sql.DB, args map[s
 	headers := map[string]string{}
 	if rawHeaders, ok := args["headers"].(map[string]interface{}); ok {
 		for k, v := range rawHeaders {
+			if isReservedInternalHeader(k) {
+				continue
+			}
 			headers[k] = fmt.Sprint(v)
 		}
 	}
@@ -301,7 +304,7 @@ func (s *Service) executeCallAPITool(ctx context.Context, db *sql.DB, args map[s
 				// 否则执行会静默挂起等待 30 分钟，而用户批准时因无 pending 行必然 409。
 				if err := execBusyRetry(ctx, db,
 					`INSERT INTO admin_ai_approvals (id, session_id, tool_call_id, status, plan_summary, method, path, body_snapshot, expires_at, created_at) VALUES (?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?)`,
-					approvalID, sessionID, tcID, planSummary, method, path, string(body), expiresAt, now); err != nil {
+					approvalID, sessionID, tcID, planSummary, method, path, redactSensitiveJSON(string(body)), expiresAt, now); err != nil {
 					s.mu.Lock()
 					delete(s.approval, approvalID)
 					s.mu.Unlock()
@@ -355,6 +358,17 @@ func (s *Service) executeCallAPITool(ctx context.Context, db *sql.DB, args map[s
 	return aiCallResult(resp)
 }
 
+// isReservedInternalHeader 判定模型提供的请求头是否为内部保留头(鉴权/内部标记):
+// 这类头由服务端自身注入,不得由模型参数伪造,否则内部授权标记(如
+// X-Admin-AI-Full-Approve)可被调用参数覆盖,破坏信任边界。
+func isReservedInternalHeader(name string) bool {
+	switch strings.ToLower(strings.TrimSpace(name)) {
+	case "authorization", "cookie", "x-admin-password", "x-internal-cron", "x-ai-agent", "x-admin-ai-full-approve":
+		return true
+	}
+	return false
+}
+
 // runToolWithRetry 执行一次工具调用并应用失败重试（仅幂等只读工具在偶发故障时重试，
 // 写操作/审批拒绝/参数错误不重试）；与串行路径共用同一套重试语义。
 func (s *Service) runToolWithRetry(ctx context.Context, db *sql.DB, toolName string, args map[string]interface{}, sessionID, tcID string, eventCh chan SSEEvent) (interface{}, error) {
@@ -401,7 +415,11 @@ func toolParallelSafe(toolName string, args map[string]interface{}) bool {
 // 写方法（POST/PUT/DELETE，含审批链）有副作用，禁止缓存。
 func toolIsCacheable(toolName string, args map[string]interface{}) bool {
 	if toolName != "call_api" {
-		return true
+		switch toolName {
+		case "list_apis", "get_route", "get_openapi", "get_ai_manifest", "get_system_status", "memory_search", "list_telegram_targets":
+			return true
+		}
+		return false
 	}
 	if method, ok := args["method"].(string); ok {
 		switch strings.ToUpper(method) {
@@ -690,9 +708,6 @@ func retryableToolError(err error) bool {
 // 写操作（call_api 非 GET/HEAD/OPTIONS、send_telegram_message 等）失败不重试，
 // 避免"服务端已提交但响应丢失"时重复创建/删除资源，或重复插入同一审批再次打扰用户。
 func toolCallIdempotent(toolName string, args map[string]interface{}) bool {
-	if toolName != "call_api" {
-		return toolName != "send_telegram_message"
-	}
 	return toolIsCacheable(toolName, args)
 }
 

@@ -84,7 +84,7 @@ func (s *Service) handleAudit(w http.ResponseWriter, r *http.Request) {
 	}
 
 	execRows, err := db.QueryContext(r.Context(),
-		`SELECT id, session_id, source, status, llm_model, llm_prompt_tokens, llm_completion_tokens, started_at, COALESCE(finished_at,''), COALESCE(error,'') FROM admin_ai_executions `+execWhere+` ORDER BY started_at DESC LIMIT ?`,
+		`SELECT id, session_id, source, status, llm_model, llm_prompt_tokens, llm_completion_tokens, started_at, COALESCE(finished_at,''), COALESCE(error,'') FROM admin_ai_executions `+execWhere+` ORDER BY started_at DESC, id DESC LIMIT ?`,
 		append(execArgs, fetch)...)
 	if err != nil {
 		response.Error(w, http.StatusInternalServerError, err.Error())
@@ -114,7 +114,7 @@ func (s *Service) handleAudit(w http.ResponseWriter, r *http.Request) {
 		 FROM admin_ai_tool_calls t
 		 JOIN admin_ai_executions e ON e.id = t.execution_id
 		 `+tcWhere+`
-		 ORDER BY t.started_at DESC LIMIT ?`,
+		 ORDER BY t.started_at DESC, t.id DESC LIMIT ?`,
 		append(tcArgs, fetch)...)
 	if err != nil {
 		response.Error(w, http.StatusInternalServerError, err.Error())
@@ -131,10 +131,11 @@ func (s *Service) handleAudit(w http.ResponseWriter, r *http.Request) {
 			response.Error(w, http.StatusInternalServerError, err.Error())
 			return
 		}
-		if len(inputJSON) > 200 {
-			item.InputSummary = inputJSON[:200] + "...[截断]"
+		redacted := redactSensitiveJSON(inputJSON)
+		if len(redacted) > 200 {
+			item.InputSummary = redacted[:200] + "...[截断]"
 		} else {
-			item.InputSummary = inputJSON
+			item.InputSummary = redacted
 		}
 		item.Kind = "tool_call"
 		if blockedBy != "" && item.Status == "blocked" {
@@ -173,9 +174,18 @@ func (s *Service) handleAudit(w http.ResponseWriter, r *http.Request) {
 func mergeAuditByTime(items []*auditItem) []*auditItem {
 	// 插入排序（数据量小）按 started_at 降序
 	for i := 1; i < len(items); i++ {
-		for j := i; j > 0 && items[j-1].StartedAt < items[j].StartedAt; j-- {
+		for j := i; j > 0 && auditItemLess(items[j], items[j-1]); j-- {
 			items[j-1], items[j] = items[j], items[j-1]
 		}
 	}
 	return items
+}
+
+// auditItemLess 定义审计行合并排序的先后:started_at 降序,同一时刻按 id 降序,
+// 提供稳定 tie-break,避免同秒记录在翻页时顺序漂移导致重复或漏项。
+func auditItemLess(a, b *auditItem) bool {
+	if a.StartedAt != b.StartedAt {
+		return a.StartedAt < b.StartedAt
+	}
+	return a.ID < b.ID
 }

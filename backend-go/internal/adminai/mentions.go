@@ -137,7 +137,7 @@ func (s *Service) fetchMentionSnapshots(ctx context.Context, mentions []Mention)
 			if item == nil {
 				snapshot.Text = "引用未找到（资源可能已被删除或无权限访问）"
 			} else {
-				snapshot.Name = pickMentionName(t, item)
+				snapshot.Name = sanitizeExternalData(pickMentionName(t, item))
 				snapshot.Text = buildMentionText(t, snapshot.Name, m.ID, item)
 			}
 			if used+len(snapshot.Text) > mentionTotalCap && used > 0 {
@@ -470,7 +470,7 @@ var fields []string
 	if extra := mentionSpecificAPIs(t, id, item); extra != "" {
 		text += extra
 	}
-	return truncateContentAt(text, mentionPerItemCap)
+	return sanitizeExternalData(truncateContentAt(text, mentionPerItemCap))
 }
 
 // mentionFieldLookup 按点号路径取值（如 plan.name → item["plan"]["name"]），
