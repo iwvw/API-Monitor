@@ -3,10 +3,11 @@ import { Button } from '@cloudflare/kumo/components/button';
 import { LayerDialog } from '@cloudflare/kumo/components/layer-dialog';
 import { Checkbox } from '@cloudflare/kumo/components/checkbox';
 import { Input } from '@cloudflare/kumo/components/input';
+import { SensitiveInput } from '@cloudflare/kumo/components/sensitive-input';
 import { Select } from '@cloudflare/kumo/components/select';
 import { SkeletonLine } from '@cloudflare/kumo/components/loader';
 import { Meter } from '@cloudflare/kumo';
-import { DEFAULT_NEW_USER_PASSWORD } from './constants.js';
+import { generateInitialPassword } from './constants.js';
 import { RefreshCw } from '../../components/Icons.jsx';
 import { formatBytes, getOneDriveUsagePercent, getOneDriveUsageTone, getSkuDisplayLabel } from './utils.js';
 
@@ -93,14 +94,15 @@ export default function UserDialog({
                     : `登录账号预览：${userForm.mailNickname}${userForm.emailDomain ? `@${userForm.emailDomain}` : ''}`}
                 </div>
                 <div className="flex items-center gap-2">
-                  <Input
+                  <SensitiveInput
                     size="sm"
                     aria-label={editingUser ? '重置密码' : '初始密码'}
                     value={userForm.password}
-                    onChange={event =>
-                      setUserForm(current => ({ ...current, password: event.target.value }))
+                    onValueChange={value =>
+                      setUserForm(current => ({ ...current, password: value }))
                     }
                     placeholder={editingUser ? '留空则不修改密码' : '初始密码'}
+                    className="flex-1"
                   />
                   <Button
                     size="sm"
@@ -109,14 +111,14 @@ export default function UserDialog({
                     onClick={() =>
                       setUserForm(current => ({
                         ...current,
-                        password: DEFAULT_NEW_USER_PASSWORD,
+                        password: generateInitialPassword(),
                       }))
                     }
                   >
-                    预设
+                    生成
                   </Button>
                 </div>
-                {!editingUser ? (
+                {!editingUser || userForm.password.trim() ? (
                   <label className="flex items-center gap-2 text-xs text-kumo-subtle">
                     <Checkbox
                       checked={userForm.forceChangePasswordNextSignIn}

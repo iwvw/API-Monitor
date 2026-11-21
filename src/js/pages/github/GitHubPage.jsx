@@ -146,6 +146,7 @@ function GitHubPage() {
   const dispatchDefaultedRepoRef = useRef(null);
   const actionJobsRef = useRef([]);
   const actionCollapseTimerRef = useRef(null);
+  const repoDetailsRequestRef = useRef(0);
 
   const selectedRepo = useMemo(
     () =>
@@ -302,6 +303,8 @@ function GitHubPage() {
   const loadRepoDetails = useCallback(
     async (repoId = selectedRepo?.id) => {
       if (!repoId) return;
+      const requestId = repoDetailsRequestRef.current + 1;
+      repoDetailsRequestRef.current = requestId;
       setTrendsLoading(true);
       try {
         const [
@@ -321,6 +324,7 @@ function GitHubPage() {
           api(`/api/github/repositories/${repoId}/actions/workflows`).catch(() => []),
           api(`/api/github/repositories/${repoId}/branches`).catch(() => []),
         ]);
+        if (requestId !== repoDetailsRequestRef.current) return;
         setTrends(trendData.snapshots || []);
         setActions(actionData || []);
         setEvents(eventData || []);
@@ -330,9 +334,13 @@ function GitHubPage() {
         setBranches(branchData || []);
         setDetailsRepoId(String(repoId));
       } catch (error) {
-        toast.error(error.message || '加载仓库详情失败');
+        if (requestId === repoDetailsRequestRef.current) {
+          toast.error(error.message || '加载仓库详情失败');
+        }
       } finally {
-        setTrendsLoading(false);
+        if (requestId === repoDetailsRequestRef.current) {
+          setTrendsLoading(false);
+        }
       }
     },
     [api, rangeDays, selectedRepo?.id]
@@ -399,9 +407,15 @@ function GitHubPage() {
   }, [loadOverview, loadRepoDetails]);
 
   useEffect(() => {
+    repoDetailsRequestRef.current += 1;
     setWorkflows([]);
     setBranches([]);
     setDetailsRepoId(null);
+    setActions([]);
+    setEvents([]);
+    setTrends([]);
+    setTraffic([]);
+    setContributors([]);
     setDispatchForm({ workflowId: '', ref: '' });
     dispatchDefaultedRepoRef.current = null;
     setSelectedActionRunId(null);
@@ -426,6 +440,7 @@ function GitHubPage() {
           }
           return;
         }
+        if (String(payload.repository_id) !== String(selectedRepo?.id)) return;
         setEvents(current => [payload, ...current].slice(0, 100));
       } catch (error) {
         console.warn('Failed to parse GitHub event stream payload:', error);
@@ -1010,7 +1025,7 @@ function GitHubPage() {
                       repo.latest_action_started_at || repo.latest_action_created_at;
                     const actionDuration = formatActionDuration(
                       actionStartedAt,
-                      repo.latest_action_updated_at,
+                      repo.latest_action_conclusion ? repo.latest_action_updated_at : null,
                       currentTime
                     );
                     return (
@@ -1068,7 +1083,7 @@ function GitHubPage() {
                           <div className="grid grid-cols-3 gap-2">
                             <RepositoryStat label="Stars" value={formatNumber(repo.stars)} />
                             <RepositoryStat label="Forks" value={formatNumber(repo.forks)} />
-                            <RepositoryStat label="Issues" value={formatNumber(repo.open_issues)} />
+                            <RepositoryStat label="Issues(含 PR)" value={formatNumber(repo.open_issues)} />
                           </div>
 
                           <div className="grid gap-2 text-[11px] text-kumo-subtle">
@@ -1112,7 +1127,7 @@ function GitHubPage() {
                                 icon={<ExternalLink className="h-3.5 w-3.5" />}
                                 onClick={event => {
                                   event.stopPropagation();
-                                  window.open(repo.html_url, '_blank');
+                                  window.open(repo.html_url, '_blank', 'noopener,noreferrer');
                                 }}
                                 aria-label="打开 GitHub"
                                 title="打开 GitHub"
@@ -1212,7 +1227,7 @@ function GitHubPage() {
                 />
                 <RepositoryMetric
                   icon={<Activity className="h-3.5 w-3.5" />}
-                  label="Issues / PR"
+                  label="Issue+PR / PR"
                   value={`${formatNumber(selectedRepo.open_issues)} / ${formatNumber(selectedRepo.open_pull_requests)}`}
                 />
                 <RepositoryMetric
@@ -1316,7 +1331,7 @@ function GitHubPage() {
                                 <Table.Cell className="align-middle text-center">
                                   <Badge
                                     variant={statusTone(run.conclusion || run.status)}
-                                  >{`${statusLabel(run.conclusion || run.status)} · ${formatActionDuration(run.run_started_at || run.created_at, run.updated_at, currentTime)}`}</Badge>
+                                  >{`${statusLabel(run.conclusion || run.status)} · ${formatActionDuration(run.run_started_at || run.created_at, run.conclusion ? run.updated_at : null, currentTime)}`}</Badge>
                                 </Table.Cell>
                                 <Table.Cell>
                                   <div
@@ -1363,7 +1378,7 @@ function GitHubPage() {
                                         icon={<ExternalLink className="h-3.5 w-3.5" />}
                                         onClick={event => {
                                           event.stopPropagation();
-                                          window.open(run.html_url, '_blank');
+                                          window.open(run.html_url, '_blank', 'noopener,noreferrer');
                                         }}
                                         aria-label="打开 Actions"
                                         title="打开 Actions"

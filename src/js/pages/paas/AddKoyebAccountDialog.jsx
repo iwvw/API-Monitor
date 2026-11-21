@@ -1,6 +1,7 @@
 import React from 'react';
 import { LayerDialog } from '@cloudflare/kumo/components/layer-dialog';
 import { Input } from '@cloudflare/kumo/components/input';
+import { SensitiveInput } from '@cloudflare/kumo/components/sensitive-input';
 
 export default function AddKoyebAccountDialog({ showAddKoyebModal, setShowAddKoyebModal, newKoyebName, setNewKoyebName, newKoyebToken, setNewKoyebToken, koyebAddAccountError, addKoyebAccount, koyebAddingAccount }) {
   return (
@@ -25,11 +26,10 @@ export default function AddKoyebAccountDialog({ showAddKoyebModal, setShowAddKoy
               </div>
               <div className="space-y-1">
                 <label className="text-[11px] font-semibold text-kumo-subtle">API 令牌</label>
-                <Input size="sm"
+                <SensitiveInput size="sm"
                   aria-label="Koyeb API 令牌"
-                  type="text"
                   value={newKoyebToken}
-                  onChange={(e) => setNewKoyebToken(e.target.value)}
+                  onValueChange={setNewKoyebToken}
                   placeholder="koyeb_api_token"
                   autoComplete="off"
                   data-1p-ignore

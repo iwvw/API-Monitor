@@ -39,6 +39,8 @@ export default function UsersTab({
   openCreateUser,
   usersLoading,
   users,
+  usersTotal = 0,
+  usersTruncated = false,
   skuLabelLookup,
   selectedUserId,
   setSelectedUserId,
@@ -162,6 +164,11 @@ export default function UsersTab({
         title="用户与许可证"
         icon={<Users className="h-4 w-4" />}
         bodyPadding="none"
+        description={
+          usersTruncated
+            ? `仅显示前 ${users.length} 个,共 ${usersTotal} 个,请输入关键词缩小范围`
+            : undefined
+        }
         action={
           <div className="flex items-center gap-2">
             <ResponsiveSearchInput

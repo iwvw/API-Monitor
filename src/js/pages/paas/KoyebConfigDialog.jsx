@@ -52,6 +52,11 @@ export default function KoyebConfigDialog({ koyebConfigTarget, setKoyebConfigTar
                 <label className="text-[11px] font-semibold text-kumo-subtle">环境变量（每行 K=V）</label>
                 <Textarea size="sm" aria-label="环境变量" value={koyebConfigForm.env} onChange={(e) => setKoyebConfigForm((f) => ({ ...f, env: e.target.value }))} placeholder={'DB_HOST=db.internal\nPORT=3000'} className="min-h-24 w-full text-xs font-mono" />
               </div>
+              {(koyebConfigForm.envSecretKeys || []).length > 0 && (
+                <div className="rounded border border-kumo-warning/30 bg-kumo-warning/10 p-2 text-[11px] text-kumo-warning">
+                  检测到 {koyebConfigForm.envSecretKeys.length} 个密钥绑定的环境变量({koyebConfigForm.envSecretKeys.join('、')})。不修改环境变量时会原样保留;一旦修改将重置为空值,建议改用 Koyeb 控制台维护密钥绑定。
+                </div>
+              )}
               <Checkbox
                 checked={koyebConfigForm.skipBuild}
                 onCheckedChange={(checked) => setKoyebConfigForm((f) => ({ ...f, skipBuild: !!checked }))}

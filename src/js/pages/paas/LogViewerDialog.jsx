@@ -21,7 +21,7 @@ export default function LogViewerDialog({ logViewerOpen, setLogViewerOpen, logTi
               shape="square" size="sm"
               variant="ghost"
               aria-label="关闭日志查看器"
-              onClick={() => setLogViewerOpen(false)}
+              onClick={() => { setLogViewerOpen(false); stopLogTail(); }}
               className="text-kumo-subtle hover:text-kumo-default"
             >
               <X className="w-4 h-4" />

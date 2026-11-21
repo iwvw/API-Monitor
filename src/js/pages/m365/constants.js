@@ -60,7 +60,23 @@ export const workspaceHeightClass = 'min-h-0 flex-1';
 export const panelBodyClass = 'flex min-h-0 flex-1 flex-col';
 export const scrollViewportClass = 'min-h-0 flex-1 overflow-auto scrollbar-thin';
 export const tableFrameClass = 'flex h-0 min-h-0 flex-1 flex-col overflow-hidden';
-export const DEFAULT_NEW_USER_PASSWORD = 'Mjj@1234';
+export function generateInitialPassword() {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789';
+  const length = 12;
+  const values = new Uint32Array(length);
+  if (typeof crypto !== 'undefined' && typeof crypto.getRandomValues === 'function') {
+    crypto.getRandomValues(values);
+  } else {
+    for (let index = 0; index < length; index += 1) {
+      values[index] = Math.floor(Math.random() * 4294967296);
+    }
+  }
+  let core = '';
+  for (let index = 0; index < length; index += 1) {
+    core += chars[values[index] % chars.length];
+  }
+  return `${core}aA1!`;
+}
 // 语义列定义（替代旧 widths 数组）：状态居中，显示名为主列，
 // 账号/邮箱/许可证/OneDrive 用量为内容列，操作为固定列。
 export const USER_TABLE_COLUMNS = [
