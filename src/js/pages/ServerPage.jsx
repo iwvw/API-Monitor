@@ -4150,6 +4150,41 @@ function ServerPage() {
               },
             ]
       );
+
+      const mockUpdateServer = mock.servers[0];
+      const mockUpdateContainer =
+        asArray(mockUpdateServer?.resources?.containers).find(item => item.name === 'api-monitor') ||
+        asArray(mockUpdateServer?.resources?.containers)[0];
+      if (mockUpdateServer && mockUpdateContainer) {
+        const mockUpdatePayload = {
+          serverId: mockUpdateServer.id,
+          containerId: getDockerContainerId(mockUpdateContainer),
+          containerName: getDockerContainerName(mockUpdateContainer),
+          image: getDockerContainerImage(mockUpdateContainer),
+        };
+        setDockerActionPending(prev => ({
+          ...prev,
+          [getDockerActionKey(mockUpdateServer.id, 'container.update', mockUpdatePayload)]: true,
+        }));
+        setDockerTasks(prev =>
+          [
+            {
+              taskId: 'mock-updating-container',
+              state: 'running',
+              progress: 45,
+              action: 'container.update',
+              domain: 'docker',
+              serverId: mockUpdateServer.id,
+              serverName: mockUpdateServer.name,
+              payload: mockUpdatePayload,
+              targetName: mockUpdateContainer.name,
+              message: 'Mock 模式:容器更新进行中',
+            },
+            ...prev.filter(task => task.taskId !== 'mock-updating-container'),
+          ].slice(0, 30)
+        );
+      }
+
       setDockerTaskStreamConnected(true);
       setDockerResourceLoading(false);
       return;
