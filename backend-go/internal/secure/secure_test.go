@@ -3,6 +3,7 @@ package secure
 import (
 	"log"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -236,7 +237,7 @@ func TestStrictEncryptionRequired(t *testing.T) {
 	}
 }
 
-func TestEncryptionKeyWarnsOnEveryDefaultUse(t *testing.T) {
+func TestEncryptionKeyWarnsOnceForDefaultKey(t *testing.T) {
 	t.Setenv("ENCRYPTION_KEY", "")
 	t.Setenv("API_MONITOR_ALLOW_INSECURE_DEFAULT_KEY", "")
 
@@ -245,11 +246,15 @@ func TestEncryptionKeyWarnsOnEveryDefaultUse(t *testing.T) {
 	log.SetOutput(&buf)
 	t.Cleanup(func() { log.SetOutput(previous) })
 
-	if key := encryptionKey(); len(key) != 32 {
-		t.Fatalf("encryptionKey len = %d, want 32", len(key))
+	// 告警由进程级 sync.Once 把关,同包其他测试可能已触发过;先重置以便独立断言「只打一次」。
+	defaultKeyWarnOnce = sync.Once{}
+
+	for i := 0; i < 3; i++ {
+		if key := encryptionKey(); len(key) != 32 {
+			t.Fatalf("encryptionKey len = %d, want 32", len(key))
+		}
 	}
-	encryptionKey()
-	if strings.Count(buf.String(), "SECURITY WARNING") < 2 {
-		t.Fatalf("expected a warning on every default-key use, got %q", buf.String())
+	if got := strings.Count(buf.String(), "SECURITY WARNING"); got != 1 {
+		t.Fatalf("expected exactly one warning for repeated default-key use, got %d: %q", got, buf.String())
 	}
 }
