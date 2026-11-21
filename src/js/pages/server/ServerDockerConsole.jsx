@@ -21,7 +21,7 @@ const DOCKER_CONTAINER_TABLE_COLUMNS = [
   { id: 'container', role: 'primary', grow: 2 },
   { id: 'state', role: 'status' },
   { id: 'ports', role: 'meta', align: 'center', minWidth: 112, idealWidth: 160, maxWidth: 220 },
-  { id: 'update', role: 'status' },
+  { id: 'update', role: 'status', minWidth: 104, width: 120, maxWidth: 136 },
   { id: 'actions', role: 'actions-lg' },
 ];
 
