@@ -142,8 +142,7 @@ func EncryptNodeGCM(plain string) (string, error) {
 	return fmt.Sprintf("%s:%s:%s", hex.EncodeToString(iv), hex.EncodeToString(authTag), hex.EncodeToString(cipherText)), nil
 }
 
-// encryptionKey 用于加解密。ENCRYPTION_KEY 缺失时回退内置默认密钥：未显式承认
-// （API_MONITOR_ALLOW_INSECURE_DEFAULT_KEY）时每次使用都打告警，已承认时只打一次。
+// encryptionKey 用于加解密。ENCRYPTION_KEY 缺失时回退内置默认密钥，并在首次使用时打一条告警。
 var defaultKeyWarnOnce sync.Once
 
 func warnDefaultEncryptionKey() {
@@ -153,11 +152,7 @@ func warnDefaultEncryptionKey() {
 func encryptionKey() []byte {
 	keySource := strings.TrimSpace(os.Getenv("ENCRYPTION_KEY"))
 	if keySource == "" {
-		if AllowInsecureDefaultKey() {
-			defaultKeyWarnOnce.Do(warnDefaultEncryptionKey)
-		} else {
-			warnDefaultEncryptionKey()
-		}
+		defaultKeyWarnOnce.Do(warnDefaultEncryptionKey)
 		keySource = defaultEncryptKey
 	}
 	key := sha256.Sum256([]byte(keySource))
