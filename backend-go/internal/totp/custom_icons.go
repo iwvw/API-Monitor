@@ -455,6 +455,7 @@ func (s *Service) serveCustomBrandIcon(w http.ResponseWriter, r *http.Request, i
 	w.Header().Set("Content-Type", defaultString(found.ContentType, "image/svg+xml; charset=utf-8"))
 	w.Header().Set("Cache-Control", "public, max-age=604800")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; sandbox")
 	http.ServeFile(w, r, path)
 }
 

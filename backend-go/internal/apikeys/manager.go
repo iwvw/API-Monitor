@@ -372,7 +372,8 @@ func (m *Manager) Authorize(ctx context.Context, r *http.Request, scope string) 
 		return Key{}, ErrDisabled
 	}
 	if key.ExpiresAt != nil {
-		if expires, err := time.Parse(time.RFC3339, *key.ExpiresAt); err == nil && !expires.After(time.Now()) {
+		expires, err := time.Parse(time.RFC3339, *key.ExpiresAt)
+		if err != nil || !expires.After(time.Now()) {
 			return Key{}, ErrExpired
 		}
 	}

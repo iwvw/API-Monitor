@@ -1136,6 +1136,7 @@ func (s *Service) serveBrandIcon(w http.ResponseWriter, r *http.Request, fileNam
 	w.Header().Set("Content-Type", "image/svg+xml; charset=utf-8")
 	w.Header().Set("Cache-Control", "public, max-age=604800")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; sandbox")
 	http.ServeFile(w, r, path)
 }
 
@@ -1222,6 +1223,7 @@ func serveFallbackBrandIcon(w http.ResponseWriter, entry brandIconEntry) {
 	w.Header().Set("Content-Type", "image/svg+xml; charset=utf-8")
 	w.Header().Set("Cache-Control", "public, max-age=300")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; sandbox")
 	w.Header().Set("X-TOTP-Icon-Fallback", "true")
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write([]byte(svg))
@@ -1347,7 +1349,7 @@ func findSVGRepoBrandIconByKey(key string) (brandIconEntry, bool) {
 }
 
 // svgEventAttrRegex 匹配所有 on* 事件属性（含 onerror/onload 变体，
-	// 以及 "onload =" 这类带空格变体），黑名单字符串匹配无法覆盖的注入面。
+// 以及 "onload =" 这类带空格变体），黑名单字符串匹配无法覆盖的注入面。
 var svgEventAttrRegex = regexp.MustCompile(`(?i)\son[a-z]+\s*=`)
 
 // svgScriptTagRegex 匹配 <script 及其空白变体。
