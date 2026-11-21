@@ -130,14 +130,14 @@ rules:
   - DOMAIN-SUFFIX,google.com,🚀 手动
   - DOMAIN-SUFFIX,gstatic.com,🚀 手动
 
-  - DOMAIN-SUFFIX,worldofwarships.jp,🚀 手动 # 战舰世界
-  - DOMAIN-SUFFIX,login1.worldofwarships.jp,🚀 手动 # 战舰世界
-  - DOMAIN-SUFFIX,worldoftanks.asia,🚀 手动 # 战舰世界
-  - PROCESS-NAME,WorldOfWarships64.exe,🚀 手动 # 战舰世界
-  - DOMAIN-SUFFIX,wargaming.net,🚀 手动 # 战舰世界
-  - IP-CIDR,92.223.16.187/32,🚀 手动 # 战舰世界
-  - IP-CIDR,92.223.16.186/32,🚀 手动 # 战舰世界
-  - IP-CIDR,92.223.16.154/32,🚀 手动 # 战舰世界
+  - DOMAIN-SUFFIX,worldofwarships.jp,🎯 直连 # 战舰世界
+  - DOMAIN-SUFFIX,login1.worldofwarships.jp,🎯 直连 # 战舰世界
+  - DOMAIN-SUFFIX,worldoftanks.asia,🎯 直连 # 战舰世界
+  - PROCESS-NAME,WorldOfWarships64.exe,🎯 直连 # 战舰世界
+  - DOMAIN-SUFFIX,wargaming.net,🎯 直连 # 战舰世界
+  - IP-CIDR,92.223.16.187/32,🎯 直连 # 战舰世界
+  - IP-CIDR,92.223.16.186/32,🎯 直连 # 战舰世界
+  - IP-CIDR,92.223.16.154/32,🎯 直连 # 战舰世界
 
   - DOMAIN-SUFFIX,pan.dsuk.top,🚀 手动
   - DOMAIN-SUFFIX,discord.com,🚀 手动
