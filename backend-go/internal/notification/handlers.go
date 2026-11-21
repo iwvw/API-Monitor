@@ -78,6 +78,14 @@ func (s *Service) testChannel(w http.ResponseWriter, r *http.Request, id string)
 		response.Error(w, http.StatusNotFound, "channel not found")
 		return
 	}
+	if channel.Enabled == 0 {
+		response.Error(w, http.StatusBadRequest, "channel is disabled")
+		return
+	}
+	if allowed, _ := s.testLimiter.Allow(time.Now(), maxChannelTestsPerHour); !allowed {
+		response.Error(w, http.StatusTooManyRequests, "channel test rate limit exceeded")
+		return
+	}
 	config := decryptConfig(channel.ConfigRaw)
 	title := "🧪 通知渠道连通性测试"
 	loc, _ := s.systemLocation(r.Context())

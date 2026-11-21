@@ -126,7 +126,7 @@ func ensureSchema(ctx context.Context, db *sql.DB) error {
 			title TEXT NOT NULL,
 			description TEXT,
 			strategy TEXT DEFAULT 'manual',
-			timezone TEXT DEFAULT 'UTC',
+			timezone TEXT,
 			start_at DATETIME,
 			end_at DATETIME,
 			cron TEXT,

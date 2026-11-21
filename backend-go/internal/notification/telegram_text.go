@@ -1,13 +1,9 @@
 package notification
 
 import (
-	"context"
-	"fmt"
 	"html"
 	"strings"
 	"time"
-
-	"github.com/iwvw/api-monitor/backend-go/internal/applog"
 )
 
 func cloneNotificationData(data map[string]interface{}) map[string]interface{} {
@@ -86,12 +82,10 @@ func normalizeRichTextColons(text string) string {
 }
 
 func telegramMessageLine(line string) string {
-	applog.Info(context.Background(), "notification", "telegram-line-in", "lineHex", fmt.Sprintf("%x", []byte(line)))
 	field := parseNotificationMessageLine(line)
 	if field.Empty {
 		return ""
 	}
-	applog.Info(context.Background(), "notification", "telegram-line-parse", "labelHex", fmt.Sprintf("%x", []byte(field.Label)), "valueHex", fmt.Sprintf("%x", []byte(field.Value)))
 	if field.Label == "" {
 		return field.Value
 	}

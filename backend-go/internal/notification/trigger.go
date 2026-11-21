@@ -10,6 +10,9 @@ import (
 	"time"
 )
 
+// triggerBudget 是单次 Trigger 的整体时间预算上限。
+const triggerBudget = 90 * time.Second
+
 func (s *Service) DryRun(ctx context.Context, rule Rule, eventData map[string]interface{}) (map[string]interface{}, error) {
 	loc, timeZoneName := s.systemLocation(ctx)
 	timeAllowed := checkTimeWindow(rule.TimeWindow, loc)
@@ -62,6 +65,10 @@ func (s *Service) DryRun(ctx context.Context, rule Rule, eventData map[string]in
 }
 
 func (s *Service) Trigger(ctx context.Context, sourceModule, eventType string, eventData map[string]interface{}) error {
+	// 单次触发的整体时间预算:多渠道 × 多重试最坏可达数分钟,
+	// 而 Trigger 跑在 uptime/presence/cronjobs 同步检查链上,必须硬性封顶。
+	ctx, cancel := context.WithTimeout(ctx, triggerBudget)
+	defer cancel()
 	rules, err := s.loadEnabledRulesByEvent(ctx, sourceModule, eventType)
 	if err != nil {
 		return err
@@ -79,9 +86,16 @@ func (s *Service) Trigger(ctx context.Context, sourceModule, eventType string, e
 	var loadNotifyCfg = func() GlobalConfig {
 		cfg, err := s.LoadConfig(ctx)
 		if err != nil {
-			cfg = GlobalConfig{MaxRetryTimes: 3, RetryIntervalSeconds: 60, GlobalRateLimitPerHr: 100}
+			cfg = GlobalConfig{MaxRetryTimes: 3, RetryIntervalSeconds: 60, GlobalRateLimitPerHr: 100, EnableBatch: true, BatchIntervalSeconds: 30}
 		}
 		return cfg
+	}
+	cfg := loadNotifyCfg()
+	if cfg.EnableBatch && s.aggregator != nil {
+		s.aggregator.SetWindow(time.Duration(cfg.BatchIntervalSeconds) * time.Second)
+	}
+	if cfg.BaseURL != "" {
+		eventData = withDashboardURL(eventData, cfg.BaseURL)
 	}
 	for _, rule := range rules {
 		dryRun, err := s.DryRun(ctx, rule, eventData)
@@ -97,7 +111,7 @@ func (s *Service) Trigger(ctx context.Context, sourceModule, eventType string, e
 		}
 		// 聚合：配置了 group_by 的规则，同一分组在窗口期内只发首条（或升级条）。
 		// 恢复事件永不聚合 —— 漏掉恢复通知会让告警永远悬着。
-		if !(hasLifecycle && lifecycle.Phase == "resolve") {
+		if cfg.EnableBatch && !(hasLifecycle && lifecycle.Phase == "resolve") {
 			if groupBy := ruleGroupBy(rule); len(groupBy) > 0 {
 				if key := groupKeyOf(groupBy, eventData); key != "" {
 					decision := s.decisionForGroup(rule, key, eventData, time.Now())
@@ -121,27 +135,28 @@ func (s *Service) Trigger(ctx context.Context, sourceModule, eventType string, e
 				continue
 			}
 		}
-		cfg := loadNotifyCfg()
 		sentAny := false
-		for _, channelID := range rule.Channels {
+		sendChannel := func(channelID string) (bool, error) {
 			channel, ok, err := s.loadStoredChannel(ctx, channelID)
 			if err != nil {
-				return err
+				return false, err
 			}
 			if !ok || channel.Enabled == 0 {
-				continue
+				return false, nil
 			}
+			title := formatTitle(rule, eventData)
+			message := formatMessage(rule, eventData, loc)
 			if allowed, firstReject := s.rateLimiter.Allow(time.Now(), cfg.GlobalRateLimitPerHr); !allowed {
 				if firstReject {
 					slog.Warn("notification-global-rate-limit", "rule", rule.Name, "channel", channel.Name, "limit", cfg.GlobalRateLimitPerHr)
 				}
-				continue
+				skipReason := fmt.Sprintf("global rate limit exceeded (%d/hour)", cfg.GlobalRateLimitPerHr)
+				_, _ = s.createHistory(ctx, rule.ID, channelID, "failed", title, message, eventData, &skipReason)
+				return false, nil
 			}
-			title := formatTitle(rule, eventData)
-			message := formatMessage(rule, eventData, loc)
 			logID, err := s.createHistory(ctx, rule.ID, channelID, "pending", title, message, eventData, nil)
 			if err != nil {
-				return err
+				return false, err
 			}
 			channelConfig := decryptConfig(channel.ConfigRaw)
 			send := func() (deliveryResult, error) {
@@ -153,9 +168,8 @@ func (s *Service) Trigger(ctx context.Context, sourceModule, eventType string, e
 			delivery, retries, sendErr := s.sendWithRetry(ctx, send, cfg.MaxRetryTimes, cfg.RetryIntervalSeconds)
 			if sendErr != nil {
 				_ = s.updateHistoryRetry(ctx, logID, retries, sendErr.Error())
-				continue
+				return false, nil
 			}
-			sentAny = true
 			if retries > 0 {
 				_ = s.updateHistoryRetryCount(ctx, logID, retries)
 			}
@@ -167,6 +181,28 @@ func (s *Service) Trigger(ctx context.Context, sourceModule, eventType string, e
 			}
 			now := time.Now().In(loc).Format(time.RFC3339)
 			_ = s.updateHistoryStatus(ctx, logID, "sent", &now, nil)
+			return true, nil
+		}
+		for _, channelID := range rule.Channels {
+			sent, err := sendChannel(channelID)
+			if err != nil {
+				return err
+			}
+			if sent {
+				sentAny = true
+			}
+		}
+		// 主渠道全部失败时降级到规则配置的备用渠道。
+		if !sentAny {
+			for _, channelID := range rule.BackupChannels {
+				sent, err := sendChannel(channelID)
+				if err != nil {
+					return err
+				}
+				if sent {
+					sentAny = true
+				}
+			}
 		}
 		if trackSuppression && sentAny {
 			_ = s.recordSuppressionSent(ctx, rule.ID, fingerprint, time.Now())
@@ -230,12 +266,20 @@ func (s *Service) RunAggregationFlusher(ctx context.Context) {
 	}
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
+	var lastPrune time.Time
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case now := <-ticker.C:
 			s.FlushGroupSummaries(ctx, now)
+			// 通知历史 TTL:每小时按 history_retention_days 清理一次,避免无限增长。
+			if lastPrune.IsZero() || now.Sub(lastPrune) >= time.Hour {
+				lastPrune = now
+				if cfg, err := s.LoadConfig(ctx); err == nil {
+					_, _ = s.PruneHistory(ctx, cfg.HistoryRetentionDays)
+				}
+			}
 		}
 	}
 }
@@ -545,6 +589,19 @@ func ruleGroupBy(rule Rule) []string {
 // decisionForGroup 交给聚合器判定这条是否要发。
 //
 // 聚合器为 nil（测试里直接构造 Service 的场景）时一律放行，保持向后兼容。
+// withDashboardURL 把全局 base_url 注入模板数据({{baseUrl}} / {{dashboardUrl}}),
+// 使通知模板可以附带面板看板链接;事件自带同名字段时保留事件值。
+func withDashboardURL(eventData map[string]interface{}, baseURL string) map[string]interface{} {
+	if _, ok := eventData["baseUrl"]; ok {
+		return eventData
+	}
+	result := cloneNotificationData(eventData)
+	base := strings.TrimRight(baseURL, "/")
+	result["baseUrl"] = base
+	result["dashboardUrl"] = base
+	return result
+}
+
 func (s *Service) decisionForGroup(rule Rule, key string, eventData map[string]interface{}, now time.Time) bool {
 	if s.aggregator == nil {
 		return true

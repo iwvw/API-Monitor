@@ -112,6 +112,7 @@ type AggregateDecision struct {
 type Aggregator struct {
 	mu        sync.Mutex
 	buckets   map[string]*groupBucket
+	pending   []Summary
 	window    time.Duration
 	nowFn     func() time.Time
 	maxKeys   int
@@ -133,6 +134,17 @@ func NewAggregator(window time.Duration) *Aggregator {
 }
 
 func bucketID(ruleID, key string) string { return ruleID + "\x00" + key }
+
+// SetWindow 更新聚合窗口(取自全局配置 batch_interval_seconds)。
+// window<=0 时回退默认窗口,保持与 NewAggregator 一致。
+func (a *Aggregator) SetWindow(window time.Duration) {
+	if window <= 0 {
+		window = DefaultGroupWindow
+	}
+	a.mu.Lock()
+	a.window = window
+	a.mu.Unlock()
+}
 
 // Offer 处理一次触发，返回是否应立刻发送。
 //
@@ -171,6 +183,9 @@ func (a *Aggregator) Offer(ruleID, key, severity, title string, now time.Time) A
 
 	// 窗口已过期（sweep 之外的双保险）
 	if !now.Before(bucket.windowEnds) {
+		if len(bucket.suppressed) > 0 {
+			a.pending = append(a.pending, a.summaryLocked(bucket))
+		}
 		bucket.windowEnds = now.Add(a.window)
 		bucket.peakRank = rank
 		bucket.suppressed = make(map[string]*suppressedEntry)
@@ -210,6 +225,8 @@ func (a *Aggregator) Flush(now time.Time) []Summary {
 	defer a.mu.Unlock()
 
 	var out []Summary
+	out = append(out, a.pending...)
+	a.pending = nil
 	for id, bucket := range a.buckets {
 		if now.Before(bucket.windowEnds) {
 			continue
@@ -240,6 +257,23 @@ func (a *Aggregator) Flush(now time.Time) []Summary {
 }
 
 // sweepLocked 清掉早就过期且没有任何合并内容的窗口，避免 map 无限增长。
+func (a *Aggregator) summaryLocked(bucket *groupBucket) Summary {
+	titles := make([]string, 0, len(bucket.suppressed))
+	total := 0
+	for title, entry := range bucket.suppressed {
+		titles = append(titles, fmt.Sprintf("%s x%d", title, entry.Count))
+		total += entry.Count
+	}
+	sort.Strings(titles)
+	return Summary{
+		RuleID: bucket.ruleID,
+		Key:    bucket.key,
+		Title:  "告警汇总(窗口期内已合并)",
+		Body:   fmt.Sprintf("分组 %s 在 %s 内另有 %d 条告警被合并:\n%s", bucket.key, a.window, total, strings.Join(titles, "\n")),
+		Count:  total,
+	}
+}
+
 func (a *Aggregator) sweepLocked(now time.Time) {
 	// 每 100 次 Offer 才扫一遍，避免每次 O(n)。
 	if !a.lastSweep.IsZero() && now.Sub(a.lastSweep) < 10*time.Second {

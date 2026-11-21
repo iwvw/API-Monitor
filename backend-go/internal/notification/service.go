@@ -21,6 +21,7 @@ const (
 	maxHistoryLimit          = 500
 	requestTimeout           = 10 * time.Second
 	lifecycleRefreshInterval = 30 * time.Second
+	maxChannelTestsPerHour   = 30
 )
 
 type Service struct {
@@ -30,6 +31,7 @@ type Service struct {
 	schemaOnce  sync.Once
 	schemaErr   error
 	rateLimiter *hourlyRateLimiter
+	testLimiter *hourlyRateLimiter
 	// aggregator 做「同一分组重复告警合并」。未配置 group_by 的规则不经过它。
 	aggregator *Aggregator
 }
@@ -137,6 +139,7 @@ func New(cfg config.Config) *Service {
 		store:       database.New(cfg),
 		client:      &http.Client{Timeout: requestTimeout},
 		rateLimiter: &hourlyRateLimiter{},
+		testLimiter: &hourlyRateLimiter{},
 		aggregator:  NewAggregator(DefaultGroupWindow),
 	}
 }

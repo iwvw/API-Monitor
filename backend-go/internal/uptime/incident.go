@@ -3,6 +3,7 @@ package uptime
 import (
 	"context"
 	"database/sql"
+	"log/slog"
 	"time"
 )
 
@@ -10,7 +11,9 @@ func (s *Service) notify(ctx context.Context, eventType string, monitor, beat ma
 	if s.notifier == nil {
 		return
 	}
-	_ = s.notifier.Trigger(ctx, "uptime", eventType, uptimeNotificationData(eventType, monitor, beat, durationMs))
+	if err := s.notifier.Trigger(ctx, "uptime", eventType, uptimeNotificationData(eventType, monitor, beat, durationMs)); err != nil {
+		slog.Warn("uptime-notify-failed", "event", eventType, "monitorId", int64Value(monitor["id"], 0), "err", err.Error())
+	}
 }
 
 func (s *Service) refreshNotification(ctx context.Context, eventType string, monitor, beat map[string]interface{}, durationMs int64) {
@@ -20,7 +23,9 @@ func (s *Service) refreshNotification(ctx context.Context, eventType string, mon
 	if !ok {
 		return
 	}
-	_ = updater.RefreshLifecycle(ctx, "uptime", eventType, uptimeNotificationData(eventType, monitor, beat, durationMs))
+	if err := updater.RefreshLifecycle(ctx, "uptime", eventType, uptimeNotificationData(eventType, monitor, beat, durationMs)); err != nil {
+		slog.Warn("uptime-notify-refresh-failed", "event", eventType, "monitorId", int64Value(monitor["id"], 0), "err", err.Error())
+	}
 }
 
 func uptimeNotificationData(eventType string, monitor, beat map[string]interface{}, durationMs int64) map[string]interface{} {

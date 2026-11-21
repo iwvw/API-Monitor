@@ -52,12 +52,17 @@ type Service struct {
 	mu            sync.Mutex
 	timers        map[int64]*time.Timer
 	stopped       bool
-	lastSslAlerts sync.Map // monitorID -> time.Time (expiry)
+	lastSslAlerts sync.Map // monitorID -> sslAlertCursor（已告警的到期时间 + 阈值档位）
 
 	// per-monitor 检查互斥：同一 monitor 的定时检查、checkNow、state 迁移
 	// 必须串行执行，防止并发 processState 的读-改-写产生重复 incident。
 	checkMux   sync.Mutex
 	checkLocks map[int64]*sync.Mutex
+}
+
+type sslAlertCursor struct {
+	Expiry    time.Time
+	Threshold int
 }
 
 type probeResult struct {

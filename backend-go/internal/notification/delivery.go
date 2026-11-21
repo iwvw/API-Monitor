@@ -18,7 +18,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/iwvw/api-monitor/backend-go/internal/applog"
 	"github.com/iwvw/api-monitor/backend-go/internal/tgapi"
 )
 
@@ -191,6 +190,15 @@ func sendEmail(cfg map[string]interface{}, title, message string) error {
 		return err
 	}
 	defer client.Quit()
+	// 非隐式 TLS 时,若服务端支持 STARTTLS 则升级后再认证(submission 端口 587 的常见要求)。
+	// 服务端不支持时不升级,交由 PlainAuth 拒绝非环回主机的明文凭据发送。
+	if !boolValue(cfg["secure"], port == 465) {
+		if ok, _ := client.Extension("STARTTLS"); ok {
+			if err := client.StartTLS(&tls.Config{ServerName: host, MinVersion: tls.VersionTLS12}); err != nil {
+				return err
+			}
+		}
+	}
 	if err := client.Auth(auth); err != nil {
 		return err
 	}
@@ -241,7 +249,6 @@ func (s *Service) sendTelegram(ctx context.Context, cfg map[string]interface{}, 
 		return deliveryResult{}, err
 	}
 	text := telegramMessageText(title, message)
-	applog.Info(ctx, "notification", "telegram-rich-outgoing", "chatId", chatID, "textLen", len(text), "textHex", fmt.Sprintf("%x", []byte(text)))
 	// 富消息优先（sendRichMessage + rich_message.markdown，GFM 宽松解析，对中文/emoji 渲染稳定）；
 	// 失败时降级为普通文本 sendMessage（不带 parse_mode），避免旧客户端 MarkdownV2 解析乱码。
 	richPayload := map[string]interface{}{

@@ -138,8 +138,8 @@ func createMaintenance(ctx context.Context, db *sql.DB, data map[string]interfac
 		INSERT INTO uptime_maintenance_windows (
 			title, description, strategy, timezone, start_at, end_at, cron, recurrence_json, active
 		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`, title, stringValue(data["description"], ""), stringValue(data["strategy"], "manual"), stringValue(data["timezone"], "UTC"),
-		nullableString(firstNonNil(data["startAt"], data["start_at"])), nullableString(firstNonNil(data["endAt"], data["end_at"])),
+	`, title, stringValue(data["description"], ""), stringValue(data["strategy"], "manual"), nullableString(data["timezone"]),
+		normalizeMaintenanceTime(firstNonNil(data["startAt"], data["start_at"])), normalizeMaintenanceTime(firstNonNil(data["endAt"], data["end_at"])),
 		nullableString(data["cron"]), jsonOrNull(firstNonNil(data["recurrence"], data["recurrence_json"])), boolIntValue(data["active"], true))
 	if err != nil {
 		return maintenanceWindow{}, err
@@ -165,10 +165,10 @@ func updateMaintenance(ctx context.Context, db *sql.DB, id int64, data map[strin
 		}
 	}
 	if value, ok := firstExisting(data, "startAt", "start_at"); ok {
-		add("start_at", nullableString(value))
+		add("start_at", normalizeMaintenanceTime(value))
 	}
 	if value, ok := firstExisting(data, "endAt", "end_at"); ok {
-		add("end_at", nullableString(value))
+		add("end_at", normalizeMaintenanceTime(value))
 	}
 	if value, ok := data["active"]; ok {
 		add("active", boolIntValue(value, true))
@@ -224,7 +224,7 @@ func parseMaintenance(ctx context.Context, db *sql.DB, row map[string]interface{
 		Title:       stringValue(row["title"], ""),
 		Description: stringValue(row["description"], ""),
 		Strategy:    stringValue(row["strategy"], "manual"),
-		Timezone:    stringValue(row["timezone"], "UTC"),
+		Timezone:    stringValue(row["timezone"], ""),
 		StartAt:     stringPointer(row["start_at"]),
 		EndAt:       stringPointer(row["end_at"]),
 		Cron:        stringPointer(row["cron"]),
@@ -270,25 +270,38 @@ func maintenanceTargets(ctx context.Context, db *sql.DB, maintenanceID int64) ([
 	return targets, rows.Err()
 }
 
+// normalizeMaintenanceTime 把维护窗口起止时间统一归一化为 UTC RFC3339,
+// 保证与查询侧的时间比较口径一致(避免带偏移/秒级格式的字符串按字典序比较出错)。
+func normalizeMaintenanceTime(value interface{}) interface{} {
+	text := strings.TrimSpace(stringValue(value, ""))
+	if text == "" {
+		return nil
+	}
+	parsed := parseTimeFallback(text, time.Time{})
+	if parsed.IsZero() {
+		return text
+	}
+	return parsed.UTC().Format(time.RFC3339)
+}
+
 func activeMaintenanceForMonitor(ctx context.Context, db *sql.DB, monitorID int64) (map[string]interface{}, error) {
-	now := time.Now().UTC().Format(time.RFC3339)
 	// 必须在 SQL 查询前取站点时区：维护窗口 cron 需要按站点时区求值，
 	// 且 sqlite 单连接库下查询前取值可避免 rows 持有连接时的二次查询死锁。
+	now := time.Now().UTC().Format(time.RFC3339)
 	siteLoc := timeutil.LocationFromSettings(ctx, db)
 	rows, err := db.QueryContext(ctx, `
 		SELECT mw.*
 		FROM uptime_maintenance_windows mw
 		LEFT JOIN uptime_maintenance_targets mt ON mt.maintenance_id = mw.id
 		WHERE mw.active = 1
-		  AND (mw.start_at IS NULL OR mw.start_at <= ?)
-		  AND (mw.end_at IS NULL OR mw.end_at >= ?)
+		  AND (mw.start_at IS NULL OR julianday(mw.start_at) <= julianday(?))
+		  AND (mw.end_at IS NULL OR julianday(mw.end_at) >= julianday(?))
 		  AND (
 			mt.id IS NULL
 			OR mt.target_type = 'global'
 			OR (mt.target_type = 'monitor' AND mt.target_id = ?)
 		  )
 		ORDER BY mw.created_at DESC
-		LIMIT 1
 	`, now, now, strconv.FormatInt(monitorID, 10))
 	if err != nil {
 		return nil, err

@@ -32,6 +32,9 @@ const maxBodyRunes = 64 * 1024
 // 原文按字节截断到合法 UTF-8 边界,超长部分丢弃,避免单封邮件拖垮 SQLite。
 const maxRawBytes = 256 * 1024
 
+// maxWaiters 限制进程内 Wait 等待者的总数量,避免入口堆积阻塞等待耗尽内存与连接。
+const maxWaiters = 200
+
 // WorkerSecret 返回下发给邮件 Worker 的握手密钥：优先环境变量，否则从加密根密钥派生。
 func WorkerSecret() string {
 	if v := strings.TrimSpace(os.Getenv(workerSecretEnv)); v != "" {
@@ -206,10 +209,18 @@ func (s *Service) notify(mailbox string) {
 	}
 }
 
-func (s *Service) subscribe(mailbox string) (int, chan struct{}, func()) {
+func (s *Service) subscribe(mailbox string) (int, chan struct{}, func(), bool) {
 	key := mailboxKey(mailbox)
 	ch := make(chan struct{}, 1)
 	s.mu.Lock()
+	total := 0
+	for _, w := range s.waiters {
+		total += len(w)
+	}
+	if total >= maxWaiters {
+		s.mu.Unlock()
+		return 0, nil, func() {}, false
+	}
 	if s.waiters[key] == nil {
 		s.waiters[key] = map[int]chan struct{}{}
 	}
@@ -227,7 +238,7 @@ func (s *Service) subscribe(mailbox string) (int, chan struct{}, func()) {
 		}
 		s.mu.Unlock()
 	}
-	return id, ch, cancel
+	return id, ch, cancel, true
 }
 
 // Wait 等待一封匹配选择器的邮件并原子认领（先到先得，其它等待者继续等）。
@@ -243,7 +254,10 @@ func (s *Service) Wait(ctx context.Context, sel Selector, consumer string, timeo
 	if d, ok := ctx.Deadline(); ok && d.Before(deadline) {
 		deadline = d
 	}
-	_, ch, cancel := s.subscribe(sel.Mailbox)
+	_, ch, cancel, ok := s.subscribe(sel.Mailbox)
+	if !ok {
+		return Message{}, errors.New("等待队列已满,请稍后重试")
+	}
 	defer cancel()
 
 	if msg, ok := s.tryClaim(ctx, sel, consumer); ok {
