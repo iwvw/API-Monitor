@@ -1,8 +1,8 @@
+import { formatDateTime } from '../../modules/utils.js';
+
 export const formatHistoryDate = (raw) => {
   if (!raw) return '';
-  const iso = String(raw).includes(' ') ? String(raw).replace(' ', 'T') : String(raw);
-  const date = new Date(iso);
-  return Number.isNaN(date.getTime()) ? String(raw) : date.toLocaleString();
+  return formatDateTime(raw);
 };
 
 export const buildSampleEventData = (rule = {}) => {
@@ -72,4 +72,40 @@ export const parseNotificationPreviewLine = (line = '') => {
       : rawValue,
     code: ['地址', '链接', '云端链接', 'URL', 'Host'].includes(label),
   };
+};
+
+export const isPrivateHostname = (hostname) => {
+  const host = String(hostname || '').trim().toLowerCase().replace(/^\[|\]$/g, '');
+  if (!host) return false;
+  if (host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.local') || host.endsWith('.internal')) return true;
+  if (host.includes(':')) {
+    return host === '::1' || host.startsWith('fe80:') || host.startsWith('fc') || host.startsWith('fd');
+  }
+  const ipv4 = host.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+  if (ipv4) {
+    const a = Number(ipv4[1]);
+    const b = Number(ipv4[2]);
+    if (a === 0 || a === 10 || a === 127) return true;
+    if (a === 172 && b >= 16 && b <= 31) return true;
+    if (a === 192 && b === 168) return true;
+    if (a === 169 && b === 254) return true;
+    if (a === 100 && b >= 64 && b <= 127) return true;
+  }
+  return false;
+};
+
+export const getNotificationTargetWarning = (type, config = {}) => {
+  const targets = [];
+  if (type === 'email' && config.host) targets.push({ label: 'SMTP 主机', host: config.host });
+  if (type === 'telegram' && config.proxy_url) {
+    try {
+      const proxy = new URL(config.proxy_url);
+      targets.push({ label: 'Telegram 代理', host: proxy.hostname });
+    } catch {
+      return null;
+    }
+  }
+  const risky = targets.filter(item => isPrivateHostname(item.host));
+  if (risky.length === 0) return null;
+  return `${risky.map(item => `「${item.label}」${item.host}`).join('、')} 指向内网或回环地址,测试投递会让服务器向该目标发起连接。`;
 };

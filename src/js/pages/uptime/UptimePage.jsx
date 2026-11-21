@@ -34,7 +34,9 @@ import {
   normalizeStatusDomain,
   normalizeStatusSlug,
   normalizeUptimeBeat,
+  resolveUptimeStatus,
 } from './utils.js';
+import { formatDateTime } from '../../modules/utils.js';
 import MonitorCard from './MonitorCard.jsx';
 import MaintenancePanel from './MaintenancePanel.jsx';
 import StatusPagesPanel from './StatusPagesPanel.jsx';
@@ -206,7 +208,10 @@ function UptimePage() {
         }
       }));
     } catch (e) {
-      // 静默失败
+      setUptimeRateCache(prev => ({
+        ...prev,
+        [monitorId]: { 1: '—', 30: '—' }
+      }));
     }
   };
 
@@ -245,6 +250,12 @@ function UptimePage() {
   const createDefaultStatusPage = async () => {
     if (uptimeMonitors.length === 0) {
       toast.warning('请先创建监测目标');
+      return;
+    }
+    const existing = uptimeStatusPages.find(page => page.slug === 'main-status');
+    if (existing) {
+      toast.info('已存在默认状态页,已切换为编辑该页面');
+      editStatusPage(existing);
       return;
     }
     try {
@@ -551,15 +562,13 @@ function UptimePage() {
         return;
       }
       const beats = uptimeHeartbeats[m.id] || [];
-      const lastBeat = beats[0];
+      const status = resolveUptimeStatus(m, beats[0]);
 
-      if (!lastBeat) {
-        stats.unknown++;
-      } else if (lastBeat.status === 'up') {
+      if (status === 'up') {
         stats.up++;
-      } else if (lastBeat.status === 'down') {
+      } else if (status === 'down') {
         stats.down++;
-      } else if (lastBeat.status === 'pending') {
+      } else if (status === 'pending') {
         stats.pending++;
       } else {
         stats.unknown++;
@@ -575,10 +584,9 @@ function UptimePage() {
     // 按可用状态过滤
     if (uptimeStatusFilter) {
       result = result.filter(m => {
-        if (!m.active) return uptimeStatusFilter === 'pending'; // 暂停算等待/未知
+        if (!m.active) return false;
         const beats = uptimeHeartbeats[m.id] || [];
-        const lastBeat = beats[0];
-        return lastBeat?.status === uptimeStatusFilter;
+        return resolveUptimeStatus(m, beats[0]) === uptimeStatusFilter;
       });
     }
 
@@ -601,17 +609,19 @@ function UptimePage() {
   const getUptimeRate = (monitorId, days = 1) => {
     const cache = uptimeRateCache[monitorId];
     if (cache && cache[days]) return cache[days];
-    return '100.000';
+    return null;
   };
 
   const getUptimeRateClass = (rateStr) => {
     const rate = parseFloat(rateStr);
+    if (!Number.isFinite(rate)) return 'text-kumo-subtle';
     if (rate >= 99) return 'text-kumo-success';
     if (rate >= 95) return 'text-kumo-warning';
     return 'text-kumo-danger';
   };
 
   const formatUptimeRateCompact = (rateStr) => {
+    if (rateStr === null || rateStr === undefined || rateStr === '' || rateStr === '—') return '--';
     const rate = Number(rateStr);
     if (!Number.isFinite(rate)) return '--';
     if (rate >= 100) return '100';
@@ -644,17 +654,6 @@ function UptimePage() {
       default:
         return <Activity className="w-3.5 h-3.5" />;
     }
-  };
-
-  const formatDateTime = (timeStr) => {
-    if (!timeStr) return '--';
-    return new Date(timeStr).toLocaleString('zh-CN', {
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit'
-    });
   };
 
   // ==================== 5. 单项控制与 CRUD ====================
