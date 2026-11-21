@@ -185,16 +185,26 @@ export default function QuickCommandBar({
     let rendered = command;
     let dangerous = false;
     let dangerReasons = [];
+    let previewFailed = false;
     try {
       const preview = await getPreview(command, options);
       rendered = preview.rendered || command;
       dangerous = Boolean(preview.dangerous);
       dangerReasons = preview.dangerReasons || [];
     } catch {
-      // ignore preview failure
+      previewFailed = true;
     }
 
-    if (dangerous) {
+    if (previewFailed) {
+      const ok = await dialog.confirm({
+        title: '无法完成风险检测',
+        message: `命令风险检测失败,无法确认该命令是否安全。是否仍要执行? ${rendered}`,
+        confirmText: '仍然执行',
+        cancelText: '取消',
+        variant: 'danger',
+      });
+      if (!ok) return;
+    } else if (dangerous) {
       const ok = await dialog.confirm({
         title: '确认执行高风险命令',
         message: `检测到风险项：${dangerReasons.join('、') || '请谨慎执行'}\n\n${rendered}`,

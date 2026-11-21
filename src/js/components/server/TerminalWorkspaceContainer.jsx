@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '@cloudflare/kumo';
 import { Terminal as TerminalIcon, X } from '../Icons.jsx';
 import { getDropTargetRegion } from '../../modules/terminalSplitTree.js';
@@ -153,6 +153,19 @@ function TerminalTreeSplitter({ direction, onResize }) {
   const startPosRef = useRef(0);
   const containerSizeRef = useRef(0);
   const [isHoveredOrActive, setIsHoveredOrActive] = useState(false);
+  const dragHandlersRef = useRef(null);
+
+  useEffect(
+    () => () => {
+      const handlers = dragHandlersRef.current;
+      if (!handlers) return;
+      window.removeEventListener('pointermove', handlers.onPointerMove);
+      window.removeEventListener('pointerup', handlers.onPointerUp);
+      window.removeEventListener('pointercancel', handlers.onPointerUp);
+      dragHandlersRef.current = null;
+    },
+    []
+  );
 
   const handlePointerDown = useCallback((e) => {
     e.preventDefault();
@@ -183,9 +196,11 @@ function TerminalTreeSplitter({ direction, onResize }) {
       window.removeEventListener('pointermove', onPointerMove);
       window.removeEventListener('pointerup', onPointerUp);
       window.removeEventListener('pointercancel', onPointerUp);
+      dragHandlersRef.current = null;
       onResize(0, true); // 提交并触发 final fit
     };
 
+    dragHandlersRef.current = { onPointerMove, onPointerUp };
     window.addEventListener('pointermove', onPointerMove);
     window.addEventListener('pointerup', onPointerUp);
     window.addEventListener('pointercancel', onPointerUp);

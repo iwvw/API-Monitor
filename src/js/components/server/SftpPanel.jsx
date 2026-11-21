@@ -32,6 +32,7 @@ const parentOfPath = value => {
 };
 
 const sftpTreeCache = new Map();
+const SFTP_TREE_CACHE_LIMIT = 20;
 
 function FileContextMenu({ files = [], children, onOpen, onDownload, onCopyPath, onRename, onChmod, onDelete }) {
   const single = files.length === 1;
@@ -112,6 +113,11 @@ export default function SftpPanel({ serverId, serverName, initialPath = '.', onC
 
   useEffect(() => {
     setError('');
+    setRenameFile(null);
+    setChmodFile(null);
+    setEditFile(null);
+    setEditorOpen(false);
+    setContextFiles([]);
     if (!serverId) {
       setLoading(false);
       setTree({});
@@ -155,6 +161,9 @@ export default function SftpPanel({ serverId, serverName, initialPath = '.', onC
 
   useEffect(() => {
     if (!serverId || Object.keys(tree).length === 0) return;
+    if (!sftpTreeCache.has(serverId) && sftpTreeCache.size >= SFTP_TREE_CACHE_LIMIT) {
+      sftpTreeCache.delete(sftpTreeCache.keys().next().value);
+    }
     sftpTreeCache.set(serverId, { rootPath, tree, expanded: [...expanded], selectedPaths });
   }, [serverId, rootPath, tree, expanded, selectedPaths]);
 
@@ -305,7 +314,13 @@ export default function SftpPanel({ serverId, serverName, initialPath = '.', onC
     }
     event.target.value = '';
     setUploading(false);
-    toast.success(`上传完成：成功 ${ok}，失败 ${failed}`);
+    if (failed === 0) {
+      toast.success(`上传完成:成功 ${ok},失败 ${failed}`);
+    } else if (ok === 0) {
+      toast.error(`上传失败:${failed} 个文件均未上传成功`);
+    } else {
+      toast.error(`上传完成:成功 ${ok},失败 ${failed}`);
+    }
     setExpanded(prev => new Set(prev).add(targetDir));
     loadTreeDir(targetDir, { silent: true });
   };

@@ -79,6 +79,7 @@ export default function ServerDockerConsole(props) {
     isDockerUpdateConfirmActive,
     loadDockerResources,
     openDockerComposeConfig,
+    openDockerContainerLogs,
     pruneDockerImagesForHosts,
     pruneDockerNetworksForHosts,
     renderDockerEmptyState,
@@ -156,6 +157,24 @@ export default function ServerDockerConsole(props) {
                       <span className="inline-flex items-center gap-1.5">
                         <HardDrive className="w-3.5 h-3.5" />
                         存储卷
+                      </span>
+                    ),
+                  },
+                  {
+                    value: 'stats',
+                    label: (
+                      <span className="inline-flex items-center gap-1.5">
+                        <Activity className="w-3.5 h-3.5" />
+                        实时统计
+                      </span>
+                    ),
+                  },
+                  {
+                    value: 'task-center',
+                    label: (
+                      <span className="inline-flex items-center gap-1.5">
+                        <Database className="w-3.5 h-3.5" />
+                        任务中心
                       </span>
                     ),
                   },
@@ -793,6 +812,17 @@ export default function ServerDockerConsole(props) {
                                                 ? '再次点击确认更新'
                                                 : '一键更新'
                                             }
+                                          />
+                                          <Button
+                                            shape="square"
+                                            size="sm"
+                                            variant="outline"
+                                            icon={<FileText className="h-3.5 w-3.5" />}
+                                            aria-label="查看容器日志"
+                                            onClick={() =>
+                                              openDockerContainerLogs(activeServer, c)
+                                            }
+                                            title="日志"
                                           />
                                         </div>
                                       </Table.Cell>

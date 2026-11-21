@@ -205,7 +205,7 @@ export default function ServerAdminPanel(props) {
                   <Button
                     size="sm"
                     variant="primary"
-                    onClick={() => setShowAddCredentialModal(true)}
+                    onClick={() => setShowAddCredentialModal()}
                     icon={<Plus className="h-3.5 w-3.5" />}
                   >
                     添加
@@ -361,7 +361,9 @@ export default function ServerAdminPanel(props) {
                               <div className="flex justify-center">
                                 <Checkbox
                                   checked={!!target.enabled}
-                                  onChange={() => toggleNetworkTargetEnabled(target)}
+                                  onCheckedChange={checked =>
+                                    toggleNetworkTargetEnabled(target, Boolean(checked))
+                                  }
                                   aria-label={`${target.name} 启用状态`}
                                 />
                               </div>

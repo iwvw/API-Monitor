@@ -1,7 +1,9 @@
 import { createPortal } from 'react-dom';
+import { useEffect, useRef } from 'react';
 import { Button } from '@cloudflare/kumo/components/button';
 import { Badge } from '@cloudflare/kumo/components/badge';
 import { AppCard } from '../../components/ui/AppPrimitives.jsx';
+import { toast } from '../../modules/toast.js';
 import TerminalWorkspaceContainer from '../../components/server/TerminalWorkspaceContainer.jsx';
 import QuickCommandBar from '../../components/server/QuickCommandBar.jsx';
 import SftpPanel from '../../components/server/SftpPanel.jsx';
@@ -77,6 +79,13 @@ export default function ServerSshTerminal(props) {
     visibleSessionIds,
     visibleSessionIdsRef,
   } = props;
+  const ratioFitTimerRef = useRef(null);
+  useEffect(
+    () => () => {
+      if (ratioFitTimerRef.current) clearTimeout(ratioFitTimerRef.current);
+    },
+    []
+  );
   return (
     <>
       {serverCurrentTab === 'terminal' &&
@@ -318,7 +327,8 @@ export default function ServerSshTerminal(props) {
                         }}
                         onRatioChange={(path, ratio) => {
                           setSshSplitTree(prev => updateBranchRatio(prev, path, ratio));
-                          setTimeout(() => {
+                          if (ratioFitTimerRef.current) clearTimeout(ratioFitTimerRef.current);
+                          ratioFitTimerRef.current = setTimeout(() => {
                             visibleSessionIdsRef.current.forEach(id => fitTerminalSession(id, true));
                           }, 50);
                         }}
@@ -363,6 +373,8 @@ export default function ServerSshTerminal(props) {
                                     setTerminalStatusRefreshing(true);
                                     try {
                                       await refreshServerInfo(serverId);
+                                    } catch (error) {
+                                      toast.error(error?.message || '刷新资源指标失败');
                                     } finally {
                                       setTerminalStatusRefreshing(false);
                                     }

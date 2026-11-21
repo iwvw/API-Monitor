@@ -416,7 +416,21 @@ export default function ServerModals(props) {
                           size="sm"
                           variant="secondary"
                           onClick={testServerConnection}
-                          disabled={serverModalSaving}
+                          disabled={
+                            serverModalSaving ||
+                            (serverModalMode === 'edit' &&
+                              (serverForm.authType === 'privateKey'
+                                ? !serverForm.privateKey
+                                : !serverForm.password))
+                          }
+                          title={
+                            serverModalMode === 'edit' &&
+                            (serverForm.authType === 'privateKey'
+                              ? !serverForm.privateKey
+                              : !serverForm.password)
+                              ? '编辑态需重新输入密码或私钥才能测试连接'
+                              : '测试 SSH 连接'
+                          }
                         >
                           连接测试
                         </Button>
@@ -852,6 +866,7 @@ export default function ServerModals(props) {
                   onChange={e => {
                     const f = e.target.files[0];
                     if (f) processImportFile(f);
+                    e.target.value = '';
                   }}
                   className="px-3 py-2"
                 />
@@ -1270,7 +1285,7 @@ export default function ServerModals(props) {
                               item.status === 'succeeded'
                                 ? 'success'
                                 : item.status === 'failed'
-                                  ? 'danger'
+                                  ? 'error'
                                   : item.status === 'verifying'
                                     ? 'warning'
                                     : 'info'
@@ -1595,8 +1610,9 @@ export default function ServerModals(props) {
               <div className="flex items-center gap-2 mt-2">
                 <Checkbox
                   checked={networkTargetForm.enabled}
-                  onChange={() =>
-                    setNetworkTargetForm(prev => ({ ...prev, enabled: !prev.enabled }))
+                  aria-label="是否启用该探测目标"
+                  onCheckedChange={checked =>
+                    setNetworkTargetForm(prev => ({ ...prev, enabled: Boolean(checked) }))
                   }
                   id="target-enabled-checkbox"
                 />

@@ -99,7 +99,7 @@ export function DockerManageCard({
                       <Badge variant="neutral">{getHostCount(server)}</Badge>
                       {getHostBadges(server).map(badge => (
                         <Badge
-                          key={badge.label}
+                          key={`${badge.variant || 'neutral'}:${badge.label}`}
                           variant={badge.variant || 'neutral'}
                           appearance={badge.appearance}
                         >
@@ -145,7 +145,7 @@ export function DockerResourceTableCard({
             </span>
             {badges.map(badge => (
               <Badge
-                key={badge.label}
+                key={`${badge.variant || 'neutral'}:${badge.label}`}
                 variant={badge.variant || 'neutral'}
                 appearance={badge.appearance}
               >

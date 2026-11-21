@@ -141,7 +141,7 @@ export default function ServerHostTable(props) {
       node.removeEventListener('scroll', schedule);
       window.removeEventListener('resize', schedule);
     };
-  }, [filteredServers, serverListViewMode]);
+  }, [filteredServers, serverListViewMode, visibleCompactColumnDefs, visibleCompactColumnWidths]);
   const leftFadeClass = compactFadeSide.left ? '' : 'before:opacity-0';
   const rightFadeClass = compactFadeSide.right ? '' : 'before:opacity-0';
   return (
@@ -283,7 +283,7 @@ export default function ServerHostTable(props) {
                         .filter(column => column.id !== 'status')
                         .map((column, index) => (
                           <col
-                            key={`${column.id}-${visibleCompactColumnWidths[index]}`}
+                            key={column.id}
                             style={
                               HOST_COMPACT_ADAPTIVE_COLUMNS.has(column.id)
                                 ? undefined

@@ -349,7 +349,6 @@ import {
   parseDockerIoPair,
   parseGpuMemoryValue,
   resolveCycleBytes,
-  resolveNetworkTotalBytes,
   serverMetricDisplayCache,
   serverMetricsHistoryCache,
   toDateMs,
@@ -669,6 +668,7 @@ function ServerPage() {
   const warehouseRef = useRef(null);
   const serverModalPortalRef = useRef(null);
   const dockerTaskStreamRef = useRef(null);
+  const dockerResourcesRequestIdRef = useRef(0);
   const dockerRefreshTimerRef = useRef(null);
   const dockerTaskMetaRef = useRef({});
   const terminalResizeTimers = useRef({});
@@ -781,13 +781,10 @@ function ServerPage() {
     if (expandInteractionUntilRef.current.size === 0) return undefined;
     const timer = window.setInterval(() => {
       const now = Date.now();
-      let changed = false;
       expandInteractionUntilRef.current.forEach((until, serverId) => {
         if (until > now) return;
         expandInteractionUntilRef.current.delete(serverId);
-        changed = true;
       });
-      if (!changed) return;
     }, 250);
 
     return () => window.clearInterval(timer);
@@ -908,6 +905,7 @@ function ServerPage() {
       }
       if (dockerTaskStreamRef.current) {
         dockerTaskStreamRef.current.close();
+        dockerTaskStreamRef.current = null;
       }
       if (dockerRefreshTimerRef.current) {
         clearTimeout(dockerRefreshTimerRef.current);
@@ -1287,14 +1285,14 @@ function ServerPage() {
     }
   };
 
-  const toggleNetworkTargetEnabled = async target => {
+  const toggleNetworkTargetEnabled = async (target, nextEnabled) => {
     try {
       const updated = {
         name: target.name,
         host: target.host,
         port: target.port,
         type: target.type,
-        enabled: !target.enabled,
+        enabled: typeof nextEnabled === 'boolean' ? nextEnabled : !target.enabled,
         order_index: target.order_index ?? 0,
       };
       const response = await fetch(`/api/server/network-quality/targets/${target.id}`, {
@@ -2130,6 +2128,7 @@ function ServerPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          serverId: serverForm.id,
           host: serverForm.host,
           port: serverForm.port,
           username: serverForm.username,
@@ -2485,6 +2484,14 @@ function ServerPage() {
   };
 
   const regenerateAgentKey = async () => {
+    const confirmed = await dialog.confirm({
+      title: '重新生成全局 Agent 密钥',
+      message: '该密钥为全局密钥,重新生成会影响所有主机的 Agent 认证,请确认。',
+      confirmText: '重新生成',
+      cancelText: '取消',
+      variant: 'destructive',
+    });
+    if (!confirmed) return;
     try {
       const response = await fetch('/api/server/agent/regenerate-key', { method: 'POST' });
       const data = await response.json();
@@ -3189,7 +3196,13 @@ function ServerPage() {
 
   const isAgentBatchDone = batch => ['succeeded', 'failed'].includes(batch?.status);
 
-  const pollAgentBatch = async (batchId, onSnapshot, intervalMs = 2000) => {
+  const pollAgentBatch = async (
+    batchId,
+    onSnapshot,
+    intervalMs = 2000,
+    timeoutMs = 15 * 60 * 1000
+  ) => {
+    const deadline = Date.now() + timeoutMs;
     while (batchId) {
       const response = await fetch(`/api/server/agent/batch/${batchId}`);
       const payload = await response.json();
@@ -3197,6 +3210,7 @@ function ServerPage() {
       const batch = payload.data;
       onSnapshot(batch);
       if (isAgentBatchDone(batch)) return batch;
+      if (Date.now() >= deadline) return batch;
       await new Promise(resolve => setTimeout(resolve, intervalMs));
     }
     return null;
@@ -3477,36 +3491,64 @@ function ServerPage() {
     try {
       const response = await fetch('/api/server/accounts');
       const data = await response.json();
-      if (data.success) {
-        const clean = data.data.map(s => ({
-          name: s.name,
-          host: s.host,
-          port: s.port,
-          username: s.username,
-          auth_type: s.auth_type,
-          password: s.password,
-          private_key: s.private_key,
-          passphrase: s.passphrase,
-          tags: s.tags,
-          description: s.description,
-          country: s.country,
-          resolved_country: s.resolved_country,
-          starts_at: s.starts_at,
-          expires_at: s.expires_at,
-          monitor_mode: s.monitor_mode,
-        }));
-        const blob = new Blob([JSON.stringify(clean, null, 2)], { type: 'application/json' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `servers_export_${new Date().toISOString().slice(0, 10)}.json`;
-        a.click();
-        URL.revokeObjectURL(url);
-        toast.success('主机配置导出成功');
-      }
+      if (!data.success) return;
+      const includeCredentials = await dialog.confirm({
+        title: '导出主机配置',
+        message:
+          '默认仅导出连接与配置信息,不包含 SSH 密码、私钥与口令,可安全分享。包含明文凭据的导出文件请务必妥善保管。',
+        confirmText: '包含明文凭据',
+        cancelText: '仅导出配置',
+        variant: 'destructive',
+      });
+      const clean = data.data.map(s => ({
+        name: s.name,
+        host: s.host,
+        port: s.port,
+        username: s.username,
+        auth_type: s.auth_type,
+        ...(includeCredentials
+          ? {
+              password: s.password,
+              private_key: s.private_key,
+              passphrase: s.passphrase,
+            }
+          : {}),
+        tags: s.tags,
+        description: s.description,
+        country: s.country,
+        resolved_country: s.resolved_country,
+        starts_at: s.starts_at,
+        expires_at: s.expires_at,
+        monitor_mode: s.monitor_mode,
+      }));
+      const blob = new Blob([JSON.stringify(clean, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `servers_export_${new Date().toISOString().slice(0, 10)}.json`;
+      a.click();
+      a.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 0);
+      toast.success(
+        includeCredentials
+          ? '主机配置导出成功(含明文凭据,请妥善保管)'
+          : '主机配置导出成功(未包含凭据)'
+      );
     } catch (e) {
       toast.error('导出主机失败');
     }
+  };
+
+  const openAddCredentialModal = () => {
+    setCredForm({
+      name: '',
+      username: 'root',
+      auth_type: 'password',
+      password: '',
+      private_key: '',
+      passphrase: '',
+    });
+    setShowAddCredentialModal(true);
   };
 
   const openImportServerModal = () => {
@@ -4113,12 +4155,14 @@ function ServerPage() {
       return;
     }
     setDockerResourceLoading(true);
+    const requestId = ++dockerResourcesRequestIdRef.current;
     try {
       const params = new URLSearchParams();
       params.set('scope', getDockerOverviewScope(dockerSubTab));
 
       const response = await fetch(`/api/server/v2/docker/overview?${params.toString()}`);
       const data = await response.json();
+      if (dockerResourcesRequestIdRef.current !== requestId) return;
       if (data.success) {
         const servers = (data.data?.servers || [])
           .map(normalizeDockerOverviewServer)
@@ -4160,6 +4204,7 @@ function ServerPage() {
       }
     } catch (e) {
       console.error(e);
+      if (dockerResourcesRequestIdRef.current !== requestId) return;
       if (!options.silent) {
         setDockerOverviewServers([]);
         setDockerImages([]);
@@ -4169,7 +4214,7 @@ function ServerPage() {
         setDockerComposeProjects([]);
       }
     } finally {
-      setDockerResourceLoading(false);
+      if (dockerResourcesRequestIdRef.current === requestId) setDockerResourceLoading(false);
     }
   };
 
@@ -5361,6 +5406,15 @@ function ServerPage() {
       setDockerLogsContent(`\u9519\u8bef\u003a\u0020${err.message || '\u670d\u52a1\u5f02\u5e38'}`);
       setDockerLogsLoading(false);
     }
+  };
+
+  const openDockerContainerLogs = (server, container) => {
+    if (!server || !container) return;
+    setDockerLogsContainer(container);
+    setDockerLogsServer(server);
+    setDockerLogsTail(200);
+    setDockerLogsModalOpen(true);
+    loadDockerContainerLogs(server, container, 200);
   };
 
   const switchToSSHTab = sessionId => {
@@ -7045,6 +7099,7 @@ function ServerPage() {
         isDockerUpdateConfirmActive={isDockerUpdateConfirmActive}
         loadDockerResources={loadDockerResources}
         openDockerComposeConfig={openDockerComposeConfig}
+        openDockerContainerLogs={openDockerContainerLogs}
         pruneDockerImagesForHosts={pruneDockerImagesForHosts}
         pruneDockerNetworksForHosts={pruneDockerNetworksForHosts}
         renderDockerEmptyState={renderDockerEmptyState}
@@ -7095,7 +7150,7 @@ function ServerPage() {
         setNetworkTargetModalMode={setNetworkTargetModalMode}
         setServerBatchText={setServerBatchText}
         setServerSettingsForm={setServerSettingsForm}
-        setShowAddCredentialModal={setShowAddCredentialModal}
+        setShowAddCredentialModal={openAddCredentialModal}
         setShowNetworkTargetModal={setShowNetworkTargetModal}
         toggleNetworkTargetEnabled={toggleNetworkTargetEnabled}
       />
