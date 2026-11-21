@@ -176,32 +176,30 @@ func rebuildNodeProtocolConstraint(ctx context.Context, db *sql.DB) error {
 	if err := rows.Close(); err != nil {
 		return err
 	}
-	_, err = db.ExecContext(ctx, `BEGIN IMMEDIATE`)
+	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin managed proxy node rebuild: %w", err)
 	}
-	defer func() {
-		_, _ = db.ExecContext(context.Background(), `ROLLBACK`)
-	}()
+	defer tx.Rollback()
 	createSQL := strings.Replace(NodeTableDDL, "CREATE TABLE IF NOT EXISTS managed_proxy_nodes", "CREATE TABLE IF NOT EXISTS managed_proxy_node_v2", 1)
-	if _, err := db.ExecContext(ctx, createSQL); err != nil {
+	if _, err := tx.ExecContext(ctx, createSQL); err != nil {
 		return fmt.Errorf("create managed proxy node v2: %w", err)
 	}
-	if _, err := db.ExecContext(ctx, `INSERT OR REPLACE INTO managed_proxy_node_v2 (`+listText+`) SELECT `+listText+` FROM managed_proxy_nodes`); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT OR REPLACE INTO managed_proxy_node_v2 (`+listText+`) SELECT `+listText+` FROM managed_proxy_nodes`); err != nil {
 		return fmt.Errorf("copy managed proxy node rows: %w", err)
 	}
-	if _, err := db.ExecContext(ctx, `DROP TABLE managed_proxy_nodes`); err != nil {
+	if _, err := tx.ExecContext(ctx, `DROP TABLE managed_proxy_nodes`); err != nil {
 		return fmt.Errorf("drop managed proxy node legacy table: %w", err)
 	}
-	if _, err := db.ExecContext(ctx, `ALTER TABLE managed_proxy_node_v2 RENAME TO managed_proxy_nodes`); err != nil {
+	if _, err := tx.ExecContext(ctx, `ALTER TABLE managed_proxy_node_v2 RENAME TO managed_proxy_nodes`); err != nil {
 		return fmt.Errorf("rename managed proxy node v2: %w", err)
 	}
 	for _, statement := range dependents {
-		if _, err := db.ExecContext(ctx, statement); err != nil {
+		if _, err := tx.ExecContext(ctx, statement); err != nil {
 			return fmt.Errorf("replay managed proxy node dependent %s: %w", truncateSQL(statement, 72), err)
 		}
 	}
-	if _, err := db.ExecContext(ctx, `COMMIT`); err != nil {
+	if err := tx.Commit(); err != nil {
 		return err
 	}
 	return nil

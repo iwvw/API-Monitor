@@ -81,33 +81,16 @@ func planCycleWindow(now time.Time, cycleType string, cycleDay int, loc *time.Lo
 	if normalizeCycleType(cycleType) != "monthly" {
 		return "", ""
 	}
+	return subscriptionledger.CycleWindow(now, "monthly", cycleDay, "", loc)
+}
+
+func localDayRange(now time.Time, loc *time.Location) (time.Time, time.Time) {
 	if loc == nil {
 		loc = time.Local
 	}
-	if cycleDay < 1 || cycleDay > 31 {
-		cycleDay = 1
-	}
-	boundary := func(year int, month time.Month) time.Time {
-		lastDay := time.Date(year, month+1, 0, 0, 0, 0, 0, loc).Day()
-		day := cycleDay
-		if day > lastDay {
-			day = lastDay
-		}
-		return time.Date(year, month, day, 0, 0, 0, 0, loc).UTC()
-	}
 	local := now.In(loc)
-	current := boundary(local.Year(), local.Month())
-	var start, end time.Time
-	if now.Before(current) {
-		previous := local.AddDate(0, -1, 0)
-		start = boundary(previous.Year(), previous.Month())
-		end = current
-	} else {
-		start = current
-		next := local.AddDate(0, 1, 0)
-		end = boundary(next.Year(), next.Month())
-	}
-	return start.Format(time.RFC3339), end.Format(time.RFC3339)
+	start := time.Date(local.Year(), local.Month(), local.Day(), 0, 0, 0, 0, loc)
+	return start, start.AddDate(0, 0, 1)
 }
 
 func loadQuality(ctx context.Context, db *sql.DB, serverID string) []QualitySummary {
@@ -135,7 +118,9 @@ func loadQuality(ctx context.Context, db *sql.DB, serverID string) []QualitySumm
 		var name, checked string
 		var success int
 		var latency float64
-		_ = rows.Scan(&name, &success, &latency, &checked)
+		if err := rows.Scan(&name, &success, &latency, &checked); err != nil {
+			continue
+		}
 		a := items[name]
 		if a == nil {
 			a = &agg{name: name, latest: latency, sampledAt: checked, prev: -1}
@@ -180,8 +165,12 @@ func isRateLimited(ctx context.Context, db *sql.DB, subID, ip string, perMin int
 	// attacker who spreads the leaked token across many hosts and stays under
 	// each per-IP ceiling.
 	var perIP, total int
-	_ = db.QueryRowContext(ctx, `SELECT COUNT(*) FROM subscription_access_logs WHERE subscription_id = ? AND ip_address = ? AND created_at >= datetime('now', '-1 minute')`, subID, ip).Scan(&perIP)
-	_ = db.QueryRowContext(ctx, `SELECT COUNT(*) FROM subscription_access_logs WHERE subscription_id = ? AND created_at >= datetime('now', '-1 minute')`, subID).Scan(&total)
+	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM subscription_access_logs WHERE subscription_id = ? AND ip_address = ? AND created_at >= datetime('now', '-1 minute')`, subID, ip).Scan(&perIP); err != nil {
+		return true
+	}
+	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM subscription_access_logs WHERE subscription_id = ? AND created_at >= datetime('now', '-1 minute')`, subID).Scan(&total); err != nil {
+		return true
+	}
 	return perIP >= perMin || total >= perMin
 }
 

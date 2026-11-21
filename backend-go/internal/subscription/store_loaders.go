@@ -6,9 +6,11 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/iwvw/api-monitor/backend-go/internal/reconcilequeue"
 	"github.com/iwvw/api-monitor/backend-go/internal/secure"
+	"github.com/iwvw/api-monitor/backend-go/internal/timeutil"
 )
 
 func loadTemplates(ctx context.Context, db *sql.DB) ([]Template, error) {
@@ -181,7 +183,8 @@ func loadSubscriptions(ctx context.Context, db *sql.DB, id string) ([]Subscripti
 		// same connection, blocking both list and create/update responses.
 		applyPlanToSubscription(ctx, db, &items[i])
 		items[i].NodeCount = countPublishedSubscriptionNodes(ctx, db, items[i])
-		_ = db.QueryRowContext(ctx, `SELECT COUNT(*) FROM subscription_access_logs WHERE subscription_id = ? AND date(created_at) = date('now')`, items[i].ID).Scan(&items[i].AccessCountToday)
+		dayStart, dayEnd := localDayRange(time.Now(), timeutil.LocationFromSettings(ctx, db))
+		_ = db.QueryRowContext(ctx, `SELECT COUNT(*) FROM subscription_access_logs WHERE subscription_id = ? AND datetime(created_at) >= datetime(?) AND datetime(created_at) < datetime(?)`, items[i].ID, dayStart.UTC().Format(time.RFC3339), dayEnd.UTC().Format(time.RFC3339)).Scan(&items[i].AccessCountToday)
 		_ = db.QueryRowContext(ctx, `SELECT COALESCE(MAX(created_at), '') FROM subscription_access_logs WHERE subscription_id = ?`, items[i].ID).Scan(&items[i].LastAccessAt)
 		items[i].Traffic = computeTraffic(ctx, db, items[i])
 		if nodeIDs, err := reconcilequeue.NodeIDsForPlan(ctx, db, items[i].PlanID); err == nil {

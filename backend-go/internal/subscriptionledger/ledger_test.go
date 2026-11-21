@@ -119,12 +119,13 @@ func TestRecordBatchAcknowledgesStaleSubscriberWithoutBlockingHost(t *testing.T)
 	}
 }
 
-func TestRecordBatchRejectsCrossServerNodeReport(t *testing.T) {
+func TestRecordBatchIgnoresCrossServerNodeReport(t *testing.T) {
 	db := ledgerTestDB(t)
 	_, _ = db.Exec(`INSERT INTO managed_proxy_nodes VALUES('node','other-host',1,'running',21000)`)
 	report := Report{ServerID: "host", NodeID: "node", CredentialID: "sub", BootID: "boot", Sequence: 1, UploadBytes: 1}
-	if _, err := RecordBatchDetailed(context.Background(), db, []Report{report}, time.Now().UTC()); err == nil {
-		t.Fatal("expected cross-server report to be rejected")
+	result, err := RecordBatchDetailed(context.Background(), db, []Report{report}, time.Now().UTC())
+	if err != nil || result.Ignored != 1 || result.Accepted != 0 {
+		t.Fatalf("cross-server report must be ignored without aborting the batch, result=%#v err=%v", result, err)
 	}
 }
 

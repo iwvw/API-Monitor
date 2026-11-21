@@ -311,7 +311,8 @@ func RecordBatchDetailed(ctx context.Context, db *sql.DB, reports []Report, now 
 			return result, fmt.Errorf("load managed node: %w", err)
 		}
 		if nodeServerID != report.ServerID {
-			return result, errors.New("managed node does not belong to reporting server")
+			result.Ignored++
+			continue
 		}
 
 		var subscriptionID, planID, cycleType, createdAt string
@@ -336,6 +337,21 @@ func RecordBatchDetailed(ctx context.Context, db *sql.DB, reports []Report, now 
 		// include_internal_nodes/selection_mode 列由 subscription 模块
 		// ensureSchema 补齐，默认关闭，开启后 profile 订阅的 internal
 		// 节点流量才会记账）。
+		cycleStart, cycleEnd := CycleWindow(now, cycleType, cycleDay, createdAt, loc)
+		keyResult, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO subscription_usage_report_keys
+			(server_id,node_id,subscription_id,boot_id,sequence,reported_at)
+			VALUES(?,?,?,?,?,?)`, report.ServerID, report.NodeID, subscriptionID, report.BootID, report.Sequence, now.Format(time.RFC3339))
+		if err != nil {
+			return result, fmt.Errorf("insert traffic report replay key: %w", err)
+		}
+		rows, err := keyResult.RowsAffected()
+		if err != nil {
+			return result, fmt.Errorf("inspect traffic report replay key: %w", err)
+		}
+		if rows == 0 {
+			result.Duplicates++
+			continue
+		}
 		var entitled int
 		if err := tx.QueryRowContext(ctx, `SELECT EXISTS(
 			SELECT 1
@@ -369,21 +385,6 @@ func RecordBatchDetailed(ctx context.Context, db *sql.DB, reports []Report, now 
 			continue
 		}
 
-		cycleStart, cycleEnd := CycleWindow(now, cycleType, cycleDay, createdAt, loc)
-		keyResult, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO subscription_usage_report_keys
-			(server_id,node_id,subscription_id,boot_id,sequence,reported_at)
-			VALUES(?,?,?,?,?,?)`, report.ServerID, report.NodeID, subscriptionID, report.BootID, report.Sequence, now.Format(time.RFC3339))
-		if err != nil {
-			return result, fmt.Errorf("insert traffic report replay key: %w", err)
-		}
-		rows, err := keyResult.RowsAffected()
-		if err != nil {
-			return result, fmt.Errorf("inspect traffic report replay key: %w", err)
-		}
-		if rows == 0 {
-			result.Duplicates++
-			continue
-		}
 		// Clamp a delta at the plan quota. The Agent can be one collection
 		// interval behind the reconciliation update; counting the entire stale
 		// delta would allow an exhausted subscription to exceed its allowance.

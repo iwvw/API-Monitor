@@ -160,7 +160,7 @@ func loadManagedSubscriptionNodes(ctx context.Context, db *sql.DB, sub Subscript
 				address = item.tunnelHostname
 			}
 			if port == 0 {
-				port = 443
+				port = item.port
 			}
 			raw = replacePublishedURIAddress(raw, address, port)
 		}

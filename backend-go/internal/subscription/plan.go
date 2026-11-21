@@ -166,7 +166,10 @@ func (s *Service) handlePlans(w http.ResponseWriter, r *http.Request, db *sql.DB
 			return
 		}
 		var count int
-		_ = db.QueryRowContext(r.Context(), `SELECT COUNT(*) FROM subscription_subscriptions WHERE plan_id=?`, id).Scan(&count)
+		if err := db.QueryRowContext(r.Context(), `SELECT COUNT(*) FROM subscription_subscriptions WHERE plan_id=?`, id).Scan(&count); err != nil {
+			response.Error(w, 500, err.Error())
+			return
+		}
 		if count > 0 {
 			response.Error(w, 409, "套餐仍有订阅使用，无法删除")
 			return
