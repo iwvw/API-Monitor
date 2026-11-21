@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Banner, ClipboardText } from '@cloudflare/kumo';
+import { Banner } from '@cloudflare/kumo';
 import { Button } from '@cloudflare/kumo/components/button';
 import { Input } from '@cloudflare/kumo/components/input';
 import { cancelDialog, resolveDialog, subscribeDialog } from '../modules/dialog.js';
@@ -15,8 +15,6 @@ const QUOTE_PAIRS = [
   ['『', '』'],
   ['《', '》'],
 ];
-
-const normalizeText = (value) => String(value || '').trim().toLocaleLowerCase();
 
 const extractQuotedText = (message) => {
   const text = String(message || '');
@@ -68,16 +66,12 @@ const getDeleteDescription = (options, resourceName, resourceType) => {
   return `此操作无法撤销，将永久移除 ${resourceType}“${resourceName}”。`;
 };
 
-function DeleteResourceDialog({ options, promptValue, setPromptValue, onCancel }) {
+function DeleteResourceDialog({ options, onCancel }) {
   const resourceName = getDeleteResourceName(options);
   const resourceType = getDeleteResourceType(options);
-  // requireConfirmationInput 为 false 时跳过「输入名称确认」防误触步骤，删除按钮直接可点。
-  // 公开书签页的右键删除使用该模式（免去复制/粘贴确认的繁琐）。
-  const requireInput = options.requireConfirmationInput !== false;
-  const canDelete = !requireInput || normalizeText(promptValue) === normalizeText(resourceName);
 
   return (
-    <LayerDialog.Alert
+    <LayerDialog.Root
       open
       dismissDisabled={options.disablePointerDismissal}
       onOpenChange={(open) => {
@@ -90,59 +84,21 @@ function DeleteResourceDialog({ options, promptValue, setPromptValue, onCancel }
           {getDeleteDescription(options, resourceName, resourceType)}
         </LayerDialog.Description>
         <LayerDialog.Body>
-          <form
-            className="flex flex-col gap-4"
-            onSubmit={(event) => {
-              event.preventDefault();
-              if (canDelete) resolveDialog(true);
-            }}
-          >
-            {options.errorMessage ? (
-              <Banner variant="error" title={options.errorMessage} />
-            ) : null}
-
-            {requireInput ? (
-              <div className="space-y-2">
-                <div className="text-sm text-kumo-default">
-                  输入以下内容确认删除：
-                </div>
-                <ClipboardText
-                  size="sm"
-                  text={resourceName}
-                  className="w-full"
-                  tooltip={{ text: '复制', copiedText: '已复制', side: 'top' }}
-                  labels={{ copyAction: `复制 ${resourceName}` }}
-                />
-                <Input
-                  size="sm"
-                  autoFocus
-                  aria-label={`请输入 ${resourceName} 进行确认`}
-                  placeholder={resourceName}
-                  value={promptValue}
-                  onChange={(event) => setPromptValue(event.target.value)}
-                  autoComplete="off"
-                  autoCorrect="off"
-                  autoCapitalize="off"
-                  spellCheck={false}
-                />
-              </div>
-            ) : null}
-          </form>
+          {options.errorMessage ? (
+            <Banner variant="error" title={options.errorMessage} />
+          ) : null}
         </LayerDialog.Body>
-        <LayerDialog.Actions dismissLabel="取消">
+        <LayerDialog.Actions dismissLabel={options.cancelText || '取消'}>
           <LayerDialog.Action
-            type="submit"
+            type="button"
             variant="destructive"
-            disabled={!canDelete}
-            onClick={() => {
-              if (canDelete) resolveDialog(true);
-            }}
+            onClick={() => resolveDialog(true)}
           >
             {options.confirmText || '删除'}
           </LayerDialog.Action>
         </LayerDialog.Actions>
       </LayerDialog.Content>
-    </LayerDialog.Alert>
+    </LayerDialog.Root>
   );
 }
 
@@ -176,8 +132,6 @@ function GlobalDialogHost() {
     return (
       <DeleteResourceDialog
         options={options}
-        promptValue={promptValue}
-        setPromptValue={setPromptValue}
         onCancel={handleCancel}
       />
     );

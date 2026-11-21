@@ -29,6 +29,7 @@ import {
   Settings,
   Sparkle,
   LayoutSidebar,
+  Home,
   MODULE_GROUP_ICON_MAP,
   getModuleIconComponent,
 } from './Icons.jsx';
@@ -679,6 +680,8 @@ function MainLayout() {
         : 'min-h-full'
   }`;
 
+  const BreadcrumbModuleIcon = getModuleIconComponent(mainActiveTab, Home);
+
   // 渲染当前模块页
   const renderActivePage = () => {
     switch (mainActiveTab) {
@@ -894,9 +897,11 @@ return (
                 spacing="compact"
                 breadcrumbs={
                   <AppBreadcrumbs size="sm" className="mr-0 min-w-0 overflow-hidden">
-                    <AppBreadcrumbs.Link href="/">首页</AppBreadcrumbs.Link>
+                    <AppBreadcrumbs.Link href="/" icon={<Home size={16} />}>首页</AppBreadcrumbs.Link>
                     <AppBreadcrumbs.Separator />
-                    <AppBreadcrumbs.Current>{getModuleName(mainActiveTab)}</AppBreadcrumbs.Current>
+                    <AppBreadcrumbs.Current icon={<BreadcrumbModuleIcon size={16} />}>
+                      {getModuleName(mainActiveTab)}
+                    </AppBreadcrumbs.Current>
                   </AppBreadcrumbs>
                 }
               >
