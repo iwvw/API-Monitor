@@ -150,7 +150,7 @@ export default function BillingPanel({
               </div>
               <div className="rounded-md border border-kumo-interact/85 bg-kumo-base p-2">
                 <span className="text-[10px] text-kumo-subtle select-none">日均</span>
-                <span className="mt-1 block text-base font-semibold tabular-nums text-kumo-strong">{modelUsage.daily?.length ? formatCount(Math.round(modelUsage.total / Math.max(modelUsage.daily.length, 1))) : '-'}</span>
+                <span className="mt-1 block text-base font-semibold tabular-nums text-kumo-strong">{modelUsage.daily?.length ? formatCount(Math.round(modelUsage.total / Math.max(modelUsageDays, 1))) : '-'}</span>
               </div>
               <div className="rounded-md border border-kumo-interact/85 bg-kumo-base p-2">
                 <span className="text-[10px] text-kumo-subtle select-none">模型数</span>

@@ -63,7 +63,7 @@ export function formatDate(value) {
 export function formatModelUsageAxis(timestamp) {
   const date = new Date(timestamp);
   if (Number.isNaN(date.getTime())) return '';
-  return `${date.getMonth() + 1}/${date.getDate()}`;
+  return `${date.getUTCMonth() + 1}/${date.getUTCDate()}`;
 }
 
 export function formatSize(value) {

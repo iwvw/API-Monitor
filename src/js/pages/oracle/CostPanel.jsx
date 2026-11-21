@@ -30,8 +30,8 @@ export default function CostPanel({ costOverview, loadingCost, onRefresh }) {
         <div className="p-6 text-center text-sm text-kumo-subtle">暂无成本数据，请选择账号后刷新。</div>
       ) : (
         <div className="grid gap-4 overflow-auto p-4 cq-lg:grid-cols-2">
-          <CostSummaryCard title="本月成本" amount={costOverview.currentMonth?.cost} month={costOverview.currentMonth?.month} />
-          <CostSummaryCard title="上月成本" amount={costOverview.previousMonth?.cost} month={costOverview.previousMonth?.month} />
+          <CostSummaryCard title="本月成本" amount={costOverview.currentMonth?.cost} month={costOverview.currentMonth?.month} currency={costOverview.currency} />
+          <CostSummaryCard title="上月成本" amount={costOverview.previousMonth?.cost} month={costOverview.previousMonth?.month} currency={costOverview.currency} />
           <SectionCard title="按服务分解" className="min-h-0" bodyPadding="none" bodyClassName="overflow-auto">
             {costOverview.byService?.length ? (
               <DataTableFrame variant="embedded" density="dense" className="min-h-0 overflow-auto">
@@ -46,7 +46,7 @@ export default function CostPanel({ costOverview, loadingCost, onRefresh }) {
                     {costOverview.byService.map((item) => (
                       <Table.Row key={item.service}>
                         <Table.Cell>{item.service}</Table.Cell>
-                        <Table.Cell>{formatCurrency(item.cost)}</Table.Cell>
+                        <Table.Cell>{formatCurrency(item.cost, costOverview?.currency)}</Table.Cell>
                       </Table.Row>
                     ))}
                   </Table.Body>
@@ -71,8 +71,8 @@ export default function CostPanel({ costOverview, loadingCost, onRefresh }) {
                     {costOverview.budgets.map((b) => (
                       <Table.Row key={b.id}>
                         <Table.Cell>{b.name}</Table.Cell>
-                        <Table.Cell>{formatCurrency(b.amount)}</Table.Cell>
-                        <Table.Cell>{formatCurrency(b.actualSpend)}</Table.Cell>
+                        <Table.Cell>{formatCurrency(b.amount, costOverview?.currency)}</Table.Cell>
+                        <Table.Cell>{formatCurrency(b.actualSpend, costOverview?.currency)}</Table.Cell>
                       </Table.Row>
                     ))}
                   </Table.Body>
@@ -96,7 +96,7 @@ export default function CostPanel({ costOverview, loadingCost, onRefresh }) {
                     {costOverview.monthlyHistory.map((m) => (
                       <Table.Row key={m.month}>
                         <Table.Cell>{m.month}</Table.Cell>
-                        <Table.Cell>{formatCurrency(m.cost)}</Table.Cell>
+                        <Table.Cell>{formatCurrency(m.cost, costOverview?.currency)}</Table.Cell>
                       </Table.Row>
                     ))}
                   </Table.Body>
