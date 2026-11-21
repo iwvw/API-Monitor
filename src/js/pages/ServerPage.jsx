@@ -2844,6 +2844,7 @@ function ServerPage() {
     currentDigest: String(result.current_digest || result.currentDigest || ''),
     latestDigest: String(result.latest_digest || result.latestDigest || ''),
     hasUpdate: !!(result.has_update ?? result.hasUpdate),
+    skipped: !!(result.skipped ?? result.has_skipped ?? false),
     error: result.error || '',
     checkedAt: Date.now(),
   });
@@ -3119,6 +3120,12 @@ function ServerPage() {
 
   const getDockerUpdateBadge = check => {
     if (!check) return { variant: 'neutral', label: '未检测', title: '尚未检测镜像更新' };
+    if (check.skipped)
+      return {
+        variant: 'neutral',
+        label: '跳过',
+        title: '本地镜像无外部镜像地址,已跳过更新检测',
+      };
     if (check.error) return { variant: 'error', label: '失败', title: check.error };
     if (check.hasUpdate)
       return { variant: 'warning', label: '可更新', title: '远端镜像摘要与本地不一致' };

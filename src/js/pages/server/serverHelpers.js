@@ -1029,6 +1029,14 @@ export const createMockDockerOverview = import.meta.env.DEV
                 status: 'Paused',
                 ports: '2323:2323/tcp',
               },
+              {
+                id: 'b7e2f4a91c05',
+                name: 'komidash',
+                image: 'komidash:local',
+                state: 'running',
+                status: 'Up 6 hours',
+                ports: '8899:80/tcp',
+              },
             ],
             images: [
               {
@@ -1224,6 +1232,16 @@ export const createMockDockerOverview = import.meta.env.DEV
           currentDigest: 'sha256:local-api',
           latestDigest: 'sha256:remote-api',
           hasUpdate: true,
+        },
+        {
+          serverId: 'mock-hk',
+          containerId: 'b7e2f4a91c05',
+          containerName: 'komidash',
+          image: 'komidash:local',
+          currentDigest: 'sha256:local-komidash',
+          latestDigest: '',
+          hasUpdate: false,
+          skipped: true,
         },
         {
           serverId: 'mock-hk',
