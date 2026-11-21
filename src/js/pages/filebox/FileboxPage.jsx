@@ -281,10 +281,11 @@ function FileboxPage() {
     if (!confirmPress(`share:${code}`, `删除分享「${code}」`)) return;
     try {
       await axios.delete(`/api/filebox/${code}`, { headers: authHeaders() });
-      toast.success('分享已删除');
     } catch (error) {
       toast.error(error.response?.data?.error || '删除失败');
+      return;
     }
+    toast.success('分享已删除');
     const localNext = localHistory.filter((item) => item.code !== code);
     setLocalHistory(localNext);
     localStorage.setItem('filebox_history', JSON.stringify(localNext));

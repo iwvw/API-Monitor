@@ -781,10 +781,11 @@ export default function BookmarksPage() {
 
     // 替换是破坏性操作，先确认再执行
     if (nativeImportMode === 'replace') {
-      const confirmed = await dialog.confirm({
+      const confirmed = await dialog.deleteResource({
         title: '替换导入',
         // dialog 的 message 是纯文本渲染（whitespace-pre-wrap），不支持 markdown
         message: '将先清空当前所有分组与网址，再导入文件内容。\n此操作不可恢复，建议先导出备份。',
+        requireConfirmationInput: false,
         confirmText: '继续',
       });
       if (!confirmed) return;

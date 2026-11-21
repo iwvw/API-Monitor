@@ -319,7 +319,7 @@ export default function TilesBoard() {
             const merged = { ...(prev || {}) };
             let changed = false;
             Object.entries(loaded).forEach(([key, val]) => {
-              if (val && val.length) {
+              if (Array.isArray(val)) {
                 merged[key] = val;
                 changed = true;
               }

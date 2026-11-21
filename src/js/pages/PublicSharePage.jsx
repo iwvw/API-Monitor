@@ -64,7 +64,7 @@ function saveBlob(blob, filename) {
   document.body.appendChild(link);
   link.click();
   document.body.removeChild(link);
-  URL.revokeObjectURL(url);
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 function formatExpiry(value) {
@@ -337,14 +337,16 @@ function PublicSharePage() {
                           labels={{ copyAction: '复制分享链接' }}
                         />
                       </div>
-                      <div className="min-w-0">
-                        <div className="mb-1 text-[11px] text-kumo-subtle">直链（源码）</div>
-                        <ClipboardText
-                          text={fileboxDirectURL(entry.code)}
-                          tooltip={{ text: '复制直链', copiedText: '直链已复制' }}
-                          labels={{ copyAction: '复制直链' }}
-                        />
-                      </div>
+                      {!entry.requiresPassword && (
+                        <div className="min-w-0">
+                          <div className="mb-1 text-[11px] text-kumo-subtle">直链（源码）</div>
+                          <ClipboardText
+                            text={fileboxDirectURL(entry.code)}
+                            tooltip={{ text: '复制直链', copiedText: '直链已复制' }}
+                            labels={{ copyAction: '复制直链' }}
+                          />
+                        </div>
+                      )}
                     </div>
                     {isFile || !textPreview ? (
                       <Button

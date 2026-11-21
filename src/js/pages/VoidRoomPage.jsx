@@ -22,6 +22,7 @@ import { formatDateTime, formatFileSize } from '../modules/utils.js';
 
 const VOID_CHUNK_SIZE = 64 * 1024;
 const VOID_BUFFER_LIMIT = 4 * 1024 * 1024;
+const VOID_MAX_INBOUND_BYTES = 512 * 1024 * 1024;
 const VOID_SIGNAL_POLL_MS = 350;
 const VOID_READY_RETRY_MS = 2500;
 const VOID_CONNECT_TIMEOUT_MS = 12000;
@@ -80,7 +81,7 @@ function saveBlob(blob, filename) {
   document.body.appendChild(link);
   link.click();
   document.body.removeChild(link);
-  URL.revokeObjectURL(url);
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 function deviceName() {
@@ -325,6 +326,12 @@ function VoidRoomPage() {
         return;
       }
       if (payload.kind === 'file.meta') {
+        if (Number(payload.size) > VOID_MAX_INBOUND_BYTES) {
+          entry.incoming = null;
+          sendJSON(entry.channel, { kind: 'file.error', id: payload.id, error: '文件超过接收上限' });
+          upsertMessage({ id: payload.id, status: 'failed', error: '文件超过接收上限' });
+          return;
+        }
         entry.incoming = { meta: payload, chunks: [], received: 0 };
         upsertMessage({
           id: payload.id,
@@ -371,6 +378,13 @@ function VoidRoomPage() {
     }
 
     if (event.data instanceof ArrayBuffer && entry.incoming) {
+      if (entry.incoming.received + event.data.byteLength > VOID_MAX_INBOUND_BYTES) {
+        const meta = entry.incoming.meta;
+        entry.incoming = null;
+        sendJSON(entry.channel, { kind: 'file.error', id: meta.id, error: '文件超过接收上限' });
+        upsertMessage({ id: meta.id, status: 'failed', error: '文件超过接收上限' });
+        return;
+      }
       entry.incoming.chunks.push(event.data);
       entry.incoming.received += event.data.byteLength;
       const meta = entry.incoming.meta;
