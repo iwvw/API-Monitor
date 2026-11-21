@@ -5,6 +5,7 @@ import { Input } from '@cloudflare/kumo/components/input';
 import { Table } from '@cloudflare/kumo/components/table';
 import { LayerCard } from '@cloudflare/kumo';
 import { toast } from '../../modules/toast.js';
+import { dialog } from '../../modules/dialog.js';
 import { AppCard, AppTable, FieldRow, SectionCard } from '../../components/ui/AppPrimitives.jsx';
 import { Activity, ChevronDown, ChevronUp, Columns, Database, Download, FileText, HardDrive, RefreshCw, Trash, Upload } from '../../components/Icons.jsx';
 import { BackupPanel } from '../BackupPage.jsx';
@@ -27,6 +28,7 @@ export function DatabasePanel({
   cleanupDeprecatedTables,
   commitDatabaseImport,
   databaseBusy,
+  databaseError,
   databaseSegments,
   databaseStorage,
   dbImportPreview,
@@ -48,6 +50,18 @@ export function DatabasePanel({
   setDbTablesExpanded,
   tableRows,
 }) {
+  const clearRuntimeLogs = async () => {
+    const ok = await dialog.confirm({
+      title: '清理运行日志',
+      message: '将清空数据库中的运行日志表,并在有数据被删除时执行一次整库压缩(VACUUM),操作不可恢复。确定继续吗?',
+      confirmText: '清理并压缩',
+      cancelText: '取消',
+      variant: 'destructive',
+    });
+    if (!ok) return;
+    await postSettingsAction('/api/settings/clear-logs', '运行日志已清理', fetchDbState, undefined, 'database');
+  };
+
   return (
         <div className="grid min-w-0 items-start gap-4 cq-xl:grid-cols-[minmax(22rem,0.9fr)_minmax(0,1.1fr)]">
           <div className="flex min-w-0 flex-col gap-4">
@@ -163,11 +177,11 @@ export function DatabasePanel({
                 </Button>
               </FieldRow>
 
-              <FieldRow title="清理运行日志">
+              <FieldRow title="清理运行日志" description="清空数据库日志表,并执行整库压缩">
                 <Button
                   size="sm"
                   variant="secondary-destructive"
-                  onClick={() => postSettingsAction('/api/settings/clear-logs', '数据库日志已清理', fetchDbState)}
+                  onClick={clearRuntimeLogs}
                   loading={databaseBusy}
                   icon={<Trash className="h-4 w-4" />}
                 >
@@ -305,7 +319,7 @@ export function DatabasePanel({
                   {tableRows.length === 0 ? (
                     <Table.Row>
                       <Table.Cell colSpan={5} className="p-8 text-center text-kumo-subtle">
-                        {databaseBusy ? '正在加载统计...' : '暂无统计数据'}
+                        {databaseBusy ? '正在加载统计...' : (databaseError || '暂无统计数据')}
                       </Table.Cell>
                     </Table.Row>
                   ) : !dbTablesExpanded ? (

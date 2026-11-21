@@ -7,6 +7,14 @@ import { TIMEZONE_OPTIONS } from './constants.js';
 import { formatFileSize } from './utils.js';
 
 export function GeneralPanel({ backendOnline, currentOrigin, databaseSizeBytes, logFileInfo, logSettings, patchSettings, settings }) {
+  const timezoneOptions = React.useMemo(() => {
+    const current = String(settings.timezone || '').trim();
+    if (!current || TIMEZONE_OPTIONS.some((option) => option.value === current)) {
+      return TIMEZONE_OPTIONS;
+    }
+    return [...TIMEZONE_OPTIONS, { value: current, label: `${current}(当前值)` }];
+  }, [settings.timezone]);
+
   return (
         <div className="grid min-h-0 items-start gap-4 cq-md:h-full cq-md:overflow-auto cq-xl:grid-cols-[minmax(16rem,1fr)_minmax(0,3fr)]">
           <SectionCard
@@ -25,7 +33,9 @@ export function GeneralPanel({ backendOnline, currentOrigin, databaseSizeBytes, 
               <span className="font-mono text-sm font-medium text-kumo-strong">{formatFileSize(databaseSizeBytes)}</span>
             </FieldRow>
             <FieldRow title="日志文件">
-              <span className="font-mono text-sm font-medium text-kumo-strong">上限 {logFileInfo?.sizeFormatted || `${logSettings.logFileSizeMB || 10} MB`}</span>
+              <span className="font-mono text-sm font-medium text-kumo-strong">
+                {`${logFileInfo?.sizeMB ?? '0.00'} MB / 上限 ${logFileInfo?.maxSizeMB ?? (logSettings.logFileSizeMB || 10)} MB`}
+              </span>
             </FieldRow>
           </SectionCard>
 
@@ -48,7 +58,7 @@ export function GeneralPanel({ backendOnline, currentOrigin, databaseSizeBytes, 
                 size="sm"
                 value={settings.timezone}
                 onValueChange={(value) => patchSettings({ timezone: value })}
-                items={TIMEZONE_OPTIONS}
+                items={timezoneOptions}
               />
             </FieldRow>
           </SectionCard>

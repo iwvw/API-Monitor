@@ -1,3 +1,5 @@
+import { formatDateTime } from '../../modules/utils.js';
+
 export const getAuthHeaders = () => ({
   'Content-Type': 'application/json',
 });
@@ -17,7 +19,7 @@ export const formatSessionTime = (value) => {
   if (!value) return '-';
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return '-';
-  return date.toLocaleString('zh-CN', { hour12: false });
+  return formatDateTime(value);
 };
 
 export const describeUserAgent = (value) => {
