@@ -51,8 +51,8 @@ export default function RemoteDesktopPage() {
   const desktopPreferences = useMemo(readDesktopPreferences, []);
   const [qualityPreset, setQualityPreset] = useState(desktopPreferences.preset);
   const [fpsLimit, setFpsLimit] = useState(desktopPreferences.fps);
-  const [clipboardSync, setClipboardSync] = useState(true);
-  const clipboardSyncRef = useRef(true);
+  const [clipboardSync, setClipboardSync] = useState(false);
+  const clipboardSyncRef = useRef(false);
   clipboardSyncRef.current = clipboardSync;
   const [controlAcknowledged, setControlAcknowledged] = useState(false);
   const [stats, setStats] = useState({
@@ -124,6 +124,7 @@ export default function RemoteDesktopPage() {
   // 提供「重新接管」入口，不自动重连（自动重连会与新页签互相抢占）。
   const supersededRef = useRef(false);
   const connectRef = useRef(null);
+  const unmountedRef = useRef(false);
 
   const sendControl = useCallback((payload, { reliable = false } = {}) => {
     const highFrequency = payload.type === 'pointer'
@@ -261,14 +262,7 @@ export default function RemoteDesktopPage() {
     return promise;
   }, [applyRemoteSignal]);
 
-  const closeSession = useCallback(async () => {
-    connectionGenerationRef.current += 1;
-    stoppedRef.current = true;
-    // 不在这里重置 autoReconnectRef：closeSession 每次 connect() 都会调用，
-    // 重置它会让「连续失败上限」永久失效。该计数由 scheduleAutoReconnect 递增、
-    // 连接成功时清零；用户主动重连走 manualReconnect 显式获得新预算。
-    const sessionId = sessionRef.current;
-    sessionRef.current = '';
+  const releaseMediaResources = useCallback(() => {
     channelRef.current?.close?.();
     pointerChannelRef.current?.close?.();
     peerRef.current?.close?.();
@@ -278,10 +272,21 @@ export default function RemoteDesktopPage() {
     previousVideoStatsRef.current = null;
     pendingAbsolutePointerRef.current = null;
     pendingRelativePointerRef.current = { x: 0, y: 0 };
-    pointerSequenceRef.current = 0;
-    lastPointerAckRef.current = 0;
     if (videoRef.current) videoRef.current.srcObject = null;
     setVideoReady(false);
+  }, []);
+
+  const closeSession = useCallback(async () => {
+    connectionGenerationRef.current += 1;
+    stoppedRef.current = true;
+    // 不在这里重置 autoReconnectRef：closeSession 每次 connect() 都会调用，
+    // 重置它会让「连续失败上限」永久失效。该计数由 scheduleAutoReconnect 递增、
+    // 连接成功时清零；用户主动重连走 manualReconnect 显式获得新预算。
+    const sessionId = sessionRef.current;
+    sessionRef.current = '';
+    releaseMediaResources();
+    pointerSequenceRef.current = 0;
+    lastPointerAckRef.current = 0;
     if (sessionId) {
       await fetch(`/api/server/remote-desktop/sessions/${encodeURIComponent(sessionId)}`, {
         method: 'DELETE',
@@ -289,7 +294,7 @@ export default function RemoteDesktopPage() {
         keepalive: true,
       }).catch(() => {});
     }
-  }, []);
+  }, [releaseMediaResources]);
 
   // Retry a failed P2P attempt after a short backoff. Under a global proxy /
   // TUN the first hole-punch often fails while later attempts (after ICE has
@@ -316,6 +321,7 @@ export default function RemoteDesktopPage() {
 
   const connect = useCallback(async () => {
     await closeSession();
+    if (unmountedRef.current) return;
     const generation = connectionGenerationRef.current;
     stoppedRef.current = false;
     skipAutoReconnectRef.current = false;
@@ -602,6 +608,7 @@ export default function RemoteDesktopPage() {
     return () => {
       signalLoopCancelled = true;
       window.clearInterval(statsTimer);
+      unmountedRef.current = true;
       closeSession();
     };
   }, [closeSession, connect, pollSignals]);
@@ -723,6 +730,10 @@ export default function RemoteDesktopPage() {
       scheduleAutoReconnect();
     }
   }, [state, scheduleAutoReconnect]);
+
+  useEffect(() => {
+    if (state === 'superseded') releaseMediaResources();
+  }, [state, releaseMediaResources]);
 
   const sendLocalClipboard = async () => {
     if (!navigator.clipboard?.readText) {
@@ -1243,7 +1254,7 @@ export default function RemoteDesktopPage() {
               willChange: viewTransform.scale > 1 ? 'transform' : 'auto',
             }}
           />
-          {!videoReady && state === 'superseded' && (
+          {state === 'superseded' && (
             <div className="flex flex-col items-center gap-3 text-center text-kumo-inverse/70">
               <DesktopDisplay className="h-12 w-12" />
               <div className="text-sm">已被其他页面接管</div>

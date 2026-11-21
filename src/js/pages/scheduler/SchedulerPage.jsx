@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from '../../modules/toast.js';
+import { dialog } from '../../modules/dialog.js';
 import { useConfirmPress } from '../../hooks/useConfirmPress.js';
 import { Button } from '@cloudflare/kumo/components/button';
 import { LayerCard, Tabs } from '@cloudflare/kumo';
@@ -43,6 +44,8 @@ function SchedulerPage({ onNavigate = () => {} }) {
   const [selectedWorkflowNodeId, setSelectedWorkflowNodeId] = useState('task-1');
   const [cronPreview, setCronPreview] = useState(null);
   const [cronPreviewError, setCronPreviewError] = useState('');
+  const [workflowCronPreview, setWorkflowCronPreview] = useState(null);
+  const [workflowCronPreviewError, setWorkflowCronPreviewError] = useState('');
   const [selectedRun, setSelectedRun] = useState(null);
   const [taskLogs, setTaskLogs] = useState([]);
   const [taskLogsLoading, setTaskLogsLoading] = useState(false);
@@ -190,6 +193,37 @@ function SchedulerPage({ onNavigate = () => {} }) {
     }, 250);
     return () => window.clearTimeout(handle);
   }, [authHeaders, currentSchedule, taskDialogOpen]);
+
+  const workflowSchedule = workflowForm.schedule.trim();
+
+  useEffect(() => {
+    if (!workflowDialogOpen || !workflowSchedule) {
+      setWorkflowCronPreview(null);
+      setWorkflowCronPreviewError('');
+      return undefined;
+    }
+    const handle = window.setTimeout(async () => {
+      try {
+        const res = await fetch('/api/scheduler/cron/preview', {
+          method: 'POST',
+          headers: authHeaders(),
+          body: JSON.stringify({ schedule: workflowSchedule, count: 5 }),
+        });
+        const data = await res.json();
+        if (data.success) {
+          setWorkflowCronPreview(data.data);
+          setWorkflowCronPreviewError('');
+        } else {
+          setWorkflowCronPreview(null);
+          setWorkflowCronPreviewError(data.error || 'Cron 表达式无效');
+        }
+      } catch {
+        setWorkflowCronPreview(null);
+        setWorkflowCronPreviewError('无法预览 Cron 表达式');
+      }
+    }, 250);
+    return () => window.clearTimeout(handle);
+  }, [authHeaders, workflowDialogOpen, workflowSchedule]);
 
   const openCreateTask = () => {
     setTaskForm(DEFAULT_TASK_FORM);
@@ -361,20 +395,18 @@ function SchedulerPage({ onNavigate = () => {} }) {
   };
 
   const addWorkflowNode = () => {
-    setWorkflowForm((prev) => {
-      const index = prev.nodes.length + 1;
-      const node = {
-        id: `task-${Date.now()}`,
-        name: `任务 ${index}`,
-        type: 'shell',
-        task_id: 0,
-        enabled: 1,
-        x: 80 + index * 150,
-        y: 150,
-      };
-      setSelectedWorkflowNodeId(node.id);
-      return { ...prev, nodes: [...prev.nodes, node] };
-    });
+    const index = workflowForm.nodes.length + 1;
+    const node = {
+      id: `task-${Date.now()}`,
+      name: `任务 ${index}`,
+      type: 'shell',
+      task_id: 0,
+      enabled: 1,
+      x: 80 + index * 150,
+      y: 150,
+    };
+    setWorkflowForm((prev) => ({ ...prev, nodes: [...prev.nodes, node] }));
+    setSelectedWorkflowNodeId(node.id);
   };
 
   const updateWorkflowNode = (nodeId, patch) => {
@@ -414,27 +446,33 @@ function SchedulerPage({ onNavigate = () => {} }) {
   };
 
   const deleteWorkflowNode = (nodeId) => {
-    setWorkflowForm((prev) => {
-      const nextNodes = prev.nodes.filter((node) => node.id !== nodeId);
-      setSelectedWorkflowNodeId(nextNodes.find((node) => node.type !== 'start')?.id || nextNodes[0]?.id || '');
-      return {
-        ...prev,
-        nodes: nextNodes,
-        edges: prev.edges.filter((edge) => edge.from !== nodeId && edge.to !== nodeId),
-      };
-    });
+    const remaining = workflowForm.nodes.filter((node) => node.id !== nodeId);
+    setWorkflowForm((prev) => ({
+      ...prev,
+      nodes: prev.nodes.filter((node) => node.id !== nodeId),
+      edges: prev.edges.filter((edge) => edge.from !== nodeId && edge.to !== nodeId),
+    }));
+    setSelectedWorkflowNodeId((current) => (current === nodeId
+      ? (remaining.find((node) => node.type !== 'start')?.id || remaining[0]?.id || '')
+      : current));
   };
 
   const addWorkflowEdge = () => {
-    setWorkflowForm((prev) => {
-      if (prev.nodes.length < 2) return prev;
-      const from = prev.nodes[Math.max(0, prev.nodes.length - 2)].id;
-      const to = prev.nodes[prev.nodes.length - 1].id;
-      return {
-        ...prev,
-        edges: [...prev.edges, { id: `edge-${Date.now()}`, from, to, condition: 'success' }],
-      };
-    });
+    if (workflowForm.nodes.length < 2) return;
+    const from = workflowForm.nodes[Math.max(0, workflowForm.nodes.length - 2)].id;
+    const to = workflowForm.nodes[workflowForm.nodes.length - 1].id;
+    if (from === to) {
+      toast.warning('不能把节点连到自身');
+      return;
+    }
+    if (workflowForm.edges.some((edge) => edge.from === from && edge.to === to)) {
+      toast.warning('该依赖已存在');
+      return;
+    }
+    setWorkflowForm((prev) => ({
+      ...prev,
+      edges: [...prev.edges, { id: `edge-${Date.now()}`, from, to, condition: 'success' }],
+    }));
   };
 
   const saveWorkflow = async () => {
@@ -462,7 +500,10 @@ function SchedulerPage({ onNavigate = () => {} }) {
           }
           return cleaned;
         }),
-        edges: workflowForm.edges,
+        edges: workflowForm.edges.filter((edge, index, list) => {
+          if (!edge || edge.from === edge.to) return false;
+          return list.findIndex((item) => item && item.from === edge.from && item.to === edge.to) === index;
+        }),
       };
       const res = await fetch(isEdit ? `/api/scheduler/workflows/${workflowForm.id}` : '/api/scheduler/workflows', {
         method: isEdit ? 'PUT' : 'POST',
@@ -485,6 +526,14 @@ function SchedulerPage({ onNavigate = () => {} }) {
     try {
       // 执行接口为同步阻塞（串行跑完整个 DAG 才返回）。期间并行轮询进度：
       // 先从运行列表找到本次 run 的 id，再轮询详情接口拿 node_runs，更新画布。
+      let knownRunning = new Set();
+      try {
+        const preRes = await fetch('/api/scheduler/runs', { headers: authHeaders() });
+        const preData = await preRes.json();
+        const preList = Array.isArray(preData.data) ? preData.data : [];
+        knownRunning = new Set(preList.filter((run) => run.status === 'running').map((run) => run.id));
+      } catch {
+      }
       const pollProgress = (async () => {
         let runId = null;
         for (let i = 0; i < 60 && !runId && mountedRef.current; i++) {
@@ -492,7 +541,7 @@ function SchedulerPage({ onNavigate = () => {} }) {
             const listRes = await fetch('/api/scheduler/runs', { headers: authHeaders() });
             const listData = await listRes.json();
             const list = Array.isArray(listData.data) ? listData.data : [];
-            runId = list.find((run) => run.workflow_id === workflow.id && run.status === 'running')?.id || null;
+            runId = list.find((run) => run.workflow_id === workflow.id && run.status === 'running' && !knownRunning.has(run.id))?.id || null;
           } catch {
           }
           if (!runId && mountedRef.current) await new Promise((resolve) => window.setTimeout(resolve, 300));
@@ -553,8 +602,10 @@ function SchedulerPage({ onNavigate = () => {} }) {
       const link = document.createElement('a');
       link.href = url;
       link.download = `scheduler-workflows-${new Date().toISOString().slice(0, 10)}.json`;
+      document.body.appendChild(link);
       link.click();
-      URL.revokeObjectURL(url);
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 0);
     } catch (error) {
       toast.error(error.message || '导出工作流失败');
     }
@@ -613,7 +664,8 @@ function SchedulerPage({ onNavigate = () => {} }) {
   };
 
   const clearOldRuns = async () => {
-    if (!confirmPress('runs:clear-old', '清理 30 天前运行记录')) return;
+    const confirmed = await dialog.deleteResource({ resourceType: '运行记录', resourceName: '30 天前的运行记录' });
+    if (!confirmed) return;
     try {
       const res = await fetch('/api/scheduler/runs?days=30', { method: 'DELETE', headers: authHeaders() });
       const data = await res.json();
@@ -626,7 +678,8 @@ function SchedulerPage({ onNavigate = () => {} }) {
   };
 
   const clearAllRuns = async () => {
-    if (!confirmPress('runs:clear-all', '清空全部运行记录')) return;
+    const confirmed = await dialog.deleteResource({ resourceType: '运行记录', resourceName: '全部运行记录' });
+    if (!confirmed) return;
     try {
       const res = await fetch('/api/scheduler/runs?all=true', { method: 'DELETE', headers: authHeaders() });
       const data = await res.json();
@@ -856,6 +909,8 @@ function SchedulerPage({ onNavigate = () => {} }) {
           addWorkflowEdge={addWorkflowEdge}
           saveWorkflow={saveWorkflow}
           saving={saving}
+          workflowCronPreview={workflowCronPreview}
+          workflowCronPreviewError={workflowCronPreviewError}
         />
 
         <TaskLogsDialog
