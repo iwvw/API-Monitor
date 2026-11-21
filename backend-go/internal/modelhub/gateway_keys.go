@@ -263,9 +263,6 @@ func (s *Service) updateGatewayKey(w http.ResponseWriter, r *http.Request, id st
 		response.JSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
-	if req.APIKey != nil && isMaskedSecretValue(*req.APIKey) {
-		applog.Warn(r.Context(), "modelhub", "ignored masked gateway key on update", "key_id", id)
-	}
 	req.Name = strings.TrimSpace(req.Name)
 	if req.Name == "" {
 		response.JSON(w, http.StatusBadRequest, map[string]string{"error": "密钥名称必填"})
@@ -452,7 +449,7 @@ func scanGatewayKey(scanner interface {
 	key.IsDefault = isDefault == 1
 	key.MaskedKey = maskGatewayKey(key.KeyPrefix, key.KeySuffix)
 	key.HasKey = keyCipher.Valid && strings.TrimSpace(keyCipher.String) != ""
-	key.APIKey = key.MaskedKey
+	key.APIKey = secure.SecureDecrypt(keyCipher.String)
 	if lastUsed.Valid {
 		key.LastUsed = &lastUsed.String
 	}
@@ -510,67 +507,6 @@ func gatewayLocalBypassEnabled() bool {
 		return true
 	}
 	return false
-}
-
-// maskSecretValue 把密钥掩码为「前缀...后缀」形式,仅用于回显,绝不返回明文。
-func maskSecretValue(value string) string {
-	value = strings.TrimSpace(value)
-	if value == "" {
-		return ""
-	}
-	if len(value) <= 12 {
-		return "***"
-	}
-	return value[:6] + "..." + value[len(value)-4:]
-}
-
-func maskSecretList(values []string) []string {
-	if len(values) == 0 {
-		return values
-	}
-	out := make([]string, len(values))
-	for i, value := range values {
-		out[i] = maskSecretValue(value)
-	}
-	return out
-}
-
-func isMaskedSecretValue(value string) bool {
-	value = strings.TrimSpace(value)
-	if value == "" {
-		return false
-	}
-	return value == "***" || strings.Contains(value, "...")
-}
-
-func resolveMaskedAPIKeys(submitted, stored []string) ([]string, int) {
-	plainByMask := make(map[string]string, len(stored))
-	for _, key := range stored {
-		key = strings.TrimSpace(key)
-		if key == "" {
-			continue
-		}
-		plainByMask[maskSecretValue(key)] = key
-	}
-	out := make([]string, 0, len(submitted))
-	resolved := 0
-	for _, value := range submitted {
-		trimmed := strings.TrimSpace(value)
-		if trimmed == "" {
-			continue
-		}
-		if plain, ok := plainByMask[trimmed]; ok {
-			out = append(out, plain)
-			resolved++
-			continue
-		}
-		if isMaskedSecretValue(trimmed) {
-			resolved++
-			continue
-		}
-		out = append(out, trimmed)
-	}
-	return out, resolved
 }
 
 func normalizeGatewayKeyExpiry(value string) (interface{}, error) {

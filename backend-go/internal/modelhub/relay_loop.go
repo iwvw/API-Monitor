@@ -246,7 +246,7 @@ func (s *Service) relayLoop(p relayLoopParams) *relayLoopResult {
 			client, clientErr = s.proxyClient(retryProxy)
 			currentProxy = retryProxy
 		} else {
-			client, currentProxy, clientErr = s.clientForEndpoint(selected.ID, selected.ProxyPool, selected.ProxyEnabled, selected.ForceProxy, p.sessionKey, selected.Protocol, selected.ProxyPoolID)
+			client, currentProxy, clientErr = s.clientForEndpoint(ctx, selected.ID, selected.ProxyPool, selected.ProxyEnabled, selected.ForceProxy, p.sessionKey, selected.Protocol, selected.ProxyPoolID)
 		}
 		if clientErr != nil {
 			cancel()
@@ -802,6 +802,18 @@ func (s *Service) relayLoop(p relayLoopParams) *relayLoopResult {
 
 // relayCancelOnCloseBody 在正文关闭时连带释放 attempt context，供正文由调用方
 // 消费的入口（/v1/messages）使用：避免在正文未读完时提前 cancel 掐断响应。
+func closeRelayLoopResult(res *relayLoopResult) {
+	if res == nil {
+		return
+	}
+	if res.resp != nil {
+		_ = res.resp.Body.Close()
+	}
+	if res.cancel != nil {
+		res.cancel()
+	}
+}
+
 type relayCancelOnCloseBody struct {
 	io.ReadCloser
 	cancel context.CancelFunc

@@ -19,8 +19,8 @@ func TestResponsesModeForEndpoint(t *testing.T) {
 	}{
 		{"third-party openai", Endpoint{Name: "x", BaseURL: "https://x666.me/v1", UpstreamType: "openai"}, responsesModeConvert},
 		{"antigravity", Endpoint{Name: "ag", BaseURL: "http://127.0.0.1:3000/api/antigravity/v1", PluginID: "antigravity", UpstreamType: "openai"}, responsesModePassthrough},
-		{"gemini", Endpoint{Name: "g", BaseURL: "https://generativelanguage.googleapis.com", UpstreamType: "gemini"}, responsesModePassthrough},
-		{"vertex", Endpoint{Name: "v", BaseURL: "https://aiplatform.googleapis.com/v1/publishers/google", UpstreamType: "vertex"}, responsesModePassthrough},
+		{"gemini", Endpoint{Name: "g", BaseURL: "https://generativelanguage.googleapis.com", UpstreamType: "gemini"}, responsesModeConvert},
+		{"vertex", Endpoint{Name: "v", BaseURL: "https://aiplatform.googleapis.com/v1/publishers/google", UpstreamType: "vertex"}, responsesModeConvert},
 	}
 	for _, tc := range cases {
 		if got := s.responsesModeForEndpoint(tc.ep); got != tc.want {

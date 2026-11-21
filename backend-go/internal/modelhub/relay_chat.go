@@ -409,6 +409,7 @@ func (s *Service) proxyChatCompletions(w http.ResponseWriter, r *http.Request) {
 			// 客户端已断开（点击停止）：不再尝试其他候选端点，静默收尾。
 			if res.clientCancelled {
 				clientCancelled = true
+				closeRelayLoopResult(res)
 				break
 			}
 			if res.resp != nil && !res.retryableUpstream && !res.endpointExhausted {
@@ -427,6 +428,7 @@ func (s *Service) proxyChatCompletions(w http.ResponseWriter, r *http.Request) {
 				failCodes = append(failCodes, res.statusCode)
 			}
 			if k+1 < candCount {
+				closeRelayLoopResult(res)
 				selected = endpointCandidates[(k+1)%candCount]
 			}
 		}

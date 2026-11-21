@@ -853,7 +853,7 @@ func (s *Service) getAnalyticsCharts(w http.ResponseWriter, r *http.Request) {
 		tsExpr = fmt.Sprintf("(CAST(strftime('%%s', hour) AS INTEGER) + %d) / 3600 * 3600 - %d", offsetSec, offsetSec)
 	case "week":
 		timeGroup = "strftime('%Y-W%W', hour, '" + offsetModifier + "')"
-		tsExpr = fmt.Sprintf("(CAST(strftime('%%s', hour) AS INTEGER) + %d) / 604800 * 604800 - %d", offsetSec, offsetSec)
+		tsExpr = fmt.Sprintf("(CAST(strftime('%%s', hour) AS INTEGER) + %d) - ((CAST(strftime('%%w', hour, '%s') AS INTEGER) + 6) %% 7) * 86400 - %d", offsetSec, offsetModifier, offsetSec)
 	default:
 		timeGroupExpr = "day"
 		timeGroup = "strftime('%m-%d', hour, '" + offsetModifier + "')"
@@ -1201,7 +1201,7 @@ func (s *Service) getAnalyticsLogs(w http.ResponseWriter, r *http.Request) {
 			g.stream,
 			g.via_proxy,
 			g.key_index,
-			g.timestamp,
+			strftime('%Y-%m-%dT%H:%M:%SZ', g.timestamp) as timestamp,
 			COALESCE(g.failover_path, '') as failover_path,
 			COALESCE(g.error_kind, '') as error_kind,
 			COALESCE(g.error_message, '') as error_message,

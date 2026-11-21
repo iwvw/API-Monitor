@@ -63,6 +63,7 @@ type Endpoint struct {
 	// Weight 是同档位内的加权因子：值越大在该档位内被选中的概率越高。
 	Priority     int     `json:"priority,omitempty"`
 	Weight       int     `json:"weight,omitempty"`
+	SortOrder    int     `json:"sortOrder,omitempty"`
 	CreatedAt    string  `json:"createdAt"`
 	LastUsed     *string `json:"lastUsed"`
 	LastChecked  *string `json:"lastChecked"`

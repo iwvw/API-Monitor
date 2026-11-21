@@ -615,10 +615,36 @@ func (n *responsesStreamNormalizer) closeFunctionIfOpen() [][]byte {
 }
 
 // readSSEBlock 从流中读取一个完整 SSE 事件块（到空行结束，含结尾空行）。
+const (
+	sseLineLimit  = 1 << 20
+	sseBlockLimit = 8 << 20
+)
+
+var errSSELineTooLong = errors.New("sse 行/事件块超过长度上限")
+
+func readSSELine(br *bufio.Reader, max int) ([]byte, error) {
+	var out []byte
+	for {
+		chunk, err := br.ReadSlice('\n')
+		if len(out)+len(chunk) > max {
+			return out, errSSELineTooLong
+		}
+		out = append(out, chunk...)
+		if err == bufio.ErrBufferFull {
+			continue
+		}
+		return out, err
+	}
+}
+
 func readSSEBlock(br *bufio.Reader) ([]byte, error) {
 	var buf bytes.Buffer
 	for {
-		line, err := br.ReadString('\n')
+		lineBytes, err := readSSELine(br, sseLineLimit)
+		if err == errSSELineTooLong {
+			return nil, err
+		}
+		line := string(lineBytes)
 		if len(line) > 0 {
 			trimmed := strings.TrimRight(line, "\r\n")
 			if trimmed == "" {
@@ -632,6 +658,9 @@ func readSSEBlock(br *bufio.Reader) ([]byte, error) {
 				continue
 			}
 			buf.WriteString(line)
+			if buf.Len() > sseBlockLimit {
+				return nil, errSSELineTooLong
+			}
 		}
 		if err != nil {
 			if buf.Len() > 0 {
@@ -797,8 +826,27 @@ func (s *Service) proxyResponses(w http.ResponseWriter, r *http.Request) {
 					response.JSON(w, http.StatusBadRequest, map[string]string{"error": cErr.Error()})
 					return
 				}
-				upstreamBodyBytes, _ = json.Marshal(chatBody)
-				fullURL = ensureVersionPath(cand.BaseURL) + "/chat/completions"
+				if isGeminiUpstream(cand) {
+					geminiBody, gErr := openAIChatToGemini(chatBody)
+					if gErr != nil {
+						response.JSON(w, http.StatusBadRequest, map[string]string{"error": gErr.Error()})
+						return
+					}
+					upstreamBodyBytes, _ = json.Marshal(geminiBody)
+					fullURL = geminiInteractionsURL(cand.BaseURL)
+				} else if isVertexUpstream(cand) {
+					vertexBody, vErr := openAIChatToVertex(chatBody)
+					if vErr != nil {
+						response.JSON(w, http.StatusBadRequest, map[string]string{"error": vErr.Error()})
+						return
+					}
+					vertexModel, _ := chatBody["model"].(string)
+					fullURL = vertexGenerateURL(cand.BaseURL, vertexModel, stream)
+					upstreamBodyBytes, _ = json.Marshal(vertexBody)
+				} else {
+					upstreamBodyBytes, _ = json.Marshal(chatBody)
+					fullURL = ensureVersionPath(cand.BaseURL) + "/chat/completions"
+				}
 			} else {
 				upstreamBodyBytes, _ = json.Marshal(candBody)
 				fullURL = ensureVersionPath(cand.BaseURL) + "/responses"
@@ -828,6 +876,7 @@ func (s *Service) proxyResponses(w http.ResponseWriter, r *http.Request) {
 			// 客户端已断开（点击停止）：不再尝试其他候选端点，静默收尾。
 			if res.clientCancelled {
 				clientCancelled = true
+				closeRelayLoopResult(res)
 				break
 			}
 			if res.resp != nil && !res.retryableUpstream && !res.endpointExhausted {
@@ -846,6 +895,7 @@ func (s *Service) proxyResponses(w http.ResponseWriter, r *http.Request) {
 				failCodes = append(failCodes, res.statusCode)
 			}
 			if k+1 < candCount {
+				closeRelayLoopResult(res)
 				selected = endpointCandidates[k+1]
 			}
 		}
@@ -981,10 +1031,13 @@ func (s *Service) proxyResponses(w http.ResponseWriter, r *http.Request) {
 	if stream {
 		// 转换模式：上游返回 chat.completion 流的 4xx/5xx 错误时不能作为 SSE 透传
 		// （客户端会把错误 JSON 当 SSE 解析失败）。按普通错误响应读取并写回 JSON。
-		if selectedMode == responsesModeConvert && res.resp.StatusCode >= 400 {
+		if res.resp.StatusCode >= 400 {
 			errBytes, _ := readUpstreamBodyLimited(res.resp.Body)
 			if len(res.firstChunk) > 0 {
 				errBytes = append(res.firstChunk, errBytes...)
+			}
+			if isGeminiUpstream(selected) || isVertexUpstream(selected) {
+				errBytes = geminiErrorToOpenAI(errBytes)
 			}
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(res.resp.StatusCode)
@@ -1021,29 +1074,75 @@ func (s *Service) proxyResponses(w http.ResponseWriter, r *http.Request) {
 		}
 		// usage 信息总在流尾部，只保留流尾部即可，避免长对话把整个流式响应累积在内存中。
 		tail := make([]byte, 0, usageTailLimit)
-		for {
-			block, readErr := readSSEBlock(streamReader)
-			if len(block) > 0 {
-				tail = append(tail, block...)
-				if len(tail) > usageTailLimit {
-					tail = tail[len(tail)-usageTailLimit:]
+		emitChatChunk := func(chunk []byte) {
+			if streamer == nil {
+				return
+			}
+			if dataJSON, ok := sseDataJSON(chunk); ok {
+				for _, out := range streamer.consume([]byte(dataJSON)) {
+					extendStreamDeadline()
+					sw.write(out)
 				}
-				if streamer != nil {
-					if dataJSON, ok := sseDataJSON(block); ok {
-						for _, out := range streamer.consume([]byte(dataJSON)) {
+			}
+		}
+		if streamer != nil && (isGeminiUpstream(selected) || isVertexUpstream(selected)) {
+			var consume func([]byte) [][]byte
+			var finishUpstream func() [][]byte
+			if isGeminiUpstream(selected) {
+				t := newGeminiInteractionSSETransformer(model)
+				consume = t.consume
+				finishUpstream = t.finish
+			} else {
+				t := newVertexSSETransformer(model)
+				consume = t.consume
+				finishUpstream = t.finish
+			}
+			lr := newGeminiLineReader(res.resp.Body, res.firstChunk)
+			for {
+				line, lErr := lr.readLine(ctx, streamIdleTimeout)
+				if lErr != nil {
+					break
+				}
+				line = bytes.TrimSpace(line)
+				if !bytes.HasPrefix(line, []byte("data: ")) {
+					continue
+				}
+				data := line[len("data: "):]
+				if bytes.Equal(data, []byte("[DONE]")) {
+					break
+				}
+				for _, chunk := range consume(data) {
+					emitChatChunk(chunk)
+				}
+			}
+			for _, chunk := range finishUpstream() {
+				emitChatChunk(chunk)
+			}
+		} else {
+			for {
+				block, readErr := readSSEBlock(streamReader)
+				if len(block) > 0 {
+					tail = append(tail, block...)
+					if len(tail) > usageTailLimit {
+						tail = tail[len(tail)-usageTailLimit:]
+					}
+					if streamer != nil {
+						if dataJSON, ok := sseDataJSON(block); ok {
+							for _, out := range streamer.consume([]byte(dataJSON)) {
+								extendStreamDeadline()
+								sw.write(out)
+							}
+						}
+					} else {
+						for _, out := range normalizer.transform(block) {
 							extendStreamDeadline()
 							sw.write(out)
 						}
 					}
-				} else {
-					for _, out := range normalizer.transform(block) {
-						extendStreamDeadline()
-						sw.write(out)
-					}
 				}
-			}
-			if readErr != nil {
-				break
+				if readErr != nil {
+					break
+				}
 			}
 		}
 		if streamer != nil {
@@ -1128,6 +1227,24 @@ func (s *Service) proxyResponses(w http.ResponseWriter, r *http.Request) {
 
 		// 转换模式：上游返回 chat.completion JSON（prompt/completion_tokens），
 		// 需转换为 Responses 响应（input/output_tokens）后再解析 usage 并返回。
+		if isGeminiUpstream(selected) {
+			if res.resp.StatusCode >= 400 {
+				respBodyBytes = geminiErrorToOpenAI(respBodyBytes)
+			} else if conv, cErr := geminiToOpenAIChat(respBodyBytes, model); cErr == nil {
+				respBodyBytes = conv
+			}
+		} else if isVertexUpstream(selected) {
+			if res.resp.StatusCode >= 400 {
+				respBodyBytes = geminiErrorToOpenAI(respBodyBytes)
+			} else {
+				if conv, cErr := vertexToOpenAIChat(respBodyBytes, model); cErr == nil {
+					respBodyBytes = conv
+				}
+				if vertexIsBlockedResponse(respBodyBytes) {
+					res.resp.StatusCode = http.StatusBadRequest
+				}
+			}
+		}
 		if selectedMode == responsesModeConvert && res.resp.StatusCode >= 200 && res.resp.StatusCode < 400 {
 			if conv, cErr := chatResponseToResponses(respBodyBytes, model, ""); cErr == nil {
 				respBodyBytes = conv

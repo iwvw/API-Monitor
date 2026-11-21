@@ -26,14 +26,10 @@ const (
 // 转换模式（默认）：把 Responses 请求转成 /chat/completions 转发，适配所有 OpenAI
 // 兼容端点（日日新、x666、merge 等第三方通常只实现 /chat/completions）。
 // 透传模式：端点原生支持 /responses，直接透传保留完整能力。
-//   - Gemini/Vertex 上游不走 OpenAI chat 协议，透传避免发送错误的请求体；
+//   - Gemini/Vertex 上游经 Responses→chat 再转为对应 Google 协议,不走原生 /responses;
 //   - Antigravity 是 Anthropic 兼容中继（仅 /v1/messages），透传避免打 chat 路径。
 func (s *Service) responsesModeForEndpoint(ep Endpoint) responsesMode {
 	if ep.PluginID == "antigravity" {
-		return responsesModePassthrough
-	}
-	switch normalizeUpstreamType(ep.UpstreamType) {
-	case upstreamTypeGemini, upstreamTypeVertex:
 		return responsesModePassthrough
 	}
 	return responsesModeConvert

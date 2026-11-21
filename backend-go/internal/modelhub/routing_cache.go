@@ -16,12 +16,13 @@ const routeCacheTTL = 2 * time.Second
 
 // enabledEndpointsCached 返回已启用端点的完整配置列表（按 sort_order 升序），
 // 结果缓存在内存中，TTL 到期或配置变更后自动重建。调用方不得修改返回的端点。
-func (s *Service) enabledEndpointsCached(ctx context.Context, db *sql.DB) ([]Endpoint, error) {
+func (s *Service) enabledEndpointsCached(ctx context.Context, db *sql.DB) ([]Endpoint, map[string][]int, error) {
 	s.routeCacheMu.Lock()
 	if s.routeCacheReady && time.Since(s.routeCacheAt) < routeCacheTTL {
 		cached := s.routeCache
+		idx := s.routeModelIndex
 		s.routeCacheMu.Unlock()
-		return cached, nil
+		return cached, idx, nil
 	}
 	s.routeCacheMu.Unlock()
 
@@ -31,7 +32,7 @@ func (s *Service) enabledEndpointsCached(ctx context.Context, db *sql.DB) ([]End
 		FROM modelhub_endpoints WHERE enabled = 1
 		ORDER BY priority DESC, sort_order ASC, created_at ASC`)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	defer rows.Close()
 	for rows.Next() {
@@ -80,13 +81,14 @@ func (s *Service) enabledEndpointsCached(ctx context.Context, db *sql.DB) ([]End
 		}
 	}
 
+	idx := buildRouteModelIndex(endpoints)
 	s.routeCacheMu.Lock()
 	s.routeCache = endpoints
-	s.routeModelIndex = buildRouteModelIndex(endpoints)
+	s.routeModelIndex = idx
 	s.routeCacheAt = time.Now()
 	s.routeCacheReady = true
 	s.routeCacheMu.Unlock()
-	return endpoints, nil
+	return endpoints, idx, nil
 }
 
 // invalidateRouteCache 主动清空路由缓存，供端点配置变更路径调用，
@@ -110,15 +112,10 @@ func (s *Service) enabledEndpointSnapshot(ctx context.Context, db *sql.DB) ([]En
 	}
 	s.routeCacheMu.Unlock()
 
-	eps, err := s.enabledEndpointsCached(ctx, db)
+	eps, idx, err := s.enabledEndpointsCached(ctx, db)
 	if err != nil {
 		return nil, nil, err
 	}
-	// enabledEndpointsCached 在同一锁内写入 routeCache 与 routeModelIndex，
-	// 此处再次加锁读取索引即可保证与刚返回的切片同代。
-	s.routeCacheMu.Lock()
-	idx := s.routeModelIndex
-	s.routeCacheMu.Unlock()
 	return eps, idx, nil
 }
 

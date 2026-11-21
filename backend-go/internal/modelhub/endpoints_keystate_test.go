@@ -59,26 +59,18 @@ func TestEndpointKeyStateRoute(t *testing.T) {
 	if len(stateRes.Keys) != 3 {
 		t.Fatalf("expect 3 keys, got %d: %+v", len(stateRes.Keys), stateRes.Keys)
 	}
-	for _, raw := range []string{mainKey, okKey, coolKey} {
-		if strings.Contains(wState.Body.String(), raw) {
-			t.Fatalf("key-state must not leak plaintext key %q: %s", raw, wState.Body.String())
-		}
-	}
-	mainMask := maskSecretValue(mainKey)
-	okMask := maskSecretValue(okKey)
-	coolMask := maskSecretValue(coolKey)
 	cooled := map[string]endpointKeyRuntimeItem{}
 	for _, item := range stateRes.Keys {
 		cooled[item.Key] = item
 	}
-	if !cooled[mainMask].Cooled || cooled[mainMask].CooldownUntil == "" {
-		t.Fatalf("main key should be cooled with deadline, got %+v", cooled[mainMask])
+	if !cooled[mainKey].Cooled || cooled[mainKey].CooldownUntil == "" {
+		t.Fatalf("main key should be cooled with deadline, got %+v", cooled[mainKey])
 	}
-	if !cooled[coolMask].Cooled {
-		t.Fatalf("extra cooled key should be cooled, got %+v", cooled[coolMask])
+	if !cooled[coolKey].Cooled {
+		t.Fatalf("extra cooled key should be cooled, got %+v", cooled[coolKey])
 	}
-	if cooled[okMask].Cooled {
-		t.Fatalf("ok key should not be cooled, got %+v", cooled[okMask])
+	if cooled[okKey].Cooled {
+		t.Fatalf("ok key should not be cooled, got %+v", cooled[okKey])
 	}
 
 	// 成功转发清除冷却后接口应同步归零，避免前端一直标红。
@@ -94,7 +86,7 @@ func TestEndpointKeyStateRoute(t *testing.T) {
 	}
 	mustDecode(t, wAfter.Body.String(), &afterRes)
 	for _, item := range afterRes.Keys {
-		if item.Key == mainMask && item.Cooled {
+		if item.Key == mainKey && item.Cooled {
 			t.Fatalf("main key cooldown should be cleared after markKeySuccess, got %+v", item)
 		}
 	}

@@ -231,7 +231,7 @@ func (s *Service) exportEndpointsRoute(w http.ResponseWriter, r *http.Request) {
 	}
 	defer db.Close()
 
-	rows, err := db.QueryContext(ctx, "SELECT id, name, base_url, api_key, api_keys, headers, disabled_models, proxy_pool, proxy_batches, auto_switch, proxy_enabled, force_proxy, protocol, status, enabled, models, pricing, models_url, created_at, last_used, last_checked, model_mappings, model_names, priority, weight, key_retry_rounds, upstream_type, key_strategy, key_cooldown_seconds FROM modelhub_endpoints ORDER BY sort_order ASC, created_at ASC")
+	rows, err := db.QueryContext(ctx, "SELECT id, name, base_url, api_key, api_keys, headers, disabled_models, proxy_pool, proxy_batches, auto_switch, proxy_enabled, force_proxy, protocol, status, enabled, models, pricing, models_url, created_at, last_used, last_checked, model_mappings, model_names, priority, weight, key_retry_rounds, upstream_type, key_strategy, key_cooldown_seconds, sort_order, plugin_id FROM modelhub_endpoints ORDER BY sort_order ASC, created_at ASC")
 	if err != nil {
 		response.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
@@ -241,11 +241,11 @@ func (s *Service) exportEndpointsRoute(w http.ResponseWriter, r *http.Request) {
 	endpoints := []endpointView{}
 	for rows.Next() {
 		var ep Endpoint
-		var headersRaw, modelsRaw, disabledRaw, proxyRaw, proxyBatchesRaw, mappingsRaw, modelNamesRaw, apiKeysRaw, protocolRaw, pricingRaw, modelsUrlRaw, upstreamTypeRaw, keyStrategyRaw sql.NullString
+		var headersRaw, modelsRaw, disabledRaw, proxyRaw, proxyBatchesRaw, mappingsRaw, modelNamesRaw, apiKeysRaw, protocolRaw, pricingRaw, modelsUrlRaw, upstreamTypeRaw, keyStrategyRaw, pluginIDRaw sql.NullString
 		var created, used, checked sql.NullString
 		var enabledInt, autoSwitchInt, proxyEnabledInt, forceProxyInt, priority, weight, keyRetryRounds, keyCooldownSeconds int
 
-		err := rows.Scan(&ep.ID, &ep.Name, &ep.BaseURL, &ep.APIKey, &apiKeysRaw, &headersRaw, &disabledRaw, &proxyRaw, &proxyBatchesRaw, &autoSwitchInt, &proxyEnabledInt, &forceProxyInt, &protocolRaw, &ep.Status, &enabledInt, &modelsRaw, &pricingRaw, &modelsUrlRaw, &created, &used, &checked, &mappingsRaw, &modelNamesRaw, &priority, &weight, &keyRetryRounds, &upstreamTypeRaw, &keyStrategyRaw, &keyCooldownSeconds)
+		err := rows.Scan(&ep.ID, &ep.Name, &ep.BaseURL, &ep.APIKey, &apiKeysRaw, &headersRaw, &disabledRaw, &proxyRaw, &proxyBatchesRaw, &autoSwitchInt, &proxyEnabledInt, &forceProxyInt, &protocolRaw, &ep.Status, &enabledInt, &modelsRaw, &pricingRaw, &modelsUrlRaw, &created, &used, &checked, &mappingsRaw, &modelNamesRaw, &priority, &weight, &keyRetryRounds, &upstreamTypeRaw, &keyStrategyRaw, &keyCooldownSeconds, &ep.SortOrder, &pluginIDRaw)
 		if err != nil {
 			response.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 			return
@@ -253,13 +253,14 @@ func (s *Service) exportEndpointsRoute(w http.ResponseWriter, r *http.Request) {
 
 		rawKey := secure.SecureDecrypt(ep.APIKey)
 		hasKey := strings.TrimSpace(rawKey) != ""
-		ep.APIKey = maskSecretValue(rawKey)
+		ep.APIKey = rawKey
 		ep.Enabled = enabledInt == 1
 		ep.AutoSwitch = autoSwitchInt == 1
 		ep.ProxyEnabled = proxyEnabledInt == 1
 		ep.ForceProxy = forceProxyInt == 1
 		ep.Protocol = normalizeProtocol(protocolRaw.String)
 		ep.UpstreamType = normalizeUpstreamType(upstreamTypeRaw.String)
+		ep.PluginID = pluginIDRaw.String
 		ep.Priority = priority
 		ep.Weight = weight
 		ep.KeyRetryRounds = keyRetryRounds
@@ -276,7 +277,6 @@ func (s *Service) exportEndpointsRoute(w http.ResponseWriter, r *http.Request) {
 			if len(ep.APIKeys) > 0 {
 				hasKey = true
 			}
-			ep.APIKeys = maskSecretList(ep.APIKeys)
 		}
 		ep.CreatedAt = created.String
 		if used.Valid {
@@ -484,9 +484,9 @@ func (s *Service) importEndpointsRoute(w http.ResponseWriter, r *http.Request) {
 			rateLimitRetryWaitSeconds = 10
 		}
 		_, err = tx.ExecContext(ctx, `
-			INSERT OR REPLACE INTO modelhub_endpoints (id, name, base_url, models_url, api_key, api_keys, headers, disabled_models, proxy_pool, proxy_batches, auto_switch, proxy_enabled, force_proxy, rate_limit_retry_enabled, rate_limit_retry_wait_seconds, protocol, status, enabled, models, pricing, model_mappings, model_names, created_at, last_used, last_checked, priority, weight, key_retry_rounds, upstream_type, key_strategy, key_cooldown_seconds)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			id, ep.Name, ep.BaseURL, strings.TrimSpace(ep.ModelsURL), encryptedKey, string(apiKeysJSON), string(headersJSON), string(disabledJSON), string(proxyJSON), string(batchesJSON), autoSwitchInt, proxyEnabledInt, forceProxyInt, rateLimitRetryInt, rateLimitRetryWaitSeconds, normalizeProtocol(ep.Protocol), status, enabledInt, string(modelsJSON), string(pricingJSON), string(mappingsJSON), string(modelNamesJSON), createdAt, ep.LastUsed, ep.LastChecked, ep.Priority, ep.Weight, ep.effectiveKeyRetryRounds(), normalizeUpstreamType(ep.UpstreamType), normalizeKeyStrategy(ep.KeyStrategy), normalizeKeyCooldownSeconds(ep.KeyCooldownSeconds))
+			INSERT OR REPLACE INTO modelhub_endpoints (id, name, base_url, models_url, api_key, api_keys, headers, disabled_models, proxy_pool, proxy_batches, auto_switch, proxy_enabled, force_proxy, rate_limit_retry_enabled, rate_limit_retry_wait_seconds, protocol, status, enabled, models, pricing, model_mappings, model_names, created_at, last_used, last_checked, priority, weight, key_retry_rounds, upstream_type, key_strategy, key_cooldown_seconds, plugin_id, sort_order)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			id, ep.Name, ep.BaseURL, strings.TrimSpace(ep.ModelsURL), encryptedKey, string(apiKeysJSON), string(headersJSON), string(disabledJSON), string(proxyJSON), string(batchesJSON), autoSwitchInt, proxyEnabledInt, forceProxyInt, rateLimitRetryInt, rateLimitRetryWaitSeconds, normalizeProtocol(ep.Protocol), status, enabledInt, string(modelsJSON), string(pricingJSON), string(mappingsJSON), string(modelNamesJSON), createdAt, ep.LastUsed, ep.LastChecked, ep.Priority, ep.Weight, ep.effectiveKeyRetryRounds(), normalizeUpstreamType(ep.UpstreamType), normalizeKeyStrategy(ep.KeyStrategy), normalizeKeyCooldownSeconds(ep.KeyCooldownSeconds), ep.PluginID, ep.SortOrder)
 		if err != nil {
 			response.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 			return

@@ -56,7 +56,7 @@ func (s *Service) getEndpointKeyStateRoute(w http.ResponseWriter, r *http.Reques
 		if key == "" {
 			continue
 		}
-		item := endpointKeyRuntimeItem{Key: maskSecretValue(key)}
+		item := endpointKeyRuntimeItem{Key: key}
 		if entry, ok := health[key]; ok {
 			item.FailCount = entry.failCount
 			item.LastStatus = entry.lastStatus

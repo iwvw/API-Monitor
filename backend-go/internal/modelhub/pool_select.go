@@ -31,10 +31,13 @@ const sessionBindingTTL = 30 * time.Minute
 //   - proxyEnabled 开启且有池：按池选择代理；非空 sessionKey 时优先复用
 //     会话粘性绑定的代理（同一会话固定出口，请求数达 sessionProxyRequestLimit 后
 //     主动轮换下一个出口，规避上游按出口 IP 的限额）
-func (s *Service) clientForEndpoint(endpointID string, pool []string, proxyEnabled, forceProxy bool, sessionKey, protocol, proxyPoolID string) (*http.Client, string, error) {
+func (s *Service) clientForEndpoint(ctx context.Context, endpointID string, pool []string, proxyEnabled, forceProxy bool, sessionKey, protocol, proxyPoolID string) (*http.Client, string, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	// 独立代理池：走插件选择器（不动内联 proxy_pool 逻辑与转发热路径）。
 	if proxyPoolID != "" && s.externalPool != nil {
-		proxyURL, selErr := s.externalPool.SelectProxy(context.Background(), proxyPoolID, sessionKey)
+		proxyURL, selErr := s.externalPool.SelectProxy(ctx, proxyPoolID, sessionKey)
 		if selErr != nil {
 			return nil, "", fmt.Errorf("独立代理池选择失败: %w", selErr)
 		}
@@ -42,11 +45,11 @@ func (s *Service) clientForEndpoint(endpointID string, pool []string, proxyEnabl
 			if forceProxy {
 				return nil, "", fmt.Errorf("端点配置为强制走代理，但独立代理池无可用出口")
 			}
-			return s.client, "", nil
+			return s.clientForProtocol(protocol), "", nil
 		}
 		client, err := s.proxyClient(proxyURL)
 		if err != nil {
-			return s.client, proxyURL, err
+			return s.clientForProtocol(protocol), proxyURL, err
 		}
 		return client, proxyURL, nil
 	}
@@ -58,7 +61,7 @@ func (s *Service) clientForEndpoint(endpointID string, pool []string, proxyEnabl
 		if forceProxy {
 			return nil, "", fmt.Errorf("端点配置为强制走代理，但代理池为空")
 		}
-		return s.client, "", nil
+		return s.clientForProtocol(protocol), "", nil
 	}
 	now := time.Now()
 
@@ -97,7 +100,7 @@ func (s *Service) clientForEndpoint(endpointID string, pool []string, proxyEnabl
 				s.proxyMu.Unlock()
 				client, err := s.proxyClient(selectedProxy)
 				if err != nil {
-					return s.client, selectedProxy, err
+					return s.clientForProtocol(protocol), selectedProxy, err
 				}
 				return client, selectedProxy, nil
 			}
@@ -118,7 +121,7 @@ func (s *Service) clientForEndpoint(endpointID string, pool []string, proxyEnabl
 		s.proxyMu.Unlock()
 		client, err := s.proxyClient(selectedProxy)
 		if err != nil {
-			return s.client, selectedProxy, err
+			return s.clientForProtocol(protocol), selectedProxy, err
 		}
 		return client, selectedProxy, nil
 	}
@@ -182,7 +185,7 @@ func (s *Service) clientForEndpoint(endpointID string, pool []string, proxyEnabl
 			}
 			s.logProxyPoolFrozen(endpointID, cleaned, now)
 			s.proxyMu.Unlock()
-			return s.client, "", nil
+			return s.clientForProtocol(protocol), "", nil
 		}
 	case len(candidates) == 1:
 		selectedIdx = candidates[0].idx
@@ -215,7 +218,7 @@ func (s *Service) clientForEndpoint(endpointID string, pool []string, proxyEnabl
 
 	client, err := s.proxyClient(selectedProxy)
 	if err != nil {
-		return s.client, selectedProxy, err
+		return s.clientForProtocol(protocol), selectedProxy, err
 	}
 	return client, selectedProxy, nil
 }
@@ -263,7 +266,7 @@ func (s *Service) auxClientForEndpoint(ctx context.Context, ep auxEndpoint) (*ht
 		}
 		return s.clientForProtocol(ep.protocol), "", nil
 	}
-	client, selectedProxy := s.auxClientForPool(ep.id, cleaned)
+	client, selectedProxy := s.auxClientForPool(ep.id, cleaned, ep.protocol)
 	return client, selectedProxy, nil
 }
 
@@ -434,13 +437,13 @@ func (s *Service) pickRandomAvailableProxy(endpointID string, cleaned []string, 
 // auxClientForPool 为辅助请求（验证、模型列表、健康检测等）选择代理 client。
 // 与 clientForEndpoint 的区别：不推进端点的游标、不写 TTFB、不写冷却，
 // 只读取冷却状态做跳过，避免辅助请求污染真实转发的择优状态。
-func (s *Service) auxClientForPool(endpointID string, pool []string) (*http.Client, string) {
+func (s *Service) auxClientForPool(endpointID string, pool []string, protocol string) (*http.Client, string) {
 	if len(pool) == 0 {
-		return s.client, ""
+		return s.clientForProtocol(protocol), ""
 	}
 	cleaned := cleanProxyPool(pool)
 	if len(cleaned) == 0 {
-		return s.client, ""
+		return s.clientForProtocol(protocol), ""
 	}
 
 	now := time.Now()
@@ -448,7 +451,7 @@ func (s *Service) auxClientForPool(endpointID string, pool []string) (*http.Clie
 	state, ok := s.proxyStateByEndpoint[endpointID]
 	selectedProxy := ""
 	for _, candidate := range cleaned {
-		if ok && state.cooldown[candidate] != (time.Time{}) && !now.After(state.cooldown[candidate]) {
+		if ok && proxyGroupCooled(state, candidate, now) {
 			continue
 		}
 		if ok && proxyRateLimited(state, candidate, now) {
@@ -470,7 +473,7 @@ func (s *Service) auxClientForPool(endpointID string, pool []string) (*http.Clie
 
 	client, err := s.proxyClient(selectedProxy)
 	if err != nil {
-		return s.client, selectedProxy
+		return s.clientForProtocol(protocol), selectedProxy
 	}
 	return client, selectedProxy
 }

@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/iwvw/api-monitor/backend-go/internal/apikeys"
-	"github.com/iwvw/api-monitor/backend-go/internal/applog"
 	"github.com/iwvw/api-monitor/backend-go/internal/config"
 	"github.com/iwvw/api-monitor/backend-go/internal/database"
 	"github.com/iwvw/api-monitor/backend-go/internal/response"
@@ -658,13 +657,6 @@ func (s *Service) updateEndpoint(w http.ResponseWriter, r *http.Request, id stri
 	targetAPIKey := currentAPIKey
 	keyChanged := false
 	if req.APIKey != nil {
-		submitted := strings.TrimSpace(*req.APIKey)
-		if submitted != "" && (submitted == maskSecretValue(currentAPIKey) || isMaskedSecretValue(submitted)) {
-			applog.Warn(ctx, "modelhub", "ignored masked endpoint api key on update", "endpoint_id", id)
-			req.APIKey = nil
-		}
-	}
-	if req.APIKey != nil {
 		targetAPIKey = *req.APIKey
 		// 仅当提交值与当前存储值不同才算「Key 变化」：前端保存时总是把表单里的
 		// 原 key 原样发回，若按是否提供字段判定，纯改代理池/开关也会触发上游
@@ -715,17 +707,7 @@ func (s *Service) updateEndpoint(w http.ResponseWriter, r *http.Request, id stri
 			apiKeysJSON = []byte("[]")
 		}
 	} else {
-		var storedKeysRaw sql.NullString
-		_ = db.QueryRowContext(ctx, "SELECT api_keys FROM modelhub_endpoints WHERE id = ?", id).Scan(&storedKeysRaw)
-		var storedKeys []string
-		if storedKeysRaw.Valid && storedKeysRaw.String != "" {
-			_ = json.Unmarshal([]byte(secure.SecureDecrypt(storedKeysRaw.String)), &storedKeys)
-		}
-		resolved, maskedCount := resolveMaskedAPIKeys(req.APIKeys, storedKeys)
-		if maskedCount > 0 {
-			applog.Warn(ctx, "modelhub", "resolved masked endpoint api keys on update", "endpoint_id", id, "count", maskedCount)
-		}
-		apiKeysJSON, _ = json.Marshal(cleanKeyList(resolved))
+		apiKeysJSON, _ = json.Marshal(cleanKeyList(req.APIKeys))
 		encryptedAPIKeys, err := secure.SecureEncrypt(string(apiKeysJSON))
 		if err != nil {
 			response.JSON(w, http.StatusInternalServerError, map[string]string{"error": "扩展 Key 加密失败"})

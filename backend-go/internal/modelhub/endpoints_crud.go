@@ -136,7 +136,7 @@ func (s *Service) listEndpoints(w http.ResponseWriter, r *http.Request) {
 
 		rawKey := secure.SecureDecrypt(ep.APIKey)
 		hasKey := strings.TrimSpace(rawKey) != ""
-		ep.APIKey = maskSecretValue(rawKey)
+		ep.APIKey = rawKey
 		ep.Enabled = enabledInt == 1
 		ep.AutoSwitch = autoSwitchInt == 1
 		ep.ProxyEnabled = proxyEnabledInt == 1
@@ -146,6 +146,7 @@ func (s *Service) listEndpoints(w http.ResponseWriter, r *http.Request) {
 		ep.Protocol = normalizeProtocol(protocolRaw.String)
 		ep.Priority = priority
 		ep.Weight = weight
+		ep.SortOrder = sortOrder
 		ep.KeyRetryRounds = keyRetryRounds
 		ep.KeyStrategy = normalizeKeyStrategy(keyStrategyRaw.String)
 		ep.KeyCooldownSeconds = normalizeKeyCooldownSeconds(keyCooldownSeconds)
@@ -163,7 +164,6 @@ func (s *Service) listEndpoints(w http.ResponseWriter, r *http.Request) {
 			if len(ep.APIKeys) > 0 {
 				hasKey = true
 			}
-			ep.APIKeys = maskSecretList(ep.APIKeys)
 		}
 		if mappingsRaw.Valid && mappingsRaw.String != "" {
 			_ = json.Unmarshal([]byte(mappingsRaw.String), &ep.ModelMappings)

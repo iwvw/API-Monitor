@@ -26,6 +26,8 @@ func safeUploadPathJoin(dataDir, imgURL string) (string, bool) {
 	return joined, true
 }
 
+const inlineUploadImageMaxBytes int64 = 20 << 20
+
 func (s *Service) inlineLocalUploadImage(imgURLMap map[string]interface{}, dataDir string) {
 	imgURL, ok := imgURLMap["url"].(string)
 	if !ok {
@@ -35,19 +37,40 @@ func (s *Service) inlineLocalUploadImage(imgURLMap map[string]interface{}, dataD
 	if !ok {
 		return
 	}
-	if fileBytes, err := os.ReadFile(filePath); err == nil {
-		ext := strings.ToLower(filepath.Ext(filePath))
-		mimeType := "image/jpeg"
-		switch ext {
-		case ".png":
-			mimeType = "image/png"
-		case ".webp":
-			mimeType = "image/webp"
-		case ".gif":
-			mimeType = "image/gif"
-		}
-		b64 := base64.StdEncoding.EncodeToString(fileBytes)
-		imgURLMap["url"] = fmt.Sprintf("data:%s;base64,%s", mimeType, b64)
-		imgURLMap["_original_url"] = imgURL
+	realPath, err := filepath.EvalSymlinks(filePath)
+	if err != nil {
+		return
 	}
+	uploadsRoot, err := filepath.EvalSymlinks(filepath.Join(filepath.Clean(dataDir), "uploads"))
+	if err != nil {
+		return
+	}
+	if realPath != uploadsRoot && !strings.HasPrefix(realPath, uploadsRoot+string(os.PathSeparator)) {
+		return
+	}
+	info, err := os.Stat(realPath)
+	if err != nil || !info.Mode().IsRegular() || info.Size() > inlineUploadImageMaxBytes {
+		return
+	}
+	ext := strings.ToLower(filepath.Ext(realPath))
+	mimeType := ""
+	switch ext {
+	case ".jpg", ".jpeg":
+		mimeType = "image/jpeg"
+	case ".png":
+		mimeType = "image/png"
+	case ".webp":
+		mimeType = "image/webp"
+	case ".gif":
+		mimeType = "image/gif"
+	default:
+		return
+	}
+	fileBytes, err := os.ReadFile(realPath)
+	if err != nil {
+		return
+	}
+	b64 := base64.StdEncoding.EncodeToString(fileBytes)
+	imgURLMap["url"] = fmt.Sprintf("data:%s;base64,%s", mimeType, b64)
+	imgURLMap["_original_url"] = imgURL
 }

@@ -257,13 +257,17 @@ func (s *Service) persistProxyState(endpointID, proxy, kind string, until time.T
 		return
 	}
 	key := endpointID + "\x00" + proxy + "\x00" + kind
-	now := time.Now()
-	if v, ok := proxyStateWriteDedup.Load(key); ok {
-		if last, _ := v.(time.Time); now.Sub(last) < proxyStateWriteDedupWindow {
-			return
+	if until.IsZero() {
+		proxyStateWriteDedup.Delete(key)
+	} else {
+		now := time.Now()
+		if v, ok := proxyStateWriteDedup.Load(key); ok {
+			if last, _ := v.(time.Time); now.Sub(last) < proxyStateWriteDedupWindow {
+				return
+			}
 		}
+		proxyStateWriteDedup.Store(key, now)
 	}
-	proxyStateWriteDedup.Store(key, now)
 	proxyStateWriteWG.Add(1)
 	go func() {
 		defer proxyStateWriteWG.Done()

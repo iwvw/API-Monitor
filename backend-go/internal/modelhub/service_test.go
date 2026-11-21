@@ -442,11 +442,8 @@ func TestGatewayKeyIsStoredEncrypted(t *testing.T) {
 	if len(listed) != 1 || !listed[0].HasKey {
 		t.Fatalf("gateway key list should mark hasKey: %+v", listed)
 	}
-	if listed[0].APIKey == created.APIKey || listed[0].APIKey == "" {
-		t.Fatalf("gateway key list must return a mask, got apiKey=%q", listed[0].APIKey)
-	}
-	if strings.Contains(listRecorder.Body.String(), created.APIKey) {
-		t.Fatalf("gateway key list must not leak plaintext: %s", listRecorder.Body.String())
+	if listed[0].APIKey != created.APIKey {
+		t.Fatalf("gateway key list must echo plaintext apiKey, got apiKey=%q", listed[0].APIKey)
 	}
 }
 
@@ -4233,11 +4230,8 @@ func TestEndpointExportImportPreservesAllFields(t *testing.T) {
 	if ep2.Priority != 3 || ep2.Weight != 7 || len(ep2.ProxyBatches) != 1 || len(ep2.APIKeys) != 2 || ep2.ModelMappings["deepseek-chat"] != "deepseek-v3" || !ep2.ProxyEnabled || !ep2.ForceProxy {
 		t.Errorf("round-trip lost fields: %#v", ep2)
 	}
-	if ep2.APIKey == "main-key-123" || ep2.APIKey == "" {
-		t.Errorf("export must mask apiKey, got %q", ep2.APIKey)
-	}
-	if strings.Contains(wExport2.Body.String(), "main-key-123") || strings.Contains(wExport2.Body.String(), "extra-key-456") {
-		t.Errorf("export must not leak plaintext keys: %s", wExport2.Body.String())
+	if ep2.APIKey != "main-key-123" {
+		t.Errorf("export must echo plaintext apiKey, got %q", ep2.APIKey)
 	}
 }
 
@@ -4800,11 +4794,8 @@ func TestImportExportExtendedKeysMasked(t *testing.T) {
 	if len(exported.Endpoints) != 1 || len(exported.Endpoints[0].APIKeys) != 2 {
 		t.Fatalf("export should carry the extended key slots, got %+v", exported.Endpoints)
 	}
-	if exported.Endpoints[0].APIKeys[0] == "ext-a" || exported.Endpoints[0].APIKeys[1] == "ext-b" {
-		t.Fatalf("export must mask extended keys, got %+v", exported.Endpoints[0].APIKeys)
-	}
-	if strings.Contains(wExport.Body.String(), "ext-a") || strings.Contains(wExport.Body.String(), "ext-b") {
-		t.Fatalf("export must not leak plaintext extended keys: %s", wExport.Body.String())
+	if exported.Endpoints[0].APIKeys[0] != "ext-a" || exported.Endpoints[0].APIKeys[1] != "ext-b" {
+		t.Fatalf("export must echo plaintext extended keys, got %+v", exported.Endpoints[0].APIKeys)
 	}
 
 	// 导入（覆盖）。
@@ -4826,11 +4817,8 @@ func TestImportExportExtendedKeysMasked(t *testing.T) {
 		t.Fatalf("imported endpoints = %d, want 1", len(list))
 	}
 	keys := list[0].APIKeys
-	if len(keys) != 2 || keys[0] == "ext-a" || keys[1] == "ext-b" {
-		t.Fatalf("list must return masked keys, got %+v", keys)
-	}
-	if strings.Contains(wList.Body.String(), "ext-a") || strings.Contains(wList.Body.String(), "ext-b") {
-		t.Fatalf("list must not leak plaintext extended keys: %s", wList.Body.String())
+	if len(keys) != 2 || keys[0] != "ext-a" || keys[1] != "ext-b" {
+		t.Fatalf("list must echo plaintext keys, got %+v", keys)
 	}
 }
 
