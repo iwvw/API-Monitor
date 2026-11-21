@@ -48,18 +48,26 @@ agent: build
 
 ## 阶段 6：等待 CI 并部署
 
-1. 用 `gh run watch` 监听最新推送触发的 Actions 运行，直到全部通过。
+1. 用 `gh run watch` 监听最新推送触发的 Actions 运行，直到全部通过(一次推送可能触发 `CI/CD Pipeline`、`Security Baseline`,涉及 `agent-rust/**` 时另有 `Agent Release`，三者全绿才算通过)。
 2. 若 CI 失败：查看失败日志、修复问题、重新提交推送，再回到阶段 6。
-3. 全部通过后通过 **am（api-monitor）MCP** 部署：本机没有 SSH，一切主机操作走 MCP 工具 `agent_run_command`，禁止把任何凭据或主机地址写入本仓库。
+3. 全部通过后通过 **am（api-monitor）MCP** 部署：一切主机操作走 MCP 工具 `agent_run_command`，禁止把任何凭据或主机地址写入本仓库。
    - 生产服务器 = am MCP 中名为「ARM」的 Agent 主机。**先调 `/api/server/accounts` 按 `name` 查出真实 serverId**，并确认 `agent_online=true`；不要在文档或脚本里硬编码 IP / serverId。
    - **不要**部署到名为「香港」的主机：它已迁出生产角色，上面的 `api-monitor` 容器应当停止，不要拉新镜像也不要 `compose up`。
    - 更新步骤（在 ARM 的 serverId 上执行，目录用 compose 工作目录）：
      ```bash
-     cd /opt/1panel/docker/compose/api-monitor && docker compose pull api-monitor && docker compose up -d api-monitor
+     cd /opt/1panel/docker/compose/api-monitor && docker compose pull api-monitor && docker compose up -d api-monitor && docker image prune -a -f
      ```
+     `docker image prune -a -f` 只删除未被任何容器引用的镜像(即旧的 `iwvw/api-monitor` 层)，不影响正在运行的其他容器；磁盘不紧张时可省略。
      `docker compose pull` 可能超过 MCP 同步等待上限而返回 504，此时用 `wait=false` 异步执行并轮询 `agent_task_result`。
    - 部署后验证：再执行 `docker ps --filter name=api-monitor --format '{{.Names}} {{.Image}} {{.Status}}'`，确认状态为 `Up ... (healthy)` 且镜像是新推的 `iwvw/api-monitor:dev`；再核对 `/health` 里的 `goVersion` 与本次 CI 的 Go 版本一致（这是区分新旧镜像最可靠的判据——仅看 tag `dev` 分不出新旧，因为它是可变标签）。
    - 同时确认香港主机上的旧 `api-monitor` 容器已停止（`docker ps` 里不应出现）。
+
+- 部署环境变量核对(安全基线要求,写入 compose 的 `environment`,**不要写进本仓库**):
+  - `ENCRYPTION_KEY`:**生产必须设置且 ≥32 字符**。缺失/为空时,`APP_ENV=production` 会直接**启动失败**;非 production 会启动但每次使用默认密钥都打印 `SECURITY WARNING`(等于所有 TOTP 种子/API Key/Client Secret 用公开密钥加密)。
+  - `API_MONITOR_STRICT_ENCRYPTION=1`:可选,强制「缺根密钥即失败」,用于非 production 也想严格校验的场合。
+  - `API_MONITOR_INTERNAL_CRON_TOKEN` + `API_MONITOR_INTERNAL_CRON_STRICT=true`:可选,内部 cron 调用只认随机 token(默认保留「回环 + 固定头」兜底)。
+  - `MODELHUB_GATEWAY_ALLOW_LOCAL_WITHOUT_KEY`:可选,**默认关闭**,即来自本机的请求也必须带网关密钥(同机反代场景下防止 `/v1/*` 被免鉴权)。
+- 部署后额外核对:`docker inspect --format 'health={{.State.Health.Status}} restarts={{.RestartCount}}' api-monitor` 应为 `healthy` 且 `restarts=0`;`docker logs --tail 50 api-monitor` 不应出现 `SECURITY WARNING`(缺 `ENCRYPTION_KEY`)或 panic。
 
 ## 阶段 6.5：Agent 版本升级（仅当本次改动涉及 agent-rust/）
 
