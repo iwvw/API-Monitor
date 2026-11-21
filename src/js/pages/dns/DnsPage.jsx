@@ -42,6 +42,7 @@ import {
   parseAnalyticsTimestamp,
   parseJsonInput,
   r2PreviewKind,
+  recordFullName,
   recordShortName,
   toDisplayNumber,
 } from './utils.jsx';
@@ -98,6 +99,7 @@ function DnsPage() {
   const [templates, setTemplates] = useState([]);
   const [workers, setWorkers] = useState([]);
   const [workerSubdomain, setWorkerSubdomain] = useState('');
+  const [workerSubdomains, setWorkerSubdomains] = useState({});
   const [workerUsage, setWorkerUsage] = useState(null);
   const [pages, setPages] = useState([]);
   const [r2Buckets, setR2Buckets] = useState([]);
@@ -344,6 +346,8 @@ function DnsPage() {
   }, [cfApi, selectedAccountId, setLoadingKey]);
 
   const recordsSeqRef = useRef(0); // 切 zone/筛选竞态防护：过期响应直接丢弃
+  const sslSeqRef = useRef(0);
+  const analyticsSeqRef = useRef(0);
 
   const loadRecords = useCallback(async (zoneId = selectedZoneId, options = recordFilter) => {
     if (!selectedAccountId || !zoneId) {
@@ -377,14 +381,17 @@ function DnsPage() {
       setSslInfo(null);
       return;
     }
+    const seq = ++sslSeqRef.current;
     setLoadingKey('ssl', true);
     try {
       const data = await cfApi(`/accounts/${selectedAccountId}/zones/${zoneId}/ssl`);
+      if (seq !== sslSeqRef.current) return;
       setSslInfo(data.ssl || null);
     } catch (error) {
+      if (seq !== sslSeqRef.current) return;
       setSslInfo(null);
     } finally {
-      setLoadingKey('ssl', false);
+      if (seq === sslSeqRef.current) setLoadingKey('ssl', false);
     }
   }, [cfApi, selectedAccountId, selectedZoneId, setLoadingKey]);
 
@@ -393,15 +400,18 @@ function DnsPage() {
       setAnalytics(null);
       return;
     }
+    const seq = ++analyticsSeqRef.current;
     setLoadingKey('analytics', true);
     try {
       const data = await cfApi(`/accounts/${selectedAccountId}/zones/${zoneId}/analytics?timeRange=${range}`);
+      if (seq !== analyticsSeqRef.current) return;
       setAnalytics(data.analytics || EMPTY_ANALYTICS);
       setAnalyticsRange(range);
     } catch (error) {
+      if (seq !== analyticsSeqRef.current) return;
       setAnalytics(EMPTY_ANALYTICS);
     } finally {
-      setLoadingKey('analytics', false);
+      if (seq === analyticsSeqRef.current) setLoadingKey('analytics', false);
     }
   }, [analyticsRange, cfApi, selectedAccountId, selectedZoneId, setLoadingKey]);
 
@@ -508,10 +518,21 @@ function DnsPage() {
     const params = new URLSearchParams({ delimiter: '/', limit: '1000' });
     if (prefix) params.set('prefix', prefix);
     try {
-      const data = await cfApi(
-        `/accounts/${selectedAccountId}/r2/buckets/${encodeURIComponent(bucketName)}/objects?${params.toString()}`
-      );
-      const entry = { objects: data.objects || [], prefixes: data.delimited_prefixes || [] };
+      const objects = [];
+      const prefixes = [];
+      let cursor = '';
+      let pages = 0;
+      do {
+        if (cursor) params.set('cursor', cursor);
+        const data = await cfApi(
+          `/accounts/${selectedAccountId}/r2/buckets/${encodeURIComponent(bucketName)}/objects?${params.toString()}`
+        );
+        objects.push(...(data.objects || []));
+        prefixes.push(...(data.delimited_prefixes || []));
+        cursor = data.cursor || '';
+        pages += 1;
+      } while (cursor && pages < 50);
+      const entry = { objects, prefixes };
       setR2DirCache((prev) => ({ ...prev, [key]: entry }));
       setR2DirErrors((prev) => {
         if (!prev[key]) return prev;
@@ -620,7 +641,7 @@ function DnsPage() {
     } else if (activeTab === 'pages') loadPages();
     else if (activeTab === 'r2') {
       loadR2Buckets();
-      if (r2SelectedBucket) loadR2Objects(r2SelectedBucket.name, r2CurrentPrefix);
+      if (r2SelectedBucket) loadR2Objects(r2SelectedBucket.name, r2CurrentPrefix, { force: true });
     } else if (activeTab === 'tunnels') loadTunnels();
     else if (activeTab === 'templates') loadTemplates();
     else if (activeTab === 'accounts') loadAccounts();
@@ -729,6 +750,12 @@ function DnsPage() {
   };
 
   const exportAccounts = async () => {
+    const confirmed = await dialog.confirm({
+      title: '导出账号',
+      message: '导出文件包含所有账号的 API Token 明文,请妥善保管,勿放入同步盘、备份或公开渠道。',
+      confirmText: '仍要导出',
+    });
+    if (!confirmed) return;
     try {
       const data = await cfApi('/export/accounts');
       downloadJson(`cloudflare-accounts-${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.json`, {
@@ -775,8 +802,19 @@ function DnsPage() {
           method: 'POST',
           body: JSON.stringify({ records: recordsToImport }),
         });
-        toast.success(`导入完成：成功 ${result.created || 0} 条，失败 ${result.failed || 0} 条`);
         loadRecords();
+        if (result.failed > 0) {
+          const details = (result.errors || []).slice(0, 20).map((item) => {
+            const record = item.record || {};
+            return `${record.type || '?'} ${record.name || '?'}:${item.error || '未知错误'}`;
+          });
+          await dialog.alert({
+            title: '导入完成,但有失败',
+            message: `成功 ${result.created || 0} 条,失败 ${result.failed || 0} 条。\n${details.join('\n')}`,
+          });
+        } else {
+          toast.success(`导入完成:成功 ${result.created || 0} 条`);
+        }
       }
       closeModal();
     } catch (error) {
@@ -816,7 +854,12 @@ function DnsPage() {
 
   const deleteZone = async (zone = selectedZone) => {
     if (!zone || !selectedAccountId) return;
-    if (!confirmPress(`zone:${zone.id}`, `删除域名「${zone.name}」`)) return;
+    const confirmed = await dialog.deleteResource({
+      title: '删除域名',
+      message: `删除域名「${zone.name}」会移除该域名下的全部 DNS 记录,此操作不可恢复。`,
+      confirmText: '删除域名',
+    });
+    if (!confirmed) return;
     try {
       await cfApi(`/accounts/${selectedAccountId}/zones/${zone.id}`, { method: 'DELETE' });
       toast.success('域名已删除');
@@ -890,6 +933,7 @@ function DnsPage() {
     }
     const payload = {
       ...recordForm,
+      name: recordFullName(recordForm.name, selectedZone?.name),
       ttl: Number(recordForm.ttl) || 1,
       priority: Number(recordForm.priority) || 10,
     };
@@ -954,11 +998,18 @@ function DnsPage() {
       toast.warning('请先选择域名');
       return;
     }
-    downloadJson(`dns-${selectedZone?.name || selectedZoneId}-${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.json`, {
+    const filtered = Boolean(recordFilter.type || recordFilter.name);
+    const scope = filtered ? 'filtered' : 'all';
+    downloadJson(`dns-${selectedZone?.name || selectedZoneId}-${scope}-${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.json`, {
       version: '1.0',
       exportTime: new Date().toISOString(),
       zoneName: selectedZone?.name,
       zoneId: selectedZoneId,
+      scope,
+      filter: {
+        type: recordFilter.type || null,
+        name: recordFilter.name || null,
+      },
       records: records.map((record) => ({
         type: record.type,
         name: recordShortName(record.name, selectedZone?.name),
@@ -968,7 +1019,7 @@ function DnsPage() {
         priority: record.priority,
       })),
     });
-    toast.success('DNS 记录已导出');
+    toast.success(filtered ? `已导出当前筛选的 ${records.length} 条记录(非全量)` : `已导出全部 ${records.length} 条记录`);
   };
 
   const openTemplateModal = (template = null) => {
@@ -993,17 +1044,19 @@ function DnsPage() {
       toast.warning('请填写模板名称和记录内容');
       return;
     }
+    const editedRecord = {
+      type: templateForm.type,
+      name: templateForm.recordName || '@',
+      content: templateForm.content,
+      ttl: Number(templateForm.ttl) || 1,
+      proxied: Boolean(templateForm.proxied),
+      priority: Number(templateForm.priority) || 10,
+    };
+    const existingRecords = Array.isArray(modal.data?.records) ? modal.data.records : [];
     const payload = {
       name: templateForm.name,
       description: templateForm.description,
-      records: [{
-        type: templateForm.type,
-        name: templateForm.recordName || '@',
-        content: templateForm.content,
-        ttl: Number(templateForm.ttl) || 1,
-        proxied: Boolean(templateForm.proxied),
-        priority: Number(templateForm.priority) || 10,
-      }],
+      records: existingRecords.length > 1 ? [editedRecord, ...existingRecords.slice(1)] : [editedRecord],
     };
     setLoadingKey('saveTemplate', true);
     try {
@@ -1113,7 +1166,9 @@ function DnsPage() {
         method: 'POST',
         body: JSON.stringify({ enabled }),
       });
+      setWorkerSubdomains((prev) => ({ ...prev, [worker.name]: enabled }));
       toast.success(enabled ? 'Worker 子域名访问已启用' : 'Worker 子域名访问已停用');
+      loadWorkers();
     } catch (error) {
       toast.error(`切换 Worker 状态失败：${error.message}`);
     }
@@ -1356,7 +1411,12 @@ function DnsPage() {
   };
 
   const deleteR2Bucket = async (bucket) => {
-    if (!confirmPress(`r2-bucket:${bucket.name}`, `删除 R2 存储桶「${bucket.name}」`)) return;
+    const confirmed = await dialog.deleteResource({
+      title: '删除存储桶',
+      message: `删除 R2 存储桶「${bucket.name}」及其全部对象,此操作不可恢复。`,
+      confirmText: '删除存储桶',
+    });
+    if (!confirmed) return;
     try {
       await cfApi(`/accounts/${selectedAccountId}/r2/buckets/${encodeURIComponent(bucket.name)}`, {
         method: 'DELETE',
@@ -1419,7 +1479,7 @@ function DnsPage() {
         toast.success(`已上传 ${files.length} 个文件`);
       }
       clearR2BucketCache(r2SelectedBucket.name);
-      await loadR2Objects(r2SelectedBucket.name, r2CurrentPrefix);
+      await loadR2Objects(r2SelectedBucket.name, r2CurrentPrefix, { force: true });
     } finally {
       setLoadingKey('uploadR2', false);
     }
@@ -1439,7 +1499,7 @@ function DnsPage() {
       setR2FolderForm({ name: '' });
       setModal({ type: null, data: null });
       clearR2BucketCache(r2SelectedBucket.name);
-      await loadR2Objects(r2SelectedBucket.name, r2CurrentPrefix);
+      await loadR2Objects(r2SelectedBucket.name, r2CurrentPrefix, { force: true });
     } catch (error) {
       toast.error(`创建文件夹失败：${error.message}`);
     } finally {
@@ -1486,7 +1546,16 @@ function DnsPage() {
 
   const deleteR2Object = async (objectKey) => {
     const isFolder = String(objectKey).endsWith('/');
-    if (!confirmPress(`r2-object:${objectKey}`, isFolder ? `删除目录「${objectKey}」及其全部内容？` : `删除对象「${objectKey}」？`)) return;
+    if (isFolder) {
+      const confirmed = await dialog.deleteResource({
+        title: '删除目录',
+        message: `删除目录「${objectKey}」及其全部内容,此操作不可恢复。`,
+        confirmText: '删除目录',
+      });
+      if (!confirmed) return;
+    } else if (!confirmPress(`r2-object:${objectKey}`, `删除对象「${objectKey}」?`)) {
+      return;
+    }
     try {
       if (isFolder) {
         const keys = await listAllR2Keys(r2SelectedBucket.name, objectKey);
@@ -1499,9 +1568,9 @@ function DnsPage() {
       }
       toast.success(isFolder ? `目录「${objectKey}」已删除` : 'R2 对象已删除');
       clearR2BucketCache(r2SelectedBucket.name);
-      loadR2Objects();
+      loadR2Objects(r2SelectedBucket.name, r2CurrentPrefix, { force: true });
     } catch (error) {
-      toast.error(`删除 R2 ${isFolder ? '目录' : '对象'}失败：${error.message}`);
+      toast.error(`删除 R2 ${isFolder ? '目录' : '对象'}失败:${error.message}`);
     }
   };
 
@@ -1521,7 +1590,7 @@ function DnsPage() {
       }
       toast.success('选中的 R2 对象已删除');
       clearR2BucketCache(r2SelectedBucket.name);
-      loadR2Objects();
+      loadR2Objects(r2SelectedBucket.name, r2CurrentPrefix, { force: true });
     } catch (error) {
       toast.error(`批量删除 R2 对象失败：${error.message}`);
     } finally {
@@ -1813,13 +1882,17 @@ function DnsPage() {
                   },
                 ]
               : []),
-            {
-              key: 'refresh',
-              label: '刷新',
-              icon: <RefreshCw className="h-4 w-4" />,
-              onClick: refreshCurrentTab,
-              loading: Object.values(loading).some(Boolean),
-            },
+            ...(activeTab === 'email'
+              ? []
+              : [
+                  {
+                    key: 'refresh',
+                    label: '刷新',
+                    icon: <RefreshCw className="h-4 w-4" />,
+                    onClick: refreshCurrentTab,
+                    loading: Object.values(loading).some(Boolean),
+                  },
+                ]),
           ]}
         />
       </div>
@@ -1903,6 +1976,7 @@ function DnsPage() {
               loading={loading}
               workers={workers}
               workerSubdomain={workerSubdomain}
+              workerSubdomains={workerSubdomains}
               workerUsage={workerUsage}
               workerColWidths={workerColWidths}
               startWorkerResize={startWorkerResize}
@@ -2007,7 +2081,7 @@ function DnsPage() {
           )}
 
           {activeTab === 'email' && (
-            <EmailRoutingPanel selectedAccountId={selectedAccountId} cfApi={cfApi} />
+            <EmailRoutingPanel key={selectedAccountId} selectedAccountId={selectedAccountId} cfApi={cfApi} />
           )}
 
           {activeTab === 'accounts' && (

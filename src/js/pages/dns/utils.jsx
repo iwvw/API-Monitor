@@ -112,6 +112,14 @@ export function recordShortName(name, zoneName) {
   return name.endsWith(suffix) ? name.slice(0, -suffix.length) : name;
 }
 
+export function recordFullName(name, zoneName) {
+  const value = String(name || '').trim();
+  if (!value || !zoneName) return value;
+  if (value === '@') return zoneName;
+  if (value === zoneName || value.endsWith(`.${zoneName}`)) return value;
+  return `${value}.${zoneName}`;
+}
+
 export function zoneStatusLabel(status) {
   const map = {
     active: '已激活',

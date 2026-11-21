@@ -86,8 +86,7 @@ function EmailRoutingPanel({ selectedAccountId, cfApi }) {
       const data = await cfApi(`${base}/zones`);
       const list = data?.zones || [];
       setZones(list);
-      const prefer = list.find(z => z.name === 'dmuk.org') || list[0];
-      setZoneId(prev => prev || prefer?.id || '');
+      setZoneId(prev => (list.some(z => z.id === prev) ? prev : (list[0]?.id || '')));
     } catch (e) {
       toast.error(`加载域名列表失败：${e.message}`);
     }
