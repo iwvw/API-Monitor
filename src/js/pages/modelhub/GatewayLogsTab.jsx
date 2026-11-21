@@ -127,10 +127,7 @@ export function GatewayLogsTab({ analytics, endpoints }) {
           </span>
         </div>
         <div className="mt-1 flex min-w-0 items-center gap-2 text-[11px] leading-normal">
-          <span
-            className="min-w-0 flex-1 truncate text-kumo-strong"
-            onClick={event => event.stopPropagation()}
-          >
+          <span className="min-w-0 flex-1 truncate text-kumo-strong">
             <FailoverPathBadge path={log.failoverPath} endpointName={log.endpointName} />
           </span>
           <div className="inline-flex shrink-0 items-center gap-1">

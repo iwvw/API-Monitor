@@ -16,7 +16,10 @@ export function FailoverPathBadge({ path, endpointName }) {
       <Popover.Trigger
         nativeButton={false}
         render={
-          <span className="cursor-pointer break-all font-medium text-kumo-warning">
+          <span
+            className="cursor-pointer break-all font-medium text-kumo-warning"
+            onClick={event => event.stopPropagation()}
+          >
             {endpointName}
           </span>
         }
