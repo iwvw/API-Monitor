@@ -214,19 +214,7 @@ func (s *Service) RunExpiryScan(ctx context.Context) {
 // loadAllAssetsForScan 分批读取全部资产（含派生状态），供到期扫描使用。
 // 复用 LoadAssets 的派生逻辑，但通过翻页覆盖全表，不受 API 分页上限约束。
 func (s *Service) loadAllAssetsForScan(ctx context.Context) ([]Asset, error) {
-	const batch = maxLimit
-	all := []Asset{}
-	for offset := 0; ; offset += batch {
-		page, err := s.LoadAssets(ctx, assetFilter{Limit: batch, Offset: offset})
-		if err != nil {
-			return nil, err
-		}
-		all = append(all, page...)
-		if len(page) < batch {
-			break
-		}
-	}
-	return all, nil
+	return s.loadAllAssets(ctx)
 }
 
 // claimAlertMarker 以 (asset_id, marker) 为键做告警去重：

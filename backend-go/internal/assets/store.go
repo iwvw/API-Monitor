@@ -54,8 +54,8 @@ func (s *Service) LoadAssets(ctx context.Context, filter assetFilter) ([]Asset, 
 		args = append(args, like, like, like, like)
 	}
 	if filter.Tag != "" {
-		conditions = append(conditions, "tags_json LIKE ?")
-		args = append(args, "%\""+filter.Tag+"\"%")
+		conditions = append(conditions, "tags_json LIKE ? ESCAPE '\\'")
+		args = append(args, "%\""+escapeLike(filter.Tag)+"\"%")
 	}
 
 	where := ""
@@ -283,6 +283,24 @@ func (s *Service) UpdateAsset(ctx context.Context, id string, payload map[string
 		}
 		set("asset_type", assetType)
 	}
+	// category 与 asset_type 任一变化后,都必须按「最终组合」校验一次:
+	// 只改 category 时上面的 asset_type 分支不会执行,否则会落成
+	// category=virtual + asset_type=server 这种 CreateAsset 会拒绝的非法组合。
+	_, hasCategory := payload["category"]
+	_, hasAssetType := payload["asset_type"]
+	if hasCategory || hasAssetType {
+		finalCategory := existing.Category
+		if hasCategory {
+			finalCategory = trimmedString(payload["category"])
+		}
+		finalType := existing.AssetType
+		if hasAssetType {
+			finalType = trimmedString(payload["asset_type"])
+		}
+		if !validTypeForCategory(finalCategory, finalType) {
+			return fmt.Errorf("%w: asset_type does not belong to category", errInvalidInput)
+		}
+	}
 	if _, has := payload["provider"]; has {
 		set("provider", trimmedString(payload["provider"]))
 	}
@@ -362,22 +380,27 @@ func (s *Service) DeleteAsset(ctx context.Context, id string) error {
 	}
 	defer db.Close()
 
-	// assets 与 asset_links / asset_events 的删除必须原子：中途失败会留下
-	// 指向已删资产的悬挂 link/event，且来源刷新无法再修正。
+	// assets 与 asset_links 的删除必须原子：中途失败会留下
+	// 指向已删资产的悬挂 link，且来源刷新无法再修正;asset_events 是审计历史,不随资产删除一并抹除;删除不存在的 id 返回 sql.ErrNoRows。
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
 
-	if _, err := tx.ExecContext(ctx, "DELETE FROM assets WHERE id = ?", id); err != nil {
+	res, err := tx.ExecContext(ctx, "DELETE FROM assets WHERE id = ?", id)
+	if err != nil {
 		return fmt.Errorf("delete asset: %w", err)
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		return sql.ErrNoRows
 	}
 	if _, err := tx.ExecContext(ctx, "DELETE FROM asset_links WHERE asset_id = ?", id); err != nil {
 		return fmt.Errorf("delete asset links: %w", err)
-	}
-	if _, err := tx.ExecContext(ctx, "DELETE FROM asset_events WHERE asset_id = ?", id); err != nil {
-		return fmt.Errorf("delete asset events: %w", err)
 	}
 	return tx.Commit()
 }
@@ -509,12 +532,31 @@ func (s *Service) SaveSettings(ctx context.Context, settings Settings) error {
 	return nil
 }
 
+// loadAllAssets 分批读取全部资产(含派生状态),不受 API 分页上限约束。
+// 总览/统计必须覆盖全表:任何 maxLimit 截断都会让计数、分桶、成本与
+// recent_expiring 静默漏计。
+func (s *Service) loadAllAssets(ctx context.Context) ([]Asset, error) {
+	const batch = maxLimit
+	all := []Asset{}
+	for offset := 0; ; offset += batch {
+		page, err := s.LoadAssets(ctx, assetFilter{Limit: batch, Offset: offset})
+		if err != nil {
+			return nil, err
+		}
+		all = append(all, page...)
+		if len(page) < batch {
+			break
+		}
+	}
+	return all, nil
+}
+
 func (s *Service) loadAllForStats(ctx context.Context) ([]Asset, Settings, error) {
 	settings, err := s.LoadSettings(ctx)
 	if err != nil {
 		return nil, Settings{}, err
 	}
-	assets, err := s.LoadAssets(ctx, assetFilter{Limit: maxLimit})
+	assets, err := s.loadAllAssets(ctx)
 	if err != nil {
 		return nil, Settings{}, err
 	}

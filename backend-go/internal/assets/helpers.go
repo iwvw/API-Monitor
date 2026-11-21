@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -16,7 +17,7 @@ import (
 
 func decodeJSON(w http.ResponseWriter, r *http.Request, target interface{}) bool {
 	defer r.Body.Close()
-	if err := json.NewDecoder(r.Body).Decode(target); err != nil {
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(target); err != nil {
 		response.Error(w, http.StatusBadRequest, "request parameter validation failed")
 		return false
 	}
@@ -60,6 +61,12 @@ func stringValue(value interface{}) string {
 
 func trimmedString(value interface{}) string {
 	return strings.TrimSpace(stringValue(value))
+}
+
+// escapeLike 转义 LIKE 模式里的通配符,避免用户输入的 % / _ 被当成通配符。
+// 与 SQL 侧的 ESCAPE '\' 配合使用。
+func escapeLike(value string) string {
+	return strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(value)
 }
 
 func boolValue(value interface{}, fallback bool) bool {
