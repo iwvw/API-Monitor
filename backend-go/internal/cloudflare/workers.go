@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/textproto"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -61,7 +62,7 @@ func (s *Service) workerScript(w http.ResponseWriter, r *http.Request, accountID
 	if !ok {
 		return
 	}
-	cfAccountID, err := s.cloudflareAccountID(r.Context(), auth)
+	cfAccountID, err := s.cloudflareAccountIDForWrite(r.Context(), auth, r.Method)
 	if err != nil {
 		response.JSON(w, http.StatusInternalServerError, map[string]interface{}{"error": err.Error()})
 		return
@@ -115,7 +116,7 @@ func (s *Service) toggleWorker(w http.ResponseWriter, r *http.Request, accountID
 	if !ok {
 		return
 	}
-	cfAccountID, err := s.cloudflareAccountID(r.Context(), auth)
+	cfAccountID, err := s.cloudflareAccountIDStrict(r.Context(), auth)
 	if err != nil {
 		response.JSON(w, http.StatusInternalServerError, map[string]interface{}{"error": err.Error()})
 		return
@@ -221,7 +222,7 @@ func (s *Service) workerAnalytics(w http.ResponseWriter, r *http.Request, accoun
 	}
 	payload, err := s.cfRequest(r.Context(), http.MethodGet, path, auth, nil)
 	if err != nil {
-		response.JSON(w, http.StatusOK, map[string]interface{}{"success": true, "analytics": nil})
+		response.JSON(w, http.StatusBadGateway, map[string]interface{}{"success": false, "error": err.Error()})
 		return
 	}
 	response.JSON(w, http.StatusOK, map[string]interface{}{"success": true, "analytics": payload["result"]})
@@ -232,7 +233,7 @@ func (s *Service) workerDomains(w http.ResponseWriter, r *http.Request, accountI
 	if !ok {
 		return
 	}
-	cfAccountID, err := s.cloudflareAccountID(r.Context(), auth)
+	cfAccountID, err := s.cloudflareAccountIDForWrite(r.Context(), auth, r.Method)
 	if err != nil {
 		response.JSON(w, http.StatusInternalServerError, map[string]interface{}{"error": err.Error()})
 		return
@@ -241,7 +242,8 @@ func (s *Service) workerDomains(w http.ResponseWriter, r *http.Request, accountI
 	case http.MethodGet:
 		domains, err := s.listWorkerDomains(r.Context(), auth, cfAccountID, scriptName)
 		if err != nil {
-			domains = []map[string]interface{}{}
+			response.JSON(w, http.StatusBadGateway, map[string]interface{}{"success": false, "error": err.Error()})
+			return
 		}
 		response.JSON(w, http.StatusOK, map[string]interface{}{"success": true, "domains": domains})
 	case http.MethodPost:
@@ -271,7 +273,7 @@ func (s *Service) deleteWorkerDomain(w http.ResponseWriter, r *http.Request, acc
 	if !ok {
 		return
 	}
-	cfAccountID, err := s.cloudflareAccountID(r.Context(), auth)
+	cfAccountID, err := s.cloudflareAccountIDStrict(r.Context(), auth)
 	if err != nil {
 		response.JSON(w, http.StatusInternalServerError, map[string]interface{}{"error": err.Error()})
 		return
@@ -356,12 +358,26 @@ func (s *Service) putWorkerScript(ctx context.Context, auth map[string]string, a
 }
 
 func (s *Service) listWorkerDomains(ctx context.Context, auth map[string]string, accountID, scriptName string) ([]map[string]interface{}, error) {
-	payload, err := s.cfRequest(ctx, http.MethodGet, "/accounts/"+url.PathEscape(accountID)+"/workers/domains", auth, nil)
+	basePath := "/accounts/" + url.PathEscape(accountID) + "/workers/domains?per_page=100"
+	payload, err := s.cfRequest(ctx, http.MethodGet, basePath, auth, nil)
 	if err != nil {
 		return nil, err
 	}
+	all := arrayValue(payload["result"])
+	totalPages := intValue(objectValue(payload["result_info"])["total_pages"], 1)
+	for page := 2; page <= totalPages; page++ {
+		pagePayload, perr := s.cfRequest(ctx, http.MethodGet, basePath+"&page="+strconv.Itoa(page), auth, nil)
+		if perr != nil {
+			break
+		}
+		before := len(all)
+		all = append(all, arrayValue(pagePayload["result"])...)
+		if len(all) == before {
+			break
+		}
+	}
 	domains := []map[string]interface{}{}
-	for _, item := range arrayValue(payload["result"]) {
+	for _, item := range all {
 		domain := objectValue(item)
 		if stringValue(domain["service"], "") != scriptName {
 			continue

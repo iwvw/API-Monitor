@@ -2,6 +2,7 @@ package cloudflare
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -27,6 +28,7 @@ func (s *Service) allZones(w http.ResponseWriter, r *http.Request) {
 	}
 
 	allZones := []interface{}{}
+	failed := []map[string]interface{}{}
 	for _, account := range accounts {
 		token := secure.SecureDecrypt(stringValue(account["api_token"], ""))
 		if token == "" {
@@ -34,11 +36,20 @@ func (s *Service) allZones(w http.ResponseWriter, r *http.Request) {
 		}
 		zones, _, err := s.listZones(r.Context(), cloudflareAuthForAccount(token, account), nil)
 		if err != nil {
+			failed = append(failed, map[string]interface{}{
+				"name":  stringValue(account["name"], ""),
+				"error": err.Error(),
+			})
 			continue
 		}
 		allZones = append(allZones, zones...)
 	}
-	response.JSON(w, http.StatusOK, map[string]interface{}{"success": true, "data": allZones})
+	payload := map[string]interface{}{"success": true, "data": allZones}
+	if len(failed) > 0 {
+		payload["partial"] = true
+		payload["errors"] = failed
+	}
+	response.JSON(w, http.StatusOK, payload)
 }
 
 func (s *Service) accountZones(w http.ResponseWriter, r *http.Request, accountID string) {
@@ -70,7 +81,7 @@ func (s *Service) accountZones(w http.ResponseWriter, r *http.Request, accountID
 			response.JSON(w, http.StatusBadRequest, map[string]interface{}{"error": "域名不能为空"})
 			return
 		}
-		cfAccountID, err := s.cloudflareAccountID(r.Context(), auth)
+		cfAccountID, err := s.cloudflareAccountIDForWrite(r.Context(), auth, r.Method)
 		if err != nil {
 			response.JSON(w, http.StatusInternalServerError, map[string]interface{}{"error": err.Error()})
 			return
@@ -173,6 +184,10 @@ func (s *Service) recordMutation(w http.ResponseWriter, r *http.Request, account
 			response.JSON(w, http.StatusBadRequest, map[string]interface{}{"error": err.Error()})
 			return
 		}
+		if errorsOut := validateDNSRecordUpdate(payload); len(errorsOut) > 0 {
+			response.JSON(w, http.StatusBadRequest, map[string]interface{}{"error": strings.Join(errorsOut, ", ")})
+			return
+		}
 		apiPayload, err := s.cfRequest(r.Context(), http.MethodPatch, "/zones/"+url.PathEscape(zoneID)+"/dns_records/"+url.PathEscape(recordID), auth, dnsRecordBody(payload, true))
 		if err != nil {
 			response.JSON(w, http.StatusInternalServerError, map[string]interface{}{"error": err.Error()})
@@ -212,6 +227,7 @@ func (s *Service) batchCreateRecords(w http.ResponseWriter, r *http.Request, acc
 	}
 	response.JSON(w, http.StatusOK, map[string]interface{}{
 		"success": len(errorsOut) == 0,
+		"partial": len(errorsOut) > 0 && len(results) > 0,
 		"created": len(results),
 		"failed":  len(errorsOut),
 		"results": results,
@@ -273,13 +289,16 @@ func (s *Service) purgeZoneCache(w http.ResponseWriter, r *http.Request, account
 		response.JSON(w, http.StatusBadRequest, map[string]interface{}{"error": err.Error()})
 		return
 	}
-	body := map[string]interface{}{"purge_everything": true}
+	body := map[string]interface{}{}
 	if boolValue(payload["purge_everything"]) {
-		body = map[string]interface{}{"purge_everything": true}
-	} else if files := arrayValue(payload["files"]); files != nil {
-		body = map[string]interface{}{"files": files}
-	} else if tags := arrayValue(payload["tags"]); tags != nil {
-		body = map[string]interface{}{"tags": tags}
+		body["purge_everything"] = true
+	} else if files := arrayValue(payload["files"]); len(files) > 0 {
+		body["files"] = files
+	} else if tags := arrayValue(payload["tags"]); len(tags) > 0 {
+		body["tags"] = tags
+	} else {
+		response.JSON(w, http.StatusBadRequest, map[string]interface{}{"error": "需要提供 purge_everything、files 或 tags,拒绝按缺省值清空整站缓存"})
+		return
 	}
 	apiPayload, err := s.cfRequest(r.Context(), http.MethodPost, "/zones/"+url.PathEscape(zoneID)+"/purge_cache", auth, body)
 	if err != nil {
@@ -428,10 +447,29 @@ func (s *Service) listDNSRecords(ctx context.Context, auth map[string]string, zo
 	if err != nil {
 		return nil, nil, err
 	}
-	return arrayValue(payload["result"]), payload["result_info"], nil
+	results := arrayValue(payload["result"])
+	firstInfo := payload["result_info"]
+	totalPages := intValue(objectValue(firstInfo)["total_pages"], 1)
+	for page := 2; page <= totalPages; page++ {
+		query.Set("page", strconv.Itoa(page))
+		pagePayload, perr := s.cfRequest(ctx, http.MethodGet, "/zones/"+url.PathEscape(zoneID)+"/dns_records?"+query.Encode(), auth, nil)
+		if perr != nil {
+			applog.Warn(ctx, "cloudflare", "failed to list dns records page", "zone", zoneID, "page", page, "error", perr.Error())
+			break
+		}
+		before := len(results)
+		results = append(results, arrayValue(pagePayload["result"])...)
+		if len(results) == before {
+			break
+		}
+	}
+	return results, firstInfo, nil
 }
 
 func (s *Service) createDNSRecord(ctx context.Context, auth map[string]string, zoneID string, payload map[string]interface{}) (map[string]interface{}, error) {
+	if errorsOut := validateDNSRecord(payload); len(errorsOut) > 0 {
+		return nil, errors.New(strings.Join(errorsOut, ", "))
+	}
 	apiPayload, err := s.cfRequest(ctx, http.MethodPost, "/zones/"+url.PathEscape(zoneID)+"/dns_records", auth, dnsRecordBody(payload, false))
 	if err != nil {
 		return nil, err
@@ -471,6 +509,7 @@ func mapDNSRecord(record map[string]interface{}, includeTimes bool) map[string]i
 
 func dnsRecordBody(payload map[string]interface{}, partial bool) map[string]interface{} {
 	body := map[string]interface{}{}
+	recordType := strings.ToUpper(strings.TrimSpace(stringValue(payload["type"], "")))
 	for _, key := range []string{"type", "name", "content"} {
 		if value := strings.TrimSpace(stringValue(payload[key], "")); value != "" {
 			body[key] = value
@@ -482,14 +521,32 @@ func dnsRecordBody(payload map[string]interface{}, partial bool) map[string]inte
 		body["ttl"] = 1
 	}
 	if value, ok := payload["proxied"]; ok {
-		body["proxied"] = boolValue(value)
-	} else if !partial {
+		if proxiableRecordType(recordType) || recordType == "" {
+			body["proxied"] = boolValue(value)
+		}
+	} else if !partial && proxiableRecordType(recordType) {
 		body["proxied"] = true
 	}
 	if value, ok := payload["priority"]; ok {
 		body["priority"] = intValue(value, 0)
 	}
+	if value, ok := payload["data"]; ok {
+		if data := objectValue(value); len(data) > 0 {
+			body["data"] = data
+		}
+	}
+	if comment := strings.TrimSpace(stringValue(payload["comment"], "")); comment != "" {
+		body["comment"] = comment
+	}
 	return body
+}
+
+func proxiableRecordType(recordType string) bool {
+	switch strings.ToUpper(strings.TrimSpace(recordType)) {
+	case "A", "AAAA", "CNAME":
+		return true
+	}
+	return false
 }
 
 func supportedRecordTypes() []string {
@@ -513,18 +570,7 @@ func validateDNSRecord(record map[string]interface{}) []string {
 		errorsOut = append(errorsOut, "Content is required")
 	}
 	if recordType == "A" {
-		parts := strings.Split(content, ".")
-		if len(parts) != 4 {
-			errorsOut = append(errorsOut, "Invalid IPv4 address")
-		} else {
-			for _, part := range parts {
-				value := intValue(part, -1)
-				if value < 0 || value > 255 || part == "" {
-					errorsOut = append(errorsOut, "Invalid IPv4 address")
-					break
-				}
-			}
-		}
+		errorsOut = append(errorsOut, validateIPv4(content)...)
 	}
 	if recordType == "MX" {
 		if _, ok := record["priority"]; !ok {
@@ -532,4 +578,44 @@ func validateDNSRecord(record map[string]interface{}) []string {
 		}
 	}
 	return errorsOut
+}
+
+// validateDNSRecordUpdate 对 PATCH/PUT 这类部分更新做字段级校验:只校验显式提供的
+// 字段,未提供的字段沿用上游现值。
+func validateDNSRecordUpdate(record map[string]interface{}) []string {
+	errorsOut := []string{}
+	recordType := strings.ToUpper(strings.TrimSpace(stringValue(record["type"], "")))
+	if _, ok := record["type"]; ok {
+		if recordType == "" {
+			errorsOut = append(errorsOut, "Type is required")
+		} else if !containsString(supportedRecordTypes(), recordType) {
+			errorsOut = append(errorsOut, "Invalid type: "+recordType)
+		}
+	}
+	if value, ok := record["name"]; ok && strings.TrimSpace(stringValue(value, "")) == "" {
+		errorsOut = append(errorsOut, "Name is required")
+	}
+	if value, ok := record["content"]; ok {
+		content := strings.TrimSpace(stringValue(value, ""))
+		if content == "" {
+			errorsOut = append(errorsOut, "Content is required")
+		} else if recordType == "A" {
+			errorsOut = append(errorsOut, validateIPv4(content)...)
+		}
+	}
+	return errorsOut
+}
+
+func validateIPv4(content string) []string {
+	parts := strings.Split(content, ".")
+	if len(parts) != 4 {
+		return []string{"Invalid IPv4 address"}
+	}
+	for _, part := range parts {
+		value := intValue(part, -1)
+		if value < 0 || value > 255 || part == "" {
+			return []string{"Invalid IPv4 address"}
+		}
+	}
+	return nil
 }

@@ -72,7 +72,7 @@ func (s *Service) managedTunnelAuth(ctx context.Context, accountID string) (map[
 		return nil, "", errors.New("Cloudflare account token is empty")
 	}
 	auth := cloudflareAuthForAccount(token, account)
-	cfAccountID, err := s.cloudflareAccountID(ctx, auth)
+	cfAccountID, err := s.cloudflareAccountIDStrict(ctx, auth)
 	if err != nil {
 		return nil, "", fmt.Errorf("resolve Cloudflare account ID: %w", err)
 	}

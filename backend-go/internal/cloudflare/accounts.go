@@ -200,7 +200,13 @@ func (s *Service) importAccounts(w http.ResponseWriter, r *http.Request) {
 			response.JSON(w, http.StatusBadRequest, map[string]interface{}{"error": err.Error()})
 			return
 		}
-		encrypted, err := secure.SecureEncrypt(secure.SecureDecrypt(apiToken))
+		decryptedToken := secure.SecureDecrypt(apiToken)
+		if secure.IsEncrypted(apiToken) && decryptedToken == "" {
+			_ = tx.Rollback()
+			response.JSON(w, http.StatusBadRequest, map[string]interface{}{"error": "导入的 API Token 无法解密:加密密钥与本实例不一致,请填写明文 Token"})
+			return
+		}
+		encrypted, err := secure.SecureEncrypt(decryptedToken)
 		if err != nil {
 			_ = tx.Rollback()
 			response.JSON(w, http.StatusInternalServerError, map[string]interface{}{"error": "数据加密失败"})
@@ -421,6 +427,15 @@ func (s *Service) cloudflareAccountID(ctx context.Context, auth map[string]strin
 
 func (s *Service) cloudflareAccountIDStrict(ctx context.Context, auth map[string]string) (string, error) {
 	return s.resolveCloudflareAccountID(ctx, auth, 5, true)
+}
+
+// cloudflareAccountIDForWrite 对写/破坏性操作要求账户唯一可解析,避免 token 可见
+// 多个账户时静默落到第一个账户并误改/误删。只读(GET)仍保持宽松解析。
+func (s *Service) cloudflareAccountIDForWrite(ctx context.Context, auth map[string]string, method string) (string, error) {
+	if method == http.MethodGet {
+		return s.cloudflareAccountID(ctx, auth)
+	}
+	return s.cloudflareAccountIDStrict(ctx, auth)
 }
 
 func (s *Service) resolveCloudflareAccountID(ctx context.Context, auth map[string]string, perPage int, requireUnique bool) (string, error) {

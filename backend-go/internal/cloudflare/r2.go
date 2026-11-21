@@ -2,6 +2,7 @@ package cloudflare
 
 import (
 	"archive/zip"
+	"bytes"
 	"encoding/json"
 	"io"
 	"mime"
@@ -256,12 +257,17 @@ func (s *Service) r2ObjectDownloadInfo(w http.ResponseWriter, r *http.Request, a
 			publicUrl = base + "/" + objectKey
 		}
 	}
-	response.JSON(w, http.StatusOK, map[string]interface{}{
+	payload := map[string]interface{}{
 		"success":    true,
 		"publicUrl":  publicUrl,
 		"objectKey":  objectKey,
 		"bucketName": bucketName,
-	})
+	}
+	if err != nil {
+		payload["partial"] = true
+		payload["error"] = err.Error()
+	}
+	response.JSON(w, http.StatusOK, payload)
 }
 
 func (s *Service) r2ObjectDownload(w http.ResponseWriter, r *http.Request, accountID, bucketName, objectKey string) {
@@ -315,14 +321,25 @@ func (s *Service) r2FolderDownload(w http.ResponseWriter, r *http.Request, accou
 	}
 	prefix := r.URL.Query().Get("prefix")
 	// 对象逐个流式写入 zip；仍设上限跳过超大对象，避免异常大的对象长时间占用连接。
-	const maxObjectBytes = 512 << 20
+	const (
+		maxObjectBytes   = 512 << 20
+		maxFolderPages   = 2000
+		maxFolderObjects = 100000
+		maxFolderBytes   = 8 << 30
+	)
 	type objectEntry struct {
 		key  string
 		size int64
 	}
 	var objects []objectEntry
+	var totalBytes int64
 	cursor := ""
-	for {
+	truncated := false
+	for page := 0; ; page++ {
+		if page >= maxFolderPages {
+			truncated = true
+			break
+		}
 		query := url.Values{"limit": {"1000"}}
 		if prefix != "" {
 			query.Set("prefix", prefix)
@@ -342,15 +359,27 @@ func (s *Service) r2FolderDownload(w http.ResponseWriter, r *http.Request, accou
 		for _, item := range arrayValue(payload["result"]) {
 			if obj, ok := item.(map[string]interface{}); ok {
 				if key, ok := obj["key"].(string); ok && key != "" {
-					objects = append(objects, objectEntry{key: key, size: int64(numberValue(obj["size"]))})
+					size := int64(numberValue(obj["size"]))
+					objects = append(objects, objectEntry{key: key, size: size})
+					totalBytes += size
 				}
 			}
 		}
-		resInfo := objectValue(payload["result_info"])
-		cursor, _ = resInfo["cursor"].(string)
-		if cursor == "" {
+		if len(objects) >= maxFolderObjects || totalBytes > maxFolderBytes {
+			truncated = true
 			break
 		}
+		resInfo := objectValue(payload["result_info"])
+		nextCursor, _ := resInfo["cursor"].(string)
+		// cursor 未推进(上游异常重复返回同一 cursor)时终止,避免死循环。
+		if nextCursor == "" || nextCursor == cursor {
+			break
+		}
+		cursor = nextCursor
+	}
+	if truncated {
+		response.JSON(w, http.StatusRequestEntityTooLarge, map[string]interface{}{"error": "目录对象过多或总大小超限,无法一次性打包下载,请缩小前缀范围或分批下载"})
+		return
 	}
 	sort.Slice(objects, func(i, j int) bool { return objects[i].key < objects[j].key })
 
@@ -474,16 +503,25 @@ func (s *Service) r2ObjectPreview(w http.ResponseWriter, r *http.Request, accoun
 		return
 	}
 	path := "/accounts/" + url.PathEscape(cfAccountID) + "/r2/buckets/" + url.PathEscape(bucketName) + "/objects/" + url.PathEscape(objectKey)
-	raw, contentType, err := s.cfRawRequest(r.Context(), http.MethodGet, path, auth, "*/*", "", nil)
+	reader, contentLength, contentType, err := s.cfStreamRequest(r.Context(), http.MethodGet, path, auth, "*/*", "", nil)
 	if err != nil {
 		response.JSON(w, http.StatusInternalServerError, map[string]interface{}{"error": err.Error()})
 		return
 	}
+	defer reader.Close()
+	const maxPreviewBytes = 16 << 20
+	if contentLength > maxPreviewBytes {
+		response.JSON(w, http.StatusRequestEntityTooLarge, map[string]interface{}{"error": "对象过大,无法内嵌预览,请使用下载"})
+		return
+	}
+	prefix := make([]byte, 512)
+	n, _ := io.ReadFull(reader, prefix)
+	prefix = prefix[:n]
 	if contentType == "" || strings.HasPrefix(strings.ToLower(contentType), "application/octet-stream") {
 		if detected := mime.TypeByExtension(strings.ToLower(pathExt(objectKey))); detected != "" {
 			contentType = detected
-		} else if len(raw) > 0 {
-			contentType = http.DetectContentType(raw)
+		} else if n > 0 {
+			contentType = http.DetectContentType(prefix)
 		} else {
 			contentType = "application/octet-stream"
 		}
@@ -499,7 +537,7 @@ func (s *Service) r2ObjectPreview(w http.ResponseWriter, r *http.Request, accoun
 		w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": objectFileName(objectKey)}))
 	}
 	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write(raw)
+	_, _ = io.Copy(w, io.MultiReader(bytes.NewReader(prefix), reader))
 }
 
 func pathExt(value string) string {

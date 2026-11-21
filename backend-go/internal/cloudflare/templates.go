@@ -213,6 +213,8 @@ func (s *Service) applyTemplate(w http.ResponseWriter, r *http.Request, template
 			"ttl":      record["ttl"],
 			"proxied":  record["proxied"],
 			"priority": record["priority"],
+			"data":     record["data"],
+			"comment":  record["comment"],
 		}
 		if overrideName != "" {
 			next["name"] = overrideName
@@ -226,6 +228,7 @@ func (s *Service) applyTemplate(w http.ResponseWriter, r *http.Request, template
 	}
 	response.JSON(w, http.StatusOK, map[string]interface{}{
 		"success": len(errorsOut) == 0,
+		"partial": len(errorsOut) > 0 && len(results) > 0,
 		"created": len(results),
 		"failed":  len(errorsOut),
 		"results": results,
@@ -368,6 +371,8 @@ func templateRecordsFromPayload(payload map[string]interface{}) ([]interface{}, 
 		"proxied":  payload["proxied"],
 		"ttl":      payload["ttl"],
 		"priority": payload["priority"],
+		"data":     payload["data"],
+		"comment":  payload["comment"],
 	}}, true
 }
 

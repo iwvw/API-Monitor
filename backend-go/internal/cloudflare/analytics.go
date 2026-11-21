@@ -23,10 +23,13 @@ func (s *Service) zoneAnalytics(w http.ResponseWriter, r *http.Request, accountI
 		timeRange = "24h"
 	}
 	analytics, err := s.simpleAnalytics(r.Context(), auth, zoneID, timeRange)
+	payload := map[string]interface{}{"success": true, "analytics": analytics, "timeRange": timeRange}
 	if err != nil {
-		analytics = emptyAnalytics()
+		payload["analytics"] = emptyAnalytics()
+		payload["partial"] = true
+		payload["error"] = err.Error()
 	}
-	response.JSON(w, http.StatusOK, map[string]interface{}{"success": true, "analytics": analytics, "timeRange": timeRange})
+	response.JSON(w, http.StatusOK, payload)
 }
 
 func (s *Service) simpleAnalytics(ctx context.Context, auth map[string]string, zoneID, timeRange string) (map[string]interface{}, error) {
