@@ -17,7 +17,7 @@ const DOCKER_CONTAINER_TABLE_COLUMNS = [
   { id: 'select', role: 'check' },
   { id: 'container', role: 'primary', grow: 2 },
   { id: 'state', role: 'status' },
-  { id: 'ports', role: 'meta', align: 'center', minWidth: 112, idealWidth: 160, maxWidth: 220 },
+  { id: 'ports', role: 'meta', align: 'center', grow: 1, minWidth: 120, maxWidth: 260 },
   { id: 'update', role: 'status', minWidth: 96, width: 100, maxWidth: 116 },
   { id: 'actions', role: 'actions-lg' },
 ];
@@ -535,7 +535,7 @@ export default function ServerDockerConsole(props) {
                                       </Table.Cell>
                                       <Table.Cell className="!px-2 !py-1.5 text-center">
                                         <span
-                                          className="truncate font-mono text-xs leading-5 text-kumo-subtle"
+                                          className="block max-w-full truncate font-mono text-xs leading-5 text-kumo-subtle"
                                           title={containerPorts}
                                         >
                                           {containerPorts || '-'}
@@ -1086,7 +1086,7 @@ export default function ServerDockerConsole(props) {
                         ]}
                         columns={[
                           { id: 'repository', role: 'primary', grow: 8, minWidth: 200 },
-                          { id: 'tag', role: 'primary', grow: 1, minWidth: 88, maxWidth: 140, align: 'center' },
+                          { id: 'tag', role: 'primary', grow: 1, minWidth: 176, maxWidth: 240, align: 'center' },
                           { id: 'size', role: 'primary', grow: 1, minWidth: 88, maxWidth: 140, align: 'center' },
                           { id: 'actions', role: 'primary', grow: 1, minWidth: 96, maxWidth: 120, align: 'center' },
                         ]}
@@ -1134,8 +1134,13 @@ export default function ServerDockerConsole(props) {
                                 </div>
                               </Table.Cell>
                               <Table.Cell className="!px-2 !py-1.5 text-center">
-                                <Badge variant="secondary" className="font-mono text-xs">
-                                  {tag}
+                                <Badge
+                                  variant="secondary"
+                                  className="max-w-full font-mono text-xs"
+                                >
+                                  <span className="min-w-0 truncate" title={tag}>
+                                    {tag}
+                                  </span>
                                 </Badge>
                               </Table.Cell>
                               <Table.Cell className="!px-2 !py-1.5 text-center">
