@@ -149,3 +149,9 @@ diag2.json
 # ====================
 backend-go/api-monitor-relay
 backend-go/api-monitor-relay.exe
+
+# ====================
+# 含真实环境信息的文档(生产主机 IP、压测环境拓扑等)不入库,
+# 只保留在本地工作区;新增同类文档请在此登记
+# ====================
+docs/performance-and-deps-requirements.md
