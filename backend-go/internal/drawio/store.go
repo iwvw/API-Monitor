@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/iwvw/api-monitor/backend-go/internal/config"
@@ -178,15 +179,37 @@ func (s *Store) UpdateDocument(ctx context.Context, id int64, req UpdateDocument
 	defer db.Close()
 
 	now := time.Now().UTC().Format(time.RFC3339)
-	_, err = db.ExecContext(ctx,
-		`UPDATE drawio_documents SET title = ?, description = ?, tags_json = ?,
+	query := `UPDATE drawio_documents SET title = ?, description = ?, tags_json = ?,
 		archived = CASE WHEN ? THEN 1 ELSE 0 END, updated_at = ?
-		WHERE id = ?`,
-		req.Title, req.Description, req.TagsJSON,
-		req.Archived != nil && *req.Archived,
-		now, id)
+		WHERE id = ?`
+	args := []interface{}{req.Title, req.Description, req.TagsJSON,
+		req.Archived != nil && *req.Archived, now, id}
+
+	// 可选乐观锁:调用方提供 expected_updated_at 时,并发改动不再静默覆盖,改为冲突。
+	expected := ""
+	if req.ExpectedUpdatedAt != nil {
+		expected = strings.TrimSpace(*req.ExpectedUpdatedAt)
+	}
+	if expected != "" {
+		query += ` AND updated_at = ?`
+		args = append(args, expected)
+	}
+
+	result, err := db.ExecContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
+	}
+
+	if expected != "" {
+		affected, _ := result.RowsAffected()
+		if affected == 0 {
+			var exists int
+			_ = db.QueryRowContext(ctx, `SELECT 1 FROM drawio_documents WHERE id = ?`, id).Scan(&exists)
+			if exists == 1 {
+				return nil, errDocumentConflict
+			}
+			return nil, nil
+		}
 	}
 
 	return s.GetDocument(ctx, id)
@@ -453,28 +476,30 @@ func (s *Store) SaveVersion(ctx context.Context, documentID int64, req SaveVersi
 		return nil, fmt.Errorf("conflict: draft revision mismatch")
 	}
 
-	// 获取下一个版本号
-	var lastVersionNo int
-	db.QueryRowContext(ctx, `SELECT COALESCE(MAX(version_no), 0) FROM drawio_versions WHERE document_id = ?`, documentID).Scan(&lastVersionNo)
-	nextVersionNo := lastVersionNo + 1
-
 	now := time.Now().UTC().Format(time.RFC3339)
 	pages, _, coverName := ParsePageInfo(draft.XMLContent)
 
+	// 版本号在单条 INSERT ... SELECT 内基于 MAX(version_no)+1 原子分配,
+	// 避免「先查 MAX 再 INSERT」的读改写竞态;并发发布由唯一索引兜底为冲突。
 	result, err := db.ExecContext(ctx,
 		`INSERT INTO drawio_versions (document_id, version_no, xml_content, xml_hash, summary, page_count, cover_page_name, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		documentID, nextVersionNo, draft.XMLContent, draft.XMLHash, req.Summary, len(pages), coverName, now)
+		SELECT ?, COALESCE(MAX(version_no), 0) + 1, ?, ?, ?, ?, ?, ? FROM drawio_versions WHERE document_id = ?`,
+		documentID, draft.XMLContent, draft.XMLHash, req.Summary, len(pages), coverName, now, documentID)
 	if err != nil {
+		if strings.Contains(strings.ToLower(err.Error()), "unique") {
+			return nil, fmt.Errorf("conflict: version number already allocated")
+		}
 		return nil, err
 	}
 
 	versionID, _ := result.LastInsertId()
+	var nextVersionNo int
+	db.QueryRowContext(ctx, `SELECT version_no FROM drawio_versions WHERE id = ?`, versionID).Scan(&nextVersionNo)
 
-	// 更新文档的最新版本信息
+	// 仅在分配到的版本号更大时推进 latest,避免并发发布把最新版本回退到旧号。
 	db.ExecContext(ctx,
-		`UPDATE drawio_documents SET latest_version_id = ?, latest_version_no = ?, updated_at = ? WHERE id = ?`,
-		versionID, nextVersionNo, now, documentID)
+		`UPDATE drawio_documents SET latest_version_id = ?, latest_version_no = ?, updated_at = ? WHERE id = ? AND COALESCE(latest_version_no, 0) < ?`,
+		versionID, nextVersionNo, now, documentID, nextVersionNo)
 
 	return &VersionPayload{
 		ID:            versionID,
@@ -493,6 +518,8 @@ var (
 	// handler 据此返回 404 而不是 500。
 	errVersionNotFound  = errors.New("version not found")
 	errVersionNotBelong = errors.New("version does not belong to document")
+	// errDocumentConflict 标识乐观锁校验失败(元数据被并发修改),handler 据此返回 409。
+	errDocumentConflict = errors.New("conflict: document modified")
 )
 
 func (s *Store) RestoreVersion(ctx context.Context, documentID, versionID int64) error {

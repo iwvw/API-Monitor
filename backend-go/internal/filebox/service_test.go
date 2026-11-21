@@ -1471,3 +1471,65 @@ func TestShareFromAgentFallsBackWhenAgentLacksDirectUpload(t *testing.T) {
 		t.Fatalf("panel relay fallback did not deliver bytes, got %q", gotBody)
 	}
 }
+
+func TestVerifyPublicShareLocksOutAfterRepeatedFailures(t *testing.T) {
+	service := newTestService(t, fakeAuth{ok: true})
+	body, contentType := multipartBody(t, map[string]string{
+		"type":            "text",
+		"text":            "locked content",
+		"expiry":          "1",
+		"access_password": "correct-horse",
+	}, nil)
+	res := performFileboxRequest(service, http.MethodPost, "/api/filebox/share", body, contentType)
+	var created struct {
+		Code string `json:"code"`
+	}
+	mustDecodeFilebox(t, res, &created)
+
+	for i := 0; i < publicAuthMaxFailures; i++ {
+		res = performFileboxRequest(service, http.MethodPost, "/api/filebox/public/"+created.Code+"/verify", strings.NewReader(`{"password":"wrong"}`), "application/json")
+		if res.Code != http.StatusForbidden {
+			t.Fatalf("failure %d verify status = %d body=%s", i, res.Code, res.Body.String())
+		}
+	}
+	res = performFileboxRequest(service, http.MethodPost, "/api/filebox/public/"+created.Code+"/verify", strings.NewReader(`{"password":"correct-horse"}`), "application/json")
+	if res.Code != http.StatusTooManyRequests {
+		t.Fatalf("expected lockout 429, got %d body=%s", res.Code, res.Body.String())
+	}
+}
+
+func TestProtectedShareMetadataHiddenBeforePassword(t *testing.T) {
+	service := newTestService(t, fakeAuth{ok: true})
+	body, contentType := multipartBody(t, map[string]string{
+		"type":            "text",
+		"text":            "hidden text",
+		"expiry":          "1",
+		"access_password": "pw",
+	}, nil)
+	res := performFileboxRequest(service, http.MethodPost, "/api/filebox/share", body, contentType)
+	var created struct {
+		Code string `json:"code"`
+	}
+	mustDecodeFilebox(t, res, &created)
+
+	res = performFileboxRequest(service, http.MethodGet, "/api/filebox/public/"+created.Code, nil, "")
+	if res.Code != http.StatusOK {
+		t.Fatalf("metadata status = %d body=%s", res.Code, res.Body.String())
+	}
+	var envelope map[string]json.RawMessage
+	if err := json.Unmarshal(res.Body.Bytes(), &envelope); err != nil {
+		t.Fatal(err)
+	}
+	var data map[string]json.RawMessage
+	if err := json.Unmarshal(envelope["data"], &data); err != nil {
+		t.Fatal(err)
+	}
+	if string(data["requiresPassword"]) != "true" {
+		t.Fatalf("expected requiresPassword true, got %s", data["requiresPassword"])
+	}
+	for _, field := range []string{"originalName", "textFormat", "preview", "serverId", "storageType"} {
+		if _, ok := data[field]; ok {
+			t.Fatalf("protected metadata leaked %s: %s", field, data[field])
+		}
+	}
+}
