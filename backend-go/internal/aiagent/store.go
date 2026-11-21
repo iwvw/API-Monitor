@@ -753,10 +753,7 @@ func (s *Service) createInstance(ctx context.Context, db *sql.DB, payload instan
 		instance.ID, instance.ServerID, instance.Provider, instance.Label, instance.Port,
 		enabled, instance.DesiredState, now, now)
 	if err != nil {
-		if strings.Contains(strings.ToLower(err.Error()), "unique") {
-			return Instance{}, errDuplicate
-		}
-		return Instance{}, err
+		return Instance{}, s.classifyInstanceConflict(ctx, db, instance.ServerID, instance.Provider, "", err)
 	}
 	return instance, nil
 }
@@ -824,10 +821,7 @@ func (s *Service) updateInstance(ctx context.Context, db *sql.DB, id string, pay
 		server_id = ?, provider = ?, label = ?, port = ?, enabled = ?, desired_state = ?, updated_at = ?
 		WHERE id = ?`, serverID, provider, label, port, enabledValue, desiredState, now, id)
 	if err != nil {
-		if strings.Contains(strings.ToLower(err.Error()), "unique") {
-			return Instance{}, errDuplicate
-		}
-		return Instance{}, err
+		return Instance{}, s.classifyInstanceConflict(ctx, db, serverID, provider, id, err)
 	}
 	return s.getInstance(ctx, db, id)
 }
@@ -856,6 +850,24 @@ func (s *Service) deleteInstance(ctx context.Context, db *sql.DB, id string) err
 var errInvalidProvider = errors.New("invalid provider")
 var errInvalidPort = errors.New("port out of range")
 var errInvalidDesiredState = errors.New("invalid desired state")
+var errPortInUse = errors.New("port already in use on this host")
+
+func (s *Service) classifyInstanceConflict(ctx context.Context, db *sql.DB, serverID, provider, excludeID string, cause error) error {
+	if cause == nil || !strings.Contains(strings.ToLower(cause.Error()), "unique") {
+		return cause
+	}
+	query := `SELECT COUNT(*) FROM aiagent_instances WHERE server_id = ? AND provider = ?`
+	args := []interface{}{serverID, provider}
+	if excludeID != "" {
+		query += ` AND id <> ?`
+		args = append(args, excludeID)
+	}
+	var count int
+	if err := db.QueryRowContext(ctx, query, args...).Scan(&count); err == nil && count > 0 {
+		return errDuplicate
+	}
+	return errPortInUse
+}
 
 // ---------- 实例元数据 ----------
 

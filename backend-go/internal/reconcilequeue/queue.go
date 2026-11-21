@@ -191,6 +191,13 @@ func Claim(ctx context.Context, db *sql.DB, now time.Time) (Job, bool, error) {
 		return Job{}, false, err
 	}
 	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `UPDATE subscription_runtime_reconcile
+		SET state='retry',next_attempt_at='',
+		last_error=CASE WHEN last_error='' THEN 'recovered stale running claim' ELSE last_error END,
+		updated_at=datetime('now')
+		WHERE state='running' AND updated_at < datetime('now','-10 minutes')`); err != nil {
+		return Job{}, false, err
+	}
 	var job Job
 	err = tx.QueryRowContext(ctx, `SELECT node_id,generation,attempts,reason
 		FROM subscription_runtime_reconcile
@@ -218,7 +225,9 @@ func Claim(ctx context.Context, db *sql.DB, now time.Time) (Job, bool, error) {
 }
 
 func Complete(ctx context.Context, db *sql.DB, job Job) error {
-	_, err := db.ExecContext(ctx, `UPDATE subscription_runtime_reconcile SET
+	execCtx, cancel := transitionTimeout(ctx)
+	defer cancel()
+	_, err := db.ExecContext(execCtx, `UPDATE subscription_runtime_reconcile SET
 		applied_generation=CASE WHEN applied_generation<? THEN ? ELSE applied_generation END,
 		state=CASE WHEN generation>? THEN 'pending' ELSE 'complete' END,
 		attempts=CASE WHEN generation>? THEN 0 ELSE attempts END,
@@ -238,11 +247,20 @@ func Retry(ctx context.Context, db *sql.DB, job Job, cause error, now time.Time)
 	if cause != nil {
 		message = cause.Error()
 	}
-	_, err := db.ExecContext(ctx, `UPDATE subscription_runtime_reconcile SET
+	execCtx, cancel := transitionTimeout(ctx)
+	defer cancel()
+	_, err := db.ExecContext(execCtx, `UPDATE subscription_runtime_reconcile SET
 		state=CASE WHEN generation>? THEN 'pending' ELSE 'retry' END,
 		next_attempt_at=CASE WHEN generation>? THEN '' ELSE ? END,
 		last_error=?,updated_at=datetime('now') WHERE node_id=?`, job.Generation, job.Generation, now.UTC().Add(delay).Format(time.RFC3339), message, job.NodeID)
 	return err
+}
+
+func transitionTimeout(ctx context.Context) (context.Context, context.CancelFunc) {
+	if ctx == nil || ctx.Err() != nil {
+		return context.WithTimeout(context.Background(), 10*time.Second)
+	}
+	return ctx, func() {}
 }
 
 func Status(ctx context.Context, db *sql.DB, nodeIDs []string) string {

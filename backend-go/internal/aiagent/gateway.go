@@ -28,8 +28,39 @@ const (
 	// 长时间无数据视为上游或客户端卡死，释放并发槽位。
 	gatewayStreamIdleTimeout = 10 * time.Minute
 	// gatewayStreamWriteTimeout 是单次写出的上限：慢客户端不读取导致的写阻塞会被此截止时间打断。
-	gatewayStreamWriteTimeout = 2 * time.Minute
+	gatewayStreamWriteTimeout   = 2 * time.Minute
+	gatewayWebSocketIdleTimeout = 30 * time.Minute
 )
+
+type readDeadlineConn interface{ SetReadDeadline(time.Time) error }
+
+type writeDeadlineConn interface{ SetWriteDeadline(time.Time) error }
+
+func proxyBytes(dst io.Writer, dstDeadline writeDeadlineConn, flush func() error, src io.Reader, srcDeadline readDeadlineConn, timeout time.Duration) error {
+	buf := make([]byte, 32*1024)
+	for {
+		if srcDeadline != nil {
+			_ = srcDeadline.SetReadDeadline(time.Now().Add(timeout))
+		}
+		n, readErr := src.Read(buf)
+		if n > 0 {
+			if dstDeadline != nil {
+				_ = dstDeadline.SetWriteDeadline(time.Now().Add(timeout))
+			}
+			if _, writeErr := dst.Write(buf[:n]); writeErr != nil {
+				return writeErr
+			}
+			if flush != nil {
+				if flushErr := flush(); flushErr != nil {
+					return flushErr
+				}
+			}
+		}
+		if readErr != nil {
+			return readErr
+		}
+	}
+}
 
 // AgentHTTPRequest 是网关要转发给主机 Agent 的一次 HTTP 请求。
 type AgentHTTPRequest struct {
@@ -526,16 +557,18 @@ func (s *Service) handleGatewayWebSocket(
 
 	// 双向字节流搬运：客户端 → 目标 与 目标 → 客户端。
 	// 任一端关闭即结束整个隧道；缓冲写入端需要显式 Flush。
+	upstreamReadDeadliner, _ := upstream.(interface{ SetReadDeadline(time.Time) error })
+	upstreamWriteDeadliner, _ := upstream.(interface{ SetWriteDeadline(time.Time) error })
 	errc := make(chan struct{}, 2)
 	go func() {
 		defer func() { errc <- struct{}{} }()
-		_, _ = io.Copy(upstream, rw.Reader)
+		_ = proxyBytes(upstream, upstreamWriteDeadliner, nil, rw.Reader, clientConn, gatewayWebSocketIdleTimeout)
 		// 客户端侧 EOF/关闭：通知目标关闭（data channel 的 Close 会终止流）。
 		_ = upstream.Close()
 	}()
 	go func() {
 		defer func() { errc <- struct{}{} }()
-		_, _ = io.Copy(rw.Writer, br)
+		_ = proxyBytes(rw.Writer, clientConn, rw.Flush, br, upstreamReadDeadliner, gatewayWebSocketIdleTimeout)
 		_ = rw.Flush()
 		// 目标侧 EOF/关闭：通知客户端关闭。
 		_ = clientConn.Close()

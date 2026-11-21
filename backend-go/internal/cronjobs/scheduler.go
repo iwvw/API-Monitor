@@ -1333,14 +1333,14 @@ func (s *Service) executeWorkflowNode(ctx context.Context, db *sql.DB, node Work
 		return "", nil
 	}
 	if node.TaskID != 0 {
-		task, ok, err := findTask(ctx, db, node.TaskID)
+		task, ok, err := findSchedulerTask(ctx, db, node.TaskID)
 		if err != nil {
 			return "", err
 		}
 		if !ok {
 			return "", fmt.Errorf("节点引用的任务不存在")
 		}
-		return s.executeTaskCommand(ctx, task)
+		return s.executeSchedulerTaskCommand(ctx, task)
 	}
 	nodeType := node.Type
 	if nodeType == "" || nodeType == "task" {
@@ -1348,14 +1348,21 @@ func (s *Service) executeWorkflowNode(ctx context.Context, db *sql.DB, node Work
 		// 与 buildWorkflow 的写入规范化一致；执行路径兜底保证老记录不手动重存也能恢复。
 		nodeType = "shell"
 	}
-	task := Task{
-		Name:    node.Name,
-		Type:    nodeType,
-		Command: node.Command,
-		Enabled: 1,
-		Config:  node.Config,
+	task := SchedulerTask{
+		Task: Task{
+			Name:    node.Name,
+			Type:    nodeType,
+			Command: node.Command,
+			Enabled: 1,
+			Config:  node.Config,
+		},
+		TimeoutSeconds:       int(shellTaskTimeout / time.Second),
+		RetryCount:           0,
+		RetryIntervalSeconds: 30,
+		MaxConcurrency:       1,
+		NodeID:               "local",
 	}
-	return s.executeTaskCommand(ctx, task)
+	return s.executeSchedulerTaskCommand(ctx, task)
 }
 
 func topologicalNodes(nodes []WorkflowNode, edges []WorkflowEdge) []WorkflowNode {
