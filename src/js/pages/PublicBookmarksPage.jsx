@@ -468,8 +468,6 @@ function PublicBookmarksPage({ domainOnly = false, onDomainNotFound }) {
       title: '删除网址',
       message: `删除「${item.title}」？此操作不可恢复。`,
       confirmText: '删除',
-      // 公开页面向访客/管理者快速清理，不要求输入名称二次确认。
-      requireConfirmationInput: false,
     });
     if (!confirmed) return;
     try {

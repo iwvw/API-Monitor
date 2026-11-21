@@ -785,7 +785,6 @@ export default function BookmarksPage() {
         title: '替换导入',
         // dialog 的 message 是纯文本渲染（whitespace-pre-wrap），不支持 markdown
         message: '将先清空当前所有分组与网址，再导入文件内容。\n此操作不可恢复，建议先导出备份。',
-        requireConfirmationInput: false,
         confirmText: '继续',
       });
       if (!confirmed) return;
@@ -849,9 +848,6 @@ export default function BookmarksPage() {
       title: '删除网址',
       message: `删除「${item.title}」？`,
       confirmText: '删除',
-      // 管理页面向管理员快速清理，不要求输入名称二次确认
-      // （与其他模块的删除弹窗保持一致，见 GlobalDialogHost 的 requireConfirmationInput）
-      requireConfirmationInput: false,
     });
     if (!confirmed) return;
     try {

@@ -654,7 +654,6 @@ function NotificationPage() {
       title: '清空通知历史',
       resourceName: '全部通知历史',
       confirmText: '清空',
-      requireConfirmationInput: false,
       message: '确定要清空所有通知历史记录吗？清空后将无法找回！',
     }))) return;
     try {
