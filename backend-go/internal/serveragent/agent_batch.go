@@ -361,6 +361,10 @@ func (s *Service) runAgentBatchItem(batch *AgentBatch, item *AgentBatchItem, ori
 	verifyTimeout := agentBatchVerifyTimeout()
 
 	conn, agentOnline := s.registry.Get(item.ServerID)
+	previousVersion := agentConnectionVersion(conn)
+	if previousVersion == "" && batch.Kind == AgentBatchUpgrade {
+		previousVersion = loadCachedAgentVersion(ctx, db, item.ServerID)
+	}
 	if agentOnline && isWindowsAgentConnection(conn) {
 		// Windows Agent hosts commonly have no SSH service or credentials. Even
 		// legacy callers that still send force_ssh must use the detached native
@@ -370,7 +374,6 @@ func (s *Service) runAgentBatchItem(batch *AgentBatch, item *AgentBatchItem, ori
 
 	if agentOnline && !forceSSH {
 		item.appendLog("Agent 在线，发送自升级任务")
-		oldVersion := fmt.Sprint(conn.GetMetadata()["version"])
 		downloadURL, sha256 := s.agentUpgradeDownloadURL(context.Background(), db, conn, origin)
 		task := s.taskRegistry.Create(item.ServerID, "agent_upgrade", downloadURL)
 		if !s.sendUpgradeTaskWithID(conn, downloadURL, sha256, task.ID) {
@@ -391,9 +394,13 @@ func (s *Service) runAgentBatchItem(batch *AgentBatch, item *AgentBatchItem, ori
 		default:
 			item.appendLog("未收到自升级调度结果，继续等待 Agent 重连")
 		}
-		if selfUpdateFailure == "" && s.waitForAgentReconnectWithLog(item, item.ServerID, startMs, verifyTimeout, oldVersion) {
-			item.succeed("Agent 已重新上线")
-			return
+		if selfUpdateFailure == "" {
+			if ok, reason := s.waitForAgentReconnectWithLog(item, item.ServerID, startMs, verifyTimeout, previousVersion); ok {
+				item.succeed("Agent 已重新上线")
+				return
+			} else if reason != "" {
+				selfUpdateFailure = reason
+			}
 		}
 		if selfUpdateFailure == "" {
 			selfUpdateFailure = "验证超时: Agent 未能在 " + formatBatchDuration(verifyTimeout) + " 内重新上线"
@@ -452,8 +459,11 @@ func (s *Service) runAgentBatchItem(batch *AgentBatch, item *AgentBatchItem, ori
 
 	item.setStatus(AgentBatchVerifying, "")
 	item.appendLog("安装脚本执行成功，等待 Agent 连接")
-	if s.waitForAgentReconnectWithLog(item, item.ServerID, startMs, verifyTimeout, "") {
+	if ok, reason := s.waitForAgentReconnectWithLog(item, item.ServerID, startMs, verifyTimeout, previousVersion); ok {
 		item.succeed("Agent 已上线")
+		return
+	} else if reason != "" {
+		item.fail(reason)
 		return
 	}
 	item.fail("验证超时: Agent 未能在 " + formatBatchDuration(verifyTimeout) + " 内上线")
@@ -499,7 +509,8 @@ func (s *Service) renderAgentInstallScript(ctx context.Context, db *sql.DB, serv
 }
 
 func (s *Service) waitForAgentReconnect(serverID string, afterConnectedAtMs int64, timeout time.Duration) bool {
-	return s.waitForAgentReconnectWithLog(nil, serverID, afterConnectedAtMs, timeout, "")
+	ok, _ := s.waitForAgentReconnectWithLog(nil, serverID, afterConnectedAtMs, timeout, "")
+	return ok
 }
 
 // waitForAgentReconnectWithLog 等待 Agent 升级/安装后重新上线。
@@ -508,9 +519,11 @@ func (s *Service) waitForAgentReconnect(serverID string, afterConnectedAtMs int6
 //     避免 Agent 下载失败时只能干等验证超时；
 //   - 上报 succeeded 时记录日志，继续等待重连；
 //   - 重连成功后对比版本，明确日志"版本已从 X 更新到 Y"。
-func (s *Service) waitForAgentReconnectWithLog(item *AgentBatchItem, serverID string, afterConnectedAtMs int64, timeout time.Duration, expectedVersion string) bool {
+func (s *Service) waitForAgentReconnectWithLog(item *AgentBatchItem, serverID string, afterConnectedAtMs int64, timeout time.Duration, expectedVersion string) (bool, string) {
 	deadline := time.Now().Add(timeout)
 	lastLog := time.Time{}
+	staleVersion := ""
+	sawStale := false
 	for {
 		if conn, exists := s.registry.Get(serverID); exists {
 			// Agent 自更新结果上报优先判定：失败立即返回，成功继续等待重连
@@ -524,7 +537,7 @@ func (s *Service) waitForAgentReconnectWithLog(item *AgentBatchItem, serverID st
 					if item != nil {
 						item.appendLog("Agent 自更新失败: " + reason)
 					}
-					return false
+					return false, "Agent 自更新失败: " + reason
 				case "succeeded":
 					if item != nil {
 						item.appendLog("Agent 已确认更新完成，等待重连")
@@ -534,7 +547,7 @@ func (s *Service) waitForAgentReconnectWithLog(item *AgentBatchItem, serverID st
 
 			connectedAt := conn.AuthenticatedAt.UnixNano() / int64(time.Millisecond)
 			if connectedAt > afterConnectedAtMs {
-				newVersion := fmt.Sprint(conn.GetMetadata()["version"])
+				newVersion := agentConnectionVersion(conn)
 				if item != nil {
 					if expectedVersion != "" && newVersion != "" && newVersion != expectedVersion {
 						item.appendLog("Agent 已重新上线，版本从 " + expectedVersion + " 更新到 " + newVersion)
@@ -544,7 +557,11 @@ func (s *Service) waitForAgentReconnectWithLog(item *AgentBatchItem, serverID st
 						item.appendLog("Agent 已重新上线")
 					}
 				}
-				return true
+				if expectedVersion == "" || (newVersion != "" && newVersion != expectedVersion) {
+					return true, ""
+				}
+				sawStale = true
+				staleVersion = newVersion
 			}
 		}
 		if item != nil && (lastLog.IsZero() || time.Since(lastLog) >= 30*time.Second) {
@@ -556,7 +573,13 @@ func (s *Service) waitForAgentReconnectWithLog(item *AgentBatchItem, serverID st
 		}
 		remaining := time.Until(deadline)
 		if remaining <= 0 {
-			return false
+			if sawStale {
+				if staleVersion == "" {
+					staleVersion = "unknown"
+				}
+				return false, "版本未变化(仍为 " + staleVersion + "),升级未生效"
+			}
+			return false, ""
 		}
 		sleepFor := 2 * time.Second
 		if remaining < sleepFor {
@@ -564,6 +587,34 @@ func (s *Service) waitForAgentReconnectWithLog(item *AgentBatchItem, serverID st
 		}
 		time.Sleep(sleepFor)
 	}
+}
+
+func agentConnectionVersion(conn *AgentConnection) string {
+	if conn == nil {
+		return ""
+	}
+	meta := conn.GetMetadata()
+	for _, key := range []string{"agent_version", "version"} {
+		if value, ok := meta[key].(string); ok && strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
+}
+
+func loadCachedAgentVersion(ctx context.Context, db *sql.DB, serverID string) string {
+	if db == nil {
+		return ""
+	}
+	var raw string
+	if err := db.QueryRowContext(ctx, "SELECT COALESCE(cached_info, '{}') FROM server_accounts WHERE id = ?", serverID).Scan(&raw); err != nil {
+		return ""
+	}
+	var cached map[string]interface{}
+	if err := json.Unmarshal([]byte(raw), &cached); err != nil {
+		return ""
+	}
+	return strings.TrimSpace(getString(cached, "agent_version"))
 }
 
 func agentBatchVerifyTimeout() time.Duration {

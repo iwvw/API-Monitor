@@ -1012,7 +1012,7 @@ func (s *Service) executeSSHCommand(ctx context.Context, db *sql.DB, serverID st
 	sshConfig := &ssh.ClientConfig{
 		User:            cfg.Username,
 		Auth:            authMethods,
-		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+		HostKeyCallback: s.sshHostKeyCallback(),
 		Timeout:         timeout,
 	}
 	addr := fmt.Sprintf("%s:%d", cfg.Host, cfg.Port)

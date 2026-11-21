@@ -68,6 +68,8 @@ func (s *Service) handleServerInfo(w http.ResponseWriter, r *http.Request, db *s
 	})
 }
 
+const sshProbeFailureTTL = 10 * time.Minute
+
 // sshProbeInFlight 防止同一主机的系统版本探测并发重复执行。
 var sshProbeInFlight sync.Map
 
@@ -85,8 +87,10 @@ func (s *Service) probeSSHPlatform(ctx context.Context, db *sql.DB, serverID str
 	if platform != "" && version != "" {
 		return
 	}
-	if failed, _ := info["_ssh_probe_failed"].(bool); failed {
-		return
+	if failedAt, _ := info["_ssh_probe_failed_at"].(string); failedAt != "" {
+		if t, parseErr := time.Parse(time.RFC3339, failedAt); parseErr == nil && time.Since(t) < sshProbeFailureTTL {
+			return
+		}
 	}
 	if _, loaded := sshProbeInFlight.LoadOrStore(serverID, true); loaded {
 		return
@@ -99,14 +103,17 @@ func (s *Service) probeSSHPlatform(ctx context.Context, db *sql.DB, serverID str
 		probePlatform, probeVersion = parseSSHPlatformProbe(output)
 	}
 	if probePlatform == "" {
-		s.persistServerInfoPatch(ctx, db, serverID, map[string]interface{}{"_ssh_probe_failed": true})
+		now := time.Now().UTC().Format(time.RFC3339)
+		s.persistServerInfoPatch(ctx, db, serverID, map[string]interface{}{"_ssh_probe_failed": true, "_ssh_probe_failed_at": now})
 		info["_ssh_probe_failed"] = true
+		info["_ssh_probe_failed_at"] = now
 		return
 	}
 	// 探测成功即清除历史失败标记：否则一次瞬时 SSH 故障会永久禁用探测，
 	// 无 Agent 主机将再也拿不到 platform/platform_version。
-	patch := map[string]interface{}{"_ssh_probe_failed": false}
+	patch := map[string]interface{}{"_ssh_probe_failed": false, "_ssh_probe_failed_at": ""}
 	info["_ssh_probe_failed"] = false
+	info["_ssh_probe_failed_at"] = ""
 	if platform == "" {
 		patch["platform"] = probePlatform
 		info["platform"] = probePlatform
@@ -215,7 +222,7 @@ func (s *Service) handleTestConnection(w http.ResponseWriter, r *http.Request, d
 	client, err := ssh.Dial("tcp", fmt.Sprintf("%s:%d", req.Host, req.Port), &ssh.ClientConfig{
 		User:            req.Username,
 		Auth:            authMethods,
-		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+		HostKeyCallback: s.sshHostKeyCallback(),
 		Timeout:         10 * time.Second,
 	})
 	elapsed := time.Since(start).Milliseconds()

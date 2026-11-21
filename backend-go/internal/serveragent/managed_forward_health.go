@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/iwvw/api-monitor/backend-go/internal/applog"
@@ -72,7 +73,7 @@ func (s *Service) removeForwardTarget(w http.ResponseWriter, r *http.Request, db
 }
 
 func (s *Service) startForwardHealthLoop(ctx context.Context) {
-	ticker := time.NewTicker(30 * time.Second)
+	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
 	for {
 		select {
@@ -83,6 +84,8 @@ func (s *Service) startForwardHealthLoop(ctx context.Context) {
 		}
 	}
 }
+
+var forwardHealthLastRun sync.Map
 
 // startForwardConnectorSyncLoop 周期同步 tcp_relay 活跃连接数（连接数来自源主机 Agent 的 status）。
 func (s *Service) startForwardConnectorSyncLoop(ctx context.Context) {
@@ -151,6 +154,17 @@ func (s *Service) checkForwardHealth(ctx context.Context) {
 		if failoverCurrent != "" {
 			targetServer = failoverCurrent
 		}
+		interval := time.Duration(healthInterval) * time.Second
+		if interval <= 0 {
+			interval = 30 * time.Second
+		}
+		now := time.Now()
+		if last, ok := forwardHealthLastRun.Load(id); ok {
+			if lastAt, ok := last.(time.Time); ok && now.Sub(lastAt) < interval {
+				continue
+			}
+		}
+		forwardHealthLastRun.Store(id, now)
 		healthy := s.probeTargetHealth(targetServer, localHost, localPort, healthTimeout)
 		s.updateForwardHealth(db, id, targetServer, healthy)
 		if !healthy && failoverEnabled != 0 {

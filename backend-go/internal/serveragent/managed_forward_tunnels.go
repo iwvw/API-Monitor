@@ -366,8 +366,8 @@ func (s *Service) reconcileForwardTunnelConnection(forwardID string) {
 		return
 	}
 	defer db.Close()
-	var serverID, tunnelID, applyStatus, lastReconcileAt, hostname string
-	if err := db.QueryRowContext(ctx, `SELECT server_id,COALESCE(tunnel_id,''),COALESCE(tunnel_apply_status,''),COALESCE(tunnel_last_reconcile_at,''),COALESCE(tunnel_hostname,'') FROM managed_forwards WHERE id=? AND desired_status='running' AND whole_host=1`, forwardID).Scan(&serverID, &tunnelID, &applyStatus, &lastReconcileAt, &hostname); err != nil {
+	var serverID, tunnelID, applyStatus, lastReconcileAt, hostname, ruleAccountID string
+	if err := db.QueryRowContext(ctx, `SELECT server_id,COALESCE(tunnel_id,''),COALESCE(tunnel_apply_status,''),COALESCE(tunnel_last_reconcile_at,''),COALESCE(tunnel_hostname,''),COALESCE(tunnel_account_id,'') FROM managed_forwards WHERE id=? AND desired_status='running' AND whole_host=1`, forwardID).Scan(&serverID, &tunnelID, &applyStatus, &lastReconcileAt, &hostname, &ruleAccountID); err != nil {
 		return
 	}
 	if tunnelID == "" {
@@ -386,9 +386,11 @@ func (s *Service) reconcileForwardTunnelConnection(forwardID string) {
 			return
 		}
 	}
-	var accountID string
-	if err := db.QueryRowContext(ctx, `SELECT account_id FROM managed_proxy_tunnels WHERE server_id=?`, serverID).Scan(&accountID); err != nil {
-		return
+	accountID := ruleAccountID
+	if accountID == "" {
+		if err := db.QueryRowContext(ctx, `SELECT account_id FROM managed_proxy_tunnels WHERE server_id=?`, serverID).Scan(&accountID); err != nil {
+			return
+		}
 	}
 	connected := false
 	var checkErr error
@@ -457,7 +459,10 @@ func (s *Service) attemptForwardTunnelSelfHeal(forwardID string) {
 		return
 	}
 	var accountID, tunnelID string
-	_ = db.QueryRowContext(ctx, `SELECT account_id FROM managed_proxy_tunnels WHERE server_id=?`, serverID).Scan(&accountID)
+	_ = db.QueryRowContext(ctx, `SELECT COALESCE(tunnel_account_id,'') FROM managed_forwards WHERE id=?`, forwardID).Scan(&accountID)
+	if accountID == "" {
+		_ = db.QueryRowContext(ctx, `SELECT account_id FROM managed_proxy_tunnels WHERE server_id=?`, serverID).Scan(&accountID)
+	}
 	_ = db.QueryRowContext(ctx, `SELECT COALESCE(tunnel_id,'') FROM managed_forwards WHERE id=?`, forwardID).Scan(&tunnelID)
 	if accountID == "" || tunnelID == "" {
 		_, _ = db.ExecContext(ctx, `UPDATE managed_forwards SET tunnel_apply_status='disconnected',tunnel_last_error='自愈后读取隧道状态失败',updated_at=datetime('now') WHERE id=?`, forwardID)

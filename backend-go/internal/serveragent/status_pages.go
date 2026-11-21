@@ -400,10 +400,10 @@ func (s *Service) getPublicServerStatusItems(ctx context.Context, db *sql.DB, id
 			"updatedAt":        firstNonEmpty(lastHeartbeat, getString(cached, "metrics_last_seen"), updatedAt),
 		}
 		if hasLat && hasUsableCoordinates(lat, lon) {
-			item["latitude"] = lat
+			item["latitude"] = roundPublicGlobeCoordinate(lat)
 		}
 		if hasLon && hasUsableCoordinates(lat, lon) {
-			item["longitude"] = lon
+			item["longitude"] = roundPublicGlobeCoordinate(lon)
 		}
 		if !hideHosts {
 			item["host"] = host

@@ -6,9 +6,11 @@ import (
 	"database/sql"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"mime"
+	"net"
 	"net/http"
 	"os"
 	pathpkg "path"
@@ -21,6 +23,7 @@ import (
 	"github.com/iwvw/api-monitor/backend-go/internal/secure"
 	"github.com/pkg/sftp"
 	"golang.org/x/crypto/ssh"
+	"golang.org/x/crypto/ssh/knownhosts"
 )
 
 // ==========================================
@@ -684,9 +687,14 @@ func (s *Service) handleSFTPUpload(w http.ResponseWriter, r *http.Request, db *s
 	}
 	defer file.Close()
 
-	target := pathpkg.Join(remoteDir, header.Filename)
+	uploadName := header.Filename
 	if relativePath != "" {
-		target = pathpkg.Join(remoteDir, relativePath)
+		uploadName = relativePath
+	}
+	target, err := safeJoinRemoteDir(remoteDir, uploadName)
+	if err != nil {
+		writeSFTPError(w, err)
+		return
 	}
 	switch s.resolveAgentFileMode(db, serverID) {
 	case agentFileViaAgent:
@@ -1184,7 +1192,7 @@ func (s *Service) openSFTPClient(r *http.Request, db *sql.DB, serverID string) (
 	sshConfig := &ssh.ClientConfig{
 		User:            cfg.Username,
 		Auth:            authMethods,
-		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+		HostKeyCallback: s.sshHostKeyCallback(),
 		Timeout:         20 * time.Second,
 	}
 	addr := fmt.Sprintf("%s:%d", cfg.Host, cfg.Port)
@@ -1202,6 +1210,59 @@ func (s *Service) openSFTPClient(r *http.Request, db *sql.DB, serverID string) (
 		_ = sshClient.Close()
 	}
 	return client, cleanup, nil
+}
+
+func (s *Service) sshHostKeyCallback() ssh.HostKeyCallback {
+	path := ""
+	if dir := strings.TrimSpace(s.cfg.DataDir); dir != "" {
+		path = filepath.Join(dir, "ssh_known_hosts")
+	}
+	return func(hostname string, remote net.Addr, key ssh.PublicKey) error {
+		return verifySSHHostKey(path, hostname, remote, key)
+	}
+}
+
+func verifySSHHostKey(path, hostname string, remote net.Addr, key ssh.PublicKey) error {
+	if path == "" {
+		return nil
+	}
+	callback, err := knownhosts.New(path)
+	if err == nil {
+		checkErr := callback(hostname, remote, key)
+		if checkErr == nil {
+			return nil
+		}
+		var keyErr *knownhosts.KeyError
+		if !errors.As(checkErr, &keyErr) {
+			return checkErr
+		}
+		if len(keyErr.Want) > 0 {
+			return fmt.Errorf("HOST_KEY_MISMATCH: SSH 主机键与已记录不一致,可能存在中间人攻击(%s)", hostname)
+		}
+	} else if !os.IsNotExist(err) {
+		return nil
+	}
+	return appendSSHHostKey(path, hostname, remote, key)
+}
+
+func appendSSHHostKey(path, hostname string, remote net.Addr, key ssh.PublicKey) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return nil
+	}
+	addresses := []string{hostname}
+	if remote != nil && strings.TrimSpace(remote.String()) != "" {
+		addresses = append(addresses, remote.String())
+	}
+	line := knownhosts.Line(addresses, key)
+	file, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	if err != nil {
+		return nil
+	}
+	defer file.Close()
+	if _, err := file.WriteString(line + "\n"); err != nil {
+		return nil
+	}
+	return nil
 }
 
 func (s *Service) getSFTPServerConfig(r *http.Request, db *sql.DB, serverID string) (sftpServerConfig, error) {
@@ -1235,6 +1296,19 @@ func normalizeRemotePath(remotePath string) string {
 		return "."
 	}
 	return pathpkg.Clean(strings.ReplaceAll(text, "\\", "/"))
+}
+
+func safeJoinRemoteDir(remoteDir, name string) (string, error) {
+	cleaned := pathpkg.Clean(strings.ReplaceAll(strings.TrimSpace(name), "\\", "/"))
+	if cleaned == "" || cleaned == "." {
+		return "", fmt.Errorf("INVALID_PATH: 非法的文件名")
+	}
+	if pathpkg.IsAbs(cleaned) || cleaned == ".." || strings.HasPrefix(cleaned, "../") {
+		return "", fmt.Errorf("INVALID_PATH: 目标路径越界")
+	}
+	base := normalizeRemotePath(remoteDir)
+	target := pathpkg.Join(base, cleaned)
+	return target, nil
 }
 
 func fileInfoPayload(parent string, info os.FileInfo) map[string]interface{} {
@@ -1272,12 +1346,18 @@ func readRemoteFile(client *sftp.Client, remotePath string, maxSize int64) (stri
 	if err != nil {
 		return "", err
 	}
+	if !stat.Mode().IsRegular() {
+		return "", fmt.Errorf("UNSUPPORTED_FILE: 仅支持读取常规文件")
+	}
 	if stat.Size() > maxSize {
 		return "", fmt.Errorf("FILE_TOO_LARGE: 文件过大，最大支持 %d 字节", maxSize)
 	}
-	data, err := io.ReadAll(file)
+	data, err := io.ReadAll(io.LimitReader(file, maxSize+1))
 	if err != nil {
 		return "", err
+	}
+	if int64(len(data)) > maxSize {
+		return "", fmt.Errorf("FILE_TOO_LARGE: 文件过大，最大支持 %d 字节", maxSize)
 	}
 	return string(data), nil
 }
@@ -1335,6 +1415,10 @@ func writeSFTPError(w http.ResponseWriter, err error) {
 		status = http.StatusBadGateway
 	case "FILE_TOO_LARGE":
 		status = http.StatusRequestEntityTooLarge
+	case "UNSUPPORTED_FILE":
+		status = http.StatusBadRequest
+	case "INVALID_PATH":
+		status = http.StatusBadRequest
 	}
 	response.JSON(w, status, map[string]interface{}{
 		"success": false,

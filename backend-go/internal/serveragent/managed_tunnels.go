@@ -673,23 +673,41 @@ func (s *Service) runManagedTunnelUninstall(taskID, serverID string) {
 	progress(8, "unpublish", "正在停止发布 Tunnel 节点")
 	_, _ = db.ExecContext(ctx, `UPDATE managed_proxy_nodes SET publishable=0,apply_status='removing',updated_at=datetime('now') WHERE server_id=? AND access_mode='cloudflare_tunnel'`, serverID)
 	progress(20, "remove_nodes", "正在卸载主机上的 Tunnel 节点")
-	rows, _ := db.QueryContext(ctx, `SELECT id,runtime,revision,assigned_port FROM managed_proxy_nodes WHERE server_id=? AND access_mode='cloudflare_tunnel'`, serverID)
+	rows, err := db.QueryContext(ctx, `SELECT id,runtime,revision,assigned_port FROM managed_proxy_nodes WHERE server_id=? AND access_mode='cloudflare_tunnel'`, serverID)
+	if err != nil {
+		_, _ = db.ExecContext(ctx, `UPDATE managed_proxy_tunnels SET apply_status='cleanup_failed',last_stage='remove_nodes',last_error=?,updated_at=datetime('now') WHERE server_id=?`, err.Error(), serverID)
+		s.taskRegistry.Fail(taskID, err.Error())
+		return
+	}
 	type nodeState struct {
 		id, runtime string
 		revision    int64
 		port        int
 	}
 	nodes := []nodeState{}
-	if rows != nil {
-		for rows.Next() {
-			var item nodeState
-			_ = rows.Scan(&item.id, &item.runtime, &item.revision, &item.port)
-			nodes = append(nodes, item)
+	for rows.Next() {
+		var item nodeState
+		if scanErr := rows.Scan(&item.id, &item.runtime, &item.revision, &item.port); scanErr != nil {
+			rows.Close()
+			_, _ = db.ExecContext(ctx, `UPDATE managed_proxy_tunnels SET apply_status='cleanup_failed',last_stage='remove_nodes',last_error=?,updated_at=datetime('now') WHERE server_id=?`, scanErr.Error(), serverID)
+			s.taskRegistry.Fail(taskID, scanErr.Error())
+			return
 		}
-		rows.Close()
+		nodes = append(nodes, item)
 	}
+	if rowErr := rows.Err(); rowErr != nil {
+		rows.Close()
+		_, _ = db.ExecContext(ctx, `UPDATE managed_proxy_tunnels SET apply_status='cleanup_failed',last_stage='remove_nodes',last_error=?,updated_at=datetime('now') WHERE server_id=?`, rowErr.Error(), serverID)
+		s.taskRegistry.Fail(taskID, rowErr.Error())
+		return
+	}
+	rows.Close()
 	for _, node := range nodes {
-		release, _ := managedProxyRuntime(node.runtime)
+		release, ok := managedProxyRuntime(node.runtime)
+		if !ok {
+			failures = append(failures, "remove node "+node.id+": unknown proxy runtime "+node.runtime)
+			continue
+		}
 		payload, _ := json.Marshal(map[string]interface{}{"node_id": node.id, "revision": node.revision + 1, "runtime": "sing-box", "runtime_version": release.Version, "asset_url_amd64": release.AMD64URL, "asset_sha256_amd64": release.AMD64SHA256, "asset_url_arm64": release.ARM64URL, "asset_sha256_arm64": release.ARM64SHA256, "asset_format": release.AssetFormat, "config": "{}", "remove": true, "port_min": 45654, "port_max": 55654})
 		if _, err := s.RunProxyRuntimeTaskAndWait(serverID, string(payload)); err != nil {
 			failures = append(failures, "remove node "+node.id+": "+err.Error())

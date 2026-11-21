@@ -224,12 +224,11 @@ func (s *Service) GetStorageNodeAgentKey(ctx context.Context, serverID string) (
 }
 
 func (s *Service) isNodeLiveConnected(serverID, dbStatus string) bool {
-	if s.registry != nil {
-		if _, ok := s.registry.Get(serverID); ok {
-			return true
-		}
+	if s.registry == nil {
+		return false
 	}
-	return strings.EqualFold(dbStatus, "online")
+	_, ok := s.registry.Get(serverID)
+	return ok
 }
 
 func (s *Service) resolveNodeLiveDetails(serverID, dbHost, cachedInfoStr string) (platform, host string, port int) {

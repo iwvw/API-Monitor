@@ -28,7 +28,7 @@ func (s *Service) reconcileManagedProxyNode(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	if _, online := s.registry.Get(serverID); !online {
-		_, _ = db.ExecContext(r.Context(), `UPDATE managed_proxy_nodes SET apply_status='failed',publishable=0,last_error='agent offline',updated_at=datetime('now') WHERE id=?`, id)
+		_, _ = db.ExecContext(r.Context(), `UPDATE managed_proxy_nodes SET last_error='agent offline,等待 Agent 重连后自动对账',updated_at=datetime('now') WHERE id=?`, id)
 		response.Error(w, http.StatusBadGateway, "agent offline")
 		return
 	}
@@ -422,7 +422,7 @@ func replaceURIClientPort(raw string, port int) string {
 	if err != nil {
 		return raw
 	}
-	parsed.Host = parsed.Hostname() + ":" + strconv.Itoa(port)
+	parsed.Host = net.JoinHostPort(parsed.Hostname(), strconv.Itoa(port))
 	return parsed.String()
 }
 

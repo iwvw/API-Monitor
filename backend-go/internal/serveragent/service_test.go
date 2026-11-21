@@ -2536,8 +2536,13 @@ func TestProxyTrafficHTTPBatchValidatesScopeAndQuota(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer "+otherKey)
 	res := httptest.NewRecorder()
 	service.ServeHTTP(res, req)
-	if res.Code != http.StatusBadRequest || !strings.Contains(res.Body.String(), "does not belong") {
+	if res.Code != http.StatusOK {
 		t.Fatalf("cross-server node status=%d body=%s", res.Code, res.Body.String())
+	}
+	payload = decodePayload(t, res)
+	data = payload["data"].(map[string]interface{})
+	if data["ignored"] != float64(1) || data["accepted"] != float64(0) {
+		t.Fatalf("cross-server node must be ignored without aborting the batch, body=%s", res.Body.String())
 	}
 }
 
