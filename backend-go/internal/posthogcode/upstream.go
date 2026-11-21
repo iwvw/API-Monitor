@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -248,7 +249,19 @@ func classifyUpstream(status int, body string) *upstreamError {
 	return ue
 }
 
-// doUpstream 向上游发起一次请求，返回响应（调用方负责关闭 body）。
+// relayHTTPClient 是中继对话的出网客户端：建连/握手/响应头都有超时，避免上游只握手不返头时长期占用连接；响应体读取仍由请求 context 控制，不设整体 Timeout。
+var relayHTTPClient = &http.Client{
+	Transport: &http.Transport{
+		Proxy:                 http.ProxyFromEnvironment,
+		DialContext:           (&net.Dialer{Timeout: 10 * time.Second, KeepAlive: 30 * time.Second}).DialContext,
+		TLSHandshakeTimeout:   10 * time.Second,
+		ResponseHeaderTimeout: 60 * time.Second,
+		MaxIdleConns:          20,
+		IdleConnTimeout:       90 * time.Second,
+		MaxIdleConnsPerHost:   5,
+	},
+}
+
 func doUpstream(ctx context.Context, target relayTarget, body []byte, stream bool) (*http.Response, error) {
 	reqCtx, cancel := context.WithCancel(ctx)
 	req, err := http.NewRequestWithContext(reqCtx, http.MethodPost, target.url, strings.NewReader(string(body)))
@@ -264,7 +277,7 @@ func doUpstream(ctx context.Context, target relayTarget, body []byte, stream boo
 		req.Header.Set("Accept", "application/json")
 	}
 
-	client := &http.Client{}
+	client := relayHTTPClient
 	resp, err := client.Do(req)
 	if err != nil {
 		cancel()

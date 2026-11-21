@@ -88,6 +88,7 @@ func (s *Service) serveChatCompletions(w http.ResponseWriter, r *http.Request) {
 	var lastUpstream *upstreamError
 	var lastLocal error
 	tried := make(map[string]bool, maxAccountAttempts)
+	reMinted := make(map[string]bool, maxAccountAttempts)
 	attempted := false
 
 	for attempt := 0; attempt < maxAccountAttempts; attempt++ {
@@ -128,11 +129,14 @@ func (s *Service) serveChatCompletions(w http.ResponseWriter, r *http.Request) {
 		if !ue.retryable {
 			break
 		}
-		// 401 Invalid token 说明 access token 已被上游吊销（可能本地未到
-		// 过期时刻但 PostHog 侧已撤销）。这与刷新失败同源：确定性故障，
-		// 标记账号停用让选号跳过，而不只是 5 分钟冷却。
-		if ue.status == http.StatusUnauthorized {
-			s.markRevokedOnAuthFailure(r.Context(), &acc, fmt.Errorf("%s", ue.msg))
+		// 网关 401 多来自短时 phe_ token（而非 OAuth 凭据失效）：清掉缓存并允许同一
+		// 账号重铸后重试一次，不把格式正确的账号永久停用。OAuth refresh 真正失效会在
+		// ensureFreshToken 阶段失败，走不到这里。
+		if ue.status == http.StatusUnauthorized && !reMinted[acc.ID] {
+			reMinted[acc.ID] = true
+			s.invalidateGatewayToken(acc.ID)
+			delete(tried, acc.ID)
+			continue
 		}
 		s.markCooldown(acc.ID, ue.msg)
 	}

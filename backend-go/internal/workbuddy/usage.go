@@ -336,8 +336,9 @@ func (s *Service) flushUsage(ctx context.Context) {
 	}
 	defer db.Close()
 	now := time.Now().UTC().Format(time.RFC3339)
+	var failed map[usageKey]*usageDelta
 	for k, v := range pend {
-		_, _ = db.ExecContext(ctx, `
+		if _, err := db.ExecContext(ctx, `
 			INSERT INTO workbuddy_usage_daily
 				(day, account_id, model, requests, prompt_tokens, completion_tokens, cached_tokens, credit, updated_at)
 			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -349,7 +350,26 @@ func (s *Service) flushUsage(ctx context.Context) {
 				credit = credit + excluded.credit,
 				updated_at = excluded.updated_at`,
 			k.day, k.accountID, k.model,
-			v.requests, v.promptTokens, v.completionTokens, v.cachedTokens, v.credit, now)
+			v.requests, v.promptTokens, v.completionTokens, v.cachedTokens, v.credit, now); err != nil {
+			if failed == nil {
+				failed = map[usageKey]*usageDelta{}
+			}
+			failed[k] = v
+		}
+	}
+	if len(failed) > 0 {
+		s.usageMu.Lock()
+		if s.usagePending == nil {
+			s.usagePending = map[usageKey]*usageDelta{}
+		}
+		for k, v := range failed {
+			if cur := s.usagePending[k]; cur != nil {
+				cur.add(v)
+			} else {
+				s.usagePending[k] = v
+			}
+		}
+		s.usageMu.Unlock()
 	}
 }
 

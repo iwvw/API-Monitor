@@ -149,6 +149,8 @@ func (s *Service) handleBatchToggleModels(w http.ResponseWriter, r *http.Request
 
 // setModelsEnabled 把给定模型名批量置为启用/停用并持久化。
 func (s *Service) setModelsEnabled(ctx context.Context, ids []string, enabled bool) error {
+	s.accountsMu.Lock()
+	defer s.accountsMu.Unlock()
 	st := s.Settings()
 	disabled := map[string]bool{}
 	for _, d := range st.DisabledModels {

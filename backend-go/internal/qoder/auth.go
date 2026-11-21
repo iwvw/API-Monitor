@@ -647,6 +647,8 @@ func (s *Service) handleImportAccounts(w http.ResponseWriter, r *http.Request) {
 		responseJSON(w, http.StatusBadRequest, map[string]interface{}{"success": false, "error": "没有可导入的账号"})
 		return
 	}
+	s.accountsMu.Lock()
+	defer s.accountsMu.Unlock()
 	st := s.Settings()
 	seen := map[string]bool{}
 	for _, a := range st.Accounts {
@@ -750,7 +752,7 @@ func (s *Service) pickAccount(exclude map[string]bool, model string) (Account, b
 	bestIdx := -1
 	var bestUntil time.Time
 	for i, a := range st.Accounts {
-		if exclude[a.ID] || !accountAvailable(a) {
+		if exclude[a.ID] || !accountAvailable(a) || !s.accountServesModel(a, model) {
 			continue
 		}
 		until, cooled := s.cooldownUntilOf(a.ID, now)

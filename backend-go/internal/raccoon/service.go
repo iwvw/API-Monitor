@@ -490,14 +490,26 @@ func (s *Service) flushCallStats(ctx context.Context) {
 		return
 	}
 	defer db.Close()
+	var failed map[string]int64
 	for id, delta := range pend {
-		_, _ = db.ExecContext(ctx, `
+		if _, err := db.ExecContext(ctx, `
 			INSERT INTO raccoon_call_stats (identifier, count) VALUES (?, ?)
-			ON CONFLICT(identifier) DO UPDATE SET count = count + excluded.count`, id, delta)
+			ON CONFLICT(identifier) DO UPDATE SET count = count + excluded.count`, id, delta); err != nil {
+			if failed == nil {
+				failed = map[string]int64{}
+			}
+			failed[id] = delta
+		}
 	}
 	s.callMu.Lock()
 	for k, v := range pend {
+		if _, bad := failed[k]; bad {
+			continue
+		}
 		s.callBase[k] += v
+	}
+	for k, v := range failed {
+		s.callPending[k] += v
 	}
 	s.callMu.Unlock()
 }
@@ -605,6 +617,8 @@ func (s *Service) handleSettings(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		// Accounts 含 token 不下发，回传会抹掉凭据；DisabledModels 由专用启停接口持有。
+		s.accountsMu.Lock()
+		defer s.accountsMu.Unlock()
 		current := s.Settings()
 		body.Accounts = current.Accounts
 		body.DisabledModels = current.DisabledModels

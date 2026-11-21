@@ -203,6 +203,13 @@ func (s *Service) cachedGatewayToken(id string) *gatewayToken {
 	return s.cachedGatewayTokenLocked(id)
 }
 
+// invalidateGatewayToken 丢弃账号的网关凭据缓存,用于网关 401 时强制重铸。
+func (s *Service) invalidateGatewayToken(id string) {
+	s.mintMu.Lock()
+	delete(s.mintCache, id)
+	s.mintMu.Unlock()
+}
+
 // goModelName 把插件侧模型名映射成 Go 网关的写法：Go 不认 `@cf/` 别名。
 func goModelName(model string) string {
 	return strings.TrimPrefix(strings.TrimSpace(model), "@cf/")

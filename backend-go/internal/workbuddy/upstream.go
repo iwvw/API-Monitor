@@ -418,6 +418,7 @@ func (s *Service) httpClientFor(sessionKey string) *http.Client {
 		Timeout: 120 * time.Second,
 		Transport: &http.Transport{
 			Proxy:               http.ProxyURL(u),
+			TLSClientConfig:     &tls.Config{},
 			MaxIdleConns:        20,
 			IdleConnTimeout:     90 * time.Second,
 			MaxIdleConnsPerHost: 5,
@@ -1194,6 +1195,16 @@ func (s *Service) streamToClient(ctx context.Context, w http.ResponseWriter, bod
 		if err := consume(scanner.Text()); err != nil {
 			return nil
 		}
+	}
+	if err := scanner.Err(); err != nil {
+		payload, _ := json.Marshal(map[string]any{
+			"error": map[string]any{"message": "上游流中断: " + err.Error(), "type": "upstream_error"},
+		})
+		_, _ = io.WriteString(w, "data: "+string(payload)+"\n\n")
+		if flusher != nil {
+			flusher.Flush()
+		}
+		return nil
 	}
 	_, _ = io.WriteString(w, "data: [DONE]\n\n")
 	if flusher != nil {

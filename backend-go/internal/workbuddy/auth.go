@@ -469,6 +469,8 @@ func (s *Service) handleImportAccounts(w http.ResponseWriter, r *http.Request) {
 		responseJSON(w, http.StatusBadRequest, map[string]interface{}{"success": false, "error": "没有可导入的账号"})
 		return
 	}
+	s.accountsMu.Lock()
+	defer s.accountsMu.Unlock()
 	st := s.Settings()
 	seen := map[string]bool{}
 	for _, a := range st.Accounts {

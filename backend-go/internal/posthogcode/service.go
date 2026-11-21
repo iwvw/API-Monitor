@@ -646,14 +646,26 @@ func (s *Service) flushCallStats(ctx context.Context) {
 		return
 	}
 	defer db.Close()
+	var failed map[string]int64
 	for id, delta := range pend {
-		_, _ = db.ExecContext(ctx, `
+		if _, err := db.ExecContext(ctx, `
 			INSERT INTO posthogcode_call_stats (identifier, count) VALUES (?, ?)
-			ON CONFLICT(identifier) DO UPDATE SET count = count + excluded.count`, id, delta)
+			ON CONFLICT(identifier) DO UPDATE SET count = count + excluded.count`, id, delta); err != nil {
+			if failed == nil {
+				failed = map[string]int64{}
+			}
+			failed[id] = delta
+		}
 	}
 	s.callMu.Lock()
 	for k, v := range pend {
+		if _, bad := failed[k]; bad {
+			continue
+		}
 		s.callBase[k] += v
+	}
+	for k, v := range failed {
+		s.callPending[k] += v
 	}
 	s.callMu.Unlock()
 }

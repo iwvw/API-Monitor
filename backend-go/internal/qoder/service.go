@@ -687,6 +687,8 @@ func (s *Service) handleSettings(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		// Accounts 含 token 不下发，回传会抹掉凭据；DisabledModels 由专用启停接口持有。
+		s.accountsMu.Lock()
+		defer s.accountsMu.Unlock()
 		current := s.Settings()
 		body.Accounts = current.Accounts
 		body.DisabledModels = current.DisabledModels

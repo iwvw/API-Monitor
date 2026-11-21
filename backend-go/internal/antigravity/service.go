@@ -742,7 +742,7 @@ func (s *Service) attemptClaudeForward(ctx context.Context, w http.ResponseWrite
 	if !stream {
 		full, err := io.ReadAll(resp.Body)
 		if err != nil {
-			return attemptResult{retryable: true, err: fmt.Errorf("读取上游响应失败: %w", err)}
+			return attemptResult{err: fmt.Errorf("读取上游响应失败: %w", err)}
 		}
 		claudeOut, usage, err := engineag.TransformGeminiToClaude(full, originalModel)
 		if err != nil {

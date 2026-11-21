@@ -108,7 +108,12 @@ func (s *Service) linkCreate(w http.ResponseWriter, r *http.Request) {
 	// 不能再套 prefixModelNames，否则出现 phc-phc- 双前缀。
 	models := s.visibleModels(ctx)
 	modelsJSON, _ := json.Marshal(models)
-	disabledJSON, _ := json.Marshal(s.Settings().DisabledModels)
+	disabled := s.Settings().DisabledModels
+	prefixedDisabled := make([]string, 0, len(disabled))
+	for _, d := range disabled {
+		prefixedDisabled = append(prefixedDisabled, s.prefixModel(d))
+	}
+	disabledJSON, _ := json.Marshal(prefixedDisabled)
 	now := time.Now().UTC().Format(time.RFC3339)
 
 	_, err = db.ExecContext(ctx, `

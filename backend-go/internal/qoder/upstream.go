@@ -31,6 +31,7 @@ import (
 	"fmt"
 	"io"
 	"math/big"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -205,10 +206,13 @@ func sharedHTTPClient() *http.Client {
 		sharedClient = &http.Client{
 			Timeout: 0,
 			Transport: &http.Transport{
-				Proxy:               http.ProxyFromEnvironment,
-				MaxIdleConns:        20,
-				IdleConnTimeout:     90 * time.Second,
-				MaxIdleConnsPerHost: 5,
+				Proxy:                 http.ProxyFromEnvironment,
+				DialContext:           (&net.Dialer{Timeout: 10 * time.Second, KeepAlive: 30 * time.Second}).DialContext,
+				TLSHandshakeTimeout:   10 * time.Second,
+				ResponseHeaderTimeout: 60 * time.Second,
+				MaxIdleConns:          20,
+				IdleConnTimeout:       90 * time.Second,
+				MaxIdleConnsPerHost:   5,
 			},
 		}
 	})
@@ -241,12 +245,15 @@ func (s *Service) httpClientFor(sessionKey string) *http.Client {
 		return failClosedClient(err)
 	}
 	return &http.Client{
-		Timeout: 5 * time.Minute,
+		Timeout: 0,
 		Transport: &http.Transport{
-			Proxy:               http.ProxyURL(u),
-			MaxIdleConns:        20,
-			IdleConnTimeout:     90 * time.Second,
-			MaxIdleConnsPerHost: 5,
+			Proxy:                 http.ProxyURL(u),
+			DialContext:           (&net.Dialer{Timeout: 10 * time.Second, KeepAlive: 30 * time.Second}).DialContext,
+			TLSHandshakeTimeout:   10 * time.Second,
+			ResponseHeaderTimeout: 60 * time.Second,
+			MaxIdleConns:          20,
+			IdleConnTimeout:       90 * time.Second,
+			MaxIdleConnsPerHost:   5,
 		},
 	}
 }
