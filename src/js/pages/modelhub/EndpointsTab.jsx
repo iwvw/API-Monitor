@@ -24,6 +24,7 @@ import {
 import {
   activeModelIdsForEndpoint,
 } from './utils.js';
+import { GATEWAY_KEY_DISPLAY_MASK } from './constants.js';
 import { modelHealthKey } from '../../modules/modelhubModelHealth.js';
 import { ProxyRuntimeMeta } from './ProxyRuntimeMeta.jsx';
 import { MultiSelectPopover } from './MultiSelectPopover.jsx';
@@ -241,16 +242,15 @@ export function EndpointsTab({
               <ClipboardText
                 size="sm"
                 text={`${gatewayOrigin}/v1`}
-                className="min-w-0 max-w-md flex-1 font-mono text-[0.9em]"
-                tooltip={{ text: '复制 API Base URL', copiedText: '地址已复制', side: 'bottom' }}
+                className="shrink-0 font-mono text-[0.9em]"
                 labels={{ copyAction: '复制 API Base URL' }}
               />
               {defaultGatewayKey?.apiKey ? (
                 <ClipboardText
                   size="sm"
-                  text={defaultGatewayKey.apiKey}
+                  text={GATEWAY_KEY_DISPLAY_MASK}
+                  textToCopy={defaultGatewayKey.apiKey}
                   className="min-w-0 max-w-md flex-1 font-mono text-[0.9em]"
-                  tooltip={{ text: '复制默认密钥', copiedText: '密钥已复制', side: 'bottom' }}
                   labels={{ copyAction: '复制默认密钥' }}
                 />
               ) : (

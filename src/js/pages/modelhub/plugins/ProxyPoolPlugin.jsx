@@ -3,7 +3,7 @@ import { Button, Loader, Textarea, Input, Dialog, Table, LayerCard, Badge } from
 import { SectionCard, FieldRow, EmptyState, AppTable } from '../../../components/ui/AppPrimitives.jsx';
 import { Globe, Plus, RefreshCw, Trash, Upload } from '../../../components/Icons.jsx';
 import { toast } from '../../../modules/toast.js';
-import { dialog } from '../../../modules/dialog.js';
+import { dialog as appDialog } from '../../../modules/dialog.js';
 import { getAuthHeaders, parseProxyEntry } from '../utils.js';
 
 const API = '/api/proxypool';
@@ -183,7 +183,7 @@ export function ProxyPoolPlugin() {
   };
 
   const removePool = async pool => {
-    if (!(await dialog.deleteResource({ message: `确定删除代理池「${pool.name || pool.id}」吗?此操作不可撤销。` }))) return;
+    if (!(await appDialog.deleteResource({ message: `确定删除代理池「${pool.name || pool.id}」吗?此操作不可撤销。` }))) return;
     try {
       const res = await fetch(`${API}/${encodeURIComponent(pool.id)}`, { method: 'DELETE', headers: getAuthHeaders() });
       const data = await res.json();

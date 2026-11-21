@@ -177,11 +177,10 @@ const toggleGatewayKey = async key => {
     });
     const data = await response.json().catch(() => ({}));
     if (!response.ok || !data.success) throw new Error(data.error || '更新失败');
-    const confirmedEnabled = Boolean(data.enabled);
     setGatewayKeys(prev =>
-      prev.map(item => (item.id === key.id ? { ...item, enabled: confirmedEnabled } : item))
+      prev.map(item => (item.id === key.id ? { ...item, enabled: nextEnabled } : item))
     );
-    toast.success(confirmedEnabled ? `${key.name} 已启用` : `${key.name} 已停用`);
+    toast.success(nextEnabled ? `${key.name} 已启用` : `${key.name} 已停用`);
   } catch (error) {
     toast.error('更新密钥状态失败: ' + error.message);
   } finally {

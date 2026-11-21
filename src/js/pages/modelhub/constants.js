@@ -44,3 +44,8 @@ export const GATEWAY_EXPIRY_MINUTES = Array.from({ length: 60 }, (_, minute) => 
   const value = String(minute).padStart(2, '0');
   return { value, label: value };
 });
+
+// 网关密钥展示用占位文本(非敏感前缀 + 掩码),真实值经 ClipboardText 的 textToCopy 复制,
+// 页面上不设显隐按钮、不渲染明文(对齐 kumo「Copy Alternate Text」用法)。
+export const GATEWAY_KEY_DISPLAY_MASK = 'sk-am-***********';
+

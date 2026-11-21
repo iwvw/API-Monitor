@@ -285,7 +285,6 @@ export function GatewayKeyDialogs({ keysApi, endpointsApi }) {
                 size="sm"
                 text={newGatewayKey?.apiKey || ''}
                 className="min-w-0 w-full"
-                tooltip={{ text: '复制 API Key', copiedText: 'API Key 已复制' }}
                 labels={{ copyAction: '复制 API Key' }}
               />
             </div>
