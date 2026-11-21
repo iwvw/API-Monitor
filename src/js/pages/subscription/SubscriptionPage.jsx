@@ -5,9 +5,9 @@ import { MODULE_TABS_PROPS } from '../../modules/kumoTabs.js';
 import useStore from '../../store.js';
 import { dialog } from '../../modules/dialog.js';
 import { toast } from '../../modules/toast.js';
-import { useConfirmPress } from '../../hooks/useConfirmPress.js';
 import { API, INTERNAL_API, RUNTIME_API, TUNNEL_API, PREFERRED_API, PRESETS_API, SERVER_INVENTORY_API, DEFAULT_EXTERNAL_POOL_ID, LOAD_TIMEOUT_MS, INITIAL_SKELETON_MS, emptyInternalNodeForm, emptySubscriptionForm, emptyPlanForm, emptyTemplateForm, emptyNodeForm } from './constants.js';
 import { getAuthHeaders, copyText, countryFlagEmoji, getInstanceCountryCode, subscriptionURL, normalizeManagedServer, isLinuxManagedServer, normalizePublicBase } from './utils.js';
+import { formatDateTime } from '../../modules/utils.js';
 import { tabs } from './tabs.jsx';
 import SubscriptionsPanel from './SubscriptionsPanel.jsx';
 import PlansPanel from './PlansPanel.jsx';
@@ -19,7 +19,6 @@ import TemplatesPanel from './TemplatesPanel.jsx';
 import { PlanDialog, InternalNodeDialog, TunnelDialog, PreferredAddressDialog, SubscriptionDialog, NodeDialog, ImportDialog, TemplateDialog } from './Dialogs.jsx';
 
 function SubscriptionPage() {
-  const { isArmed, confirmPress } = useConfirmPress();
   const publicApiUrl = useStore((state) => state.publicApiUrl);
   const [activeTab, setActiveTab] = useState('instances');
   const [loading, setLoading] = useState(false);
@@ -266,7 +265,12 @@ function SubscriptionPage() {
 	};
 
 	const uninstallProxyRuntime = async (server) => {
-		if (!confirmPress(`runtime-uninstall:${server.id}`, `卸载 ${server.name} 的 sing-box`)) return;
+		const confirmed = await dialog.deleteResource({
+			resourceType: '代理程序(sing-box)',
+			resourceName: server.name,
+			message: `将卸载 ${server.name} 上的 sing-box 代理程序,该实例上正在运行的托管节点会停止服务。`,
+		});
+		if (!confirmed) return;
 		try {
 			const response = await fetch(`${RUNTIME_API}/${server.id}/uninstall`, { method: 'POST', headers: getAuthHeaders() });
 			const payload = await response.json();
@@ -306,7 +310,11 @@ function SubscriptionPage() {
 	};
 
 	const deletePreferredAddress = async (item) => {
-		if (!confirmPress(`preferred-address:${item.id}`, `删除优选地址 ${item.name}`)) return;
+		const confirmed = await dialog.deleteResource({
+			resourceType: '优选地址',
+			resourceName: item.name,
+		});
+		if (!confirmed) return;
 		try {
 			const response = await fetch(`${PREFERRED_API}/${item.id}`, { method: 'DELETE', headers: getAuthHeaders() });
 			const payload = await response.json();
@@ -330,7 +338,12 @@ function SubscriptionPage() {
     const entry = managedTunnels.find((item) => item.server_id === server.id);
     if (!entry) return toast.warning('该主机没有 Managed Tunnel');
 		const affectedNodes = Number(entry.node_count ?? internalNodes.filter((node) => node.server_id === server.id && node.access_mode === 'cloudflare_tunnel').length);
-    if (!confirmPress(`managed-tunnel-delete:${server.id}`, `卸载 ${server.name} 的 Tunnel、DNS、cloudflared 以及 ${affectedNodes} 个关联节点`)) return;
+    const confirmed = await dialog.deleteResource({
+      resourceType: 'Managed Tunnel',
+      resourceName: server.name,
+      message: `将卸载 ${server.name} 的 Tunnel、DNS、cloudflared 以及 ${affectedNodes} 个关联节点。`,
+    });
+    if (!confirmed) return;
     try {
       const response = await fetch(`${TUNNEL_API}/${server.id}?cascade=1`, { method: 'DELETE', headers: getAuthHeaders() });
       const payload = await response.json();
@@ -440,7 +453,11 @@ function SubscriptionPage() {
   };
 
   const deleteInternalNode = async (node) => {
-    if (!confirmPress(`internal-node-delete:${node.id}`, `卸载节点 ${node.name}`)) return;
+    const confirmed = await dialog.deleteResource({
+      resourceType: '内部节点',
+      resourceName: node.name,
+    });
+    if (!confirmed) return;
     await withInternalNodeAction(node.id, 'delete', async () => {
       try {
 		const requestDelete = async (force = false) => {
@@ -498,7 +515,12 @@ function SubscriptionPage() {
   };
 
   const uninstallInternalNodes = async (server, managed) => {
-    if (!confirmPress(`instance-proxy-uninstall:${server.id}`, `卸载 ${server.name} 的 ${managed.length} 个节点`)) return;
+    const confirmed = await dialog.deleteResource({
+      resourceType: '实例节点',
+      resourceName: server.name,
+      message: `将卸载 ${server.name} 上的 ${managed.length} 个托管节点。`,
+    });
+    if (!confirmed) return;
     setUninstallingServerId(server.id);
     setSaving(true);
     try {
@@ -570,7 +592,7 @@ function SubscriptionPage() {
       const res = await fetch(`${INTERNAL_API}/${editingInternalNodeId}`, {
         method: 'PUT',
         headers: getAuthHeaders(),
-        body: JSON.stringify({ name: internalNodeForm.name.trim(), preferred_address_id: internalNodeForm.preferred_address_id || '', connect_address: '', connect_port: 0 }),
+        body: JSON.stringify({ name: internalNodeForm.name.trim(), preferred_address_id: internalNodeForm.preferred_address_id || '' }),
       });
       const data = await res.json();
       if (!res.ok || data.success === false) throw new Error(data.error || data.message || '保存失败');
@@ -727,7 +749,11 @@ function SubscriptionPage() {
   };
 
   const deletePlan = async (plan) => {
-    if (!confirmPress(`plan-delete:${plan.id}`, `删除套餐「${plan.name}」`)) return;
+    const confirmed = await dialog.deleteResource({
+      resourceType: '套餐',
+      resourceName: plan.name,
+    });
+    if (!confirmed) return;
     const res = await fetch(`${API}/plans/${plan.id}`, { method: 'DELETE', headers: getAuthHeaders() });
     const data = await res.json();
     if (!res.ok || data.success === false) return toast.error(data.error || '删除失败');
@@ -786,7 +812,11 @@ function SubscriptionPage() {
   };
 
   const deleteSubscription = async (sub) => {
-    if (!confirmPress(`subscription-delete:${sub.id}`, `删除订阅链接「${sub.name}」`)) return;
+    const confirmed = await dialog.deleteResource({
+      resourceType: '订阅链接',
+      resourceName: sub.name,
+    });
+    if (!confirmed) return;
     const res = await fetch(`${API}/subscriptions/${sub.id}`, { method: 'DELETE', headers: getAuthHeaders() });
     const data = await res.json().catch(() => ({}));
     if (!res.ok || data.success === false) {
@@ -957,7 +987,11 @@ function SubscriptionPage() {
   };
 
   const deleteNode = async (node) => {
-    if (!confirmPress(`external-node-delete:${node.id}`, `删除节点 ${node.name}`)) return;
+    const confirmed = await dialog.deleteResource({
+      resourceType: '外部节点',
+      resourceName: node.name,
+    });
+    if (!confirmed) return;
     const actionKey = `${node.id}:delete`;
     if (externalNodeActions[actionKey]) return;
     setExternalNodeActions((current) => ({ ...current, [actionKey]: true }));
@@ -1037,7 +1071,11 @@ function SubscriptionPage() {
       toast.warning('内置模板不能删除');
       return;
     }
-    if (!confirmPress(`template-delete:${tpl.id}`, `删除模板「${tpl.name}」`)) return;
+    const confirmed = await dialog.deleteResource({
+      resourceType: '模板',
+      resourceName: tpl.name,
+    });
+    if (!confirmed) return;
     const res = await fetch(`${API}/templates/${tpl.id}`, { method: 'DELETE', headers: getAuthHeaders() });
     const data = await res.json();
     if (!res.ok || data.success === false) {
@@ -1098,7 +1136,8 @@ function SubscriptionPage() {
         const url = URL.createObjectURL(blob);
         const link = document.createElement('a');
         link.href = url;
-        link.download = `subscriptions_export_${new Date().toISOString().slice(0, 10)}.json`;
+        const stamp = formatDateTime(new Date(), { year: 'numeric', month: '2-digit', day: '2-digit' }).replace(/\//g, '-');
+        link.download = `subscriptions_export_${stamp}.json`;
         link.click();
         URL.revokeObjectURL(url);
       })
@@ -1130,7 +1169,6 @@ function SubscriptionPage() {
                 filteredNodes={filteredNodes}
                 visibleNodes={visibleNodes}
                 serverNameById={serverNameById}
-                isArmed={isArmed}
                 protocolFilter={protocolFilter}
                 protocolItems={protocolItems}
                 tagFilter={tagFilter}
@@ -1157,7 +1195,6 @@ function SubscriptionPage() {
               internalNodes={internalNodes}
               runtimeByServer={runtimeByServer}
               managedTunnels={managedTunnels}
-              isArmed={isArmed}
               onDeployProxyRuntime={deployProxyRuntime}
               onUninstallProxyRuntime={uninstallProxyRuntime}
               onUninstallTunnel={uninstallTunnel}
@@ -1168,7 +1205,6 @@ function SubscriptionPage() {
                 plans={plans}
                 nodes={nodes}
                 internalNodes={internalNodes}
-                isArmed={isArmed}
                 onCreate={openCreatePlan}
                 onEdit={openEditPlan}
                 onToggleEnabled={togglePlanEnabled}
@@ -1182,7 +1218,6 @@ function SubscriptionPage() {
                 createDisabled={!firstEnabledPlanID}
                 publicBase={publicBase}
                 plans={plans}
-                isArmed={isArmed}
                 onCreate={openCreateSubscription}
                 onEdit={openEditSubscription}
                 onToggleEnabled={toggleSubscriptionEnabled}
@@ -1203,7 +1238,6 @@ function SubscriptionPage() {
                 templateBindingId={templateBindingId}
                 setTemplateBindingId={setTemplateBindingId}
                 templateItems={templateItems}
-                isArmed={isArmed}
                 onOpenCreateTemplate={openCreateTemplate}
                 onSaveTemplateBinding={saveTemplateBinding}
                 onSetDefaultTemplate={setDefaultTemplate}

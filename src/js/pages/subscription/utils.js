@@ -1,4 +1,5 @@
 import { toast } from '../../modules/toast.js';
+import { formatDateTime } from '../../modules/utils.js';
 import { TRAFFIC_UNITS, TUNNEL_STATUS_META } from './constants.js';
 
 export const tunnelStatusMeta = (applyStatus) => TUNNEL_STATUS_META[applyStatus] || { variant: 'warning', label: '部署中' };
@@ -384,9 +385,9 @@ export const trafficDisplayValue = (bytes, unit) => {
 
 export const formatTime = (value) => {
   if (!value) return '-';
-  const date = new Date(String(value).replace(' ', 'T'));
-  if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleString();
+  const parsed = new Date(String(value).replace(' ', 'T'));
+  if (Number.isNaN(parsed.getTime())) return value;
+  return formatDateTime(value);
 };
 
 export const statusLabel = (sub) => {

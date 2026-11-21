@@ -8,7 +8,7 @@ import { Edit, Plus, Trash } from '../../components/Icons.jsx';
 import { PLAN_COLUMNS } from './constants.js';
 import { formatBytes } from './utils.js';
 
-export default function PlansPanel({ plans, nodes, internalNodes, isArmed, onCreate, onEdit, onToggleEnabled, onDelete }) {
+export default function PlansPanel({ plans, nodes, internalNodes, onCreate, onEdit, onToggleEnabled, onDelete }) {
   return (
     <SectionCard title={`套餐管理 (${plans.length})`} bodyPadding="none" actions={<Button size="sm" variant="primary" onClick={onCreate}><Plus className="h-3.5 w-3.5" />新建套餐</Button>}>
       <DataTableFrame variant="embedded">
@@ -26,7 +26,7 @@ export default function PlansPanel({ plans, nodes, internalNodes, isArmed, onCre
               <Table.Cell className="text-center">{plan.cycle_type === 'monthly' ? `每月 ${plan.cycle_day} 日` : plan.cycle_type === 'custom' ? '自定义' : '不重置'}</Table.Cell>
 				<Table.Cell><div className="text-xs font-semibold text-kumo-strong">内部 {internalCount} · 外部 {externalCount}</div></Table.Cell>
               <Table.Cell className="text-center">{plan.subscription_count || 0}</Table.Cell>
-              <Table.Cell className="text-center"><div className="inline-flex justify-center gap-2"><Button size="sm" shape="square" variant="secondary" onClick={() => onEdit(plan)} icon={<Edit className="h-3.5 w-3.5" />} aria-label="编辑套餐" /><Button size="sm" shape="square" variant={isArmed(`plan-delete:${plan.id}`) ? 'destructive' : 'secondary-destructive'} onClick={() => onDelete(plan)} icon={<Trash className="h-3.5 w-3.5" />} aria-label="删除套餐" /></div></Table.Cell>
+              <Table.Cell className="text-center"><div className="inline-flex justify-center gap-2"><Button size="sm" shape="square" variant="secondary" onClick={() => onEdit(plan)} icon={<Edit className="h-3.5 w-3.5" />} aria-label="编辑套餐" /><Button size="sm" shape="square" variant="secondary-destructive" onClick={() => onDelete(plan)} icon={<Trash className="h-3.5 w-3.5" />} aria-label="删除套餐" /></div></Table.Cell>
 			</Table.Row>;})}
             {plans.length === 0 && <Table.Row><Table.Cell colSpan={8} className="p-8 text-center text-kumo-subtle">暂无套餐。统一定义节点范围、额度和重置规则。</Table.Cell></Table.Row>}
           </Table.Body>

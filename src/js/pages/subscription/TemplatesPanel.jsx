@@ -10,7 +10,7 @@ import { MasonryGrid } from './components.jsx';
 
 export default function TemplatesPanel({
   templates, publicBase, saving, selectedTemplateSubscription, templateSubscriptionId, setTemplateSubscriptionId,
-  subscriptionItems, templateBindingId, setTemplateBindingId, templateItems, isArmed,
+  subscriptionItems, templateBindingId, setTemplateBindingId, templateItems,
   onOpenCreateTemplate, onSaveTemplateBinding, onSetDefaultTemplate, onOpenCloneTemplate, onOpenEditTemplate, onDeleteTemplate,
 }) {
   return (
@@ -69,7 +69,7 @@ export default function TemplatesPanel({
                 <Button size="sm" variant="secondary" onClick={() => onSetDefaultTemplate(tpl)} disabled={tpl.valid === false}>默认</Button>
                 <Button size="sm" shape="square" variant="secondary" onClick={() => onOpenCloneTemplate(tpl)} aria-label="复制模板" title="复制模板" icon={<Copy className="h-3.5 w-3.5" />} />
                 <Button size="sm" shape="square" variant="secondary" onClick={() => onOpenEditTemplate(tpl)} aria-label="编辑模板" title="编辑模板" icon={<Edit className="h-3.5 w-3.5" />} />
-                <Button size="sm" variant={isArmed(`template-delete:${tpl.id}`) ? 'destructive' : 'secondary-destructive'} onClick={() => onDeleteTemplate(tpl)} disabled={tpl.builtin}><Trash className="h-3.5 w-3.5" /></Button>
+                <Button size="sm" variant="secondary-destructive" onClick={() => onDeleteTemplate(tpl)} disabled={tpl.builtin}><Trash className="h-3.5 w-3.5" /></Button>
               </div>
             </LayerCard.Secondary>
             <LayerCard.Primary>

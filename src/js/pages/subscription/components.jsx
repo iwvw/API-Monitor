@@ -1,4 +1,4 @@
-import React, { useLayoutEffect, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Button } from '@cloudflare/kumo/components/button';
 import { Input } from '@cloudflare/kumo/components/input';
 import { Label } from '@cloudflare/kumo/components/label';
@@ -85,6 +85,15 @@ export function LinkCopyButton({ label, text, onCopy, variant = 'secondary' }) {
 
 export function TrafficSizeInput({ label, value, onChange }) {
   const [unit, setUnit] = useState(() => preferredTrafficUnit(value));
+  const emittedRef = useRef(null);
+
+  useEffect(() => {
+    if (emittedRef.current !== null && String(value) === emittedRef.current) {
+      emittedRef.current = null;
+      return;
+    }
+    setUnit(preferredTrafficUnit(value));
+  }, [value]);
 
   return (
     <div className="min-w-0 space-y-1.5">
@@ -97,7 +106,11 @@ export function TrafficSizeInput({ label, value, onChange }) {
           min="0"
           step="0.001"
           value={trafficDisplayValue(value, unit)}
-          onChange={(event) => onChange(Math.round((Number(event.target.value) || 0) * trafficUnitBytes(unit)))}
+          onChange={(event) => {
+            const bytes = Math.round((Number(event.target.value) || 0) * trafficUnitBytes(unit));
+            emittedRef.current = String(bytes);
+            onChange(bytes);
+          }}
           className="w-full min-w-0"
         />
         <Select alignItemWithTrigger

@@ -17,7 +17,6 @@ const GroupsTab = ({
   totpGroups,
   handleOpenAddGroup,
   groupAccountCounts,
-  isArmed,
   handleOpenEditGroup,
   handleDeleteGroup,
 }) => {
@@ -78,18 +77,10 @@ const GroupsTab = ({
                       <Button
                         shape="square"
                         size="sm"
-                        variant={
-                          isArmed(`totp-group-${group.id}`)
-                            ? 'destructive'
-                            : 'secondary-destructive'
-                        }
+                        variant="secondary-destructive"
                         aria-label="删除分组"
                         onClick={() => handleDeleteGroup(group)}
-                        title={
-                          isArmed(`totp-group-${group.id}`)
-                            ? '再次点击确认删除'
-                            : '删除'
-                        }
+                        title="删除"
                         icon={<Trash className="w-3.5 h-3.5" />}
                       />
                     </div>

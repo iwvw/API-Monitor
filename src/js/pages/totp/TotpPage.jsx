@@ -7,7 +7,6 @@ import { Tabs } from '@cloudflare/kumo';
 import useStore, { DEFAULT_TOTP_SETTINGS } from '../../store.js';
 import { MODULE_TABS_PROPS, TOOL_TABS_PROPS } from '../../modules/kumoTabs.js';
 import { buildTotpAccountPayload } from '../../modules/totpPayload.js';
-import { useConfirmPress } from '../../hooks/useConfirmPress.js';
 import { BRAND_COLOR_FALLBACK } from '../../components/ui/BrandIcon.jsx';
 import { ResponsiveSearchInput, TabBarOverflowActions, stickyTabsBaseClass } from '../../components/ui/AppPrimitives.jsx';
 import { Plus } from '../../components/Icons.jsx';
@@ -31,7 +30,6 @@ import GroupDialog from './GroupDialog.jsx';
 import ExportDialog from './ExportDialog.jsx';
 
 function TotpPage() {
-  const { isArmed, confirmPress } = useConfirmPress();
   const triggerHaptic = useStore(state => state.triggerHaptic);
   const [totpCurrentTab, setTotpCurrentTab] = useState('accounts');
   const [totpAccounts, setTotpAccounts] = useState([]);
@@ -167,9 +165,13 @@ function TotpPage() {
   };
 
   const isRefreshingRef = useRef(false);
+  const refreshPendingRef = useRef(false);
 
   const refreshCodes = async () => {
-    if (isRefreshingRef.current) return;
+    if (isRefreshingRef.current) {
+      refreshPendingRef.current = true;
+      return;
+    }
     isRefreshingRef.current = true;
     try {
       const res = await fetch('/api/totp/codes', { headers: getAuthHeaders() });
@@ -181,6 +183,10 @@ function TotpPage() {
       console.error('刷新验证码失败:', e);
     } finally {
       isRefreshingRef.current = false;
+      if (refreshPendingRef.current) {
+        refreshPendingRef.current = false;
+        void refreshCodes();
+      }
     }
   };
 
@@ -241,6 +247,9 @@ function TotpPage() {
             }
           } else {
             updated[id] = item;
+            if (item.remaining !== undefined && item.remaining <= 0) {
+              needRefresh = true;
+            }
           }
         }
 
@@ -278,12 +287,12 @@ function TotpPage() {
 
   const platformCounts = useMemo(() => {
     const counts = {};
-    totpAccounts.forEach(a => {
+    filteredAccounts.forEach(a => {
       const key = (a.issuer || '').toLowerCase();
       counts[key] = (counts[key] || 0) + 1;
     });
     return counts;
-  }, [totpAccounts]);
+  }, [filteredAccounts]);
 
   const groupAccountCounts = useMemo(() => {
     const counts = {};
@@ -722,7 +731,11 @@ function TotpPage() {
 
   const deleteCustomBrandIcon = async option => {
     if (!option?.customId) return;
-    if (!confirmPress(`custom-icon-${option.customId}`, `删除自定义图标「${option.label}」`)) return;
+    const confirmed = await dialog.deleteResource({
+      resourceType: '自定义图标',
+      resourceName: option.label,
+    });
+    if (!confirmed) return;
     setDeletingCustomBrandIconId(option.customId);
     try {
       const res = await fetch(`/api/totp/icons/library/${encodeURIComponent(option.customId)}`, {
@@ -793,7 +806,11 @@ function TotpPage() {
   };
 
   const handleDeleteAccount = async account => {
-    if (!confirmPress(`totp-account-${account.id}`, `删除「${account.issuer}」的账号`)) {
+    const confirmed = await dialog.deleteResource({
+      resourceType: 'TOTP 账号',
+      resourceName: account.issuer || account.account || '未命名账号',
+    });
+    if (!confirmed) {
       return;
     }
 
@@ -855,6 +872,8 @@ function TotpPage() {
       }
       const script = document.createElement('script');
       script.src = 'https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js';
+      script.integrity = 'sha384-c9d8RFSL+u3exBOJ4Yp3HUJXS4znl9f+z66d1y54ig+ea249SpqR+w1wyvXz/lk+';
+      script.crossOrigin = 'anonymous';
       script.async = true;
       script.dataset.html5Qrcode = 'true';
       script.addEventListener('load', resolve);
@@ -1169,7 +1188,11 @@ function TotpPage() {
   };
 
   const handleDeleteGroup = async group => {
-    if (!confirmPress(`totp-group-${group.id}`, `删除分组「${group.name}」`)) {
+    const confirmed = await dialog.deleteResource({
+      resourceType: '分组',
+      resourceName: group.name,
+    });
+    if (!confirmed) {
       return;
     }
 
@@ -1235,7 +1258,7 @@ function TotpPage() {
 
     try {
       await navigator.clipboard.writeText(code);
-      toast.success(`验证码已复制: ${code}`);
+      toast.success('验证码已复制');
     } catch (e) {
       toast.error('复制失败');
     }
@@ -1378,7 +1401,6 @@ function TotpPage() {
           totpSettings={totpSettings}
           totpCodes={totpCodes}
           platformCounts={platformCounts}
-          isArmed={isArmed}
           handleCardMouseEnter={handleCardMouseEnter}
           handleCardMouseLeave={handleCardMouseLeave}
           copyCodeToClipboard={copyCodeToClipboard}
@@ -1395,7 +1417,6 @@ function TotpPage() {
           totpGroups={totpGroups}
           handleOpenAddGroup={handleOpenAddGroup}
           groupAccountCounts={groupAccountCounts}
-          isArmed={isArmed}
           handleOpenEditGroup={handleOpenEditGroup}
           handleDeleteGroup={handleDeleteGroup}
         />
@@ -1460,7 +1481,6 @@ function TotpPage() {
         resolveFormColor={resolveFormColor}
         accountForm={accountForm}
         applyBrandStyleOption={applyBrandStyleOption}
-        isArmed={isArmed}
         deletingCustomBrandIconId={deletingCustomBrandIconId}
         deleteCustomBrandIcon={deleteCustomBrandIcon}
       />
