@@ -94,7 +94,7 @@ func (s *Service) deleteBucketOp(ctx context.Context, c *client, bucket string) 
 	if bucket == "" {
 		return errFieldRequired
 	}
-	return c.do(ctx, http.MethodDelete, "storage", "b/"+bucket, nil, nil, nil)
+	return c.do(ctx, http.MethodDelete, "storage", "b/"+url.PathEscape(bucket), nil, nil, nil)
 }
 
 // ==================== 对象 ====================
@@ -105,7 +105,7 @@ func (s *Service) listObjects(ctx context.Context, c *client, bucket, prefix str
 		query.Set("prefix", prefix)
 	}
 	var items []normalObject
-	err := c.listJSON(ctx, http.MethodGet, "storage", "b/"+bucket+"/o", query, "items", nil, func(raw json.RawMessage) error {
+	err := c.listJSON(ctx, http.MethodGet, "storage", "b/"+url.PathEscape(bucket)+"/o", query, "items", nil, func(raw json.RawMessage) error {
 		var object struct {
 			Name        string `json:"name"`
 			Size        string `json:"size"`
@@ -135,8 +135,9 @@ func (s *Service) objectDownloadURLOp(ctx context.Context, c *client, bucket, ob
 	if bucket == "" || object == "" {
 		return nil, errFieldRequired
 	}
+	u := url.URL{Scheme: "https", Host: "storage.googleapis.com", Path: "/" + bucket + "/" + object}
 	return map[string]string{
-		"url":    "https://storage.googleapis.com/" + bucket + "/" + object,
+		"url":    u.String(),
 		"bucket": bucket,
 		"object": object,
 	}, nil
@@ -155,12 +156,12 @@ func (s *Service) deleteObjectOp(ctx context.Context, c *client, bucket, object 
 		return errFieldRequired
 	}
 	query := url.Values{}
-	return c.do(ctx, http.MethodDelete, "storage", "b/"+bucket+"/o/"+objectWithSlash(object), query, nil, nil)
+	return c.do(ctx, http.MethodDelete, "storage", "b/"+url.PathEscape(bucket)+"/o/"+objectWithSlash(object), query, nil, nil)
 }
 
 // objectWithSlash 保留对象名中的斜杠（GCS 对象名可为路径）。
 func objectWithSlash(object string) string {
-	return strings.ReplaceAll(object, "/", "%2F")
+	return url.PathEscape(object)
 }
 
 // ==================== HTTP handler ====================

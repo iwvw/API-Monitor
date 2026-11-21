@@ -48,8 +48,8 @@ func TestQueryModelUsageAggregatesByModelAndDate(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/projects/p1/timeSeries", func(w http.ResponseWriter, r *http.Request) {
 		q := r.URL.Query()
-		if got := q.Get("aggregation.alignmentPeriod"); got != "86400s" {
-			t.Errorf("alignmentPeriod = %q, want 86400s", got)
+		if got := q.Get("aggregation.alignmentPeriod"); got != "3600s" {
+			t.Errorf("alignmentPeriod = %q, want 3600s", got)
 		}
 		if got := q.Get("aggregation.perSeriesAligner"); got != "ALIGN_SUM" {
 			t.Errorf("perSeriesAligner = %q, want ALIGN_SUM", got)

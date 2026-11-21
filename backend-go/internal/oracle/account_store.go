@@ -67,7 +67,7 @@ func updateAccount(ctx context.Context, db *sql.DB, id int64, payload accountPay
 		if err != nil {
 			return fmt.Errorf("encrypt private key: %w", err)
 		}
-		passphrase := ""
+		passphrase := current.PassphraseEncrypted
 		if payload.Passphrase != "" {
 			passphrase, err = secure.SecureEncrypt(payload.Passphrase)
 			if err != nil {
@@ -289,7 +289,6 @@ func cleanAccountPayload(payload accountPayload) accountPayload {
 	payload.Fingerprint = strings.TrimSpace(payload.Fingerprint)
 	payload.Region = strings.TrimSpace(payload.Region)
 	payload.PrivateKeyPEM = strings.TrimSpace(payload.PrivateKeyPEM)
-	payload.Passphrase = strings.TrimSpace(payload.Passphrase)
 	payload.DefaultCompartmentID = strings.TrimSpace(payload.DefaultCompartmentID)
 	payload.Description = strings.TrimSpace(payload.Description)
 	return payload

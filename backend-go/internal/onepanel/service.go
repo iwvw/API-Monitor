@@ -456,6 +456,10 @@ func (s *Service) createConfig(w http.ResponseWriter, r *http.Request) {
 	if req.BaseURL == "" {
 		req.BaseURL = panelDefaultBaseURL
 	}
+	if !validPanelBaseURL(req.BaseURL) {
+		response.Error(w, http.StatusBadRequest, "invalid baseUrl")
+		return
+	}
 
 	encrypted, err := secure.SecureEncrypt(req.APIKey)
 	if err != nil {
@@ -524,6 +528,10 @@ func (s *Service) updateConfig(w http.ResponseWriter, r *http.Request, serverID 
 	}
 	nextBase := currentBase
 	if req.BaseURL != "" {
+		if !validPanelBaseURL(req.BaseURL) {
+			response.Error(w, http.StatusBadRequest, "invalid baseUrl")
+			return
+		}
 		nextBase = req.BaseURL
 	}
 
@@ -718,7 +726,10 @@ func (s *Service) getConfig(ctx context.Context, serverID string) (*panelConfig,
 		`SELECT api_key, base_url FROM onepanel_connections WHERE server_id=?`, serverID).
 		Scan(&apiKey, &baseURL)
 	if err != nil {
-		return nil, errPanelConfigNotFound
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, errPanelConfigNotFound
+		}
+		return nil, err
 	}
 	return &panelConfig{
 		APIKey:  secure.SecureDecrypt(apiKey),
@@ -741,6 +752,9 @@ func (s *Service) execPanelCmd(ctx context.Context, serverID string, cfg *panelC
 	}
 	if !validPanelPath(panelPath) {
 		return cmdResult{err: fmt.Errorf("invalid panel path %q", panelPath)}
+	}
+	if !validPanelBaseURL(cfg.BaseURL) {
+		return cmdResult{err: fmt.Errorf("invalid panel base url")}
 	}
 
 	cmd := buildCurlCommand(cfg.BaseURL, cfg.APIKey, method, panelPath, body)
@@ -772,11 +786,32 @@ func validPanelPath(panelPath string) bool {
 	return !strings.Contains(panelPath, "..")
 }
 
+// validPanelBaseURL 校验 1Panel BaseURL:必须是 http/https 且不含 shell 元字符。
+func validPanelBaseURL(baseURL string) bool {
+	trimmed := strings.TrimSpace(baseURL)
+	if trimmed == "" {
+		return false
+	}
+	parsed, err := url.Parse(trimmed)
+	if err != nil {
+		return false
+	}
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return false
+	}
+	if parsed.Host == "" {
+		return false
+	}
+	return !strings.ContainsAny(trimmed, "'\"`$\\ \n\r\t")
+}
+
 func buildCurlCommand(baseURL, apiKey, method, panelPath, body string) string {
 	// 单行命令：agent 0.5.1 对多行脚本（含换行的 dashboard:task payload）解析会
 	// 立即失败且不返回错误信息。这里用分号拼接成单行，规避代理协议限制。
+	safeKey := strings.ReplaceAll(apiKey, "'", "'\\''")
+	safeBase := strings.NewReplacer(`\`, `\\`, `"`, `\"`, `$`, `\$`, "`", "\\`").Replace(baseURL)
 	cmd := fmt.Sprintf(`KEY='%s'; TS=$(date +%%s); TOKEN=$(echo -n "1panel${KEY}${TS}" | md5sum | grep -oE '^[a-f0-9]+'); curl -sk -X %s "%s/api/v2%s" -H "1Panel-Timestamp: $TS" -H "1Panel-Token: $TOKEN" -H 'Content-Type: application/json'`,
-		apiKey, method, baseURL, panelPath)
+		safeKey, method, safeBase, panelPath)
 
 	if body != "" {
 		escaped := strings.ReplaceAll(body, "'", "'\\''")
@@ -789,7 +824,7 @@ func readBody(r *http.Request) []byte {
 	if r.Body == nil {
 		return nil
 	}
-	data, err := io.ReadAll(r.Body)
+	data, err := io.ReadAll(io.LimitReader(r.Body, 5*1024*1024))
 	if err != nil {
 		return nil
 	}

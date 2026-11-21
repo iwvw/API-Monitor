@@ -8,12 +8,13 @@ import (
 	"time"
 
 	"github.com/iwvw/api-monitor/backend-go/internal/response"
+	"github.com/iwvw/api-monitor/backend-go/internal/timeutil"
 )
 
 // currentBillCycle 华为云账期按东八区结算，返回 YYYY-MM（如 2026-09）。
 // 不使用 time.Local/time.UTC 做站点日期归属，账期由 BSS 服务端时区决定。
-func currentBillCycle() string {
-	return time.Now().UTC().Add(8 * time.Hour).Format("2006-01")
+func currentBillCycle(loc *time.Location) string {
+	return time.Now().In(loc).Format("2006-01")
 }
 
 func (s *Service) billing(w http.ResponseWriter, r *http.Request, accountID, view string) {
@@ -28,7 +29,7 @@ func (s *Service) billing(w http.ResponseWriter, r *http.Request, accountID, vie
 	}
 	switch view {
 	case "overview":
-		overview, err := s.billingOverview(r.Context(), c, r.URL.Query().Get("cycle"))
+		overview, err := s.billingOverview(r.Context(), c, r.URL.Query().Get("cycle"), timeutil.LocationFromSettings(r.Context(), db))
 		if err != nil {
 			response.Error(w, http.StatusBadGateway, "获取费用概览失败："+err.Error())
 			return
@@ -69,9 +70,9 @@ type normalBillingOverview struct {
 	TotalConsume float64            `json:"totalConsume"`
 }
 
-func (s *Service) billingOverview(ctx context.Context, c *client, cycle string) (normalBillingOverview, error) {
+func (s *Service) billingOverview(ctx context.Context, c *client, cycle string, loc *time.Location) (normalBillingOverview, error) {
 	if cycle == "" {
-		cycle = currentBillCycle()
+		cycle = currentBillCycle(loc)
 	}
 
 	var balanceRes struct {

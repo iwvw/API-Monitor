@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/iwvw/api-monitor/backend-go/internal/applog"
 	"github.com/iwvw/api-monitor/backend-go/internal/config"
 	"github.com/iwvw/api-monitor/backend-go/internal/database"
 	"github.com/iwvw/api-monitor/backend-go/internal/response"
@@ -204,7 +205,7 @@ func (s *Service) accounts(w http.ResponseWriter, r *http.Request) {
 			response.Error(w, http.StatusInternalServerError, err.Error())
 			return
 		}
-		response.JSON(w, http.StatusOK, map[string]interface{}{"success": true, "data": account})
+		response.JSON(w, http.StatusOK, map[string]interface{}{"success": true, "data": safeAccount(account)})
 	default:
 		response.Error(w, http.StatusMethodNotAllowed, "method not allowed")
 	}
@@ -222,6 +223,7 @@ func (s *Service) exportAccounts(w http.ResponseWriter, r *http.Request) {
 		response.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	applog.Warn(r.Context(), "flyio", "account credentials exported in plaintext", "count", len(accounts), "remote", r.RemoteAddr)
 	response.JSON(w, http.StatusOK, map[string]interface{}{"success": true, "accounts": accounts})
 }
 
@@ -1062,6 +1064,19 @@ func (s *Service) updateMachinesImage(ctx context.Context, token, appName string
 			targetImage = previousImage
 		}
 		targetImage = normalizeFlyImageForUpdate(targetImage)
+		if previousImage != "" && targetImage == previousImage {
+			result.unchanged++
+			result.details = append(result.details, map[string]interface{}{
+				"id":            machineID,
+				"name":          stringValue(machine["name"], ""),
+				"state":         stringValue(machine["state"], ""),
+				"previousImage": previousImage,
+				"targetImage":   targetImage,
+				"currentImage":  previousImage,
+				"changed":       false,
+			})
+			continue
+		}
 		updatedConfig := copyMap(config)
 		updatedConfig["image"] = targetImage
 		metadata := copyMap(objectValue(updatedConfig["metadata"]))

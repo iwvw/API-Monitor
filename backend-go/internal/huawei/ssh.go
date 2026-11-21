@@ -1,6 +1,7 @@
 package huawei
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -78,6 +79,11 @@ func (s *Service) sshTerminal(w http.ResponseWriter, r *http.Request, accountID 
 	}
 	if port <= 0 {
 		port = sshPortOrDefault(account.SSHPort)
+	}
+
+	if !s.hostBelongsToAccount(r.Context(), account, host) {
+		_ = conn.WriteJSON(sshWSMessage{Type: "error", Data: "HOST_NOT_ALLOWED: 目标地址不在该账号的实例列表中,请从实例列表发起 SSH", Transport: "ssh"})
+		return
 	}
 
 	authMethods, err := sshAuthMethods(account)
@@ -210,6 +216,29 @@ func (s *Service) sshTerminal(w http.ResponseWriter, r *http.Request, accountID 
 }
 
 // accountForRequestAfterUpgrade WebSocket 握手后读取账号（错误经 WS 通道返回）。
+func (s *Service) hostBelongsToAccount(ctx context.Context, account Account, host string) bool {
+	if account.AccessKeyID == "" || account.SecretAccessKey == "" {
+		return false
+	}
+	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	c := &client{http: s.http, ak: account.AccessKeyID, sk: account.SecretAccessKey, site: account.Site}
+	projectID := strings.TrimSpace(account.DefaultProjectID)
+	if projectID == "" {
+		projectID = "all"
+	}
+	instances, err := s.listInstancesForProjects(ctx, c, projectID)
+	if err != nil {
+		return false
+	}
+	for _, instance := range instances {
+		if instance.PublicIP == host || instance.PrivateIP == host {
+			return true
+		}
+	}
+	return false
+}
+
 func (s *Service) accountForRequestAfterUpgrade(r *http.Request, conn *websocket.Conn, accountID string) (Account, *sql.DB, bool) {
 	id, err := parseID(accountID)
 	if err != nil {

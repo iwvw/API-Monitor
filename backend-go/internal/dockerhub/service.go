@@ -224,6 +224,9 @@ func (s *Service) accountRepositories(w http.ResponseWriter, r *http.Request, id
 		pageSize = "100"
 	}
 	target := s.apiURL + "/repositories/" + url.PathEscape(username) + "/?page_size=" + url.QueryEscape(pageSize)
+	if page := strings.TrimSpace(r.URL.Query().Get("page")); page != "" {
+		target += "&page=" + url.QueryEscape(page)
+	}
 	req, err := http.NewRequestWithContext(r.Context(), http.MethodGet, target, nil)
 	if err != nil {
 		response.Error(w, http.StatusInternalServerError, err.Error())
@@ -249,11 +252,15 @@ func (s *Service) accountRepositories(w http.ResponseWriter, r *http.Request, id
 		response.Error(w, http.StatusBadGateway, errorMessage(payload, fmt.Sprintf("HTTP %d", res.StatusCode)))
 		return
 	}
-	response.JSON(w, http.StatusOK, map[string]interface{}{
+	result := map[string]interface{}{
 		"success": true,
 		"data":    objectSlice(objectValue(payload)["results"]),
 		"count":   intValue(objectValue(payload)["count"], 0),
-	})
+	}
+	if next, ok := objectValue(payload)["next"]; ok {
+		result["next"] = next
+	}
+	response.JSON(w, http.StatusOK, result)
 }
 
 func (s *Service) searchRepositories(w http.ResponseWriter, r *http.Request) {
@@ -267,7 +274,11 @@ func (s *Service) searchRepositories(w http.ResponseWriter, r *http.Request) {
 	if pageSize == "" {
 		pageSize = "25"
 	}
-	target := s.apiURL + "/search/repositories/?query=" + url.QueryEscape(query) + "&page_size=" + url.QueryEscape(pageSize) + "&page=1"
+	page := strings.TrimSpace(r.URL.Query().Get("page"))
+	if page == "" {
+		page = "1"
+	}
+	target := s.apiURL + "/search/repositories/?query=" + url.QueryEscape(query) + "&page_size=" + url.QueryEscape(pageSize) + "&page=" + url.QueryEscape(page)
 	if namespace != "" {
 		target += "&namespace=" + url.QueryEscape(namespace)
 	}
@@ -289,11 +300,15 @@ func (s *Service) searchRepositories(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	s.enrichSearchResults(r.Context(), username, token, results)
-	response.JSON(w, http.StatusOK, map[string]interface{}{
+	result := map[string]interface{}{
 		"success": true,
 		"data":    results,
 		"count":   count,
-	})
+	}
+	if next, ok := objectValue(payload)["next"]; ok {
+		result["next"] = next
+	}
+	response.JSON(w, http.StatusOK, result)
 }
 
 // enrichSearchResults 为搜索结果补充仓库大小与更新时间（搜索接口本身不返回）。
@@ -350,15 +365,22 @@ func (s *Service) repositoryTags(w http.ResponseWriter, r *http.Request, namespa
 		return
 	}
 	target := s.apiURL + "/repositories/" + url.PathEscape(namespace) + "/" + url.PathEscape(name) + "/tags/?page_size=" + url.QueryEscape(pageSize)
+	if page := strings.TrimSpace(r.URL.Query().Get("page")); page != "" {
+		target += "&page=" + url.QueryEscape(page)
+	}
 	payload, err := s.httpAny(r.Context(), http.MethodGet, target, username, token)
 	if err != nil {
 		response.Error(w, http.StatusBadGateway, err.Error())
 		return
 	}
-	response.JSON(w, http.StatusOK, map[string]interface{}{
+	tagResult := map[string]interface{}{
 		"success": true,
 		"data":    objectSlice(objectValue(payload)["results"]),
-	})
+	}
+	if next, ok := objectValue(payload)["next"]; ok {
+		tagResult["next"] = next
+	}
+	response.JSON(w, http.StatusOK, tagResult)
 }
 
 func (s *Service) repositoryDetail(w http.ResponseWriter, r *http.Request, namespace, name string) {

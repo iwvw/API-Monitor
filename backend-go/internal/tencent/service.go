@@ -225,6 +225,7 @@ func (s *Service) exportAccounts(w http.ResponseWriter, r *http.Request) {
 		response.JSON(w, http.StatusInternalServerError, map[string]interface{}{"error": err.Error()})
 		return
 	}
+	applog.Warn(r.Context(), "tencent", "account credentials exported in plaintext", "count", len(accounts), "remote", r.RemoteAddr)
 	response.JSON(w, http.StatusOK, map[string]interface{}{
 		"success":    true,
 		"accounts":   accounts,
@@ -522,8 +523,8 @@ func (s *Service) cvmInstances(w http.ResponseWriter, r *http.Request, accountID
 	if !ok {
 		return
 	}
-	instances := s.listAllInstances(r.Context(), account, "cvm")
-	response.JSON(w, http.StatusOK, map[string]interface{}{"instances": instances, "total": len(instances)})
+	instances, failedRegions := s.listAllInstances(r.Context(), account, "cvm")
+	s.respondInstances(w, instances, failedRegions)
 }
 
 func (s *Service) lighthouseInstances(w http.ResponseWriter, r *http.Request, accountID string) {
@@ -531,8 +532,22 @@ func (s *Service) lighthouseInstances(w http.ResponseWriter, r *http.Request, ac
 	if !ok {
 		return
 	}
-	instances := s.listAllInstances(r.Context(), account, "lighthouse")
-	response.JSON(w, http.StatusOK, map[string]interface{}{"instances": instances, "total": len(instances)})
+	instances, failedRegions := s.listAllInstances(r.Context(), account, "lighthouse")
+	s.respondInstances(w, instances, failedRegions)
+}
+
+// respondInstances 汇总实例列表:全部分区失败返回 502,部分失败标注 partial/failedRegions。
+func (s *Service) respondInstances(w http.ResponseWriter, instances []map[string]interface{}, failedRegions []string) {
+	if len(instances) == 0 && len(failedRegions) > 0 {
+		response.JSON(w, http.StatusBadGateway, map[string]interface{}{"error": "所有分区查询失败:" + strings.Join(failedRegions, ",")})
+		return
+	}
+	payload := map[string]interface{}{"instances": instances, "total": len(instances)}
+	if len(failedRegions) > 0 {
+		payload["failedRegions"] = failedRegions
+		payload["partial"] = true
+	}
+	response.JSON(w, http.StatusOK, payload)
 }
 
 func (s *Service) instanceAction(w http.ResponseWriter, r *http.Request, accountID, instanceID, kind string) {
@@ -555,13 +570,11 @@ func (s *Service) instanceAction(w http.ResponseWriter, r *http.Request, account
 	response.JSON(w, http.StatusOK, map[string]interface{}{"success": true, "result": result})
 }
 
-func (s *Service) listAllInstances(ctx context.Context, account map[string]interface{}, kind string) []map[string]interface{} {
-	regions := defaultCVMRegions()
+func (s *Service) listAllInstances(ctx context.Context, account map[string]interface{}, kind string) ([]map[string]interface{}, []string) {
+	regions := s.discoverRegions(ctx, account, kind)
 	key := "InstanceSet"
-	if kind == "lighthouse" {
-		regions = defaultLighthouseRegions()
-	}
 	instances := []map[string]interface{}{}
+	failedRegions := []string{}
 	var mu sync.Mutex
 	var wg sync.WaitGroup
 	limit := make(chan struct{}, 6)
@@ -576,6 +589,9 @@ func (s *Service) listAllInstances(ctx context.Context, account map[string]inter
 			result, err := s.callTencent(ctx, kind, region, "DescribeInstances", serviceVersion(kind), map[string]interface{}{"Limit": 100, "Offset": 0})
 			if err != nil {
 				applog.Warn(ctx, "tencent", "failed to list instances for region", "region", region, "error", err.Error())
+				mu.Lock()
+				failedRegions = append(failedRegions, region)
+				mu.Unlock()
 				return
 			}
 			items := make([]map[string]interface{}, 0)
@@ -608,7 +624,30 @@ func (s *Service) listAllInstances(ctx context.Context, account map[string]inter
 		}()
 	}
 	wg.Wait()
-	return instances
+	return instances, failedRegions
+}
+
+// discoverRegions 调用 DescribeRegions 动态获取账号可见地域,失败时回退到内置清单。
+func (s *Service) discoverRegions(ctx context.Context, account map[string]interface{}, kind string) []string {
+	fallback := defaultCVMRegions()
+	if kind == "lighthouse" {
+		fallback = defaultLighthouseRegions()
+	}
+	result, err := s.callTencent(ctx, kind, stringValue(account["region_id"], defaultRegion), "DescribeRegions", serviceVersion(kind), nil)
+	if err != nil {
+		return fallback
+	}
+	regions := []string{}
+	for _, item := range arrayValue(firstPresent(result, "RegionSet", "Regions")) {
+		name := stringValue(objectValue(item)["RegionName"], "")
+		if name != "" {
+			regions = append(regions, name)
+		}
+	}
+	if len(regions) == 0 {
+		return fallback
+	}
+	return regions
 }
 
 // listAllDnspodPages 对 DNSPod 接口按 Limit/Offset 循环拉全量列表。
@@ -836,7 +875,7 @@ func readObject(r *http.Request) (map[string]interface{}, error) {
 	}
 	defer r.Body.Close()
 	var payload map[string]interface{}
-	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil && !errors.Is(err, io.EOF) {
+	if err := json.NewDecoder(io.LimitReader(r.Body, 5*1024*1024)).Decode(&payload); err != nil && !errors.Is(err, io.EOF) {
 		return nil, err
 	}
 	if payload == nil {

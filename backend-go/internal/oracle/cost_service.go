@@ -139,14 +139,21 @@ func (s *Service) listBudgets(ctx context.Context, account Account) ([]BudgetIte
 	}
 	callCtx, cancel := contextWithReadTimeout(ctx)
 	defer cancel()
-	resp, err := client.ListBudgets(callCtx, budget.ListBudgetsRequest{
-		CompartmentId: common.String(account.TenancyOCID),
+	summaries, err := paginate(func(page *string) ([]budget.BudgetSummary, *string, error) {
+		resp, err := client.ListBudgets(callCtx, budget.ListBudgetsRequest{
+			CompartmentId: common.String(account.TenancyOCID),
+			Page:          page,
+		})
+		if err != nil {
+			return nil, nil, err
+		}
+		return resp.Items, resp.OpcNextPage, nil
 	})
 	if err != nil {
 		return nil, err
 	}
-	items := make([]BudgetItem, 0, len(resp.Items))
-	for _, b := range resp.Items {
+	items := make([]BudgetItem, 0, len(summaries))
+	for _, b := range summaries {
 		item := BudgetItem{
 			ID:          stringValuePtr(b.Id),
 			Name:        stringValuePtr(b.DisplayName),

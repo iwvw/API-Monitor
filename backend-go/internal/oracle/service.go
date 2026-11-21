@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/iwvw/api-monitor/backend-go/internal/applog"
 	"github.com/iwvw/api-monitor/backend-go/internal/config"
 	"github.com/iwvw/api-monitor/backend-go/internal/database"
 	"github.com/iwvw/api-monitor/backend-go/internal/response"
@@ -157,6 +158,7 @@ func (s *Service) exportAccounts(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	applog.Warn(r.Context(), "oracle", "account credentials exported in plaintext", "count", len(accounts), "remote", r.RemoteAddr)
 	exported := make([]map[string]interface{}, 0, len(accounts))
 	for _, account := range accounts {
 		exported = append(exported, map[string]interface{}{
@@ -390,8 +392,11 @@ func (s *Service) instanceTerminate(w http.ResponseWriter, r *http.Request, idTe
 	}
 	defer db.Close()
 	var payload instanceActionPayload
-	_ = decodeJSON(r, &payload)
-	preserve := payload.PreserveBootVolume != nil && *payload.PreserveBootVolume
+	if err := decodeJSON(r, &payload); err != nil {
+		response.Error(w, http.StatusBadRequest, "请求体解析失败:"+err.Error())
+		return
+	}
+	preserve := payload.PreserveBootVolume == nil || *payload.PreserveBootVolume
 	err := s.terminateInstance(r.Context(), account, instanceID, preserve)
 	writeResult(w, map[string]interface{}{"success": true, "instanceId": instanceID}, err)
 }
@@ -506,4 +511,24 @@ func writeResult(w http.ResponseWriter, data interface{}, err error) {
 		return
 	}
 	response.OK(w, data)
+}
+
+const oracleMaxPages = 50
+
+// paginate 依据 OCI 响应的 OpcNextPage 逐页拉取,最多 oracleMaxPages 页,防止异常分页死循环。
+func paginate[T any](fetch func(page *string) ([]T, *string, error)) ([]T, error) {
+	var out []T
+	var page *string
+	for i := 0; i < oracleMaxPages; i++ {
+		items, next, err := fetch(page)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, items...)
+		if next == nil || strings.TrimSpace(*next) == "" {
+			break
+		}
+		page = next
+	}
+	return out, nil
 }

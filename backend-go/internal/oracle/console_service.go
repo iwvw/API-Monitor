@@ -16,15 +16,22 @@ func (s *Service) listConsoleConnections(ctx context.Context, account Account, c
 	}
 	callCtx, cancel := contextWithReadTimeout(ctx)
 	defer cancel()
-	res, err := client.ListInstanceConsoleConnections(callCtx, core.ListInstanceConsoleConnectionsRequest{
-		CompartmentId: common.String(compartmentID),
-		InstanceId:    common.String(instanceID),
+	connections, err := paginate(func(page *string) ([]core.InstanceConsoleConnection, *string, error) {
+		res, err := client.ListInstanceConsoleConnections(callCtx, core.ListInstanceConsoleConnectionsRequest{
+			CompartmentId: common.String(compartmentID),
+			InstanceId:    common.String(instanceID),
+			Page:          page,
+		})
+		if err != nil {
+			return nil, nil, err
+		}
+		return res.Items, res.OpcNextPage, nil
 	})
 	if err != nil {
 		return nil, err
 	}
 	items := []NormalizedConsole{}
-	for _, item := range res.Items {
+	for _, item := range connections {
 		items = append(items, normalizeConsole(item))
 	}
 	return items, nil

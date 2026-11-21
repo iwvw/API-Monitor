@@ -24,17 +24,29 @@ func (s *Service) listInstances(ctx context.Context, account Account, compartmen
 	}
 	callCtx, cancel := contextWithReadTimeout(ctx)
 	defer cancel()
-	res, err := client.ListInstances(callCtx, core.ListInstancesRequest{CompartmentId: common.String(compartmentID)})
+	instances, err := paginate(func(page *string) ([]core.Instance, *string, error) {
+		res, err := client.ListInstances(callCtx, core.ListInstancesRequest{
+			CompartmentId: common.String(compartmentID),
+			Page:          page,
+		})
+		if err != nil {
+			return nil, nil, err
+		}
+		return res.Items, res.OpcNextPage, nil
+	})
 	if err != nil {
 		return nil, err
 	}
-	items := make([]NormalizedInstance, len(res.Items))
+	items := make([]NormalizedInstance, len(instances))
 	var wg sync.WaitGroup
-	for i, instance := range res.Items {
+	sem := make(chan struct{}, 6)
+	for i, instance := range instances {
 		wg.Add(1)
 		go func(idx int, inst core.Instance) {
 			defer wg.Done()
-			vnics, _ := s.listVNICs(ctx, account, compartmentID, stringValuePtr(inst.Id))
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			vnics, _ := s.listVNICs(callCtx, account, compartmentID, stringValuePtr(inst.Id))
 			items[idx] = normalizeInstance(account, inst, vnics)
 		}(i, instance)
 	}
@@ -59,12 +71,20 @@ func (s *Service) listShapes(ctx context.Context, account Account, compartmentID
 	if imageID != "" {
 		req.ImageId = common.String(imageID)
 	}
-	res, err := client.ListShapes(callCtx, req)
+	shapes, err := paginate(func(page *string) ([]core.Shape, *string, error) {
+		pageReq := req
+		pageReq.Page = page
+		res, err := client.ListShapes(callCtx, pageReq)
+		if err != nil {
+			return nil, nil, err
+		}
+		return res.Items, res.OpcNextPage, nil
+	})
 	if err != nil {
 		return nil, err
 	}
-	items := make([]NormalizedShape, 0, len(res.Items))
-	for _, shape := range res.Items {
+	items := make([]NormalizedShape, 0, len(shapes))
+	for _, shape := range shapes {
 		items = append(items, normalizeShape(shape))
 	}
 	return items, nil
