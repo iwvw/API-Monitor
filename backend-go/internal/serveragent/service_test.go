@@ -1200,7 +1200,7 @@ func TestListAccountsQueuesMissingAgentLocationRefresh(t *testing.T) {
 		if command != "curl -fsSL https://64.ipcheck.ing/geo" {
 			t.Fatalf("unexpected command: %s", command)
 		}
-		return `IP: 64.181.246.5
+		return `IP: 192.0.2.10
 City: San Jose
 Region: California
 Country: US
@@ -1886,7 +1886,7 @@ func TestRefreshAccountLocationsQueriesOnlineAgentIPCheck(t *testing.T) {
 		if !strings.Contains(data, "curl -fsSL https://64.ipcheck.ing/geo") {
 			t.Fatalf("unexpected command: %s", data)
 		}
-		return `IP: 64.181.246.5
+		return `IP: 192.0.2.10
 City: San Jose
 Region: California
 Country: US
@@ -1940,7 +1940,7 @@ func TestInitialAgentConnectRefreshesMissingLocationOnce(t *testing.T) {
 		if !strings.Contains(data, "curl -fsSL https://64.ipcheck.ing/geo") {
 			t.Fatalf("unexpected command: %s", data)
 		}
-		return `IP: 64.181.246.5
+		return `IP: 192.0.2.10
 City: San Jose
 Region: California
 Country: US
@@ -2843,7 +2843,7 @@ func TestAgentQuickInstallCreatesHostFromName(t *testing.T) {
 	}
 
 	req := httptest.NewRequest(http.MethodGet, "/api/server/agent/command/"+serverID+"?protocol=http", nil)
-	req.Host = "189.1.217.109:3010"
+	req.Host = "192.0.2.11:3010"
 	resCmd := httptest.NewRecorder()
 	service.ServeHTTP(resCmd, req)
 	if resCmd.Code != http.StatusOK {
@@ -2851,7 +2851,7 @@ func TestAgentQuickInstallCreatesHostFromName(t *testing.T) {
 	}
 	cmdPayload := decodePayload(t, resCmd)
 	cmdData := cmdPayload["data"].(map[string]interface{})
-	if !strings.Contains(cmdData["installCommand"].(string), "http://189.1.217.109:3010/api/server/agent/install/linux/"+serverID+"/") {
+	if !strings.Contains(cmdData["installCommand"].(string), "http://192.0.2.11:3010/api/server/agent/install/linux/"+serverID+"/") {
 		t.Fatalf("http install command mismatch: %#v", cmdData["installCommand"])
 	}
 	if !strings.Contains(cmdData["installCommand"].(string), "protocol=http") {
@@ -2859,13 +2859,13 @@ func TestAgentQuickInstallCreatesHostFromName(t *testing.T) {
 	}
 
 	req = httptest.NewRequest(http.MethodGet, "/api/server/agent/install/linux/"+serverID+"/"+agentKey+"?protocol=http", nil)
-	req.Host = "189.1.217.109:3010"
+	req.Host = "192.0.2.11:3010"
 	resLinux := httptest.NewRecorder()
 	service.ServeHTTP(resLinux, req)
 	if resLinux.Code != http.StatusOK {
 		t.Fatalf("http keyed linux install status=%d body=%s", resLinux.Code, resLinux.Body.String())
 	}
-	if !strings.Contains(resLinux.Body.String(), `SERVER_URL="http://189.1.217.109:3010"`) {
+	if !strings.Contains(resLinux.Body.String(), `SERVER_URL="http://192.0.2.11:3010"`) {
 		t.Fatalf("linux install script should use http server url: %s", resLinux.Body.String())
 	}
 	if !strings.Contains(resLinux.Body.String(), `TARGET_HOST_NAME="edge-agent"`) || !strings.Contains(resLinux.Body.String(), `cat >/dev/null || true`) {
@@ -2876,13 +2876,13 @@ func TestAgentQuickInstallCreatesHostFromName(t *testing.T) {
 	}
 
 	req = httptest.NewRequest(http.MethodGet, "/api/server/agent/install/win/"+serverID+"/"+agentKey+"?protocol=http", nil)
-	req.Host = "189.1.217.109:3010"
+	req.Host = "192.0.2.11:3010"
 	resWin := httptest.NewRecorder()
 	service.ServeHTTP(resWin, req)
 	if resWin.Code != http.StatusOK {
 		t.Fatalf("http keyed windows install status=%d body=%s", resWin.Code, resWin.Body.String())
 	}
-	if !strings.Contains(resWin.Body.String(), `$SERVER_URL = "http://189.1.217.109:3010"`) {
+	if !strings.Contains(resWin.Body.String(), `$SERVER_URL = "http://192.0.2.11:3010"`) {
 		t.Fatalf("windows install script should use http server url: %s", resWin.Body.String())
 	}
 	if !strings.Contains(resWin.Body.String(), `$AGENT_PATH = "$INSTALL_DIR\api-monitor-agent.exe"`) {
@@ -2932,7 +2932,7 @@ func TestAgentQuickInstallCreatesHostFromName(t *testing.T) {
 		t.Fatalf("set custom agent download url: %v", err)
 	}
 	req = httptest.NewRequest(http.MethodGet, "/api/server/agent/install/linux/"+serverID+"/"+agentKey+"?protocol=http", nil)
-	req.Host = "189.1.217.109:3010"
+	req.Host = "192.0.2.11:3010"
 	resLinux = httptest.NewRecorder()
 	service.ServeHTTP(resLinux, req)
 	if resLinux.Code != http.StatusOK {
