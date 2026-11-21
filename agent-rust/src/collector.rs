@@ -1494,7 +1494,7 @@ mod tests {
     #[test]
     fn parse_ipcheck_geo_extracts_stable_coordinates() {
         let geo = parse_ipcheck_geo(
-            r#"IP: 64.181.246.5
+            r#"IP: 192.0.2.10
 City: San Jose
 Region: California
 Country: US
@@ -1508,7 +1508,7 @@ RiskScore: 0
 TrustedBot: false"#,
         );
 
-        assert_eq!(geo.ip, "64.181.246.5");
+        assert_eq!(geo.ip, "192.0.2.10");
         assert_eq!(geo.city, "San Jose");
         assert_eq!(geo.region, "California");
         assert_eq!(geo.country_code, "us");
