@@ -133,13 +133,20 @@ export function GatewayLogsTab({ analytics, endpoints }) {
           >
             <FailoverPathBadge path={log.failoverPath} endpointName={log.endpointName} />
           </span>
-          <StatusBadge tone={log.stream ? 'info' : 'warning'}>
-            {log.stream ? '流式' : '非流'}
-          </StatusBadge>
-          <span className="shrink-0 text-kumo-subtle">{(log.latencyMs / 1000).toFixed(1)}s</span>
-          <span className="shrink-0 text-kumo-subtle">
-            {log.ttfbMs > 0 ? `${(log.ttfbMs / 1000).toFixed(1)}s` : '—'}
-          </span>
+          <div className="inline-flex shrink-0 items-center gap-1">
+            <StatusBadge tone={log.stream ? 'info' : 'warning'} className="!px-1 !text-[10px]">
+              {log.stream ? '流' : '非'}
+            </StatusBadge>
+            <StatusBadge tone={ttfbTone(log.ttfbMs)} className="!px-1 !text-[10px]">
+              {log.ttfbMs > 0 ? `${(log.ttfbMs / 1000).toFixed(1)}s` : '—'}
+            </StatusBadge>
+            <StatusBadge
+              tone={resultTone(log.statusCode, log.completionTokens, log.latencyMs)}
+              className="!px-1 !text-[10px]"
+            >
+              {(log.latencyMs / 1000).toFixed(1)}s
+            </StatusBadge>
+          </div>
           <span className="shrink-0 font-mono text-kumo-success">
             {detail ? formatCostAmount(detail.cost, detail.currency) : log.totalTokens}
           </span>
