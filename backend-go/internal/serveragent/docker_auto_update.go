@@ -68,7 +68,7 @@ func defaultDockerAutoUpdatePolicy() DockerAutoUpdatePolicy {
 		Enabled:                    false,
 		Schedule:                   dockerAutoUpdateDefaultSchedule,
 		HostSelector:               "",
-		ContainerLabel:             "",
+		ContainerLabel:             "auto-update=true",
 		ContainerNames:             "",
 		IncludeCompose:             false,
 		MaxConcurrency:             dockerAutoUpdateDefaultConcurrency,
@@ -219,11 +219,10 @@ type dockerImageUpdateStatus struct {
 
 // StartDockerAutoUpdateRun 在后台启动一次自动更新,返回是否成功启动(已在运行则返回 false)。
 func (s *Service) StartDockerAutoUpdateRun(manual bool) bool {
-	if !dockerAutoUpdateRunGuard.CompareAndSwap(false, true) {
+	if dockerAutoUpdateRunGuard.Load() {
 		return false
 	}
 	go func() {
-		defer dockerAutoUpdateRunGuard.Store(false)
 		ctx, cancel := context.WithTimeout(context.Background(), 6*time.Hour)
 		defer cancel()
 		_, _ = s.RunDockerAutoUpdate(ctx, manual)
@@ -240,23 +239,30 @@ func (s *Service) RunDockerAutoUpdate(ctx context.Context, manual bool) (DockerA
 		Results:   []DockerAutoUpdateContainerResult{},
 	}
 
+	if !dockerAutoUpdateRunGuard.CompareAndSwap(false, true) {
+		summary.Status = "running"
+		summary.Message = "自动更新正在运行中"
+		return summary, nil
+	}
+	defer dockerAutoUpdateRunGuard.Store(false)
+
 	db, err := s.open(ctx)
 	if err != nil {
 		return summary, err
 	}
-	defer db.Close()
-
 	policy, err := loadDockerAutoUpdatePolicy(ctx, db)
 	if err != nil {
+		db.Close()
 		return summary, err
 	}
 	if !policy.Enabled && !manual {
+		db.Close()
 		summary.Status = "disabled"
 		summary.Message = "容器自动更新未开启"
 		return summary, nil
 	}
-
 	hosts, err := s.dockerAutoUpdateHosts(ctx, db, policy.HostSelector)
+	db.Close()
 	if err != nil {
 		return summary, err
 	}
@@ -264,7 +270,8 @@ func (s *Service) RunDockerAutoUpdate(ctx context.Context, manual bool) (DockerA
 	if len(hosts) == 0 {
 		summary.Status = "skipped"
 		summary.Message = "没有匹配的在线主机"
-		s.persistDockerAutoUpdateRun(ctx, db, summary)
+		summary.FinishedAt = time.Now().UTC().Format(time.RFC3339)
+		s.persistDockerAutoUpdateSummary(summary)
 		return summary, nil
 	}
 
@@ -396,7 +403,7 @@ func (s *Service) RunDockerAutoUpdate(ctx context.Context, manual bool) (DockerA
 	}
 
 	summary.FinishedAt = time.Now().UTC().Format(time.RFC3339)
-	s.persistDockerAutoUpdateRun(ctx, db, summary)
+	s.persistDockerAutoUpdateSummary(summary)
 	if policy.NotifyOnFailure {
 		s.notifyDockerAutoUpdateFailures(ctx, summary)
 	}
@@ -588,6 +595,17 @@ func findDockerUpdateStatus(statuses []dockerImageUpdateStatus, name, id string)
 		}
 	}
 	return nil
+}
+
+func (s *Service) persistDockerAutoUpdateSummary(summary DockerAutoUpdateSummary) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	db, err := s.open(ctx)
+	if err != nil {
+		return
+	}
+	defer db.Close()
+	s.persistDockerAutoUpdateRun(ctx, db, summary)
 }
 
 func (s *Service) persistDockerAutoUpdateRun(ctx context.Context, db *sql.DB, summary DockerAutoUpdateSummary) {
