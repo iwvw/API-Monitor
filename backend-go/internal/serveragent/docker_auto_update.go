@@ -420,7 +420,7 @@ type dockerAutoUpdateCandidate struct {
 func (s *Service) dockerAutoUpdateHosts(ctx context.Context, db *sql.DB, selector string) ([]dockerAutoUpdateHost, error) {
 	want := parseSelectorLabels(selector)
 	rows, err := db.QueryContext(ctx, `
-		SELECT id, name, COALESCE(tags, '[]') FROM server_accounts
+		SELECT id, name, COALESCE(tags, '[]'), COALESCE(cached_info, '{}') FROM server_accounts
 		ORDER BY order_index ASC, name ASC
 	`)
 	if err != nil {
@@ -430,11 +430,15 @@ func (s *Service) dockerAutoUpdateHosts(ctx context.Context, db *sql.DB, selecto
 
 	var hosts []dockerAutoUpdateHost
 	for rows.Next() {
-		var id, name, tags string
-		if err := rows.Scan(&id, &name, &tags); err != nil {
+		var id, name, tags, cachedInfo string
+		if err := rows.Scan(&id, &name, &tags, &cachedInfo); err != nil {
 			return nil, err
 		}
 		if len(want) > 0 && !matchAnyLabel(parseJSONTags(tags), want) {
+			continue
+		}
+		// 只处理面板已知安装了 Docker 的主机,避免把「没装/没起 Docker」当成更新失败。
+		if !cachedInfoDockerInstalled(cachedInfo) {
 			continue
 		}
 		if _, online := s.registry.Get(id); !online {
@@ -446,6 +450,23 @@ func (s *Service) dockerAutoUpdateHosts(ctx context.Context, db *sql.DB, selecto
 		return nil, err
 	}
 	return hosts, nil
+}
+
+// cachedInfoDockerInstalled 依据 server_accounts.cached_info 判断主机是否已知安装了 Docker。
+func cachedInfoDockerInstalled(cachedInfo string) bool {
+	if strings.TrimSpace(cachedInfo) == "" {
+		return false
+	}
+	var info map[string]interface{}
+	if err := json.Unmarshal([]byte(cachedInfo), &info); err != nil {
+		return false
+	}
+	dockerInfo, ok := info["docker"].(map[string]interface{})
+	if !ok {
+		return false
+	}
+	installed, _ := dockerInfo["installed"].(bool)
+	return installed
 }
 
 func (s *Service) dockerAutoUpdateContainers(serverID string) ([]map[string]interface{}, error) {
@@ -656,13 +677,15 @@ func (s *Service) notifyDockerAutoUpdateFailures(ctx context.Context, summary Do
 }
 
 func (s *Service) loadDockerAutoUpdateResults(ctx context.Context, db *sql.DB, serverID string) ([]DockerAutoUpdateContainerResult, error) {
-	query := `SELECT server_id, container_id, container_name, image, status, message, updated_at FROM docker_auto_update_results`
+	query := `SELECT r.server_id, COALESCE(a.name, r.server_id), r.container_id, r.container_name, r.image, r.status, r.message, r.updated_at
+		FROM docker_auto_update_results r
+		LEFT JOIN server_accounts a ON a.id = r.server_id`
 	args := []interface{}{}
 	if strings.TrimSpace(serverID) != "" {
-		query += ` WHERE server_id = ?`
+		query += ` WHERE r.server_id = ?`
 		args = append(args, serverID)
 	}
-	query += ` ORDER BY updated_at DESC`
+	query += ` ORDER BY r.updated_at DESC`
 
 	rows, err := db.QueryContext(ctx, query, args...)
 	if err != nil {
@@ -675,7 +698,7 @@ func (s *Service) loadDockerAutoUpdateResults(ctx context.Context, db *sql.DB, s
 		var res DockerAutoUpdateContainerResult
 		var name, image, message sql.NullString
 		var updatedAt sql.NullString
-		if err := rows.Scan(&res.ServerID, &res.ContainerID, &name, &image, &res.Status, &message, &updatedAt); err != nil {
+		if err := rows.Scan(&res.ServerID, &res.ServerName, &res.ContainerID, &name, &image, &res.Status, &message, &updatedAt); err != nil {
 			return nil, err
 		}
 		res.ContainerName = name.String

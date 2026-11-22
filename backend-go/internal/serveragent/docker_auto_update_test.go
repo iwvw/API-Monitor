@@ -35,6 +35,25 @@ func TestNormalizeDockerAutoUpdatePolicy(t *testing.T) {
 	}
 }
 
+func TestCachedInfoDockerInstalled(t *testing.T) {
+	cases := []struct {
+		in   string
+		want bool
+	}{
+		{`{"docker":{"installed":true}}`, true},
+		{`{"docker":{"installed":false}}`, false},
+		{`{"docker":{}}`, false},
+		{`{}`, false},
+		{"", false},
+		{"not json", false},
+	}
+	for _, c := range cases {
+		if got := cachedInfoDockerInstalled(c.in); got != c.want {
+			t.Fatalf("cachedInfoDockerInstalled(%q) = %v, want %v", c.in, got, c.want)
+		}
+	}
+}
+
 func TestParseContainerLabel(t *testing.T) {
 	key, value, ok := parseContainerLabel("auto-update=true")
 	if !ok || key != "auto-update" || value != "true" {
@@ -105,7 +124,7 @@ func TestRunDockerAutoUpdateUpdatesFlaggedContainers(t *testing.T) {
 	notifier := &recordingNotifier{}
 	service.SetNotifier(notifier)
 
-	if _, err := db.Exec(`INSERT INTO server_accounts(id,name,host,username,auth_type,tags,order_index) VALUES('host-1','prod','192.0.2.9','root','password','["prod"]',0)`); err != nil {
+	if _, err := db.Exec(`INSERT INTO server_accounts(id,name,host,username,auth_type,tags,order_index,cached_info) VALUES('host-1','prod','192.0.2.9','root','password','["prod"]',0,'{"docker":{"installed":true}}')`); err != nil {
 		t.Fatal(err)
 	}
 
@@ -164,7 +183,7 @@ func TestRunDockerAutoUpdateUpdatesFlaggedContainers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(results) != 1 || results[0].ContainerName != "web" || results[0].Status != "updated" {
+	if len(results) != 1 || results[0].ContainerName != "web" || results[0].Status != "updated" || results[0].ServerName != "prod" {
 		t.Fatalf("results = %#v", results)
 	}
 	if events, _ := notifier.snapshot(); len(events) != 0 {
@@ -248,7 +267,7 @@ func TestRunDockerAutoUpdateNotifiesFailure(t *testing.T) {
 	notifier := &recordingNotifier{}
 	service.SetNotifier(notifier)
 
-	if _, err := db.Exec(`INSERT INTO server_accounts(id,name,host,username,auth_type,tags,order_index) VALUES('host-2','edge','192.0.2.10','root','password','[]',0)`); err != nil {
+	if _, err := db.Exec(`INSERT INTO server_accounts(id,name,host,username,auth_type,tags,order_index,cached_info) VALUES('host-2','edge','192.0.2.10','root','password','[]',0,'{"docker":{"installed":true}}')`); err != nil {
 		t.Fatal(err)
 	}
 
