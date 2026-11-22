@@ -7,10 +7,11 @@ import { Select } from '@cloudflare/kumo/components/select';
 import { SkeletonLine } from '@cloudflare/kumo/components/loader';
 import { AppCard, AppTable, EmptyState } from '../../components/ui/AppPrimitives.jsx';
 import { DockerManageCard, DockerResourceTableCard } from './DockerResourceCards.jsx';
+import DockerAutoUpdatePanel from './DockerAutoUpdatePanel.jsx';
 import { Box, Database, FileText, FolderOpen, Globe, HardDrive, Pause, Play, RefreshCw, RotateCw, Search, Settings, Square, Trash, Upload } from '../../components/Icons.jsx';
 import { TOOL_TABS_PROPS } from '../../modules/kumoTabs.js';
 import { isDockerImagePruneCandidate } from '../../modules/dockerTasks.js';
-import { asArray, formatComposeStatusLabel, getComposeConfigFiles, getComposePrimaryConfigFile, getComposeProjectName, getComposeStatus, getComposeWorkingDir, getDockerImageId, getDockerImageRepository, getDockerImageSize, getDockerImageTag, getDockerNetworkDriver, getDockerNetworkId, getDockerNetworkName, getDockerNetworkScope, getDockerVolumeDriver, getDockerVolumeName, getDockerVolumeScope, isComposeConfigMissing, isDockerOverviewHostVisible } from './serverHelpers.js';
+import { asArray, formatComposeStatusLabel, getComposeConfigFiles, getComposePrimaryConfigFile, getComposeProjectName, getComposeStatus, getComposeWorkingDir, getContainerAutoUpdateBadge, getDockerImageId, getDockerImageRepository, getDockerImageSize, getDockerImageTag, getDockerNetworkDriver, getDockerNetworkId, getDockerNetworkName, getDockerNetworkScope, getDockerVolumeDriver, getDockerVolumeName, getDockerVolumeScope, isComposeConfigMissing, isDockerOverviewHostVisible, matchContainerAutoUpdateLabel } from './serverHelpers.js';
 import { SERVER_SECONDARY_TABS_GROUP_CLASS, SERVER_SECTION_HEADER_CLASS } from './constants.js';
 
 const DOCKER_CONTAINER_TABLE_COLUMNS = [
@@ -21,6 +22,8 @@ const DOCKER_CONTAINER_TABLE_COLUMNS = [
   { id: 'update', role: 'status', minWidth: 96, width: 100, maxWidth: 116 },
   { id: 'actions', role: 'actions-lg' },
 ];
+
+
 
 export default function ServerDockerConsole(props) {
   const {
@@ -33,6 +36,9 @@ export default function ServerDockerConsole(props) {
     dockerActiveBatchUpdateScopeName,
     dockerActiveBatchUpdateTargets,
     dockerBulkUpdateChecking,
+    dockerAutoUpdate,
+    dockerAutoUpdateBusy,
+    dockerAutoUpdateResultMap,
     dockerComposeProjects,
     dockerContainerManagementServers,
     dockerContainerManagementTotals,
@@ -66,6 +72,7 @@ export default function ServerDockerConsole(props) {
     isDockerContainerUpdateChecking,
     isDockerHostExpanded,
     isDockerUpdateConfirmActive,
+    loadDockerAutoUpdate,
     loadDockerResources,
     openDockerComposeConfig,
     openDockerContainerLogs,
@@ -74,6 +81,8 @@ export default function ServerDockerConsole(props) {
     renderDockerEmptyState,
     renderDockerFilterChip,
     renderDockerSimpleLogCard,
+    runDockerAutoUpdate,
+    saveDockerAutoUpdatePolicy,
     selectedUpdatableDockerContainers,
     serverCurrentTab,
     setDockerContainerStateFilter,
@@ -141,6 +150,15 @@ export default function ServerDockerConsole(props) {
                       <span className="inline-flex items-center gap-1.5">
                         <HardDrive className="w-3.5 h-3.5" />
                         存储卷
+                      </span>
+                    ),
+                  },
+                  {
+                    value: 'auto-update',
+                    label: (
+                      <span className="inline-flex items-center gap-1.5">
+                        <RefreshCw className="w-3.5 h-3.5" />
+                        自动更新
                       </span>
                     ),
                   },
@@ -494,6 +512,19 @@ export default function ServerDockerConsole(props) {
                                   );
                                   const canSelectForUpdate =
                                     !!updateCheck?.hasUpdate && !updatePending;
+                                  const autoUpdateResult =
+                                    dockerAutoUpdateResultMap?.get?.(
+                                      `${activeServer.id}::${containerId}`
+                                    ) || null;
+                                  const autoUpdateTarget =
+                                    Boolean(autoUpdateResult) ||
+                                    matchContainerAutoUpdateLabel(
+                                      c.labels,
+                                      dockerAutoUpdate?.policy?.containerLabel
+                                    );
+                                  const autoUpdateBadge = autoUpdateTarget
+                                    ? getContainerAutoUpdateBadge(autoUpdateResult)
+                                    : null;
                                   return (
                                     <Table.Row
                                       className="[&>td]:align-middle"
@@ -526,6 +557,15 @@ export default function ServerDockerConsole(props) {
                                           >
                                             {containerImage}
                                           </div>
+                                          {autoUpdateBadge && (
+                                            <Badge
+                                              variant={autoUpdateBadge.variant}
+                                              className="mt-1 text-[10px]"
+                                              title={autoUpdateBadge.title}
+                                            >
+                                              {autoUpdateBadge.label}
+                                            </Badge>
+                                          )}
                                         </div>
                                       </Table.Cell>
                                       <Table.Cell className="!px-2 !py-1.5 text-center">
@@ -1625,6 +1665,16 @@ export default function ServerDockerConsole(props) {
                     </div>
                   );
                 })()}
+
+              {dockerSubTab === 'auto-update' && (
+                <DockerAutoUpdatePanel
+                  state={dockerAutoUpdate}
+                  busy={dockerAutoUpdateBusy}
+                  onSave={saveDockerAutoUpdatePolicy}
+                  onRun={runDockerAutoUpdate}
+                  onRefresh={loadDockerAutoUpdate}
+                />
+              )}
 
             </div>
           )}

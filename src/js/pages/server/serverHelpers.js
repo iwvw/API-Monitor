@@ -1425,3 +1425,26 @@ export const buildDockerPairSeries = (history = [], metrics) =>
       }),
     }))
     .filter(series => series.data.some(([, value]) => value > 0));
+
+export const matchContainerAutoUpdateLabel = (labels, spec) => {
+  const normalized = String(spec || '').trim();
+  if (!normalized || !labels || typeof labels !== 'object') return false;
+  const idx = normalized.indexOf('=');
+  const key = (idx >= 0 ? normalized.slice(0, idx) : normalized).trim();
+  const value = idx >= 0 ? normalized.slice(idx + 1).trim() : '';
+  if (!key) return false;
+  const got = labels[key];
+  if (got === undefined || got === null) return false;
+  return value === '' || String(got) === value;
+};
+
+export const getContainerAutoUpdateBadge = result => {
+  if (!result) return { variant: 'neutral', label: '自动更新', title: '命中自动更新策略' };
+  if (result.status === 'updated')
+    return { variant: 'success', label: '已自动更新', title: result.message || '' };
+  if (result.status === 'failed')
+    return { variant: 'error', label: '自动更新失败', title: result.message || '' };
+  if (result.status === 'up-to-date')
+    return { variant: 'neutral', label: '自动·已最新', title: result.message || '' };
+  return { variant: 'neutral', label: '自动·跳过', title: result.message || '' };
+};

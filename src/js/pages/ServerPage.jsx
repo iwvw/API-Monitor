@@ -563,7 +563,9 @@ function ServerPage() {
   // Docker 状态
   const [dockerOverviewServers, setDockerOverviewServers] = useState([]);
   const [dockerOverviewLoading, setDockerOverviewLoading] = useState(false);
-  const [dockerSubTab, setDockerSubTab] = useState('containers'); // 'containers', 'compose', 'images', 'networks', 'volumes', 'stats'
+  const [dockerSubTab, setDockerSubTab] = useState('containers'); // 'containers', 'compose', 'images', 'networks', 'volumes', 'auto-update'
+  const [dockerAutoUpdate, setDockerAutoUpdate] = useState(null);
+  const [dockerAutoUpdateBusy, setDockerAutoUpdateBusy] = useState(false);
   const [dockerViewMode, setDockerViewMode] = useState('table'); // 'table', 'grid'
   const [dockerSearchQuery, setDockerSearchQuery] = useState('');
   const [dockerContainerStateFilter, setDockerContainerStateFilter] = useState('all');
@@ -3721,6 +3723,7 @@ function ServerPage() {
     if (serverCurrentTab === 'docker') {
       ensureDockerTaskStream();
       loadDockerResources();
+      loadDockerAutoUpdate();
     }
   }, [serverCurrentTab, dockerSubTab, dockerHostOptionKey]);
 
@@ -4103,6 +4106,95 @@ function ServerPage() {
       return { ok: false };
     }
   };
+
+  const loadDockerAutoUpdate = useCallback(async () => {
+    try {
+      const [policyResponse, resultsResponse] = await Promise.all([
+        fetch('/api/server/v2/docker/auto-update/policy'),
+        fetch('/api/server/v2/docker/auto-update/results'),
+      ]);
+      const policyPayload = await policyResponse.json().catch(() => ({}));
+      const resultsPayload = await resultsResponse.json().catch(() => ({}));
+      if (!policyResponse.ok || !policyPayload.success) return;
+      setDockerAutoUpdate({
+        policy: policyPayload.data?.policy || null,
+        running: Boolean(policyPayload.data?.running),
+        lastRunAt: policyPayload.data?.lastRunAt || null,
+        lastRunStatus: policyPayload.data?.lastRunStatus || '',
+        lastRunSummary: policyPayload.data?.lastRunSummary || null,
+        results: resultsResponse.ok && resultsPayload.success ? resultsPayload.data || [] : [],
+      });
+    } catch {
+      // 自动更新面板失败不阻塞容器主流程
+    }
+  }, []);
+
+  const saveDockerAutoUpdatePolicy = useCallback(async policy => {
+    setDockerAutoUpdateBusy(true);
+    try {
+      const response = await fetch('/api/server/v2/docker/auto-update/policy', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(policy),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || !payload.success) {
+        throw new Error(payload.error || '保存容器自动更新策略失败');
+      }
+      setDockerAutoUpdate(prev => ({
+        ...(prev || {}),
+        policy: payload.data?.policy || policy,
+        running: Boolean(payload.data?.running),
+        lastRunAt: payload.data?.lastRunAt || prev?.lastRunAt || null,
+        lastRunStatus: payload.data?.lastRunStatus || prev?.lastRunStatus || '',
+        lastRunSummary: payload.data?.lastRunSummary || prev?.lastRunSummary || null,
+        results: prev?.results || [],
+      }));
+      toast.success('容器自动更新策略已保存');
+      return true;
+    } catch (error) {
+      toast.error(error.message || '保存容器自动更新策略失败');
+      return false;
+    } finally {
+      setDockerAutoUpdateBusy(false);
+    }
+  }, []);
+
+  const runDockerAutoUpdate = useCallback(async () => {
+    setDockerAutoUpdateBusy(true);
+    try {
+      const response = await fetch('/api/server/v2/docker/auto-update/run', { method: 'POST' });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || !payload.success) {
+        throw new Error(payload.error || '触发容器自动更新失败');
+      }
+      toast.success('已触发容器自动更新,正在后台执行');
+      await loadDockerAutoUpdate();
+      return true;
+    } catch (error) {
+      toast.error(error.message || '触发容器自动更新失败');
+      return false;
+    } finally {
+      setDockerAutoUpdateBusy(false);
+    }
+  }, [loadDockerAutoUpdate]);
+
+  const dockerAutoUpdateResultMap = useMemo(() => {
+    const map = new Map();
+    (dockerAutoUpdate?.results || []).forEach(result => {
+      if (!result?.serverId || !result?.containerId) return;
+      map.set(`${result.serverId}::${result.containerId}`, result);
+    });
+    return map;
+  }, [dockerAutoUpdate]);
+
+  useEffect(() => {
+    if (!dockerAutoUpdate?.running) return undefined;
+    const timer = setInterval(() => {
+      loadDockerAutoUpdate();
+    }, 4000);
+    return () => clearInterval(timer);
+  }, [dockerAutoUpdate?.running, loadDockerAutoUpdate]);
 
   const loadDockerResources = async (options = {}) => {
     if (isDockerMockPreviewEnabled()) {
@@ -7097,6 +7189,9 @@ function ServerPage() {
         dockerActiveBatchUpdateConfirmKey={dockerActiveBatchUpdateConfirmKey}
         dockerActiveBatchUpdateScopeName={dockerActiveBatchUpdateScopeName}
         dockerActiveBatchUpdateTargets={dockerActiveBatchUpdateTargets}
+        dockerAutoUpdate={dockerAutoUpdate}
+        dockerAutoUpdateBusy={dockerAutoUpdateBusy}
+        dockerAutoUpdateResultMap={dockerAutoUpdateResultMap}
         dockerBulkUpdateChecking={dockerBulkUpdateChecking}
         dockerComposeProjects={dockerComposeProjects}
         dockerContainerManagementServers={dockerContainerManagementServers}
@@ -7139,6 +7234,7 @@ function ServerPage() {
         isDockerContainerUpdateChecking={isDockerContainerUpdateChecking}
         isDockerHostExpanded={isDockerHostExpanded}
         isDockerUpdateConfirmActive={isDockerUpdateConfirmActive}
+        loadDockerAutoUpdate={loadDockerAutoUpdate}
         loadDockerResources={loadDockerResources}
         openDockerComposeConfig={openDockerComposeConfig}
         openDockerContainerLogs={openDockerContainerLogs}
@@ -7149,6 +7245,8 @@ function ServerPage() {
         renderDockerHostResourceSection={renderDockerHostResourceSection}
         renderDockerResourceSideRail={renderDockerResourceSideRail}
         renderDockerSimpleLogCard={renderDockerSimpleLogCard}
+        runDockerAutoUpdate={runDockerAutoUpdate}
+        saveDockerAutoUpdatePolicy={saveDockerAutoUpdatePolicy}
         selectedUpdatableDockerContainers={selectedUpdatableDockerContainers}
         serverCurrentTab={serverCurrentTab}
         setDockerContainerStateFilter={setDockerContainerStateFilter}
