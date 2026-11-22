@@ -3358,26 +3358,12 @@ function ServerPage() {
     const events = [
       {
         key: `${batch.id}:status:${batch.status}:${done}:${total}:${summary.succeeded || 0}:${summary.failed || 0}`,
-        line: `批任务 ${batch.id} ${getUpgradeBatchStatusLabel(batch.status)}，进度 ${done}/${total}，成功 ${summary.succeeded || 0}，失败 ${summary.failed || 0}`,
+        line: `批任务 ${String(batch.id).slice(0, 8)} ${getUpgradeBatchStatusLabel(batch.status)} · 进度 ${done}/${total} · 成功 ${summary.succeeded || 0} · 失败 ${summary.failed || 0}`,
       },
     ];
 
-    (batch.items || []).forEach(item => {
-      const serverLabel = item.serverName || item.serverId || '未知主机';
-      (item.log || []).forEach((line, index) => {
-        events.push({
-          key: `${batch.id}:${item.serverId}:log:${index}:${line}`,
-          line: `[${serverLabel}] ${line}`,
-        });
-      });
-      if (item.status === 'failed' || item.status === 'succeeded') {
-        events.push({
-          key: `${batch.id}:${item.serverId}:final:${item.status}:${item.error || ''}`,
-          line: `[${serverLabel}] ${getUpgradeItemStatusLabel(item.status)}${item.error ? `: ${item.error}` : ''}`,
-        });
-      }
-    });
-
+    // 逐主机日志改由「主机日志」分栏按主机滚动展示;这里只保留批任务级事件,
+    // 避免同一行在两处重复、也避免多主机日志交错造成阅读混乱。
     appendUpgradeLogEvents(events);
   };
 

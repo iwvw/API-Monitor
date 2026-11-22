@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react';
 import { LayerDialog } from '@cloudflare/kumo/components/layer-dialog';
 import { Input } from '@cloudflare/kumo/components/input';
 import { Select } from '@cloudflare/kumo/components/select';
@@ -35,6 +36,40 @@ import {
 import { isWindowsAgentInstallOs, getAgentInstallExecutionHint } from '../../modules/agentInstall.js';
 import { getFlagCountry } from './utils.js';
 import { TOOL_TABS_PROPS } from '../../modules/kumoTabs.js';
+
+// UpgradeHostLogCard 渲染单台主机的升级日志卡片:内容随快照推进自动滚动到底部,
+// 让每台主机各有一条独立的滚动日志流,避免多主机日志在同一面板里交错。
+function UpgradeHostLogCard({ hostLabel, statusLabel, badgeVariant, lines = [], error }) {
+  const viewportRef = useRef(null);
+  const lineCount = lines.length;
+  useEffect(() => {
+    const el = viewportRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [lineCount, error]);
+
+  return (
+    <div className="flex min-w-0 flex-col overflow-hidden rounded-md border border-kumo-line bg-kumo-base">
+      <div className="flex min-w-0 items-center justify-between gap-2 border-b border-kumo-line px-2.5 py-1.5">
+        <span className="truncate text-xs font-semibold text-kumo-strong" title={hostLabel}>
+          {hostLabel}
+        </span>
+        <Badge variant={badgeVariant}>{statusLabel}</Badge>
+      </div>
+      <div
+        ref={viewportRef}
+        className="min-h-[5.5rem] max-h-40 overflow-auto whitespace-pre-wrap break-words bg-kumo-recessed/25 px-2.5 py-1.5 font-mono text-[11px] leading-5 text-kumo-strong scrollbar-thin"
+      >
+        {lineCount === 0 && !error ? (
+          <span className="text-kumo-subtle">等待主机日志…</span>
+        ) : null}
+        {lines.map((line, index) => (
+          <div key={index}>{line}</div>
+        ))}
+        {error ? <div className="text-kumo-danger">{error}</div> : null}
+      </div>
+    </div>
+  );
+}
 
 export default function ServerModals(props) {
   const {
@@ -1257,67 +1292,59 @@ export default function ServerModals(props) {
                 />
               )}
 
-              <div className="grid min-w-0 gap-4 cq-md:grid-cols-[minmax(18rem,0.85fr)_minmax(0,1.15fr)] cq-md:items-stretch">
-                <div className="min-w-0 space-y-1.5">
-                  <div className="text-xs font-semibold text-kumo-strong">主机状态</div>
-                  {upgradeBatchSnapshot?.items?.length > 0 ? (
-                    <div className="max-h-[24rem] overflow-auto rounded-md border border-kumo-line scrollbar-thin">
-                      {upgradeBatchSnapshot.items.map(item => (
-                        <div
-                          key={item.serverId}
-                          className="flex min-w-0 items-center justify-between gap-3 border-b border-kumo-line bg-kumo-base px-3 py-2 last:border-b-0"
-                        >
-                          <div className="min-w-0">
-                            <div className="truncate text-xs font-semibold text-kumo-strong">
-                              {item.serverName || item.serverId}
-                            </div>
-                            {(item.error || item.log?.at?.(-1)) && (
-                              <div
-                                className={`mt-0.5 truncate text-[11px] ${item.error ? 'text-kumo-danger' : 'text-kumo-subtle'}`}
-                                title={item.error || item.log.at(-1)}
-                              >
-                                {item.error || item.log.at(-1)}
-                              </div>
-                            )}
-                          </div>
-                          <Badge
-                            variant={
-                              item.status === 'succeeded'
-                                ? 'success'
-                                : item.status === 'failed'
-                                  ? 'error'
-                                  : item.status === 'verifying'
-                                    ? 'warning'
-                                    : 'info'
-                            }
-                          >
-                            {getUpgradeItemStatusLabel(item.status)}
-                          </Badge>
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <AppCard padding="none" className="min-h-56 p-3 text-kumo-subtle">
-                      等待开始升级。
-                    </AppCard>
-                  )}
-                </div>
+              <div className="min-w-0 space-y-1.5">
+                <div className="text-xs font-semibold text-kumo-strong">任务事件</div>
+                {upgradeLog ? (
+                  <pre
+                    ref={upgradeLogViewportRef}
+                    className="max-h-[7rem] overflow-auto whitespace-pre-wrap break-words rounded-md border border-kumo-line bg-kumo-recessed/25 p-2.5 font-mono text-[11px] leading-5 text-kumo-subtle scrollbar-thin"
+                  >
+                    {upgradeLog}
+                  </pre>
+                ) : (
+                  <AppCard padding="none" className="p-2.5 text-kumo-subtle">
+                    将对在线 Agent 下发后台自升级任务。
+                  </AppCard>
+                )}
+              </div>
 
-                <div className="min-w-0 space-y-1.5">
-                  <div className="text-xs font-semibold text-kumo-strong">升级日志</div>
-                  {upgradeLog ? (
-                    <pre
-                      ref={upgradeLogViewportRef}
-                      className="min-h-56 max-h-[24rem] overflow-auto whitespace-pre-wrap break-words rounded-md border border-kumo-line bg-kumo-recessed/25 p-3 font-mono text-[11px] leading-5 text-kumo-strong scrollbar-thin"
-                    >
-                      {upgradeLog}
-                    </pre>
-                  ) : (
-                    <AppCard padding="none" className="min-h-56 p-3 text-kumo-subtle">
-                      将对在线 Agent 下发后台自升级任务。
-                    </AppCard>
+              <div className="min-w-0 space-y-1.5">
+                <div className="flex min-w-0 items-center justify-between gap-2">
+                  <span className="text-xs font-semibold text-kumo-strong">主机日志</span>
+                  {upgradeBatchSnapshot?.items?.length > 0 && (
+                    <span className="shrink-0 text-[11px] text-kumo-subtle">
+                      {(upgradeBatchSnapshot.summary?.succeeded || 0) +
+                        (upgradeBatchSnapshot.summary?.failed || 0)}
+                      /{upgradeBatchSnapshot.items.length} 完成
+                    </span>
                   )}
                 </div>
+                {upgradeBatchSnapshot?.items?.length > 0 ? (
+                  <div className="grid min-w-0 gap-2 cq-sm:grid-cols-2">
+                    {upgradeBatchSnapshot.items.map(item => (
+                      <UpgradeHostLogCard
+                        key={item.serverId}
+                        hostLabel={item.serverName || item.serverId || '未知主机'}
+                        statusLabel={getUpgradeItemStatusLabel(item.status)}
+                        badgeVariant={
+                          item.status === 'succeeded'
+                            ? 'success'
+                            : item.status === 'failed'
+                              ? 'error'
+                              : item.status === 'verifying'
+                                ? 'warning'
+                                : 'info'
+                        }
+                        lines={item.log || []}
+                        error={item.error}
+                      />
+                    ))}
+                  </div>
+                ) : (
+                  <AppCard padding="none" className="min-h-24 p-3 text-kumo-subtle">
+                    等待主机开始升级。
+                  </AppCard>
+                )}
               </div>
               <div className="flex flex-wrap items-center gap-3 text-xs text-kumo-subtle">
                 <Checkbox
