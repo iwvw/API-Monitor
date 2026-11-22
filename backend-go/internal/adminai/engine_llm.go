@@ -11,6 +11,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"os"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -49,7 +50,23 @@ func llmRetryableError(err error) bool {
 	return false
 }
 
-// llmRetryDelay 指数退避（500ms → 1s → 2s → 4s → 8s 封顶）。
+// 管理 AI 经本机回环调用模型网关(/v1/chat/completions),需携带进程内部令牌,
+// 由网关识别为「同进程内部调用」并免密钥放行(见 modelhub.AuthorizeGatewayRequest)。
+// 令牌是 server 启动时生成的随机值,经该环境变量下发给同进程调用方。
+const (
+	internalGatewayTokenEnv    = "API_MONITOR_INTERNAL_CRON_TOKEN"
+	internalGatewayTokenHeader = "X-Internal-Cron-Token"
+)
+
+// applyInternalGatewayAuth 给发往本机网关的请求附加内部调用令牌。取不到令牌时
+// 不加(退化为普通请求,网关会要求网关密钥),不阻断调用。
+func applyInternalGatewayAuth(req *http.Request) {
+	if token := strings.TrimSpace(os.Getenv(internalGatewayTokenEnv)); token != "" {
+		req.Header.Set(internalGatewayTokenHeader, token)
+	}
+}
+
+// llmRetryDelay 指数退避(500ms → 1s → 2s → 4s → 8s 封顶)。
 func llmRetryDelay(attempt int) time.Duration {
 	ms := llmRetryBaseDelayMs << uint(min(attempt-1, 4))
 	if ms > llmRetryMaxDelayMs {
@@ -139,6 +156,7 @@ func (s *Service) callLLMWithBody(ctx context.Context, reqBody map[string]interf
 		return nil, err
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
+	applyInternalGatewayAuth(httpReq)
 
 	// 非流式调用:单次请求(连接 + 响应头 + 响应体读取)总时长上限 180s;
 	// 整体执行时长仍由 runCtx 总预算管控。
@@ -205,6 +223,7 @@ func (s *Service) callLLMStream(ctx context.Context, model string, messages []ma
 		return nil, err
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
+	applyInternalGatewayAuth(httpReq)
 
 	// 流式响应不能用 Client.Timeout 卡整条流(它会覆盖连接+响应头+响应体的总时长,
 	// 长思考/长输出会被中途掐断);总时长由 runCtx 预算控制,这里仅用 Transport

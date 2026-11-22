@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
+	"crypto/subtle"
 	"database/sql"
 	"encoding/base64"
 	"encoding/hex"
@@ -70,6 +71,12 @@ func (s *Service) AuthorizeGatewayRequest(r *http.Request) (*http.Request, error
 	// 判定依据是可信代理链解析出的真实来源而非直连地址：同机反向代理转发进来的
 	// 外部请求真实来源是外网地址，不会再因为直连地址是 127.0.0.1 而整体绕过鉴权。
 	if gatewayLocalBypassEnabled() && isLoopbackHost(s.resolveClientIP(r)) {
+		return r.WithContext(context.WithValue(r.Context(), gatewayKeyContextKey{}, gatewayKeyIdentity{ID: "internal", Name: "内部调用"})), nil
+	}
+	// 同进程内部调用(如管理 AI 的 LLM 会话)携带进程内部随机令牌即视为内部身份,
+	// 无需用户配置网关密钥。令牌 + 回环来源双重校验:令牌是随机值且仅存于本机
+	// 环境变量,外部请求(含同机反代转发进来的流量)无法伪造。
+	if s.internalCallAuthorized(r) {
 		return r.WithContext(context.WithValue(r.Context(), gatewayKeyContextKey{}, gatewayKeyIdentity{ID: "internal", Name: "内部调用"})), nil
 	}
 	rawKey := strings.TrimSpace(r.Header.Get("X-API-Key"))
@@ -501,12 +508,35 @@ func maskGatewayKey(prefix, suffix string) string {
 // gatewayLocalBypassEnv 是「本机来源免密钥」显式开关的环境变量名,默认关闭。
 const gatewayLocalBypassEnv = "MODELHUB_GATEWAY_ALLOW_LOCAL_WITHOUT_KEY"
 
+// 同进程内部调用的令牌协议:server 启动时生成随机令牌并经环境变量下发给
+// 同进程调用方(见 server 包的 internalCronTokenEnv/internalCronTokenHeader)。
+// 管理 AI 的 LLM 会话是这类内部调用方之一。
+const (
+	internalCallTokenEnv    = "API_MONITOR_INTERNAL_CRON_TOKEN"
+	internalCallTokenHeader = "X-Internal-Cron-Token"
+)
+
 func gatewayLocalBypassEnabled() bool {
 	switch strings.ToLower(strings.TrimSpace(os.Getenv(gatewayLocalBypassEnv))) {
 	case "1", "true", "yes", "on":
 		return true
 	}
 	return false
+}
+
+// internalCallAuthorized 判定请求是否为同进程内部调用:来源必须是回环地址,且
+// 携带本进程启动时随机生成、经 internalCallTokenEnv 下发的内部令牌。令牌为
+// 随机值,外部请求无法猜中,因此可安全地给予内部身份而不依赖「本机免密钥」开关。
+func (s *Service) internalCallAuthorized(r *http.Request) bool {
+	if !isLoopbackHost(s.resolveClientIP(r)) {
+		return false
+	}
+	token := strings.TrimSpace(os.Getenv(internalCallTokenEnv))
+	if token == "" {
+		return false
+	}
+	provided := strings.TrimSpace(r.Header.Get(internalCallTokenHeader))
+	return subtle.ConstantTimeCompare([]byte(provided), []byte(token)) == 1
 }
 
 func normalizeGatewayKeyExpiry(value string) (interface{}, error) {

@@ -59,6 +59,42 @@ func TestGatewayLocalBypassStillRejectsForwardedExternal(t *testing.T) {
 	}
 }
 
+// TestGatewayAuthInternalTokenGrantsLoopbackIdentity 同进程内部调用(管理 AI 会话)
+// 携带进程内部随机令牌且来源为回环时,免网关密钥获得内部身份;令牌错误/缺失或
+// 来源非回环仍一律要求密钥。
+func TestGatewayAuthInternalTokenGrantsLoopbackIdentity(t *testing.T) {
+	s := newOpenAIService(t)
+	t.Setenv(internalCallTokenEnv, "tok-secret")
+
+	internalReq := func(remoteAddr, header string) *http.Request {
+		r := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+		r.RemoteAddr = remoteAddr
+		if header != "" {
+			r.Header.Set(internalCallTokenHeader, header)
+		}
+		return r
+	}
+
+	authorized, err := s.AuthorizeGatewayRequest(internalReq("127.0.0.1:54321", "tok-secret"))
+	if err != nil {
+		t.Fatalf("internal token should authorize loopback request, got err=%v", err)
+	}
+	if identity := gatewayKeyFromContext(authorized.Context()); identity.ID != "internal" {
+		t.Fatalf("internal token identity = %q, want internal", identity.ID)
+	}
+
+	if _, err := s.AuthorizeGatewayRequest(internalReq("127.0.0.1:54321", "wrong")); err != errGatewayKeyMissing {
+		t.Fatalf("wrong internal token must require a key, got err=%v", err)
+	}
+	if _, err := s.AuthorizeGatewayRequest(internalReq("127.0.0.1:54321", "")); err != errGatewayKeyMissing {
+		t.Fatalf("missing internal token must require a key, got err=%v", err)
+	}
+	// 非回环来源即使带正确令牌也不放行(防令牌经反代从外部来源重放)。
+	if _, err := s.AuthorizeGatewayRequest(internalReq("203.0.113.9:54321", "tok-secret")); err != errGatewayKeyMissing {
+		t.Fatalf("non-loopback source must not use internal token, got err=%v", err)
+	}
+}
+
 // TestRightmostForwardedClientSkipsTrustedHops 从右往左跳过受信代理跳取真实客户端,
 // 不使用可被客户端伪造的最左值。
 func TestRightmostForwardedClientSkipsTrustedHops(t *testing.T) {
