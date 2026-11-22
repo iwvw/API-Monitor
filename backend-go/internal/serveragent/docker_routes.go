@@ -305,6 +305,10 @@ func (s *Service) handleV2DockerRoutes(w http.ResponseWriter, r *http.Request, d
 		s.handleDockerOverview(w, r, db)
 		return
 	}
+	if len(subparts) >= 1 && subparts[0] == "auto-update" {
+		s.handleDockerAutoUpdateRoutes(w, r, db, subparts[1:])
+		return
+	}
 	if len(subparts) >= 2 {
 		s.handleDockerProxyRoutes(w, r, db, subparts)
 		return

@@ -359,6 +359,26 @@ func ensureSchema(ctx context.Context, db *sql.DB) error {
 			UNIQUE(server_id, name),
 			FOREIGN KEY (server_id) REFERENCES server_accounts(id) ON DELETE CASCADE
 		)`,
+		`CREATE TABLE IF NOT EXISTS docker_auto_update_policy (
+			id INTEGER PRIMARY KEY CHECK (id = 1),
+			config_json TEXT NOT NULL DEFAULT '{}',
+			last_run_at DATETIME,
+			last_run_status TEXT,
+			last_run_summary TEXT,
+			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`CREATE TABLE IF NOT EXISTS docker_auto_update_results (
+			server_id TEXT NOT NULL,
+			container_id TEXT NOT NULL,
+			container_name TEXT,
+			image TEXT,
+			status TEXT NOT NULL,
+			message TEXT,
+			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			PRIMARY KEY (server_id, container_id)
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_docker_auto_update_results_server ON docker_auto_update_results(server_id, updated_at DESC)`,
+		`INSERT OR IGNORE INTO docker_auto_update_policy (id, config_json, last_run_status) VALUES (1, '{}', '')`,
 		`CREATE INDEX IF NOT EXISTS idx_server_accounts_status ON server_accounts(status)`,
 		`CREATE INDEX IF NOT EXISTS idx_server_monitor_logs_server ON server_monitor_logs(server_id, checked_at)`,
 		`CREATE INDEX IF NOT EXISTS idx_server_monitor_logs_status ON server_monitor_logs(status, checked_at)`,

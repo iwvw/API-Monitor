@@ -44,6 +44,8 @@ type Service struct {
 	scheduler       *cron.Cron
 	entries         map[int64]cron.EntryID
 	workflowEntries map[int64]cron.EntryID
+	builtins        []BuiltinTask
+	builtinEntries  map[string]cron.EntryID
 	activeRuns      map[int64]int
 	mu              sync.Mutex
 	client          *http.Client
@@ -107,6 +109,7 @@ func New(cfg config.Config) *Service {
 		store:           database.New(cfg),
 		entries:         map[int64]cron.EntryID{},
 		workflowEntries: map[int64]cron.EntryID{},
+		builtinEntries:  map[string]cron.EntryID{},
 		activeRuns:      map[int64]int{},
 		client:          &http.Client{},
 	}
@@ -267,6 +270,7 @@ func (s *Service) ReloadAll(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	builtinPlan := s.builtinPlan()
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -292,6 +296,7 @@ func (s *Service) ReloadAll(ctx context.Context) error {
 			_ = s.scheduleWorkflowLocked(workflow)
 		}
 	}
+	s.applyBuiltinsLocked(builtinPlan)
 	return nil
 }
 

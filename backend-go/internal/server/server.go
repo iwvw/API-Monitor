@@ -173,6 +173,18 @@ func newServer(cfg config.Config) (*Server, error) {
 	cronService := cronjobs.New(cfg)
 	cronService.SetAgentRunner(serverAgentService)
 	cronService.SetNotifier(notifyService)
+	// 容器自动更新的内置调度条目:开关与计划来自 serveragent 的策略,复用本调度器的站点时区。
+	cronService.RegisterBuiltins(cronjobs.BuiltinTask{
+		Name:     "docker-auto-update",
+		Enabled:  func() bool { return serverAgentService.DockerAutoUpdateEnabled(context.Background()) },
+		Schedule: func() string { return serverAgentService.DockerAutoUpdateSchedule(context.Background()) },
+		Run: func(ctx context.Context) {
+			_, _ = serverAgentService.RunDockerAutoUpdate(ctx, false)
+		},
+	})
+	serverAgentService.SetAutoUpdateScheduleHook(func() {
+		_ = cronService.ReloadBuiltins(context.Background())
+	})
 	uptimeService := uptime.New(cfg, authService, notifyService)
 	uptimeService.SetHeartbeatBroadcaster(serverAgentService.BroadcastUptimeHeartbeat)
 	githubService := githubmodule.New(cfg)

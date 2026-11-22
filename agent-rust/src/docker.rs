@@ -260,6 +260,7 @@ impl DockerBridge {
             state: String,
             created: String,
             ports: String,
+            labels: HashMap<String, String>,
         }
 
         let mut containers = Vec::new();
@@ -304,6 +305,7 @@ impl DockerBridge {
                 state,
                 created,
                 ports: ports_vec.join(", "),
+                labels: c.labels.unwrap_or_default(),
             });
         }
 

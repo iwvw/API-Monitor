@@ -18,6 +18,7 @@ export const getSourceModuleName = (module) => {
     antigravity: 'Antigravity',
     cron: '定时任务',
     assets: '资产管理',
+    docker: 'Docker 容器',
   };
   return names[module] || module;
 };
@@ -74,6 +75,7 @@ export const getEventTypeName = (type) => {
     'workflow.completed': '工作流执行完成',
     'workflow.failed': '工作流执行失败',
     asset_expiry: '资产即将到期',
+    'container.update.failed': '容器自动更新失败',
     created: '已创建',
     updated: '已更新',
     deleted: '已删除',
@@ -94,4 +96,5 @@ export const FALLBACK_EVENT_CATALOG = [
   { module: 'antigravity', events: ['quota_window_refreshed'] },
   { module: 'cron', events: ['task.completed', 'task.failed', 'workflow.completed', 'workflow.failed'] },
   { module: 'assets', events: ['asset_expiry'] },
+  { module: 'docker', events: ['container.update.failed'] },
 ];

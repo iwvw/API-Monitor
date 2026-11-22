@@ -80,6 +80,8 @@ type Service struct {
 	stopOnce                      sync.Once
 	startupErr                    error
 	aiAgentValidator              func(r *http.Request) bool
+	autoUpdateHookMu              sync.Mutex
+	autoUpdateScheduleHook        func()
 }
 
 const defaultRealtimeMetricsPersistInterval = 30 * time.Second
