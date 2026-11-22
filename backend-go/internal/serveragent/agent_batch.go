@@ -396,7 +396,7 @@ func (s *Service) runAgentBatchItem(batch *AgentBatch, item *AgentBatchItem, ori
 		}
 		if selfUpdateFailure == "" {
 			if ok, reason := s.waitForAgentReconnectWithLog(item, item.ServerID, startMs, verifyTimeout, previousVersion); ok {
-				item.succeed("Agent 已重新上线")
+				item.succeed("升级完成")
 				return
 			} else if reason != "" {
 				selfUpdateFailure = reason
@@ -460,7 +460,7 @@ func (s *Service) runAgentBatchItem(batch *AgentBatch, item *AgentBatchItem, ori
 	item.setStatus(AgentBatchVerifying, "")
 	item.appendLog("安装脚本执行成功，等待 Agent 连接")
 	if ok, reason := s.waitForAgentReconnectWithLog(item, item.ServerID, startMs, verifyTimeout, previousVersion); ok {
-		item.succeed("Agent 已上线")
+		item.succeed("安装完成")
 		return
 	} else if reason != "" {
 		item.fail(reason)
@@ -514,33 +514,40 @@ func (s *Service) waitForAgentReconnect(serverID string, afterConnectedAtMs int6
 }
 
 // waitForAgentReconnectWithLog 等待 Agent 升级/安装后重新上线。
-// expectedVersion 为升级前的 Agent 版本（可为空，空则跳过版本对比）：
-//   - Agent 通过 agent:upgrade_status 上报自更新 failed 时立即失败，并记录具体原因，
-//     避免 Agent 下载失败时只能干等验证超时；
-//   - 上报 succeeded 时记录日志，继续等待重连；
-//   - 重连成功后对比版本，明确日志"版本已从 X 更新到 Y"。
+// expectedVersion 为升级前的 Agent 版本(可为空，空则跳过版本对比):
+//   - 上报 agent:upgrade_status failed 时立即失败并记录原因，避免只能干等超时;
+//   - 上报 succeeded 时记录一次，并按"自升级已确认"处理:重连即视为完成，即使版本号
+//     未变(本机已是最新版本时脚本会重装同版本二进制，版本号本就不会变化);
+//   - 未收到成功上报且版本号未变化时才继续等待，直到超时判"升级未生效"。
+//
+// 循环内关键事件都只在首次出现时记录，避免每 2 秒轮询把同一行刷屏。
 func (s *Service) waitForAgentReconnectWithLog(item *AgentBatchItem, serverID string, afterConnectedAtMs int64, timeout time.Duration, expectedVersion string) (bool, string) {
 	deadline := time.Now().Add(timeout)
-	lastLog := time.Time{}
+	lastProgressLog := time.Time{}
 	staleVersion := ""
 	sawStale := false
+	selfUpdateSucceeded := false
+	loggedUpdateComplete := false
 	for {
 		if conn, exists := s.registry.Get(serverID); exists {
-			// Agent 自更新结果上报优先判定：失败立即返回，成功继续等待重连
+			// Agent 自更新结果上报优先判定:失败立即返回;成功则只记录一次,并进入
+			// "自升级已确认"状态(此时版本号可能不变——脚本安装的往往就是最新版)。
 			if rawStatus, ok := conn.GetMetadata()["upgrade_status"].(map[string]interface{}); ok {
 				switch state, _ := rawStatus["state"].(string); state {
 				case "failed":
 					reason, _ := rawStatus["error"].(string)
 					if reason == "" {
-						reason = "未知错误，详见 Agent 升级日志"
+						reason = "未知错误,详见 Agent 升级日志"
 					}
 					if item != nil {
 						item.appendLog("Agent 自更新失败: " + reason)
 					}
 					return false, "Agent 自更新失败: " + reason
 				case "succeeded":
-					if item != nil {
-						item.appendLog("Agent 已确认更新完成，等待重连")
+					selfUpdateSucceeded = true
+					if item != nil && !loggedUpdateComplete {
+						item.appendLog("Agent 已确认更新完成,等待重连")
+						loggedUpdateComplete = true
 					}
 				}
 			}
@@ -548,28 +555,34 @@ func (s *Service) waitForAgentReconnectWithLog(item *AgentBatchItem, serverID st
 			connectedAt := conn.AuthenticatedAt.UnixNano() / int64(time.Millisecond)
 			if connectedAt > afterConnectedAtMs {
 				newVersion := agentConnectionVersion(conn)
-				if item != nil {
-					if expectedVersion != "" && newVersion != "" && newVersion != expectedVersion {
-						item.appendLog("Agent 已重新上线，版本从 " + expectedVersion + " 更新到 " + newVersion)
-					} else if expectedVersion != "" {
-						item.appendLog("Agent 已重新上线（版本未变化: " + newVersion + "）")
-					} else {
-						item.appendLog("Agent 已重新上线")
+				versionChanged := expectedVersion != "" && newVersion != "" && newVersion != expectedVersion
+				// 已收到自升级成功上报、或版本确实变化、或升级前版本未知时,重连即判定升级完成。
+				// 版本号不变并不代表失败:目标可能本就是"已是最新版本",脚本会重装同版本二进制。
+				if selfUpdateSucceeded || expectedVersion == "" || versionChanged {
+					if item != nil {
+						switch {
+						case versionChanged:
+							item.appendLog("Agent 已重新上线,版本从 " + expectedVersion + " 更新到 " + newVersion)
+						case newVersion != "":
+							item.appendLog("Agent 已重新上线(已是最新版本: " + newVersion + ")")
+						default:
+							item.appendLog("Agent 已重新上线")
+						}
 					}
-				}
-				if expectedVersion == "" || (newVersion != "" && newVersion != expectedVersion) {
 					return true, ""
 				}
+				// 未收到自升级成功信号且版本未变化:很可能是旧进程的瞬时重连,继续等待;
+				// 直到超时才判定"版本未变化,升级未生效"。
 				sawStale = true
 				staleVersion = newVersion
 			}
 		}
-		if item != nil && (lastLog.IsZero() || time.Since(lastLog) >= 30*time.Second) {
+		if item != nil && (lastProgressLog.IsZero() || time.Since(lastProgressLog) >= 30*time.Second) {
 			remaining := time.Until(deadline)
 			if remaining > 0 {
-				item.appendLog("等待 Agent 重连，剩余约 " + formatBatchDuration(remaining))
+				item.appendLog("等待 Agent 重连,剩余约 " + formatBatchDuration(remaining))
 			}
-			lastLog = time.Now()
+			lastProgressLog = time.Now()
 		}
 		remaining := time.Until(deadline)
 		if remaining <= 0 {
