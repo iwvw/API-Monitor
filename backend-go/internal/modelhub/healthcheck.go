@@ -222,9 +222,9 @@ func (s *Service) healthCheckModelRoute(w http.ResponseWriter, r *http.Request, 
 	defer db.Close()
 
 	var baseURL, apiKey string
-	var headersRaw, proxyRaw, proxyPoolIDRaw, upstreamTypeRaw, protocolRaw sql.NullString
+	var apiKeysRaw, headersRaw, proxyRaw, proxyPoolIDRaw, upstreamTypeRaw, protocolRaw sql.NullString
 	var proxyEnabledInt, forceProxyInt int
-	err = db.QueryRowContext(ctx, "SELECT base_url, api_key, headers, proxy_pool, proxy_pool_id, proxy_enabled, force_proxy, protocol, upstream_type FROM modelhub_endpoints WHERE id = ?", id).Scan(&baseURL, &apiKey, &headersRaw, &proxyRaw, &proxyPoolIDRaw, &proxyEnabledInt, &forceProxyInt, &protocolRaw, &upstreamTypeRaw)
+	err = db.QueryRowContext(ctx, "SELECT base_url, api_key, api_keys, headers, proxy_pool, proxy_pool_id, proxy_enabled, force_proxy, protocol, upstream_type FROM modelhub_endpoints WHERE id = ?", id).Scan(&baseURL, &apiKey, &apiKeysRaw, &headersRaw, &proxyRaw, &proxyPoolIDRaw, &proxyEnabledInt, &forceProxyInt, &protocolRaw, &upstreamTypeRaw)
 	if err != nil {
 		response.JSON(w, http.StatusNotFound, map[string]string{"error": "端点不存在"})
 		return
@@ -244,6 +244,7 @@ func (s *Service) healthCheckModelRoute(w http.ResponseWriter, r *http.Request, 
 		id:           id,
 		baseURL:      baseURL,
 		apiKey:       apiKey,
+		apiKeys:      decodeEndpointAPIKeys(apiKeysRaw),
 		pool:         pool,
 		proxyPoolID:  proxyPoolIDRaw.String,
 		proxyEnabled: proxyEnabledInt == 1,
@@ -283,9 +284,9 @@ func (s *Service) healthCheckAllModelsRoute(w http.ResponseWriter, r *http.Reque
 	defer db.Close()
 
 	var baseURL, apiKey, modelsRaw string
-	var headersRaw, proxyRaw, proxyPoolIDRaw, upstreamTypeRaw, protocolRaw sql.NullString
+	var apiKeysRaw, headersRaw, proxyRaw, proxyPoolIDRaw, upstreamTypeRaw, protocolRaw sql.NullString
 	var proxyEnabledInt, forceProxyInt int
-	err = db.QueryRowContext(ctx, "SELECT base_url, api_key, models, headers, proxy_pool, proxy_pool_id, proxy_enabled, force_proxy, protocol, upstream_type FROM modelhub_endpoints WHERE id = ?", id).Scan(&baseURL, &apiKey, &modelsRaw, &headersRaw, &proxyRaw, &proxyPoolIDRaw, &proxyEnabledInt, &forceProxyInt, &protocolRaw, &upstreamTypeRaw)
+	err = db.QueryRowContext(ctx, "SELECT base_url, api_key, api_keys, models, headers, proxy_pool, proxy_pool_id, proxy_enabled, force_proxy, protocol, upstream_type FROM modelhub_endpoints WHERE id = ?", id).Scan(&baseURL, &apiKey, &apiKeysRaw, &modelsRaw, &headersRaw, &proxyRaw, &proxyPoolIDRaw, &proxyEnabledInt, &forceProxyInt, &protocolRaw, &upstreamTypeRaw)
 	if err != nil {
 		response.JSON(w, http.StatusNotFound, map[string]string{"error": "端点不存在"})
 		return
@@ -295,6 +296,7 @@ func (s *Service) healthCheckAllModelsRoute(w http.ResponseWriter, r *http.Reque
 		id:           id,
 		baseURL:      baseURL,
 		apiKey:       apiKey,
+		apiKeys:      decodeEndpointAPIKeys(apiKeysRaw),
 		pool:         decodeProxyPool(proxyRaw),
 		proxyPoolID:  proxyPoolIDRaw.String,
 		proxyEnabled: proxyEnabledInt == 1,
@@ -451,7 +453,7 @@ func (s *Service) healthCheckAllRoute(w http.ResponseWriter, r *http.Request) {
 	}
 	defer db.Close()
 
-	rows, err := db.QueryContext(ctx, "SELECT id, name, base_url, api_key, models, headers, proxy_pool, proxy_pool_id, proxy_enabled, force_proxy, protocol, upstream_type FROM modelhub_endpoints WHERE enabled = 1")
+	rows, err := db.QueryContext(ctx, "SELECT id, name, base_url, api_key, api_keys, models, headers, proxy_pool, proxy_pool_id, proxy_enabled, force_proxy, protocol, upstream_type FROM modelhub_endpoints WHERE enabled = 1")
 	if err != nil {
 		response.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
@@ -465,11 +467,12 @@ func (s *Service) healthCheckAllRoute(w http.ResponseWriter, r *http.Request) {
 	items := []item{}
 	for rows.Next() {
 		var it item
-		var headersRaw, proxyRaw, proxyPoolIDRaw, upstreamTypeRaw, protocolRaw sql.NullString
+		var apiKeysRaw, headersRaw, proxyRaw, proxyPoolIDRaw, upstreamTypeRaw, protocolRaw sql.NullString
 		var proxyEnabledInt, forceProxyInt int
-		if err := rows.Scan(&it.id, &it.name, &it.ep.baseURL, &it.ep.apiKey, &it.modelsRaw, &headersRaw, &proxyRaw, &proxyPoolIDRaw, &proxyEnabledInt, &forceProxyInt, &protocolRaw, &upstreamTypeRaw); err == nil {
+		if err := rows.Scan(&it.id, &it.name, &it.ep.baseURL, &it.ep.apiKey, &apiKeysRaw, &it.modelsRaw, &headersRaw, &proxyRaw, &proxyPoolIDRaw, &proxyEnabledInt, &forceProxyInt, &protocolRaw, &upstreamTypeRaw); err == nil {
 			it.ep.id = it.id
 			it.ep.apiKey = secure.SecureDecrypt(it.ep.apiKey)
+			it.ep.apiKeys = decodeEndpointAPIKeys(apiKeysRaw)
 			it.ep.pool = decodeProxyPool(proxyRaw)
 			it.ep.proxyPoolID = proxyPoolIDRaw.String
 			it.ep.proxyEnabled = proxyEnabledInt == 1
@@ -574,6 +577,26 @@ func (s *Service) healthCheckAllRoute(w http.ResponseWriter, r *http.Request) {
 		"checkedAt": time.Now().Format(time.RFC3339),
 		"endpoints": results,
 	})
+}
+
+// firstVerifiedKey 依次用端点的各把 API Key 执行 verifyAPIKeyRaw,返回第一把验证
+// 通过的 key。全部失败时返回 ok=false 与最后一次错误。端点配置了多把 key 时,
+// 避免第一把失效 key 把「刷新模型列表 / 验证端点」直接判成失败。
+func (s *Service) firstVerifiedKey(ctx context.Context, baseURL string, keys []string, ep auxEndpoint, modelsURL, upstreamType string, headers []HeaderItem) (string, bool, error) {
+	if len(keys) == 0 {
+		keys = []string{""}
+	}
+	var lastErr error
+	for _, key := range keys {
+		ok, _, err := s.verifyAPIKeyRaw(ctx, baseURL, key, ep, modelsURL, upstreamType, headers)
+		if err == nil && ok {
+			return key, true, nil
+		}
+		if err != nil {
+			lastErr = err
+		}
+	}
+	return "", false, lastErr
 }
 
 func (s *Service) verifyAPIKeyRaw(ctx context.Context, u, key string, ep auxEndpoint, modelsURL, upstreamType string, headers ...[]HeaderItem) (bool, int, error) {
@@ -871,6 +894,7 @@ type healthCheckEndpoint struct {
 	id           string
 	baseURL      string
 	apiKey       string
+	apiKeys      []string
 	pool         []string
 	proxyPoolID  string
 	proxyEnabled bool
@@ -880,7 +904,47 @@ type healthCheckEndpoint struct {
 	headers      []HeaderItem
 }
 
+// keys 返回健康检测要依次尝试的 API Key:主 key + 扩展 key,去重保序。
+// 全部为空时返回单个空串,保持「无 key 也发一次请求」的既有行为(便于暴露鉴权错误)。
+func (ep healthCheckEndpoint) keys() []string {
+	keys := cleanKeyList(append([]string{ep.apiKey}, ep.apiKeys...))
+	if len(keys) == 0 {
+		return []string{""}
+	}
+	return keys
+}
+
+// keyRejectedStatus 判断状态码是否表示「这把 key 本身被上游拒绝」:
+// 401/403(鉴权失败)、402(欠费)。健康检测命中这些状态时会换下一把 key 重试,
+// 避免端点配置了多把 key 时被第一把失效 key 拖成整体失败;模型不存在(404)、
+// 参数错误(400)等与 key 无关的失败则不换 key。
+func keyRejectedStatus(statusCode int) bool {
+	switch statusCode {
+	case http.StatusUnauthorized, http.StatusForbidden, http.StatusPaymentRequired:
+		return true
+	}
+	return false
+}
+
+// healthCheckSingleModel 对端点的单个模型做可用性检测。端点配置了多把 API Key 时
+// 逐把尝试:某把 key 被上游拒绝(401/403/402)则换下一把,避免第一把 key 失效就
+// 把检测判成失败;与 key 无关的失败(模型不存在/网络异常等)直接返回,不再换 key。
 func (s *Service) healthCheckSingleModel(ctx context.Context, ep healthCheckEndpoint, model string, timeout time.Duration) HealthRecord {
+	var last HealthRecord
+	for _, key := range ep.keys() {
+		record := s.healthCheckSingleModelWithKey(ctx, ep, key, model, timeout)
+		if record.Status == "operational" || record.Status == "degraded" {
+			return record
+		}
+		last = record
+		if !keyRejectedStatus(record.StatusCode) {
+			return record
+		}
+	}
+	return last
+}
+
+func (s *Service) healthCheckSingleModelWithKey(ctx context.Context, ep healthCheckEndpoint, key, model string, timeout time.Duration) HealthRecord {
 	startTime := time.Now()
 	record := HealthRecord{
 		Model:     model,
@@ -964,9 +1028,9 @@ func (s *Service) healthCheckSingleModel(ctx context.Context, ep healthCheckEndp
 			return record
 		}
 		if gemini || upType == upstreamTypeVertex {
-			httpReq.Header.Set("X-Goog-Api-Key", ep.apiKey)
+			httpReq.Header.Set("X-Goog-Api-Key", key)
 		} else {
-			httpReq.Header.Set("Authorization", "Bearer "+ep.apiKey)
+			httpReq.Header.Set("Authorization", "Bearer "+key)
 		}
 		httpReq.Header.Set("Content-Type", "application/json")
 		httpReq.Header.Set("Accept", "application/json, text/event-stream")

@@ -96,6 +96,20 @@ func (ep Endpoint) AllKeys() []string {
 	return keys
 }
 
+// decodeEndpointAPIKeys 从数据库 api_keys 列(加密后的 JSON 字符串数组)还原扩展
+// API Key 列表;列缺失/空/解密失败时返回 nil。检测类操作用它拿到端点的全部 key,
+// 与主 key 合并后逐把尝试(见 firstVerifiedKey / healthCheckSingleModel)。
+func decodeEndpointAPIKeys(raw sql.NullString) []string {
+	if !raw.Valid || strings.TrimSpace(raw.String) == "" {
+		return nil
+	}
+	keys := []string{}
+	if err := json.Unmarshal([]byte(secure.SecureDecrypt(raw.String)), &keys); err != nil {
+		return nil
+	}
+	return cleanKeyList(keys)
+}
+
 type Service struct {
 	cfg        config.Config
 	store      *database.Store

@@ -31,17 +31,19 @@ func (s *Service) verifyEndpoint(w http.ResponseWriter, r *http.Request, id stri
 	defer verifyCancel()
 
 	var name, baseURL, apiKey string
-	var modelsURLRaw, upstreamTypeRaw sql.NullString
+	var apiKeysRaw, modelsURLRaw, upstreamTypeRaw sql.NullString
 	var headersRaw, proxyRaw, proxyPoolIDRaw, protocolRaw sql.NullString
 	var proxyEnabledInt, forceProxyInt int
 	// models_url 为 NULL（插件注册等历史行）时按空串处理，避免 NULL→string 扫描报错误判「端点不存在」。
-	err = db.QueryRowContext(ctx, "SELECT name, base_url, models_url, api_key, headers, proxy_pool, proxy_pool_id, proxy_enabled, force_proxy, protocol, upstream_type FROM modelhub_endpoints WHERE id = ?", id).Scan(&name, &baseURL, &modelsURLRaw, &apiKey, &headersRaw, &proxyRaw, &proxyPoolIDRaw, &proxyEnabledInt, &forceProxyInt, &protocolRaw, &upstreamTypeRaw)
+	err = db.QueryRowContext(ctx, "SELECT name, base_url, models_url, api_key, api_keys, headers, proxy_pool, proxy_pool_id, proxy_enabled, force_proxy, protocol, upstream_type FROM modelhub_endpoints WHERE id = ?", id).Scan(&name, &baseURL, &modelsURLRaw, &apiKey, &apiKeysRaw, &headersRaw, &proxyRaw, &proxyPoolIDRaw, &proxyEnabledInt, &forceProxyInt, &protocolRaw, &upstreamTypeRaw)
 	if err != nil {
 		response.JSON(w, http.StatusNotFound, map[string]string{"error": "端点不存在"})
 		return
 	}
 	modelsURL := modelsURLRaw.String
 	apiKey = secure.SecureDecrypt(apiKey)
+	// 端点可配置多把 key:验证与拉模型逐把尝试,避免第一把失效 key 直接把刷新判成失败。
+	apiKeys := cleanKeyList(append([]string{apiKey}, decodeEndpointAPIKeys(apiKeysRaw)...))
 	upstreamType := normalizeUpstreamType(upstreamTypeRaw.String)
 	headers := decodeEndpointHeaders(headersRaw)
 	ep := auxEndpoint{
@@ -60,12 +62,12 @@ func (s *Service) verifyEndpoint(w http.ResponseWriter, r *http.Request, id stri
 	var errMsg string
 
 	listOK := false
-	vOk, _, vErr := s.verifyAPIKeyRaw(verifyCtx, baseURL, apiKey, ep, modelsURL, upstreamType, headers)
+	workingKey, vOk, vErr := s.firstVerifiedKey(verifyCtx, baseURL, apiKeys, ep, modelsURL, upstreamType, headers)
 	responseTime := time.Since(startTime).Milliseconds()
 
-	if vErr == nil && vOk {
+	if vOk {
 		status = "valid"
-		mList, mPrice, mErr := s.listModelsWithPricing(verifyCtx, baseURL, apiKey, ep, modelsURL, upstreamType, headers)
+		mList, mPrice, mErr := s.listModelsWithPricing(verifyCtx, baseURL, workingKey, ep, modelsURL, upstreamType, headers)
 		if mErr == nil {
 			modelsList = mList
 			pricing = mPrice

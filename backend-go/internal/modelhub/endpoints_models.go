@@ -27,17 +27,19 @@ func (s *Service) getEndpointModels(w http.ResponseWriter, r *http.Request, id s
 	defer modelsCancel()
 
 	var baseURL, apiKey string
-	var modelsURLRaw, upstreamTypeRaw sql.NullString
+	var apiKeysRaw, modelsURLRaw, upstreamTypeRaw sql.NullString
 	var headersRaw, proxyRaw, proxyPoolIDRaw, protocolRaw sql.NullString
 	var proxyEnabledInt, forceProxyInt int
 	// models_url 为 NULL（插件注册等历史行）时按空串处理。
-	err = db.QueryRowContext(ctx, "SELECT base_url, models_url, api_key, headers, proxy_pool, proxy_pool_id, proxy_enabled, force_proxy, protocol, upstream_type FROM modelhub_endpoints WHERE id = ?", id).Scan(&baseURL, &modelsURLRaw, &apiKey, &headersRaw, &proxyRaw, &proxyPoolIDRaw, &proxyEnabledInt, &forceProxyInt, &protocolRaw, &upstreamTypeRaw)
+	err = db.QueryRowContext(ctx, "SELECT base_url, models_url, api_key, api_keys, headers, proxy_pool, proxy_pool_id, proxy_enabled, force_proxy, protocol, upstream_type FROM modelhub_endpoints WHERE id = ?", id).Scan(&baseURL, &modelsURLRaw, &apiKey, &apiKeysRaw, &headersRaw, &proxyRaw, &proxyPoolIDRaw, &proxyEnabledInt, &forceProxyInt, &protocolRaw, &upstreamTypeRaw)
 	if err != nil {
 		response.JSON(w, http.StatusNotFound, map[string]string{"error": "端点不存在"})
 		return
 	}
 	modelsURL := modelsURLRaw.String
 	apiKey = secure.SecureDecrypt(apiKey)
+	// 端点可配置多把 key:逐把尝试拉取模型列表,避免第一把失效 key 直接失败。
+	apiKeys := cleanKeyList(append([]string{apiKey}, decodeEndpointAPIKeys(apiKeysRaw)...))
 	upstreamType := normalizeUpstreamType(upstreamTypeRaw.String)
 	ep := auxEndpoint{
 		id:           id,
@@ -48,9 +50,21 @@ func (s *Service) getEndpointModels(w http.ResponseWriter, r *http.Request, id s
 		protocol:     protocolRaw.String,
 	}
 
-	modelsList, pricing, err := s.listModelsWithPricing(modelsCtx, baseURL, apiKey, ep, modelsURL, upstreamType, decodeEndpointHeaders(headersRaw))
-	if err != nil {
-		response.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+	requestHeaders := decodeEndpointHeaders(headersRaw)
+	if len(apiKeys) == 0 {
+		apiKeys = []string{""}
+	}
+	var modelsList []string
+	var pricing PricingMap
+	var listErr error
+	for _, key := range apiKeys {
+		modelsList, pricing, listErr = s.listModelsWithPricing(modelsCtx, baseURL, key, ep, modelsURL, upstreamType, requestHeaders)
+		if listErr == nil {
+			break
+		}
+	}
+	if listErr != nil {
+		response.JSON(w, http.StatusInternalServerError, map[string]string{"error": listErr.Error()})
 		return
 	}
 
