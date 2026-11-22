@@ -49,15 +49,15 @@ function UpgradeHostLogCard({ hostLabel, statusLabel, badgeVariant, lines = [], 
 
   return (
     <div className="flex min-w-0 flex-col overflow-hidden rounded-md border border-kumo-line bg-kumo-base">
-      <div className="flex min-w-0 items-center justify-between gap-2 border-b border-kumo-line px-2.5 py-1.5">
-        <span className="truncate text-xs font-semibold text-kumo-strong" title={hostLabel}>
+      <div className="flex min-w-0 items-center justify-between gap-2 border-b border-kumo-line px-2 py-1">
+        <span className="truncate text-[11px] font-semibold text-kumo-strong" title={hostLabel}>
           {hostLabel}
         </span>
         <Badge variant={badgeVariant}>{statusLabel}</Badge>
       </div>
       <div
         ref={viewportRef}
-        className="min-h-[5.5rem] max-h-40 overflow-auto whitespace-pre-wrap break-words bg-kumo-recessed/25 px-2.5 py-1.5 font-mono text-[11px] leading-5 text-kumo-strong scrollbar-thin"
+        className="min-h-[4rem] max-h-32 overflow-auto whitespace-pre-wrap break-words bg-kumo-recessed/25 px-2 py-1 font-mono text-[11px] leading-4 text-kumo-strong scrollbar-thin"
       >
         {lineCount === 0 && !error ? (
           <span className="text-kumo-subtle">等待主机日志…</span>
@@ -1260,17 +1260,17 @@ export default function ServerModals(props) {
         <LayerDialog.Content size="xl">
           <LayerDialog.Title>升级 Agent</LayerDialog.Title>
           <LayerDialog.Body>
-            <div className="@container flex w-full flex-col gap-4 text-xs text-kumo-default">
-              <div className="grid grid-cols-1 gap-2 cq-sm:grid-cols-2">
-                <div className="rounded-md border border-kumo-line bg-kumo-recessed/35 p-3">
-                  <div className="text-[11px] font-medium text-kumo-subtle">目标 Agent</div>
-                  <div className="mt-1 text-sm font-semibold text-kumo-strong">
+            <div className="@container flex w-full flex-col gap-2.5 text-xs text-kumo-default">
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+                <span className="flex items-baseline gap-1">
+                  <span className="text-[11px] text-kumo-subtle">目标</span>
+                  <span className="font-semibold text-kumo-strong">
                     {upgradeBatchSnapshot?.items?.length || getAgentUpgradeTargets().length}
-                  </div>
-                </div>
-                <div className="rounded-md border border-kumo-line bg-kumo-recessed/35 p-3">
-                  <div className="text-[11px] font-medium text-kumo-subtle">状态</div>
-                  <div className="mt-1 font-semibold text-kumo-strong">
+                  </span>
+                </span>
+                <span className="flex items-baseline gap-1">
+                  <span className="text-[11px] text-kumo-subtle">状态</span>
+                  <span className="font-semibold text-kumo-strong">
                     {upgrading
                       ? getUpgradeBatchStatusLabel(upgradeBatchSnapshot?.status || 'running')
                       : upgradeBatchSnapshot
@@ -1278,8 +1278,15 @@ export default function ServerModals(props) {
                         : upgradeProgress >= 100
                           ? '已完成'
                           : '待执行'}
-                  </div>
-                </div>
+                  </span>
+                </span>
+                {upgradeBatchSnapshot?.items?.length > 0 && (
+                  <span className="text-[11px] text-kumo-subtle">
+                    {(upgradeBatchSnapshot.summary?.succeeded || 0) +
+                      (upgradeBatchSnapshot.summary?.failed || 0)}
+                    /{upgradeBatchSnapshot.items.length} 完成
+                  </span>
+                )}
               </div>
 
               {upgradeProgress > 0 && (
@@ -1292,35 +1299,29 @@ export default function ServerModals(props) {
                 />
               )}
 
-              <div className="min-w-0 space-y-1.5">
-                <div className="text-xs font-semibold text-kumo-strong">任务事件</div>
+              <div className="min-w-0 space-y-1">
+                <div className="text-[11px] font-semibold text-kumo-strong">任务事件</div>
                 {upgradeLog ? (
                   <pre
                     ref={upgradeLogViewportRef}
-                    className="max-h-[7rem] overflow-auto whitespace-pre-wrap break-words rounded-md border border-kumo-line bg-kumo-recessed/25 p-2.5 font-mono text-[11px] leading-5 text-kumo-subtle scrollbar-thin"
+                    className="max-h-[4.5rem] overflow-auto whitespace-pre-wrap break-words rounded-md border border-kumo-line bg-kumo-recessed/25 px-2.5 py-1.5 font-mono text-[11px] leading-4 text-kumo-subtle scrollbar-thin"
                   >
                     {upgradeLog}
                   </pre>
                 ) : (
-                  <AppCard padding="none" className="p-2.5 text-kumo-subtle">
+                  <AppCard padding="none" className="p-2 text-[11px] text-kumo-subtle">
                     将对在线 Agent 下发后台自升级任务。
                   </AppCard>
                 )}
               </div>
 
-              <div className="min-w-0 space-y-1.5">
+              <div className="min-w-0 space-y-1">
                 <div className="flex min-w-0 items-center justify-between gap-2">
-                  <span className="text-xs font-semibold text-kumo-strong">主机日志</span>
-                  {upgradeBatchSnapshot?.items?.length > 0 && (
-                    <span className="shrink-0 text-[11px] text-kumo-subtle">
-                      {(upgradeBatchSnapshot.summary?.succeeded || 0) +
-                        (upgradeBatchSnapshot.summary?.failed || 0)}
-                      /{upgradeBatchSnapshot.items.length} 完成
-                    </span>
-                  )}
+                  <span className="text-[11px] font-semibold text-kumo-strong">主机日志</span>
+                  <span className="shrink-0 text-[11px] text-kumo-subtle">每台独立滚动</span>
                 </div>
                 {upgradeBatchSnapshot?.items?.length > 0 ? (
-                  <div className="grid min-w-0 gap-2 cq-sm:grid-cols-2">
+                  <div className="grid min-w-0 gap-1.5 cq-sm:grid-cols-2 cq-lg:grid-cols-3">
                     {upgradeBatchSnapshot.items.map(item => (
                       <UpgradeHostLogCard
                         key={item.serverId}
@@ -1341,12 +1342,12 @@ export default function ServerModals(props) {
                     ))}
                   </div>
                 ) : (
-                  <AppCard padding="none" className="min-h-24 p-3 text-kumo-subtle">
+                  <AppCard padding="none" className="min-h-16 p-2 text-[11px] text-kumo-subtle">
                     等待主机开始升级。
                   </AppCard>
                 )}
               </div>
-              <div className="flex flex-wrap items-center gap-3 text-xs text-kumo-subtle">
+              <div className="flex flex-wrap items-center gap-3 text-[11px] text-kumo-subtle">
                 <Checkbox
                   label="Linux SSH 保底"
                   checked={upgradeFallbackSsh}
