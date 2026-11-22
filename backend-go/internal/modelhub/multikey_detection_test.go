@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
-	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -31,23 +30,6 @@ func newMultiKeyUpstream(goodKey string) *httptest.Server {
 		}
 		_, _ = w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"ok"}}],"usage":{}}`))
 	}))
-}
-
-// newRateLimitedKeyUpstream 返回一个只认 goodKey 的上游:其它 key 一律 429,
-// 用于验证多 key 端点被限流时会换下一把 key。返回的计数器统计被限流 key 的命中次数。
-func newRateLimitedKeyUpstream(goodKey string) (*httptest.Server, *int32) {
-	var limitedHits int32
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ") != goodKey {
-			atomic.AddInt32(&limitedHits, 1)
-			w.WriteHeader(http.StatusTooManyRequests)
-			_, _ = w.Write([]byte(`{"error":{"message":"rate limit exceeded"}}`))
-			return
-		}
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"ok"}}],"usage":{}}`))
-	}))
-	return srv, &limitedHits
 }
 
 // createSkipVerifyEndpoint 建一个跳过上游验证的多 key 端点,返回端点 id。
@@ -220,48 +202,5 @@ func TestRefreshAllModelsUsesWorkingKey(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("refresh results 未包含端点 %s: %s", id, w.Body.String())
-	}
-}
-
-// TestHealthCheckSingleModelRotatesKeyOnRateLimit 多 key 端点上第一把 key 被限流(429)
-// 时应换下一把 key,而不是直接判失败;并且不在已限流的 key 上做同 key 重试。
-func TestHealthCheckSingleModelRotatesKeyOnRateLimit(t *testing.T) {
-	upstream, limitedHits := newRateLimitedKeyUpstream("good")
-	defer upstream.Close()
-
-	s := newOpenAIService(t)
-	record := s.healthCheckSingleModel(context.Background(), healthCheckEndpoint{
-		baseURL:      upstream.URL + "/v1",
-		apiKey:       "limited",
-		apiKeys:      []string{"good"},
-		upstreamType: "openai",
-	}, "m1", 3*time.Second)
-
-	if record.Status != "operational" && record.Status != "degraded" {
-		t.Fatalf("429 应换下一把 key,got status=%q error=%q", record.Status, record.Error)
-	}
-	if got := atomic.LoadInt32(limitedHits); got != 1 {
-		t.Fatalf("多 key 端点命中 429 应立即换 key、不做同 key 重试,limited hits=%d want 1", got)
-	}
-}
-
-// TestHealthCheckSingleModelAllKeysRateLimitedFails 全部 key 被限流时仍判失败并保留 429。
-func TestHealthCheckSingleModelAllKeysRateLimitedFails(t *testing.T) {
-	upstream, _ := newRateLimitedKeyUpstream("good")
-	defer upstream.Close()
-
-	s := newOpenAIService(t)
-	record := s.healthCheckSingleModel(context.Background(), healthCheckEndpoint{
-		baseURL:      upstream.URL + "/v1",
-		apiKey:       "limited-a",
-		apiKeys:      []string{"limited-b"},
-		upstreamType: "openai",
-	}, "m1", 3*time.Second)
-
-	if record.Status != "failed" {
-		t.Fatalf("全部 key 限流应判失败,got status=%q", record.Status)
-	}
-	if record.StatusCode != http.StatusTooManyRequests {
-		t.Fatalf("失败应保留 429,got %d", record.StatusCode)
 	}
 }

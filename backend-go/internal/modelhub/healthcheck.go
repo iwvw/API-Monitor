@@ -914,26 +914,21 @@ func (ep healthCheckEndpoint) keys() []string {
 	return keys
 }
 
-// keySwitchableStatus 判断健康检测命中该状态码时是否应该换下一把 key 再试:
-//   - 401/403/402:该 key 被上游拒绝(鉴权失败/欠费),换 key 可能恢复;
-//   - 429/439:上游可能按 key / 账号维度限流或配额耗尽,多 key 端点换下一把
-//     key 往往即可继续(与真实转发链路的 key 轮询语义保持一致,见 relay_loop)。
-//
-// 模型不存在(404)、参数错误(400)、网络/5xx 等与 key 无关的失败不换 key,
-// 避免对一个确定性问题按 key 数量放大请求。
-func keySwitchableStatus(statusCode int) bool {
+// keyRejectedStatus 判断状态码是否表示「这把 key 本身被上游拒绝」:
+// 401/403(鉴权失败)、402(欠费)。健康检测命中这些状态时会换下一把 key 重试,
+// 避免端点配置了多把 key 时被第一把失效 key 拖成整体失败;模型不存在(404)、
+// 参数错误(400)等与 key 无关的失败则不换 key。
+func keyRejectedStatus(statusCode int) bool {
 	switch statusCode {
-	case http.StatusUnauthorized, http.StatusForbidden, http.StatusPaymentRequired,
-		http.StatusTooManyRequests, 439: // 439 = 部分 Google/Gemini 上游的配额耗尽码
+	case http.StatusUnauthorized, http.StatusForbidden, http.StatusPaymentRequired:
 		return true
 	}
 	return false
 }
 
 // healthCheckSingleModel 对端点的单个模型做可用性检测。端点配置了多把 API Key 时
-// 逐把尝试:某把 key 被上游拒绝(401/403/402)或被限流/配额耗尽(429/439)则换
-// 下一把,避免第一把 key 失效或被限流就把检测判成失败;与 key 无关的失败
-// (模型不存在/网络异常等)直接返回,不再换 key。
+// 逐把尝试:某把 key 被上游拒绝(401/403/402)则换下一把,避免第一把 key 失效就
+// 把检测判成失败;与 key 无关的失败(模型不存在/网络异常等)直接返回,不再换 key。
 func (s *Service) healthCheckSingleModel(ctx context.Context, ep healthCheckEndpoint, model string, timeout time.Duration) HealthRecord {
 	var last HealthRecord
 	for _, key := range ep.keys() {
@@ -942,7 +937,7 @@ func (s *Service) healthCheckSingleModel(ctx context.Context, ep healthCheckEndp
 			return record
 		}
 		last = record
-		if !keySwitchableStatus(record.StatusCode) {
+		if !keyRejectedStatus(record.StatusCode) {
 			return record
 		}
 	}
@@ -1012,9 +1007,6 @@ func (s *Service) healthCheckSingleModelWithKey(ctx context.Context, ep healthCh
 		}
 	}
 
-	// 多 key 端点命中限流时直接结束本 key 的尝试、交给外层换下一把 key;
-	// 单 key 端点保留原有的同 key 重试语义。
-	multiKey := len(ep.keys()) > 1
 	lastLatency := int64(0)
 	var lastError string
 	for attempt := 0; attempt < healthCheckAttempts; attempt++ {
@@ -1064,22 +1056,6 @@ func (s *Service) healthCheckSingleModelWithKey(ctx context.Context, ep healthCh
 		// 429 时同样触发冻结，避免只有真实流量才能发现问题代理。
 		if isRateLimitResponse(resp, nil) && selectedProxy != "" {
 			s.markProxy429(ep.id, selectedProxy, retryAfterFromHeader(resp))
-		}
-
-		// 多 key 端点命中限流时不再对同一把 key 反复重试:直接结束本次尝试,
-		// 由外层 healthCheckSingleModel 换下一把 key。否则批量检测(每模型 2 次)
-		// 会按模型数放大对已限流账号的请求,进一步拉长限流窗口。
-		if multiKey && isRateLimitResponse(resp, nil) {
-			bodySnippet, _ := io.ReadAll(io.LimitReader(resp.Body, 2<<10))
-			resp.Body.Close()
-			cancel()
-			msg := fmt.Sprintf("HTTP %d", resp.StatusCode)
-			if detail := upstreamErrorMessage(bodySnippet); detail != "" {
-				msg = fmt.Sprintf("HTTP %d: %s", resp.StatusCode, detail)
-			}
-			record.Error = msg
-			record.Latency = lastLatency
-			return record
 		}
 
 		// 状态码优先：2xx 视为可用（仅校验显式 error 结构），
