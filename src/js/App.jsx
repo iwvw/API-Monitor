@@ -1,9 +1,12 @@
 import React, { lazy, Suspense, useEffect, useState } from 'react';
-import { Loader } from '@cloudflare/kumo';
+import { Loader } from '@cloudflare/kumo/components/loader';
 import useStore, { applyThemeMode, applyUIFont, applyUIFontSize, getPendingAuthProvider } from './store.js';
 import { useShallow } from 'zustand/react/shallow';
 import { installAuthGuard } from './modules/authGuard.js';
-import AuthPage from './pages/AuthPage.jsx';
+// AuthPage 若静态导入,会经 AppPrimitives 把全量图标库(Icons.jsx)与 kumo
+// Select 等一并拽进入口的静态依赖图,导致每个公开页首屏都要多下载约 620KB
+// (压缩后约 180KB)才可见。懒加载后只有回退到登录页时才拉取。
+const AuthPage = lazy(() => import('./pages/AuthPage.jsx'));
 import { GitHubBrand, Shield } from './components/IconsCore.jsx';
 
 // MainLayout 携带侧边栏、图标库等大量依赖，懒加载让登录页与公开
@@ -92,6 +95,14 @@ function AuthTransitionScreen() {
         </div>
         <Loader size={32} />
       </div>
+    </main>
+  );
+}
+
+function AuthPageFallback() {
+  return (
+    <main className="flex min-h-dvh w-screen items-center justify-center bg-kumo-canvas">
+      <Loader size={32} />
     </main>
   );
 }
@@ -259,7 +270,7 @@ function App() {
     );
   }
 
-  return <div className="@container"><AuthPage /></div>;
+  return <div className="@container"><Suspense fallback={<AuthPageFallback />}><AuthPage /></Suspense></div>;
 }
 
 function DomainPublicStatusResolver({ route, onRouteChange }) {
@@ -371,7 +382,7 @@ function DomainPublicStatusResolver({ route, onRouteChange }) {
     return null;
   }
 
-  return <div className="@container"><AuthPage /></div>;
+  return <div className="@container"><Suspense fallback={<AuthPageFallback />}><AuthPage /></Suspense></div>;
 }
 
 export default App;
