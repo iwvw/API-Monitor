@@ -299,6 +299,29 @@ func filterRequestHeaders(source http.Header) http.Header {
 	} {
 		filtered.Del(header)
 	}
+	/**
+	 * 浏览器跨站指纹必须剥离。
+	 *
+	 * 上游 opencode 有跨站防护(packages/server/src/request-site.ts):同时带
+	 * `Origin` + `Sec-Fetch-Site: cross-site`、且 Origin 不在它自己的允许列表
+	 * (localhost / tauri / *.opencode.ai / 显式 cors 列表 / 与 Host 同源)时,
+	 * 一律 403 "Cross-site requests to the API are not allowed";`Sec-Fetch-Mode:
+	 * navigate` 更是直接拒绝。
+	 *
+	 * 浏览器从任意面板域(例如 https://occ.dmuk.org)发出的跨源请求必然同时带
+	 * 这两个头 —— 不剥掉,经网关的**所有** /api/* 都会 403(实例明明在线、
+	 * 授权也正常,日志里只有 403,极难定位)。
+	 *
+	 * 网关对上游就是本机反向代理:Origin/Sec-Fetch 描述的是「浏览器←→面板」的
+	 * 关系,与上游无关,剥离后上游按「非浏览器客户端」处理即可。WebSocket 分支
+	 * 早已按同一理由剥掉 Origin(见 buildWebSocketUpgradeRequest)。
+	 */
+	for _, header := range []string{
+		"Origin",
+		"Sec-Fetch-Site", "Sec-Fetch-Mode", "Sec-Fetch-Dest", "Sec-Fetch-User",
+	} {
+		filtered.Del(header)
+	}
 	return filtered
 }
 
@@ -616,7 +639,9 @@ func buildWebSocketUpgradeRequest(r *http.Request, targetPath string, injectAuth
 		 * 这是网关侧的同源反代，上游再做 Origin 校验没有意义；不改成重写 Origin
 		 * 是因为目标服务端口不固定（数据通道隐含），拼不出可靠值。
 		 */
-		if lower == "origin" {
+		// Origin 与非必要的 Sec-Fetch-* 一并剥离:上游据此判定跨站(见
+		// filterRequestHeaders 的说明),握手并不需要这些头。
+		if lower == "origin" || strings.HasPrefix(lower, "sec-fetch-") {
 			continue
 		}
 		// 剥离面板鉴权/转发/逐跳头，避免泄漏云端口令或让上游被伪造来源头欺骗。
