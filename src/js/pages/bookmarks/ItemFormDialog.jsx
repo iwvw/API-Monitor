@@ -3,7 +3,7 @@ import { Button } from '@cloudflare/kumo/components/button';
 import { LayerDialog } from '@cloudflare/kumo/components/layer-dialog';
 import { Input, Textarea } from '@cloudflare/kumo/components/input';
 import { Select } from '@cloudflare/kumo/components/select';
-import { cx } from '../../components/ui/AppPrimitives.jsx';
+import { cx } from '../../components/ui/CardPrimitives.jsx';
 import { toast } from '../../modules/toast.js';
 import useStore from '../../store.js';
 import ItemIcon from './ItemIcon.jsx';

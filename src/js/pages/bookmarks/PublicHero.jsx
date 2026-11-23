@@ -4,10 +4,10 @@ import { Checkbox } from '@cloudflare/kumo/components/checkbox';
 import { Input } from '@cloudflare/kumo/components/input';
 import { addCollection } from '@iconify/react';
 import { ICONIFY_COLLECTIONS } from '../../../assets/iconify/index.js';
-import { cx } from '../../components/ui/AppPrimitives.jsx';
+import { cx } from '../../components/ui/CardPrimitives.jsx';
 import { toast } from '../../modules/toast.js';
 import useStore from '../../store.js';
-import { Search, X } from '../../components/Icons.jsx';
+import { Search, X } from '../../components/PublicIcons.jsx';
 import EngineIconPreview from './EngineIconPreview.jsx';
 import {
   DEFAULT_SEARCH_ENGINES,

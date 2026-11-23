@@ -4,12 +4,25 @@ import { Button } from '@cloudflare/kumo/components/button';
 import { Input } from '@cloudflare/kumo/components/input';
 import { Select } from '@cloudflare/kumo/components/select';
 import { Popover } from '@cloudflare/kumo';
-import { SkeletonLine } from '@cloudflare/kumo/components/loader';
 import { Table } from '@cloudflare/kumo/components/table';
 import { LayerCard } from '@cloudflare/kumo';
 import { Info } from '../IconsCore.jsx';
 import { Menu, Search } from '../Icons.jsx';
 import { allocateColumnWidths, resolveTableColumns } from '../../modules/tableLayout.js';
+// 轻量卡片/骨架原语已拆到 CardPrimitives:公开页只需要这一小份,若不拆会连带
+// 拉取本模块的 Table/Popover/Select 与全量图标库(Icons.jsx)。这里 import 供本
+// 模块内部复用,并在下方 re-export,保持既有导入路径不变。
+import { cx, cardPaddingClass } from './CardPrimitives.jsx';
+
+export { cx };
+export {
+  actionIconClass,
+  iconButtonIconClass,
+  sectionCardHeaderClass,
+  sectionCardTitleClass,
+  SectionCard,
+  ChartWarmupSkeleton,
+} from './CardPrimitives.jsx';
 
 export const pageStackClass = 'flex w-full min-w-0 flex-col gap-3 cq-sm:gap-4 pb-4 cq-sm:pb-8';
 export const viewportPageStackClass = 'flex w-full min-w-0 flex-col gap-3 cq-sm:gap-4 pb-0';
@@ -20,21 +33,6 @@ export const stickyTabsBaseClass =
 // 顶栏(面包屑)自身吸顶的页面用这个:Tab 行吸在顶栏下沿,而不是压在面包屑上。
 export const stickyTabsBelowHeaderClass =
   'sticky top-(--app-header-height) z-20 flex min-h-(--app-header-height) items-center bg-[var(--app-main-surface)] px-[var(--app-tab-gutter-x)] -mx-[var(--app-canvas-gutter-x)]';
-export const sectionCardHeaderClass =
-  'flex min-h-[52px] items-center justify-between gap-3 border-b border-kumo-line bg-kumo-recessed px-4 py-2.5 cq-sm:min-h-[56px] cq-sm:flex-row cq-sm:flex-wrap cq-sm:items-center cq-sm:py-3.5';
-export const sectionCardTitleClass =
-  'inline-flex min-w-0 max-w-full items-center gap-2 text-sm font-semibold text-kumo-strong';
-export const iconButtonIconClass = 'h-3.5 w-3.5';
-export const actionIconClass = 'h-4 w-4';
-
-const cardPaddingClass = {
-  none: 'p-0',
-  sm: 'p-3',
-  md: 'p-4',
-  lg: 'p-5',
-  xl: 'p-6',
-};
-
 const tableDensityClass = {
   comfortable: '',
   compact: '[&_td]:!px-3 [&_td]:!py-2 [&_th]:!px-3 [&_th]:!py-2',
@@ -49,10 +47,6 @@ const pillToneClass = {
   warning: 'bg-kumo-warning/10 text-kumo-warning border-kumo-warning/20',
   danger: 'bg-kumo-danger/10 text-kumo-danger border-kumo-danger/20',
 };
-
-export function cx(...parts) {
-  return parts.filter(Boolean).join(' ');
-}
 
 export function TabBarOverflowActions({
   items = [],
@@ -247,44 +241,6 @@ export function ResponsiveSearchInput({
   );
 }
 
-function withCompactCardActions(node) {
-  if (Array.isArray(node)) return node.map(withCompactCardActions);
-  if (!React.isValidElement(node)) return node;
-
-  if (node.type === React.Fragment) {
-    return (
-      <React.Fragment key={node.key}>
-        {React.Children.map(node.props.children, withCompactCardActions)}
-      </React.Fragment>
-    );
-  }
-
-  if (node.type === Button) {
-    const hasIconAndLabel = Boolean(node.props.icon && node.props.children);
-    const textLabel = typeof node.props.children === 'string' || typeof node.props.children === 'number'
-      ? String(node.props.children)
-      : undefined;
-
-    if (hasIconAndLabel) {
-      const isSmall = (node.props.size || 'sm') === 'sm';
-      const compactClass = isSmall ? 'max-sm:!px-0 max-sm:!w-6.5 max-sm:!justify-center' : 'max-sm:!px-0 max-sm:!w-9 max-sm:!justify-center';
-      return React.cloneElement(node, {
-        size: node.props.size || 'sm',
-        className: cx(node.props.className, compactClass),
-        children: <span className="hidden cq-sm:inline">{node.props.children}</span>,
-        'aria-label': node.props['aria-label'] || textLabel || node.props.title,
-      });
-    }
-
-    return node;
-  }
-
-  if (!node.props?.children) return node;
-  return React.cloneElement(node, {
-    children: React.Children.map(node.props.children, withCompactCardActions),
-  });
-}
-
 export function PageStack({ className = '', children, viewport = false }) {
   return <div className={cx(viewport ? viewportPageStackClass : pageStackClass, className)}>{children}</div>;
 }
@@ -338,77 +294,6 @@ const keyValueGridColumnsClass = {
   2: 'cq-md:grid-cols-2',
   3: 'cq-md:grid-cols-3',
 };
-
-export function SectionCard({
-  title,
-  description,
-  icon,
-  meta,
-  action,
-  actions,
-  actionsClassName = '',
-  children,
-  className = '',
-  headerClassName = '',
-  bodyClassName = '',
-  bodyPadding = 'md',
-  titleClassName = '',
-  descriptionClassName = '',
-  ...props
-}) {
-  const trailing = [
-    meta && <React.Fragment key="meta">{withCompactCardActions(meta)}</React.Fragment>,
-    action && <React.Fragment key="action">{withCompactCardActions(action)}</React.Fragment>,
-    actions && <React.Fragment key="actions">{withCompactCardActions(actions)}</React.Fragment>,
-  ].filter(Boolean);
-  return (
-    <LayerCard
-      {...props}
-      className={cx(
-        'flex flex-col overflow-hidden rounded-lg border border-kumo-line bg-kumo-base p-0 shadow-none ring-0',
-        className
-      )}
-    >
-      <LayerCard.Secondary className={cx(sectionCardHeaderClass, headerClassName)}>
-        <div className="flex min-w-0 flex-1 items-center gap-x-3 gap-y-1 cq-sm:flex-row cq-sm:flex-wrap cq-sm:items-center">
-          <div className={cx(sectionCardTitleClass, titleClassName)}>
-            {icon}
-            {typeof title === 'string' || typeof title === 'number' ? (
-              <span className="min-w-0 truncate">{title}</span>
-            ) : (
-              title
-            )}
-          </div>
-          {description && (
-            <div
-              className={cx(
-                'hidden min-w-0 flex-1 text-xs font-normal leading-5 text-kumo-subtle cq-sm:block cq-sm:basis-40 cq-sm:truncate',
-                descriptionClassName
-              )}
-            >
-              {description}
-            </div>
-          )}
-        </div>
-        {trailing.length > 0 && (
-          <div
-            className={cx(
-              'ml-3 flex shrink-0 items-center justify-end gap-2 whitespace-nowrap cq-sm:ml-auto cq-sm:flex-wrap cq-sm:whitespace-normal [&>*]:shrink-0',
-              actionsClassName
-            )}
-          >
-            {trailing}
-          </div>
-        )}
-      </LayerCard.Secondary>
-      <LayerCard.Primary
-        className={cx('gap-0', cardPaddingClass[bodyPadding] || cardPaddingClass.md, bodyClassName)}
-      >
-        {children}
-      </LayerCard.Primary>
-    </LayerCard>
-  );
-}
 
 export function InsetPanel({
   tone = 'recessed',
@@ -744,26 +629,5 @@ export function ChartCard({ className = '', children }) {
         {typeof children === 'function' ? children(boundary) : children}
       </div>
     </LayerCard>
-  );
-}
-
-export function ChartWarmupSkeleton({ height = 120, bars = 5 }) {
-  return (
-    <div
-      aria-hidden="true"
-      className="flex flex-col justify-end gap-2 overflow-hidden rounded-md border border-kumo-line/70 bg-kumo-recessed/35 p-3"
-      style={{ height }}
-    >
-      <SkeletonLine className="h-3 w-1/3" />
-      <SkeletonLine className="h-14 w-full rounded" />
-      <div
-        className="grid gap-2"
-        style={{ gridTemplateColumns: `repeat(${bars}, minmax(0, 1fr))` }}
-      >
-        {Array.from({ length: bars }).map((_, index) => (
-          <SkeletonLine key={index} className="h-2 w-full" />
-        ))}
-      </div>
-    </div>
   );
 }

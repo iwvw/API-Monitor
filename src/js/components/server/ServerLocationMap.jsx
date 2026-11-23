@@ -4,7 +4,7 @@ import { Button } from '@cloudflare/kumo/components/button';
 import { feature } from 'topojson-client';
 import worldCountries from 'world-atlas/countries-110m.json';
 import { createSiteFontEcharts } from '../../chartFont.js';
-import { Minus, Plus, RotateCw } from '../Icons.jsx';
+import { Minus, Plus, RotateCw } from '../PublicIcons.jsx';
 
 const rawWorldGeoJson = feature(worldCountries, worldCountries.objects.countries);
 const WORLD_GEO_JSON = {

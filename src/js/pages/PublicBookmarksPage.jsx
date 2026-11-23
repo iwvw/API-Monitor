@@ -11,7 +11,7 @@ import {
 } from '../modules/publicPageBranding.js';
 import { toast } from '../modules/toast.js';
 import useStore from '../store.js';
-import { cx } from '../components/ui/AppPrimitives.jsx';
+import { cx } from '../components/ui/CardPrimitives.jsx';
 import {
   AGGREGATE_SLUG,
   DEFAULT_DENSITY,
@@ -26,7 +26,7 @@ import {
   isAggregateSlug,
   parsePublicBookmarksPath,
 } from '../modules/publicBookmarks.js';
-import { AlertTriangle, Bookmark, DragHandle, ExternalLink, Folder, Home, LogIn, Plus, RefreshCw, SortArrows } from '../components/Icons.jsx';
+import { AlertTriangle, Bookmark, DragHandle, ExternalLink, Folder, Home, LogIn, Plus, RefreshCw, SortArrows } from '../components/PublicIcons.jsx';
 import ItemFormDialog, { emptyItemForm } from './bookmarks/ItemFormDialog.jsx';
 import ItemIcon from './bookmarks/ItemIcon.jsx';
 import PublicHero from './bookmarks/PublicHero.jsx';

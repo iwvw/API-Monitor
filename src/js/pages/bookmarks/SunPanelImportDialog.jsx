@@ -6,7 +6,7 @@ import { Select } from '@cloudflare/kumo/components/select';
 import CodeEditor from '../../components/ui/CodeEditor.jsx';
 import { toast } from '../../modules/toast.js';
 import { SUNPANEL_GROUP_MODE_OPTIONS, parseSunPanelExport } from '../../modules/sunpanelImport.js';
-import { Upload } from '../../components/Icons.jsx';
+import { Upload } from '../../components/PublicIcons.jsx';
 
 export default function SunPanelImportDialog({
   open,

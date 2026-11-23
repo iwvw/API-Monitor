@@ -25,7 +25,7 @@ import {
   Home,
   LogIn,
   RefreshCw,
-} from '../../components/Icons.jsx';
+} from '../../components/PublicIcons.jsx';
 import { statusPanelClass, statusTone } from './constants.js';
 import { formatDateTime, normalizePublicPath, parsePublicGithubStreamPayload } from './utils.js';
 import RepositoryCard from './RepositoryCard.jsx';

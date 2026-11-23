@@ -1,7 +1,7 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Button } from '@cloudflare/kumo/components/button';
-import { cx } from '../../components/ui/AppPrimitives.jsx';
-import { Check, Edit, ExternalLink, Trash } from '../../components/Icons.jsx';
+import { cx } from '../../components/ui/CardPrimitives.jsx';
+import { Check, Edit, ExternalLink, Trash } from '../../components/PublicIcons.jsx';
 
 /**
  * 公开页书签的右键菜单。

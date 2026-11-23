@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Icon } from '@iconify/react';
 import { hasIcon } from '../../../assets/iconify/index.js';
-import { cx } from '../../components/ui/AppPrimitives.jsx';
+import { cx } from '../../components/ui/CardPrimitives.jsx';
 
 // 搜索引擎图标。
 //

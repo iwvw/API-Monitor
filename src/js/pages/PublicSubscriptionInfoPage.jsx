@@ -2,9 +2,9 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Badge } from '@cloudflare/kumo/components/badge';
 import { Button } from '@cloudflare/kumo/components/button';
 import { ClipboardText, Meter } from '@cloudflare/kumo';
-import { Copy, Home, LogIn, Plug } from '../components/Icons.jsx';
+import { Copy, Home, LogIn, Plug } from '../components/PublicIcons.jsx';
 import useStore from '../store.js';
-import { SectionCard } from '../components/ui/AppPrimitives.jsx';
+import { SectionCard } from '../components/ui/CardPrimitives.jsx';
 import { formatDateTime, formatFileSize } from '../modules/utils.js';
 import { toast } from '../modules/toast.js';
 

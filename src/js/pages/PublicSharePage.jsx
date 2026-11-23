@@ -16,9 +16,9 @@ import {
   LogIn,
   Send,
   TrendingUp,
-} from '../components/Icons.jsx';
+} from '../components/PublicIcons.jsx';
 import useStore from '../store.js';
-import { SectionCard } from '../components/ui/AppPrimitives.jsx';
+import { SectionCard } from '../components/ui/CardPrimitives.jsx';
 import { fileboxDirectURL, fileboxDownloadEndpoint } from '../modules/fileboxLinks.js';
 import { toast } from '../modules/toast.js';
 import { formatDateTime, formatFileSize } from '../modules/utils.js';

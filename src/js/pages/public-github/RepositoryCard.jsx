@@ -3,7 +3,7 @@ import { Badge } from '@cloudflare/kumo/components/badge';
 import { Button } from '@cloudflare/kumo/components/button';
 import { Loader } from '@cloudflare/kumo/components/loader';
 import { formatGitHubRepositoryDescription } from '../../modules/githubEmoji.js';
-import { ExternalLink, GitBranch, GitHubBrand } from '../../components/Icons.jsx';
+import { ExternalLink, GitBranch, GitHubBrand } from '../../components/PublicIcons.jsx';
 import { PUBLIC_ACTION_PANEL_INSET_Y, statusLabel, statusTone } from './constants.js';
 import { formatActionDuration, formatDateTime, formatNumber } from './utils.js';
 import ActionWorkflowCanvas, { ActionWorkflowLoadingState } from './ActionWorkflowCanvas.jsx';
