@@ -6,7 +6,7 @@ require (
 	github.com/andybalholm/brotli v1.2.7
 	github.com/go-webauthn/webauthn v0.18.2
 	github.com/google/uuid v1.6.0
-	github.com/gorilla/websocket v1.5.3
+	github.com/gorilla/websocket v1.5.4-0.20240701034025-d67f41855da4
 	github.com/klauspost/compress v1.20.3
 	github.com/oracle/oci-go-sdk/v65 v65.128.0
 	github.com/pkg/sftp v1.13.12
