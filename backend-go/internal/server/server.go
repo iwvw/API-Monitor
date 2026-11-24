@@ -45,7 +45,6 @@ import (
 	"github.com/iwvw/api-monitor/backend-go/internal/onepanel"
 	"github.com/iwvw/api-monitor/backend-go/internal/oracle"
 	originpkg "github.com/iwvw/api-monitor/backend-go/internal/origin"
-	"github.com/iwvw/api-monitor/backend-go/internal/posthogcode"
 	promptsmodule "github.com/iwvw/api-monitor/backend-go/internal/prompts"
 	"github.com/iwvw/api-monitor/backend-go/internal/proxypool"
 	"github.com/iwvw/api-monitor/backend-go/internal/publicpageicon"
@@ -89,7 +88,6 @@ type Server struct {
 	antigravity *antigravity.Service
 	workbuddy   *workbuddy.Service
 	emailcode   *emailcode.Service
-	posthogcode *posthogcode.Service
 	qoder       *qoder.Service
 	raccoon     *raccoon.Service
 	cline       *cline.Service
@@ -248,7 +246,6 @@ func newServer(cfg config.Config) (*Server, error) {
 		antigravity: antigravity.New(cfg),
 		workbuddy:   workbuddy.New(cfg),
 		emailcode:   emailcode.New(cfg),
-		posthogcode: posthogcode.New(cfg),
 		qoder:       qoder.New(cfg),
 		raccoon:     raccoon.New(cfg),
 		cline:       cline.New(cfg),
@@ -293,8 +290,6 @@ func newServer(cfg config.Config) (*Server, error) {
 	server.antigravity.SetNotifier(notifyService)
 	// WorkBuddy 插件可引用独立代理池作为出网出口。
 	server.workbuddy.SetProxyPoolSelector(server.proxypool)
-	// PostHog Code 插件可引用独立代理池作为出网出口。
-	server.posthogcode.SetProxyPoolSelector(server.proxypool)
 	// Qoder 插件可引用独立代理池作为出网出口。
 	server.qoder.SetProxyPoolSelector(server.proxypool)
 	// 小浣熊插件可引用独立代理池作为出网出口。
@@ -327,9 +322,6 @@ func newServer(cfg config.Config) (*Server, error) {
 	// WorkBuddy 插件每日自动签到与活跃上报调度（站点时区 9/21 点签到、10 点活跃上报；
 	// 仅国内版账号参与，关闭开关时后台静默跳过）。
 	server.workbuddy.StartCheckinScheduler(warmupCtx)
-	// PostHog Code 插件调用次数定期落盘与 access token 自动刷新。
-	server.posthogcode.StartCallStatsFlush(warmupCtx)
-	server.posthogcode.StartAutoRefresh(warmupCtx)
 	// Qoder 插件调用次数与用量定期落盘、access token 自动刷新、每日自动签到调度。
 	server.qoder.StartCallStatsFlush(warmupCtx)
 	server.qoder.StartAutoRefresh(warmupCtx)
@@ -571,8 +563,6 @@ func apiKeyRequiresSession(path string) bool {
 		"/api/server/remote-desktop",
 		// 插件账号导入导出会明文返回上游 OAuth 凭据（含 refresh token），
 		// 必须强制真实会话，不能由只读 API key 下载。
-		"/api/posthogcode/accounts/export",
-		"/api/posthogcode/accounts/import",
 		"/api/workbuddy/accounts/export",
 		"/api/workbuddy/accounts/import",
 		"/api/qoder/accounts/export",

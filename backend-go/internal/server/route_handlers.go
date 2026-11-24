@@ -81,8 +81,6 @@ var moduleHandlers = map[string]routeHandler{
 	"oracle":                     func(s *Server, w http.ResponseWriter, r *http.Request) { s.oracle.ServeHTTP(w, r) },
 	"emailcode":                  func(s *Server, w http.ResponseWriter, r *http.Request) { s.emailcode.ServeHTTP(w, r) },
 	"emailcode-worker-callback":  func(s *Server, w http.ResponseWriter, r *http.Request) { s.emailcode.ServeHTTP(w, r) },
-	"posthogcode":                func(s *Server, w http.ResponseWriter, r *http.Request) { s.posthogcode.ServeHTTP(w, r) },
-	"posthogcode-compatible":     func(s *Server, w http.ResponseWriter, r *http.Request) { s.posthogcode.ServeHTTP(w, r) },
 	"qoder":                      func(s *Server, w http.ResponseWriter, r *http.Request) { s.qoder.ServeHTTP(w, r) },
 	"qoder-compatible":           func(s *Server, w http.ResponseWriter, r *http.Request) { s.qoder.ServeHTTP(w, r) },
 	"raccoon":                    func(s *Server, w http.ResponseWriter, r *http.Request) { s.raccoon.ServeHTTP(w, r) },

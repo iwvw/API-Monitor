@@ -101,7 +101,6 @@ var selfAuthorizedModules = map[string]string{
 	"anthropic-compatible":      "modelhub.AuthorizeGatewayRequest",
 	"antigravity-compatible":    "AuthInternal + 回环校验",
 	"workbuddy-compatible":      "AuthInternal + 回环校验",
-	"posthogcode-compatible":    "AuthInternal + 回环校验",
 	"qoder-compatible":          "AuthInternal + 回环校验",
 	"raccoon-compatible":        "AuthInternal + 回环校验",
 	"cline-compatible":          "AuthInternal + 回环校验",

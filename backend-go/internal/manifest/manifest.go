@@ -382,8 +382,6 @@ func buildRoutes() []Route {
 		{Prefix: "/api/antigravity/v1", Module: "antigravity-compatible", Owner: OwnerGo, Auth: AuthInternal, ResponseMode: ResponseStream, Description: "Antigravity 插件 Anthropic 兼容中继（仅本机内部网关调用）"},
 		{Prefix: "/api/workbuddy", Module: "workbuddy", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "WorkBuddy 插件（腾讯 CodeBuddy 转 OpenAI 兼容 API）管理"},
 		{Prefix: "/api/workbuddy/v1", Module: "workbuddy-compatible", Owner: OwnerGo, Auth: AuthInternal, ResponseMode: ResponseStream, Description: "WorkBuddy 插件 OpenAI 兼容中继（仅本机内部网关调用）"},
-		{Prefix: "/api/posthogcode", Module: "posthogcode", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "PostHog Code 插件（PostHog LLM Gateway 转 OpenAI 兼容 API）管理"},
-		{Prefix: "/api/posthogcode/v1", Module: "posthogcode-compatible", Owner: OwnerGo, Auth: AuthInternal, ResponseMode: ResponseStream, Description: "PostHog Code 插件 OpenAI 兼容中继（仅本机内部网关调用）"},
 		{Prefix: "/api/qoder", Module: "qoder", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Qoder 插件（qoder.cn / qoder.com 转 OpenAI 兼容 API）管理"},
 		{Prefix: "/api/qoder/v1", Module: "qoder-compatible", Owner: OwnerGo, Auth: AuthInternal, ResponseMode: ResponseStream, Description: "Qoder 插件 OpenAI 兼容中继（仅本机内部网关调用）"},
 		{Prefix: "/api/raccoon", Module: "raccoon", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "小浣熊插件（商汤 xiaohuanxiong.com 转 OpenAI 兼容 API）管理"},

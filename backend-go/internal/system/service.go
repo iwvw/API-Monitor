@@ -1353,7 +1353,7 @@ func routeGroup(route manifest.Route) string {
 	prefix := route.Prefix
 	switch {
 	// 模型网关
-	case strings.HasPrefix(prefix, "/api/modelhub"), strings.HasPrefix(prefix, "/api/chat"), strings.HasPrefix(prefix, "/v1"), strings.HasPrefix(prefix, "/api/emailcode"), strings.HasPrefix(prefix, "/api/posthogcode"):
+	case strings.HasPrefix(prefix, "/api/modelhub"), strings.HasPrefix(prefix, "/api/chat"), strings.HasPrefix(prefix, "/v1"), strings.HasPrefix(prefix, "/api/emailcode"):
 		return "模型网关"
 	// AI Agent 管理
 	case strings.HasPrefix(prefix, "/api/aiagent"):

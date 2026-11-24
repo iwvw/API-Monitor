@@ -194,7 +194,7 @@ func TestWaitFromDomainDoesNotMatchLookalike(t *testing.T) {
 // TestWaitAcceptsMessageOlderThanSince 覆盖真实故障场景：
 // PostHog 短时间内重复登录会复用同一封验证邮件、不重发，
 // 用户先点登录页、稍后才发起面板自动登录时，邮件会早于会话开始时间。
-// 调用方（posthogcode）为此把 since 放宽 15 分钟；此处验证放宽后确实能取到旧邮件。
+// 调用方为此把 since 放宽 15 分钟；此处验证放宽后确实能取到旧邮件。
 func TestWaitAcceptsMessageOlderThanSince(t *testing.T) {
 	s := newTestService(t)
 	ctx := context.Background()
@@ -207,7 +207,7 @@ func TestWaitAcceptsMessageOlderThanSince(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	// 会话 1 分钟前才开始，按 posthogcode 的策略放宽 15 分钟。
+	// 会话 1 分钟前才开始，按此策略放宽 15 分钟。
 	msg, err := s.Wait(ctx, Selector{
 		Mailbox:         "u@x.com",
 		FromDomain:      "posthog.com",

@@ -1,17 +1,16 @@
 import { useState } from 'react';
 import { EmptyState, cx } from '../../components/ui/AppPrimitives.jsx';
-import { Globe, AntigravityBrand, CodeBuddyBrand, PostHogBrand, QoderBrand, RaccoonBrand, ClineBrand } from '../../components/Icons.jsx';
+import { Globe, AntigravityBrand, CodeBuddyBrand, QoderBrand, RaccoonBrand, ClineBrand } from '../../components/Icons.jsx';
 import { ProxyPoolPlugin } from './plugins/ProxyPoolPlugin.jsx';
 import { AntigravityPlugin } from './plugins/AntigravityPlugin.jsx';
 import { WorkBuddyPlugin } from './plugins/WorkBuddyPlugin.jsx';
-import { PostHogCodePlugin } from './plugins/PostHogCodePlugin.jsx';
 import { QoderPlugin } from './plugins/QoderPlugin.jsx';
 import { RaccoonPlugin } from './plugins/RaccoonPlugin.jsx';
 import { ClinePlugin } from './plugins/ClinePlugin.jsx';
 
 // 插件注册表：后续新增插件只需向 PLUGINS 追加一项（id 唯一、提供详情组件）。
 // 插件中心是列表式容器，本身不承载具体模块逻辑。
-// 有明确品牌的上游（Antigravity / CodeBuddy / PostHog / Qoder）用单色品牌图标；
+// 有明确品牌的上游（Antigravity / CodeBuddy / Qoder）用单色品牌图标；
 // 「代理池」是通用基础设施，无对应品牌，沿用通用图标。
 const PLUGINS = [
   {
@@ -34,13 +33,6 @@ const PLUGINS = [
     description: '腾讯 CodeBuddy / WorkBuddy 转 API。',
     icon: CodeBuddyBrand,
     detail: WorkBuddyPlugin,
-  },
-  {
-    id: 'posthogcode',
-    name: 'PostHog Code',
-    description: 'PostHog LLM Gateway 转 API。',
-    icon: PostHogBrand,
-    detail: PostHogCodePlugin,
   },
   {
     id: 'qoder',

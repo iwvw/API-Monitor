@@ -50,14 +50,6 @@ enum class GatewayPlugin(
         supportsAccounts = true,
         supportsCheckin = true,
     ),
-    POSTHOG_CODE(
-        id = "posthogcode",
-        displayName = "PostHog Code",
-        description = "PostHog LLM Gateway 转 API。",
-        supportsModels = true,
-        supportsAccounts = true,
-        supportsCheckin = false,
-    ),
     QODER(
         id = "qoder",
         displayName = "Qoder",

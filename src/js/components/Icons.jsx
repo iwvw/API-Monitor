@@ -155,7 +155,6 @@ import tencentCloudIcon from '../../assets/brand-icons/tencentcloud.svg';
 // peer 冲突，为此加依赖会连带重写 lockfile。
 import codeBuddyIcon from '../../assets/brand-icons/codebuddy.svg';
 import antigravityIcon from '../../assets/brand-icons/antigravity.svg';
-import postHogIcon from '../../assets/brand-icons/posthog.svg';
 // Qoder 官方图标（阿里 CDN 的黑色线条 PNG，透明底）。同样走 createAssetIcon 的
 // currentColor 遮罩路径：PNG 作为 mask 源，随主题黑白自适应。
 import qoderIcon from '../../assets/brand-icons/qoder.png';
@@ -289,7 +288,6 @@ export const TencentCloudBrand = createAssetIcon(tencentCloudIcon, 'TencentCloud
 // 模型网关插件中心用到的 AI 品牌图标。
 export const CodeBuddyBrand = createAssetIcon(codeBuddyIcon, 'CodeBuddy');
 export const AntigravityBrand = createAssetIcon(antigravityIcon, 'Antigravity');
-export const PostHogBrand = createAssetIcon(postHogIcon, 'PostHog');
 export const QoderBrand = createAssetIcon(qoderIcon, 'Qoder');
 export const RaccoonBrand = createAssetIcon(raccoonIcon, 'Raccoon');
 // Cline 有官方 simple-icons 图标；ZCode / AutoClaw 没有，用通用字体图标兜底。
