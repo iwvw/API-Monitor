@@ -1,5 +1,5 @@
 import { createPortal } from 'react-dom';
-import { useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { Button } from '@cloudflare/kumo/components/button';
 import { Badge } from '@cloudflare/kumo/components/badge';
 import { AppCard } from '../../components/ui/AppPrimitives.jsx';
@@ -25,6 +25,7 @@ import {
   X,
 } from '../../components/Icons.jsx';
 import { buildPresetLayout, updateBranchRatio } from '../../modules/terminalSplitTree.js';
+import { pushOverlayPortal } from '../../modules/overlayPortal.js';
 import { clampPercent, toNumber, getOSIconClass } from './utils.js';
 import {
   formatUptimeDaysOnly,
@@ -86,6 +87,12 @@ export default function ServerSshTerminal(props) {
     },
     []
   );
+  // 全屏层挂载时把它注册为当前最上层浮层容器,让编辑/历史弹窗、全局确认弹窗与 Toast
+  // 都 portal 到全屏层内部,不被 z-[9999] 盖住;退出全屏/切走终端页签时自动注销。
+  const setFullscreenPortalNode = useCallback((node) => {
+    if (!node) return undefined;
+    return pushOverlayPortal(node);
+  }, []);
   return (
     <>
       {serverCurrentTab === 'terminal' &&
@@ -600,7 +607,10 @@ export default function ServerSshTerminal(props) {
 
           return sshIdeFullscreen
             ? createPortal(
-                <div className="fixed inset-0 z-[9999] bg-kumo-recessed animate-in fade-in-0 zoom-in-95 duration-quick">
+                <div
+                  ref={setFullscreenPortalNode}
+                  className="fixed inset-0 z-[9999] bg-kumo-recessed animate-in fade-in-0 zoom-in-95 duration-quick"
+                >
                   {terminalCard}
                 </div>,
                 document.body

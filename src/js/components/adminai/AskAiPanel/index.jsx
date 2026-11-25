@@ -15,6 +15,7 @@ import MessageList from './MessageList.jsx';
 import AdminConsole, { TAB_OPTIONS } from '../AdminConsole/index.jsx';
 import ApprovalCard from './ApprovalCard.jsx';
 import { useConfirmPress } from '../../../hooks/useConfirmPress.js';
+import { pushOverlayPortal } from '../../../modules/overlayPortal.js';
 import { parseAdminAiEvent } from '../../../modules/adminAiEvents.js';
 import { getDisplayTimeZone } from '../../../modules/utils.js';
 import {
@@ -422,6 +423,13 @@ import {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [showAskAI, expanded, manageOpen, setShowAskAI, cancelBackendRun, stopStream]);
+
+  // 全屏层挂载时把它注册为当前最上层浮层容器,让 Tooltip/Popover/DropdownMenu
+  // 以及全局确认弹窗、Toast 都 portal 到全屏层内部,不被 z-[1150] 盖住;退出全屏时自动注销。
+  const setFullscreenRef = useCallback((node) => {
+    if (!node) return undefined;
+    return pushOverlayPortal(node);
+  }, []);
 
   /* 菜单外部点击关闭（@ / 会话） */
   useEffect(() => {
@@ -1168,6 +1176,7 @@ import {
   /* ---- 全屏扩展模式 ---- */
   const renderFullscreen = () => (
     <div
+      ref={setFullscreenRef}
       className="askai-expand-in group/sidebar fixed inset-x-0 top-0 z-[1150] flex h-dvh flex-col p-2"
       data-state="expanded"
       style={{
