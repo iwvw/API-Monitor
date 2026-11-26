@@ -1248,23 +1248,22 @@ func TestApiStatsTrafficCycleMatchesPanel(t *testing.T) {
 	if got := stats["traffic"].(int64); got != 30 {
 		t.Fatalf("top-level traffic = %d, want cycle total 30", got)
 	}
-	// trend 逐日仍来自 hourly：今天桶 = 12。
+	// trend 逐日来自 hourly:当天桶合计应为 12。按站点时区分桶,这里用「合计」
+	// 断言而非固定日期字符串,避免 UTC 与站点时区跨天时(time-dependent)误判。
 	trend, ok := stats["trend"].([]map[string]interface{})
 	if !ok {
 		t.Fatalf("trend type = %T", stats["trend"])
 	}
-	foundToday := false
+	var trendTraffic int64
 	for _, item := range trend {
-		if item["bucket"] == nowUTC.Format("2006-01-02") {
-			foundToday = true
-			if got := item["traffic"].(int64); got != 12 {
-				t.Fatalf("today trend traffic = %d, want hourly 12", got)
-			}
+		if v, ok := item["traffic"].(int64); ok {
+			trendTraffic += v
 		}
 	}
-	if !foundToday {
-		t.Fatal("today bucket missing from trend")
+	if trendTraffic != 12 {
+		t.Fatalf("trend hourly total = %d, want 12", trendTraffic)
 	}
+
 }
 
 // TestValidateAIAgentBearerKey 验证 Bearer 密钥校验的接受与拒绝路径：
