@@ -24,10 +24,30 @@ func (a agentFileOperatorAdapter) WriteAgentFileChunk(
 	return toSystemFileWriteResult(result), nil
 }
 
+func (a agentFileOperatorAdapter) WriteAgentFileChunkMode(
+	ctx context.Context, serverID, remotePath string, data []byte, offset int64, truncate bool, timeout time.Duration, realPath bool,
+) (systemmetrics.AgentFileWriteResult, error) {
+	result, err := a.svc.WriteAgentFileChunkMode(ctx, serverID, remotePath, data, offset, truncate, timeout, realPath)
+	if err != nil {
+		return systemmetrics.AgentFileWriteResult{}, err
+	}
+	return toSystemFileWriteResult(result), nil
+}
+
 func (a agentFileOperatorAdapter) WriteAgentFileBytesDetailed(
 	ctx context.Context, serverID, remotePath string, data []byte, timeout time.Duration,
 ) (systemmetrics.AgentFileWriteResult, error) {
 	result, err := a.svc.WriteAgentFileBytesDetailed(ctx, serverID, remotePath, data, timeout)
+	if err != nil {
+		return systemmetrics.AgentFileWriteResult{}, err
+	}
+	return toSystemFileWriteResult(result), nil
+}
+
+func (a agentFileOperatorAdapter) WriteAgentFileBytesDetailedMode(
+	ctx context.Context, serverID, remotePath string, data []byte, timeout time.Duration, realPath bool,
+) (systemmetrics.AgentFileWriteResult, error) {
+	result, err := a.svc.WriteAgentFileBytesDetailedMode(ctx, serverID, remotePath, data, timeout, realPath)
 	if err != nil {
 		return systemmetrics.AgentFileWriteResult{}, err
 	}

@@ -848,6 +848,12 @@ func (s *Service) WriteAgentFileBase64(ctx context.Context, serverID, remotePath
 	return s.writeAgentFileBase64Raw(ctx, serverID, remotePath, data, offset, truncate, timeout)
 }
 
+// WriteAgentFileBase64Mode 与 WriteAgentFileBase64 相同,但可指定 realPath:
+// true 时按主机真实绝对路径写(必须落在 API_MONITOR_FILE_ROOTS 白名单内,否则 Agent 硬报错)。
+func (s *Service) WriteAgentFileBase64Mode(ctx context.Context, serverID, remotePath, data string, offset int64, truncate bool, timeout time.Duration, realPath bool) (string, error) {
+	return s.writeAgentFileBase64RawMode(ctx, serverID, remotePath, data, offset, truncate, timeout, realPath)
+}
+
 // writeAgentFileBase64Raw 与 WriteAgentFileBase64 相同，但原始返回 Agent 的 JSON。
 func (s *Service) writeAgentFileBase64Raw(ctx context.Context, serverID, remotePath, data string, offset int64, truncate bool, timeout time.Duration) (string, error) {
 	return s.writeAgentFileBase64RawMode(ctx, serverID, remotePath, data, offset, truncate, timeout, false)
@@ -973,6 +979,11 @@ func (s *Service) WriteAgentFileBytesDetailedMode(ctx context.Context, serverID,
 // 客户端自己读文件切片、自己算 sha256，模型只传 offset/长度这类元数据，
 // 因此不受模型输出长度限制。
 func (s *Service) WriteAgentFileChunk(ctx context.Context, serverID, remotePath string, data []byte, offset int64, truncate bool, timeout time.Duration) (AgentFileWriteResult, error) {
+	return s.WriteAgentFileChunkMode(ctx, serverID, remotePath, data, offset, truncate, timeout, false)
+}
+
+// WriteAgentFileChunkMode 与 WriteAgentFileChunk 相同,但可指定 realPath。
+func (s *Service) WriteAgentFileChunkMode(ctx context.Context, serverID, remotePath string, data []byte, offset int64, truncate bool, timeout time.Duration, realPath bool) (AgentFileWriteResult, error) {
 	serverID = strings.TrimSpace(serverID)
 	if serverID == "" {
 		return AgentFileWriteResult{}, fmt.Errorf("server id is required")
@@ -987,7 +998,7 @@ func (s *Service) WriteAgentFileChunk(ctx context.Context, serverID, remotePath 
 		timeout = 2 * time.Minute
 	}
 	encoded := base64.StdEncoding.EncodeToString(data)
-	raw, err := s.writeAgentFileBase64Raw(ctx, serverID, remotePath, encoded, offset, truncate, timeout)
+	raw, err := s.writeAgentFileBase64RawMode(ctx, serverID, remotePath, encoded, offset, truncate, timeout, realPath)
 	if err != nil {
 		return AgentFileWriteResult{}, err
 	}

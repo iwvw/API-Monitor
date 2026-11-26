@@ -1644,6 +1644,53 @@ func TestAgentUploadChunkFirstBlockReturnsRealPath(t *testing.T) {
 }
 
 // 新工具必须出现在 MCP 工具清单里，否则客户端永远发现不了它们。
+// realPath 开关:显式 true 时写入必须按主机真实路径透传给 Agent 层;缺省仍为沙箱语义。
+// 这是「直接更新 /opt/... 真实路径」的关键——否则文件只会落进沙箱。
+func TestAgentUploadRealPathOptIn(t *testing.T) {
+	cfg := config.Config{DataDir: t.TempDir(), DBName: "data.db"}
+	service := New(cfg)
+	defer service.Shutdown()
+
+	var gotRealPath bool
+	service.agentFileOps = fakeFileOperator{
+		realPath:    "/opt/1panel/www/sites/x/index/ships.json",
+		gotRealPath: &gotRealPath,
+	}
+	result, err := service.agentUploadFile(context.Background(), map[string]interface{}{
+		"serverId":       "srv-1",
+		"path":           "/opt/1panel/www/sites/x/index/ships.json",
+		"content_base64": base64.StdEncoding.EncodeToString([]byte("{}")),
+		"realPath":       true,
+	})
+	if err != nil {
+		t.Fatalf("agentUploadFile err: %v", err)
+	}
+	if !gotRealPath {
+		t.Fatal("realPath=true 应透传到 Agent 写入层")
+	}
+	out := result.(map[string]interface{})
+	if out["realPathMode"] != true {
+		t.Fatalf("响应应标注 realPathMode=true: %#v", out)
+	}
+	if out["realPath"] != "/opt/1panel/www/sites/x/index/ships.json" {
+		t.Fatalf("realPath 应为目标真实路径: %#v", out)
+	}
+
+	// 缺省(不传 realPath)必须仍走沙箱语义,不改变既有行为。
+	gotRealPath = true
+	service.agentFileOps = fakeFileOperator{realPath: "/var/lib/api-monitor/agent/files/opt/a.json", gotRealPath: &gotRealPath}
+	if _, err := service.agentUploadFile(context.Background(), map[string]interface{}{
+		"serverId":       "srv-1",
+		"path":           "/opt/a.json",
+		"content_base64": base64.StdEncoding.EncodeToString([]byte("{}")),
+	}); err != nil {
+		t.Fatalf("agentUploadFile(默认) err: %v", err)
+	}
+	if gotRealPath {
+		t.Fatal("缺省应保持沙箱语义(realPath=false)")
+	}
+}
+
 func TestAgentFileToolsRegistered(t *testing.T) {
 	cfg := config.Config{DataDir: t.TempDir(), DBName: "data.db"}
 	service := New(cfg)
@@ -1732,9 +1779,10 @@ func TestEnsureAIAccessSchemaRebuildsAfterPoolReset(t *testing.T) {
 
 // fakeFileOperator 是 AgentFileOperator 的测试替身。
 type fakeFileOperator struct {
-	statSize int64
-	realPath string
-	onChunk  func(offset int64, truncate bool)
+	statSize    int64
+	realPath    string
+	onChunk     func(offset int64, truncate bool)
+	gotRealPath *bool
 }
 
 func (f fakeFileOperator) WriteAgentFileChunk(_ context.Context, _, _ string, data []byte, offset int64, truncate bool, _ time.Duration) (AgentFileWriteResult, error) {
@@ -1744,7 +1792,24 @@ func (f fakeFileOperator) WriteAgentFileChunk(_ context.Context, _, _ string, da
 	return AgentFileWriteResult{Size: offset + int64(len(data)), RealPath: f.realPath}, nil
 }
 
+func (f fakeFileOperator) WriteAgentFileChunkMode(_ context.Context, _, _ string, data []byte, offset int64, truncate bool, _ time.Duration, realPath bool) (AgentFileWriteResult, error) {
+	if f.gotRealPath != nil {
+		*f.gotRealPath = realPath
+	}
+	if f.onChunk != nil {
+		f.onChunk(offset, truncate)
+	}
+	return AgentFileWriteResult{Size: offset + int64(len(data)), RealPath: f.realPath}, nil
+}
+
 func (f fakeFileOperator) WriteAgentFileBytesDetailed(_ context.Context, _, _ string, data []byte, _ time.Duration) (AgentFileWriteResult, error) {
+	return AgentFileWriteResult{Size: int64(len(data)), RealPath: f.realPath}, nil
+}
+
+func (f fakeFileOperator) WriteAgentFileBytesDetailedMode(_ context.Context, _, _ string, data []byte, _ time.Duration, realPath bool) (AgentFileWriteResult, error) {
+	if f.gotRealPath != nil {
+		*f.gotRealPath = realPath
+	}
 	return AgentFileWriteResult{Size: int64(len(data)), RealPath: f.realPath}, nil
 }
 

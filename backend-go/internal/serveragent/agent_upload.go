@@ -77,6 +77,9 @@ func (s *Service) handleAgentUpload(w http.ResponseWriter, r *http.Request, _ *s
 		response.Error(w, http.StatusBadRequest, "serverId and path are required")
 		return
 	}
+	// realPath=true 时按主机真实绝对路径写(Agent 侧仍强制 API_MONITOR_FILE_ROOTS 白名单);
+	// 缺省 false 沿用沙箱语义,保持既有行为不变。
+	realPath := parseAgentUploadBool(r.FormValue("realPath"))
 	if !s.hasAgentConnection(serverID) {
 		writeSFTPError(w, fmt.Errorf("CONNECTION_FAILED: agent offline"))
 		return
@@ -97,7 +100,7 @@ func (s *Service) handleAgentUpload(w http.ResponseWriter, r *http.Request, _ *s
 		if n > 0 {
 			encoded := base64.StdEncoding.EncodeToString(buf[:n])
 			truncate := offset == 0
-			if _, werr := s.WriteAgentFileBase64(ctx, serverID, remotePath, encoded, offset, truncate, 5*time.Minute); werr != nil {
+			if _, werr := s.WriteAgentFileBase64Mode(ctx, serverID, remotePath, encoded, offset, truncate, 5*time.Minute, realPath); werr != nil {
 				writeSFTPError(w, werr)
 				return
 			}
@@ -113,7 +116,7 @@ func (s *Service) handleAgentUpload(w http.ResponseWriter, r *http.Request, _ *s
 	}
 	// 空文件也要落盘：首块未写入时补一次截断写入，确保目标被创建/清空。
 	if offset == 0 {
-		if _, werr := s.WriteAgentFileBase64(ctx, serverID, remotePath, "", 0, true, agentFileTimeout); werr != nil {
+		if _, werr := s.WriteAgentFileBase64Mode(ctx, serverID, remotePath, "", 0, true, agentFileTimeout, realPath); werr != nil {
 			writeSFTPError(w, werr)
 			return
 		}
@@ -122,8 +125,15 @@ func (s *Service) handleAgentUpload(w http.ResponseWriter, r *http.Request, _ *s
 	response.JSON(w, http.StatusOK, map[string]interface{}{
 		"success":   true,
 		"transport": "agent",
+		"realPath":  realPath,
 		"size":      offset,
 		"message":   "uploaded",
 		"path":      normalizeRemotePath(remotePath),
 	})
+}
+
+// parseAgentUploadBool 解析 multipart 表单里的布尔字段(true/1)。缺省 false。
+func parseAgentUploadBool(raw string) bool {
+	s := strings.TrimSpace(raw)
+	return s == "1" || strings.EqualFold(s, "true")
 }

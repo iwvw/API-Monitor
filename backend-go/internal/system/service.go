@@ -56,7 +56,9 @@ type AgentFileWriteResult struct {
 // 由 server 装配层用适配器把 serveragent 的实现桥接进来。
 type AgentFileOperator interface {
 	WriteAgentFileChunk(ctx context.Context, serverID, remotePath string, data []byte, offset int64, truncate bool, timeout time.Duration) (AgentFileWriteResult, error)
+	WriteAgentFileChunkMode(ctx context.Context, serverID, remotePath string, data []byte, offset int64, truncate bool, timeout time.Duration, realPath bool) (AgentFileWriteResult, error)
 	WriteAgentFileBytesDetailed(ctx context.Context, serverID, remotePath string, data []byte, timeout time.Duration) (AgentFileWriteResult, error)
+	WriteAgentFileBytesDetailedMode(ctx context.Context, serverID, remotePath string, data []byte, timeout time.Duration, realPath bool) (AgentFileWriteResult, error)
 	AgentFileRoots(ctx context.Context, serverID string) (map[string]interface{}, error)
 	AgentFileStat(ctx context.Context, serverID, remotePath string) (map[string]interface{}, error)
 	AgentFileChmod(ctx context.Context, serverID, remotePath string, mode uint32) (string, error)
