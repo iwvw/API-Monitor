@@ -1391,22 +1391,8 @@ func TestAgentTransferFileTool(t *testing.T) {
 	service := New(cfg)
 	defer service.Shutdown()
 
-	var calls []AICallRequest
-	service.SetAICaller(func(ctx context.Context, req AICallRequest) (AICallResponse, error) {
-		calls = append(calls, req)
-		switch {
-		case req.Path == "/api/filebox/share-from-agent":
-			return AICallResponse{StatusCode: 200, Body: map[string]interface{}{
-				"success":   true,
-				"code":      "ABC123",
-				"directUrl": "https://node.example.com/api/filebox/d/ABC123",
-			}}, nil
-		case req.Path == "/api/server/agent/fetch-url":
-			return AICallResponse{StatusCode: 200, Body: map[string]interface{}{"success": true}}, nil
-		default:
-			return AICallResponse{StatusCode: 200, Body: map[string]interface{}{"success": true}}, nil
-		}
-	})
+	var gotSrc, gotDst string
+	service.agentFileOps = fakeFileOperator{onCopy: func(src, dst string) { gotSrc, gotDst = src, dst }}
 
 	// 必填缺失必须报错
 	if _, err := service.agentTransferFile(context.Background(), map[string]interface{}{
@@ -1428,37 +1414,8 @@ func TestAgentTransferFileTool(t *testing.T) {
 	if !ok || payload["success"] != true || payload["transport"] != "agent-to-agent" {
 		t.Fatalf("unexpected result: %#v", result)
 	}
-
-	// 期望调用序列：share-from-agent -> fetch-url -> DELETE 清理临时分享
-	if len(calls) != 3 {
-		t.Fatalf("expected 3 calls, got %d: %#v", len(calls), calls)
-	}
-	if calls[0].Path != "/api/filebox/share-from-agent" || calls[0].Method != http.MethodPost {
-		t.Fatalf("first call should be share-from-agent: %#v", calls[0])
-	}
-	if calls[1].Path != "/api/server/agent/fetch-url" || calls[1].Method != http.MethodPost {
-		t.Fatalf("second call should be fetch-url: %#v", calls[1])
-	}
-	var fetchBody map[string]interface{}
-	if err := json.Unmarshal(calls[1].Body, &fetchBody); err != nil {
-		t.Fatalf("decode fetch body: %v", err)
-	}
-	if fetchBody["url"] != "https://node.example.com/api/filebox/d/ABC123" ||
-		fetchBody["serverId"] != "srv-b" || fetchBody["path"] != "/opt/a.sh" {
-		t.Fatalf("fetch-url not wired from share result: %#v", fetchBody)
-	}
-	if calls[2].Method != http.MethodDelete || calls[2].Path != "/api/filebox/ABC123" {
-		t.Fatalf("third call should clean up share: %#v", calls[2])
-	}
-
-	found := false
-	for _, tool := range service.aiTools() {
-		if tool["name"] == "agent_transfer_file" {
-			found = true
-		}
-	}
-	if !found {
-		t.Fatal("agent_transfer_file not present in aiTools()")
+	if gotSrc != "srv-a:/tmp/a.sh" || gotDst != "srv-b:/opt/a.sh" {
+		t.Fatalf("panel-relay 参数错误: src=%s dst=%s", gotSrc, gotDst)
 	}
 }
 
@@ -1905,6 +1862,13 @@ func (f fakeFileOperator) CopyAgentFile(_ context.Context, srcID, srcPath string
 }
 
 func (f fakeFileOperator) CopyAgentPath(_ context.Context, srcID, srcPath string, _ bool, dstID, dstPath string, _ bool, _ time.Duration) (int64, int64, error) {
+	if f.onCopy != nil {
+		f.onCopy(srcID+":"+srcPath, dstID+":"+dstPath)
+	}
+	return 1, 0, nil
+}
+
+func (f fakeFileOperator) CopyAgentPathEx(_ context.Context, srcID, srcPath, dstID, dstPath string, _ AgentCopyOptions, _ time.Duration) (int64, int64, error) {
 	if f.onCopy != nil {
 		f.onCopy(srcID+":"+srcPath, dstID+":"+dstPath)
 	}

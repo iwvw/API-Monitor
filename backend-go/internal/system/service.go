@@ -64,6 +64,15 @@ type AgentFileOperator interface {
 	AgentFileChmod(ctx context.Context, serverID, remotePath string, mode uint32) (string, error)
 	CopyAgentFile(ctx context.Context, srcServerID, srcPath string, srcRealPath bool, dstServerID, dstPath string, dstRealPath bool, timeout time.Duration) (int64, error)
 	CopyAgentPath(ctx context.Context, srcServerID, srcPath string, srcRealPath bool, dstServerID, dstPath string, dstRealPath bool, timeout time.Duration) (int64, int64, error)
+	CopyAgentPathEx(ctx context.Context, srcServerID, srcPath, dstServerID, dstPath string, opts AgentCopyOptions, timeout time.Duration) (int64, int64, error)
+}
+
+// AgentCopyOptions 控制主机↔主机复制的路径语义与原子性。
+type AgentCopyOptions struct {
+	SourceRealPath bool
+	TargetRealPath bool
+	Backup         bool
+	Verify         bool
 }
 
 type alertState struct {

@@ -808,6 +808,7 @@ const (
 	agentFileFetchURLTask      = 41
 	agentFileWriteBase64Task   = 42
 	agentFileRootsTask         = 43
+	agentFileWalkTask          = 44
 	agentFileTimeout           = 30 * time.Second
 	agentFileChunkSize         = 1024 * 1024
 )

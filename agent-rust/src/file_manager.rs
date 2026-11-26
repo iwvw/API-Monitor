@@ -195,6 +195,34 @@ pub struct FileWriteBase64Request {
     pub real_path: bool,
 }
 
+#[derive(Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct FileWalkRequest {
+    pub path: String,
+    #[serde(default)]
+    pub real_path: bool,
+    #[serde(default)]
+    pub max_depth: Option<usize>,
+}
+
+#[derive(Serialize)]
+pub struct FileWalkEntry {
+    pub name: String,
+    pub relative_path: String,
+    pub is_directory: bool,
+    pub is_file: bool,
+    pub is_symlink: bool,
+    pub size: i64,
+}
+
+#[derive(Serialize)]
+pub struct FileWalkResponse {
+    pub files: Vec<FileWalkEntry>,
+    pub count: usize,
+    pub truncated: bool,
+    pub real_root: String,
+}
+
 pub struct FileManager;
 
 impl FileManager {
@@ -271,6 +299,74 @@ impl FileManager {
 
     /// 返回文件沙箱的真实根目录与白名单根，供调用方把「上传路径」和
     /// 「命令里该用的真实路径」对齐。
+    /// 递归遍历目录树(单次任务),返回带相对路径的条目列表。
+    /// 供面板一次性拿到目录结构,避免逐层 list 的往返。
+    pub fn handle_file_walk(data: &str) -> Result<String, String> {
+        let req: FileWalkRequest =
+            serde_json::from_str(data).map_err(|e| format!("解析请求失败: {}", e))?;
+        if req.path.is_empty() {
+            return Err("路径不能为空".to_string());
+        }
+        let abs_root = resolve_path_for(&req.path, req.real_path)?;
+        let max_depth = req.max_depth.filter(|d| *d > 0).unwrap_or(32);
+        const MAX_ENTRIES: usize = 100_000;
+
+        let mut out: Vec<FileWalkEntry> = Vec::new();
+        let mut truncated = false;
+        let mut queue: Vec<(PathBuf, usize)> = vec![(abs_root.clone(), 0)];
+        while let Some((dir, depth)) = queue.pop() {
+            let entries = match fs::read_dir(&dir) {
+                Ok(e) => e,
+                Err(_) => continue,
+            };
+            for entry_res in entries {
+                let entry = match entry_res {
+                    Ok(e) => e,
+                    Err(_) => continue,
+                };
+                // DirEntry::metadata 不跟随符号链接,避免遍历环。
+                let meta = match entry.metadata() {
+                    Ok(m) => m,
+                    Err(_) => continue,
+                };
+                let file_name = entry.file_name().to_string_lossy().to_string();
+                let full = entry.path();
+                let rel = full
+                    .strip_prefix(&abs_root)
+                    .map(|p| p.to_string_lossy().replace('\\', "/"))
+                    .unwrap_or_else(|_| file_name.clone());
+                let is_dir = meta.is_dir();
+                let is_symlink = meta.file_type().is_symlink();
+                out.push(FileWalkEntry {
+                    name: file_name,
+                    relative_path: rel,
+                    is_directory: is_dir,
+                    is_file: meta.is_file(),
+                    is_symlink,
+                    size: meta.len() as i64,
+                });
+                if out.len() >= MAX_ENTRIES {
+                    truncated = true;
+                    break;
+                }
+                if is_dir && !is_symlink && depth + 1 < max_depth {
+                    queue.push((full, depth + 1));
+                }
+            }
+            if truncated {
+                break;
+            }
+        }
+
+        let payload = FileWalkResponse {
+            count: out.len(),
+            files: out,
+            truncated,
+            real_root: abs_root.to_string_lossy().replace('\\', "/"),
+        };
+        serde_json::to_string(&payload).map_err(|e| e.to_string())
+    }
+
     pub fn handle_file_roots() -> Result<String, String> {
         let sandbox_root = canonical_files_root()?;
         let allowed: Vec<String> = allowed_roots()?

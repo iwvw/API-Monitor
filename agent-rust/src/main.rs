@@ -1446,6 +1446,18 @@ async fn run_client(
                                             }
                                         }
                                     }
+                                    44 => {
+                                        // FILE_WALK(递归列目录)
+                                        match FileManager::handle_file_walk(&task.data) {
+                                            Ok(out) => {
+                                                successful = true;
+                                                res_data = out;
+                                            }
+                                            Err(err) => {
+                                                res_data = err;
+                                            }
+                                        }
+                                    }
                                     40 => {
                                         // NETWORK_QUALITY_PROBE
                                         match handle_network_quality_probe(&task.data).await {
