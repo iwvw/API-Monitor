@@ -814,7 +814,7 @@ const (
 
 // FetchURLToAgentFile 让指定 Agent 主机从 URL 拉取文件并写入本地路径。
 // 字节由主机直接下载，不经面板中转；适合把已有的可访问地址落到主机上。
-func (s *Service) FetchURLToAgentFile(ctx context.Context, serverID, url, remotePath string, timeout time.Duration) (string, error) {
+func (s *Service) FetchURLToAgentFile(ctx context.Context, serverID, url, remotePath string, realPath bool, timeout time.Duration) (string, error) {
 	serverID = strings.TrimSpace(serverID)
 	url = strings.TrimSpace(url)
 	remotePath = strings.TrimSpace(remotePath)
@@ -833,10 +833,14 @@ func (s *Service) FetchURLToAgentFile(ctx context.Context, serverID, url, remote
 	if timeout <= 0 {
 		timeout = 10 * time.Minute
 	}
-	payload, err := json.Marshal(map[string]interface{}{
+	payloadMap := map[string]interface{}{
 		"url":  url,
 		"path": normalizeRemotePath(remotePath),
-	})
+	}
+	if realPath {
+		payloadMap["realPath"] = true
+	}
+	payload, err := json.Marshal(payloadMap)
 	if err != nil {
 		return "", fmt.Errorf("AGENT_FILE_ERROR: %w", err)
 	}

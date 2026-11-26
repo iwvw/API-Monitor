@@ -163,6 +163,9 @@ pub struct FileFetchUrlRequest {
     pub path: String,
     #[serde(default)]
     pub headers: Option<std::collections::HashMap<String, String>>,
+    /// 为 true 时要求按主机真实绝对路径写入(仅限 API_MONITOR_FILE_ROOTS 白名单根内)
+    #[serde(default)]
+    pub real_path: bool,
 }
 
 #[derive(Serialize)]
@@ -171,6 +174,8 @@ pub struct FileFetchUrlResponse {
     pub status: u16,
     pub size: i64,
     pub path: String,
+    /// 主机上的真实绝对路径(realPath 模式或沙箱锚定后的实际落盘位置)
+    pub real_path: String,
 }
 
 #[derive(Deserialize, Debug)]
@@ -595,7 +600,7 @@ impl FileManager {
             return Err("目标路径不能为空".to_string());
         }
 
-        let abs_path = resolve_path(&req.path)?;
+        let abs_path = resolve_path_for(&req.path, req.real_path)?;
         if let Some(parent) = abs_path.parent() {
             fs::create_dir_all(parent).map_err(|e| format!("创建父目录失败: {}", e))?;
         }
@@ -668,6 +673,7 @@ impl FileManager {
             status,
             size: written,
             path: virtual_path(&abs_path),
+            real_path: abs_path.to_string_lossy().replace('\\', "/"),
         };
         serde_json::to_string(&payload).map_err(|e| e.to_string())
     }

@@ -1719,6 +1719,33 @@ func TestAgentFileToolsRegistered(t *testing.T) {
 // 分块上传必须显式提供 offset：缺省按 0 处理会带 truncate=true，
 // 把调用方本意的「续写」静默变成「覆盖」，是真实的数据丢失路径。
 // SFTP 复刻工具:应把主机标识与路径正确组装成对 /api/server/sftp/* 的调用。
+// fetch-url 的 realPath 开关必须透传到 HTTP 请求体(否则目标永远写沙箱)。
+func TestAgentFetchURLPassesRealPath(t *testing.T) {
+	cfg := config.Config{DataDir: t.TempDir(), DBName: "data.db"}
+	service := New(cfg)
+	defer service.Shutdown()
+
+	var gotBody map[string]interface{}
+	service.SetAICaller(func(_ context.Context, req AICallRequest) (AICallResponse, error) {
+		if req.Path == "/api/server/agent/fetch-url" {
+			_ = json.Unmarshal(req.Body, &gotBody)
+		}
+		return AICallResponse{StatusCode: 200, Body: map[string]interface{}{"success": true}}, nil
+	})
+
+	if _, err := service.agentFetchURL(context.Background(), map[string]interface{}{
+		"serverId": "srv-1",
+		"url":      "https://example.com/a.bin",
+		"path":     "/opt/1panel/a.bin",
+		"realPath": true,
+	}); err != nil {
+		t.Fatalf("agentFetchURL err: %v", err)
+	}
+	if gotBody["realPath"] != true {
+		t.Fatalf("realPath 未透传到 fetch-url: %#v", gotBody)
+	}
+}
+
 func TestAgentFileListBuildsSFTPCall(t *testing.T) {
 	cfg := config.Config{DataDir: t.TempDir(), DBName: "data.db"}
 	service := New(cfg)

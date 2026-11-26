@@ -35,6 +35,7 @@ func (s *Service) handleAgentFetchURL(w http.ResponseWriter, r *http.Request, _ 
 		ServerID string `json:"serverId"`
 		URL      string `json:"url"`
 		Path     string `json:"path"`
+		RealPath bool   `json:"realPath"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		response.Error(w, http.StatusBadRequest, "invalid request body")
@@ -44,7 +45,7 @@ func (s *Service) handleAgentFetchURL(w http.ResponseWriter, r *http.Request, _ 
 		response.Error(w, http.StatusBadRequest, "serverId, url and path are required")
 		return
 	}
-	message, err := s.FetchURLToAgentFile(r.Context(), req.ServerID, req.URL, req.Path, 10*time.Minute)
+	message, err := s.FetchURLToAgentFile(r.Context(), req.ServerID, req.URL, req.Path, req.RealPath, 10*time.Minute)
 	if err != nil {
 		writeSFTPError(w, err)
 		return
