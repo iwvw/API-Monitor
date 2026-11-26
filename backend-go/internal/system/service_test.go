@@ -1706,6 +1706,8 @@ func TestAgentFileToolsRegistered(t *testing.T) {
 		"agent_run_command", "agent_task_result",
 		"agent_upload_file", "agent_upload_chunk",
 		"agent_file_roots", "agent_file_stat", "agent_file_chmod",
+		"agent_file_list", "agent_file_read", "agent_file_write",
+		"agent_file_mkdir", "agent_file_rename", "agent_file_delete", "agent_file_rmdir",
 	} {
 		if !names[want] {
 			t.Fatalf("工具 %s 未注册", want)
@@ -1715,6 +1717,66 @@ func TestAgentFileToolsRegistered(t *testing.T) {
 
 // 分块上传必须显式提供 offset：缺省按 0 处理会带 truncate=true，
 // 把调用方本意的「续写」静默变成「覆盖」，是真实的数据丢失路径。
+// SFTP 复刻工具:应把主机标识与路径正确组装成对 /api/server/sftp/* 的调用。
+func TestAgentFileListBuildsSFTPCall(t *testing.T) {
+	cfg := config.Config{DataDir: t.TempDir(), DBName: "data.db"}
+	service := New(cfg)
+	defer service.Shutdown()
+
+	var gotPath string
+	var gotBody map[string]interface{}
+	service.SetAICaller(func(_ context.Context, req AICallRequest) (AICallResponse, error) {
+		gotPath = req.Path
+		_ = json.Unmarshal(req.Body, &gotBody)
+		return AICallResponse{StatusCode: 200, Body: map[string]interface{}{"success": true}}, nil
+	})
+
+	if _, err := service.agentFileList(context.Background(), map[string]interface{}{
+		"serverId": "srv-1",
+		"path":     "/opt/1panel/www",
+	}); err != nil {
+		t.Fatalf("agentFileList err: %v", err)
+	}
+	if gotPath != "/api/server/sftp/list" {
+		t.Fatalf("应调用 sftp/list,实际 %s", gotPath)
+	}
+	if gotBody["serverId"] != "srv-1" || gotBody["path"] != "/opt/1panel/www" {
+		t.Fatalf("请求体组装错误: %#v", gotBody)
+	}
+}
+
+// agent_file_rename 需要 oldPath/newPath,且不需要 path。
+func TestAgentFileRenameBuildsSFTPCall(t *testing.T) {
+	cfg := config.Config{DataDir: t.TempDir(), DBName: "data.db"}
+	service := New(cfg)
+	defer service.Shutdown()
+
+	var gotPath string
+	var gotBody map[string]interface{}
+	service.SetAICaller(func(_ context.Context, req AICallRequest) (AICallResponse, error) {
+		gotPath = req.Path
+		_ = json.Unmarshal(req.Body, &gotBody)
+		return AICallResponse{StatusCode: 200, Body: map[string]interface{}{"success": true}}, nil
+	})
+
+	if _, err := service.agentFileRename(context.Background(), map[string]interface{}{
+		"serverId": "srv-1",
+		"oldPath":  "/opt/a.txt",
+		"newPath":  "/opt/b.txt",
+	}); err != nil {
+		t.Fatalf("agentFileRename err: %v", err)
+	}
+	if gotPath != "/api/server/sftp/rename" {
+		t.Fatalf("应调用 sftp/rename,实际 %s", gotPath)
+	}
+	if gotBody["oldPath"] != "/opt/a.txt" || gotBody["newPath"] != "/opt/b.txt" {
+		t.Fatalf("请求体组装错误: %#v", gotBody)
+	}
+	if _, hasPath := gotBody["path"]; hasPath {
+		t.Fatalf("rename 不应携带 path: %#v", gotBody)
+	}
+}
+
 func TestAgentUploadChunkRequiresExplicitOffset(t *testing.T) {
 	cfg := config.Config{DataDir: t.TempDir(), DBName: "data.db"}
 	service := New(cfg)
