@@ -181,7 +181,7 @@ export const ModelTrendChart = memo(function ModelTrendChart({ labels, series, i
 
   return (
     <div className="flex min-h-0 flex-col gap-2">
-      <div className="flex flex-nowrap gap-x-4 overflow-x-auto overscroll-x-contain px-1 pb-1 touch-pan-x scrollbar-thin">
+      <div className="flex flex-nowrap gap-x-4 overflow-x-auto overscroll-x-contain px-1 pb-1 scrollbar-thin">
         {ordered.map(item => (
           <ChartLegend.LargeItem
             key={item.model}

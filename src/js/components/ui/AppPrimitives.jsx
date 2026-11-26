@@ -329,7 +329,10 @@ export function DataTableFrame({
   ...props
 }) {
   const frameClassName = cx(
-    'overflow-x-auto overscroll-x-contain touch-pan-x scrollbar-thin',
+    // 横向滚动壳上不要加 touch-pan-x:实测它会让浏览器把竖向手势判定为「本元素不处理」
+    // 后既不上抛也不滚动(见 ServerDockerConsole/DockerResourceCards 的注释),
+    // 移动端整页就滚不动。overscroll-x-contain 已足够阻止横向滚动链到页面。
+    'overflow-x-auto overscroll-x-contain scrollbar-thin',
     tableDensityClass[density],
     className
   );
