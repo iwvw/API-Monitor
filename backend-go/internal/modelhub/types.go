@@ -58,7 +58,11 @@ type Endpoint struct {
 	// KeyCooldownSeconds 是某 key 近期 401/403/429 后的回避冷却秒数（默认 60）。
 	// 冷却期内 pickKey 降低/跳过该 key 命中；0 表示关闭冷却。用于规避「周限耗尽
 	// 持续 429」的废 key 反复拉长对话时间——冷却窗口本质是周期性的廉价探测间隔。
-	KeyCooldownSeconds int `json:"keyCooldownSeconds,omitempty"`
+	//
+	// 注意：这里**不能**加 omitempty。0 是合法且有意义的值（关闭冷却），加了之后
+	// 端点列表/导出会把 keyCooldownSeconds 整个省略，前端读到 undefined 再回退成
+	// 默认 60，表现为「冷却时间无法设为 0」。
+	KeyCooldownSeconds int `json:"keyCooldownSeconds"`
 	// Priority 是端点优先级档位：值越大越优先被选中（同模型多端点时先高优先级）。
 	// Weight 是同档位内的加权因子：值越大在该档位内被选中的概率越高。
 	Priority     int     `json:"priority,omitempty"`
