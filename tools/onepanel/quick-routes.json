@@ -1397,6 +1397,28 @@
           "path": "/websites/ssl/website/{websiteId}"
         }
       }
+    },
+    {
+      "prefix": "/api/onepanel/{serverId}/ssl/resolve-id",
+      "kind": "local",
+      "methods": [
+        "GET"
+      ],
+      "query": [
+        "domain"
+      ],
+      "description": "按域名解析证书 id(用域名重试,避免猜 id;返回当前 id 与证书关键字段)"
+    },
+    {
+      "prefix": "/api/onepanel/{serverId}/websites/resolve-id",
+      "kind": "local",
+      "methods": [
+        "GET"
+      ],
+      "query": [
+        "domain"
+      ],
+      "description": "按域名解析网站 id(用域名重试,避免猜 id;返回当前 id 与网站关键字段)"
     }
   ]
 }

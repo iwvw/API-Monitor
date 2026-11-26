@@ -650,7 +650,7 @@ func (s *Service) aiRouteCatalog(args map[string]interface{}) (interface{}, erro
 			continue
 		}
 		if search != "" {
-			haystack := strings.ToLower(item.Prefix + " " + item.Detail + " " + item.Description)
+			haystack := strings.ToLower(item.Prefix + " " + item.Detail + " " + item.Description + " " + schemaSearchWords(item.RequestSchema))
 			if !strings.Contains(haystack, search) {
 				continue
 			}

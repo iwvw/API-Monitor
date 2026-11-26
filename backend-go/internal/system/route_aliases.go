@@ -261,6 +261,9 @@ type intentSignals struct {
 	joined   string
 	tokens   []string
 	trigrams []string
+	// bigrams 是中文两字片段,仅用于匹配请求体字段语义(如“备注”)。
+	// 「备注」这类 2 字词落在三字片段之外,不加这层 body 字段永远召不回。
+	bigrams  []string
 	synonyms []string
 	// asciiStripped 是剔除 ASCII 词元后的紧凑串（「安装1panel应用」→「安装应用」），
 	// 用于别名匹配绕开夹在中间的模块名/品牌名。
@@ -314,11 +317,20 @@ func analyzeIntent(query string) intentSignals {
 		}
 		trigrams = append(trigrams, chunk)
 	}
+	bigrams := make([]string, 0, 16)
+	for i := 0; i+2 <= len(runes); i++ {
+		chunk := string(runes[i : i+2])
+		if !hasCJK(chunk) || containsString(bigrams, chunk) {
+			continue
+		}
+		bigrams = append(bigrams, chunk)
+	}
 	synonyms := expandIntentSynonyms(joined)
 	return intentSignals{
 		joined:        joined,
 		tokens:        tokens,
 		trigrams:      trigrams,
+		bigrams:       bigrams,
 		synonyms:      synonyms,
 		asciiStripped: stripASCIIWords(joined),
 	}
@@ -462,7 +474,8 @@ func scoreRouteMatch(route apiDocRoute, signals intentSignals) (int, []matchReas
 	lowerDesc := strings.ToLower(route.Description)
 	lowerGroup := strings.ToLower(route.Group)
 	lowerModule := strings.ToLower(strings.TrimPrefix(route.Module, "-"))
-	searchText := strings.ToLower(route.Prefix + " " + route.Detail + " " + route.Description + " " + route.Group + " " + route.Module)
+	schemaWords := strings.ToLower(schemaSearchWords(route.RequestSchema))
+	searchText := strings.ToLower(route.Prefix + " " + route.Detail + " " + route.Description + " " + route.Group + " " + route.Module) + " " + schemaWords
 
 	for _, tri := range signals.trigrams {
 		if strings.Contains(lowerDetail, tri) || strings.Contains(lowerDesc, tri) {
@@ -471,6 +484,16 @@ func scoreRouteMatch(route apiDocRoute, signals intentSignals) (int, []matchReas
 		} else if strings.Contains(lowerGroup, tri) || strings.Contains(lowerModule, tri) {
 			score += 2
 			reasons = appendReason(reasons, tri, "group", 2)
+		}
+	}
+	// 请求体字段语义召回:两字片段只与契约字段名/描述比对(如“备注”→description),
+	// 避免把「更新」「名称」这类泛词拿去匹配整段描述造成噪声。
+	if schemaWords != "" {
+		for _, big := range signals.bigrams {
+			if strings.Contains(schemaWords, big) {
+				score += 2
+				reasons = appendReason(reasons, big, "body-field", 2)
+			}
 		}
 	}
 	for _, token := range signals.tokens {

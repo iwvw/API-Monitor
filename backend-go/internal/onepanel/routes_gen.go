@@ -956,6 +956,26 @@ var quickRoutes = []quickRoute{
 		Query:       []string{},
 		Upstreams:   []quickUpstream{{Method: "GET", Upstream: "/websites/ssl/website/{websiteId}"}},
 	},
+	{
+		Prefix:      "/api/onepanel/{serverId}/ssl/resolve-id",
+		Module:      "onepanel",
+		MatchMode:   "pattern",
+		Kind:        "local",
+		Methods:     []string{"GET"},
+		Description: "按域名解析证书 id(用域名重试,避免猜 id;返回当前 id 与证书关键字段)",
+		Query:       []string{"domain"},
+		Upstreams:   []quickUpstream{},
+	},
+	{
+		Prefix:      "/api/onepanel/{serverId}/websites/resolve-id",
+		Module:      "onepanel",
+		MatchMode:   "pattern",
+		Kind:        "local",
+		Methods:     []string{"GET"},
+		Description: "按域名解析网站 id(用域名重试,避免猜 id;返回当前 id 与网站关键字段)",
+		Query:       []string{"domain"},
+		Upstreams:   []quickUpstream{},
+	},
 }
 
 // quickRouteByPrefix 便于分发时按 prefix 精确查找（served 段用形状匹配，这里只做校验）。

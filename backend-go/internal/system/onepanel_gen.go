@@ -101,6 +101,8 @@ var onepanelRouteMethods = map[string][]string{
 	"/api/onepanel/{serverId}/ssl/push": []string{"POST"},
 	"/api/onepanel/{serverId}/ssl/resolve": []string{"POST"},
 	"/api/onepanel/{serverId}/ssl/website/{websiteId}": []string{"GET"},
+	"/api/onepanel/{serverId}/ssl/resolve-id": []string{"GET"},
+	"/api/onepanel/{serverId}/websites/resolve-id": []string{"GET"},
 }
 
 // onepanelGeneratedSeeds 由生成器产出，覆盖 onepanel 全部快捷路由的文档条目。
@@ -117,7 +119,7 @@ var onepanelGeneratedSeeds = []apiDocSeed{
 		Docs: apiRouteDocs{
 			Detail:  "更新或删除指定服务器的 1Panel 连接配置（只传 apiKey 或 baseUrl 时按部分更新处理）",
 			Methods: []string{"PUT", "DELETE"},
-			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID"}},
+			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID(先由 /api/server/accounts 或 /api/onepanel/config 获取)"}},
 		},
 	},
 	{
@@ -132,7 +134,7 @@ var onepanelGeneratedSeeds = []apiDocSeed{
 		Docs: apiRouteDocs{
 			Detail:  "检查指定服务器上的 1Panel 面板连通性",
 			Methods: []string{"GET"},
-			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID"}},
+			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID(先由 /api/server/accounts 或 /api/onepanel/config 获取)"}},
 		},
 	},
 	{
@@ -140,7 +142,7 @@ var onepanelGeneratedSeeds = []apiDocSeed{
 		Docs: apiRouteDocs{
 			Detail:  "读取面板实时资源监控（CPU / 内存 / 磁盘 / 网络）",
 			Methods: []string{"GET"},
-			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID"}},
+			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID(先由 /api/server/accounts 或 /api/onepanel/config 获取)"}},
 		},
 	},
 	{
@@ -148,7 +150,7 @@ var onepanelGeneratedSeeds = []apiDocSeed{
 		Docs: apiRouteDocs{
 			Detail:  "聚合读取面板状态、网站、容器与 OpenResty 摘要（4 次 1Panel 调用，单项失败只缺该字段）",
 			Methods: []string{"GET"},
-			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID"}},
+			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID(先由 /api/server/accounts 或 /api/onepanel/config 获取)"}},
 		},
 	},
 	{
@@ -156,7 +158,7 @@ var onepanelGeneratedSeeds = []apiDocSeed{
 		Docs: apiRouteDocs{
 			Detail:  "检查 1Panel 面板是否有可升级版本",
 			Methods: []string{"GET"},
-			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID"}},
+			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID(先由 /api/server/accounts 或 /api/onepanel/config 获取)"}},
 		},
 	},
 	{
@@ -164,7 +166,7 @@ var onepanelGeneratedSeeds = []apiDocSeed{
 		Docs: apiRouteDocs{
 			Detail:  "升级 1Panel 面板到指定版本",
 			Methods: []string{"POST"},
-			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID"}},
+			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID(先由 /api/server/accounts 或 /api/onepanel/config 获取)"}},
 		},
 	},
 	{
@@ -172,7 +174,7 @@ var onepanelGeneratedSeeds = []apiDocSeed{
 		Docs: apiRouteDocs{
 			Detail:  "列出网站或创建网站",
 			Methods: []string{"GET", "POST"},
-			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID"}},
+			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID(先由 /api/server/accounts 或 /api/onepanel/config 获取)"}},
 		},
 	},
 	{
@@ -180,7 +182,8 @@ var onepanelGeneratedSeeds = []apiDocSeed{
 		Docs: apiRouteDocs{
 			Detail:  "读取或删除网站",
 			Methods: []string{"GET", "DELETE"},
-			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID"}, {Name: "id", In: "path", Required: true, Description: "资源主键 ID"}},
+			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID(先由 /api/server/accounts 或 /api/onepanel/config 获取)"}, {Name: "id", In: "path", Required: true, Description: "网站 ID(取自 /websites/search 的 items[].id;每台 1Panel 的 id 相互独立)"}},
+			Notes: []string{"该接口按资源 id 操作:先调用对应列表接口取回 id 再按 id 调用;每台 1Panel 的 id 相互独立,不要跨主机复用。"},
 		},
 	},
 	{
@@ -188,7 +191,8 @@ var onepanelGeneratedSeeds = []apiDocSeed{
 		Docs: apiRouteDocs{
 			Detail:  "启停或重启网站（start / stop / restart）",
 			Methods: []string{"POST"},
-			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID"}, {Name: "id", In: "path", Required: true, Description: "资源主键 ID"}},
+			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID(先由 /api/server/accounts 或 /api/onepanel/config 获取)"}, {Name: "id", In: "path", Required: true, Description: "网站 ID(取自 /websites/search 的 items[].id;每台 1Panel 的 id 相互独立)"}},
+			Notes: []string{"该接口按资源 id 操作:先调用对应列表接口取回 id 再按 id 调用;每台 1Panel 的 id 相互独立,不要跨主机复用。"},
 		},
 	},
 	{
@@ -196,7 +200,8 @@ var onepanelGeneratedSeeds = []apiDocSeed{
 		Docs: apiRouteDocs{
 			Detail:  "更新网站反向代理配置",
 			Methods: []string{"POST"},
-			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID"}, {Name: "id", In: "path", Required: true, Description: "资源主键 ID"}},
+			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID(先由 /api/server/accounts 或 /api/onepanel/config 获取)"}, {Name: "id", In: "path", Required: true, Description: "网站 ID(取自 /websites/search 的 items[].id;每台 1Panel 的 id 相互独立)"}},
+			Notes: []string{"该接口按资源 id 操作:先调用对应列表接口取回 id 再按 id 调用;每台 1Panel 的 id 相互独立,不要跨主机复用。"},
 		},
 	},
 	{
@@ -204,7 +209,8 @@ var onepanelGeneratedSeeds = []apiDocSeed{
 		Docs: apiRouteDocs{
 			Detail:  "启用或配置网站 HTTPS",
 			Methods: []string{"POST"},
-			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID"}, {Name: "id", In: "path", Required: true, Description: "资源主键 ID"}},
+			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID(先由 /api/server/accounts 或 /api/onepanel/config 获取)"}, {Name: "id", In: "path", Required: true, Description: "网站 ID(取自 /websites/search 的 items[].id;每台 1Panel 的 id 相互独立)"}},
+			Notes: []string{"该接口按资源 id 操作:先调用对应列表接口取回 id 再按 id 调用;每台 1Panel 的 id 相互独立,不要跨主机复用。"},
 		},
 	},
 	{
@@ -212,7 +218,8 @@ var onepanelGeneratedSeeds = []apiDocSeed{
 		Docs: apiRouteDocs{
 			Detail:  "更新网站 nginx 配置",
 			Methods: []string{"POST"},
-			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID"}, {Name: "id", In: "path", Required: true, Description: "资源主键 ID"}},
+			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID(先由 /api/server/accounts 或 /api/onepanel/config 获取)"}, {Name: "id", In: "path", Required: true, Description: "网站 ID(取自 /websites/search 的 items[].id;每台 1Panel 的 id 相互独立)"}},
+			Notes: []string{"该接口按资源 id 操作:先调用对应列表接口取回 id 再按 id 调用;每台 1Panel 的 id 相互独立,不要跨主机复用。"},
 		},
 	},
 	{
@@ -220,7 +227,7 @@ var onepanelGeneratedSeeds = []apiDocSeed{
 		Docs: apiRouteDocs{
 			Detail:  "查询应用市场（可安装应用）",
 			Methods: []string{"GET"},
-			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID"}},
+			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID(先由 /api/server/accounts 或 /api/onepanel/config 获取)"}},
 		},
 	},
 	{
@@ -228,7 +235,7 @@ var onepanelGeneratedSeeds = []apiDocSeed{
 		Docs: apiRouteDocs{
 			Detail:  "安装应用（支持 dockerCompose）",
 			Methods: []string{"POST"},
-			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID"}},
+			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID(先由 /api/server/accounts 或 /api/onepanel/config 获取)"}},
 		},
 	},
 	{
@@ -236,7 +243,7 @@ var onepanelGeneratedSeeds = []apiDocSeed{
 		Docs: apiRouteDocs{
 			Detail:  "列出已安装应用",
 			Methods: []string{"GET"},
-			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID"}},
+			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID(先由 /api/server/accounts 或 /api/onepanel/config 获取)"}},
 		},
 	},
 	{
@@ -244,7 +251,7 @@ var onepanelGeneratedSeeds = []apiDocSeed{
 		Docs: apiRouteDocs{
 			Detail:  "启动 / 停止 / 重启已安装应用",
 			Methods: []string{"POST"},
-			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID"}, {Name: "appInstallId", In: "path", Required: true, Description: "1Panel 应用安装 ID"}},
+			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID(先由 /api/server/accounts 或 /api/onepanel/config 获取)"}, {Name: "appInstallId", In: "path", Required: true, Description: "已安装应用 ID(取自 /apps/installed 列表)"}},
 		},
 	},
 	{
@@ -252,7 +259,7 @@ var onepanelGeneratedSeeds = []apiDocSeed{
 		Docs: apiRouteDocs{
 			Detail:  "列出容器",
 			Methods: []string{"GET"},
-			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID"}},
+			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID(先由 /api/server/accounts 或 /api/onepanel/config 获取)"}},
 		},
 	},
 	{
@@ -260,7 +267,7 @@ var onepanelGeneratedSeeds = []apiDocSeed{
 		Docs: apiRouteDocs{
 			Detail:  "批量启停或重启容器",
 			Methods: []string{"POST"},
-			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID"}},
+			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID(先由 /api/server/accounts 或 /api/onepanel/config 获取)"}},
 		},
 	},
 	{
@@ -268,7 +275,7 @@ var onepanelGeneratedSeeds = []apiDocSeed{
 		Docs: apiRouteDocs{
 			Detail:  "读取容器日志",
 			Methods: []string{"GET"},
-			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID"}, {Name: "name", In: "path", Required: true, Description: "容器名"}},
+			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID(先由 /api/server/accounts 或 /api/onepanel/config 获取)"}, {Name: "name", In: "path", Required: true, Description: "容器名(取自 /containers 列表)"}},
 			QueryParams: []apiDocParameter{{Name: "tail", In: "query", Required: false, Description: "只取最后 N 行日志", Example: "200"}, {Name: "since", In: "query", Required: false, Description: "时间窗口，如 1h / 30m", Example: "1h"}},
 		},
 	},
@@ -277,7 +284,7 @@ var onepanelGeneratedSeeds = []apiDocSeed{
 		Docs: apiRouteDocs{
 			Detail:  "创建 Compose 应用",
 			Methods: []string{"POST"},
-			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID"}},
+			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID(先由 /api/server/accounts 或 /api/onepanel/config 获取)"}},
 		},
 	},
 	{
@@ -285,7 +292,7 @@ var onepanelGeneratedSeeds = []apiDocSeed{
 		Docs: apiRouteDocs{
 			Detail:  "列出 SSL 证书",
 			Methods: []string{"GET"},
-			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID"}},
+			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID(先由 /api/server/accounts 或 /api/onepanel/config 获取)"}},
 		},
 	},
 	{
@@ -293,7 +300,7 @@ var onepanelGeneratedSeeds = []apiDocSeed{
 		Docs: apiRouteDocs{
 			Detail:  "为网站申请 SSL 证书（ACME）",
 			Methods: []string{"POST"},
-			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID"}},
+			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID(先由 /api/server/accounts 或 /api/onepanel/config 获取)"}},
 		},
 	},
 	{
@@ -301,7 +308,7 @@ var onepanelGeneratedSeeds = []apiDocSeed{
 		Docs: apiRouteDocs{
 			Detail:  "创建网站 ACME 账号",
 			Methods: []string{"POST"},
-			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID"}},
+			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID(先由 /api/server/accounts 或 /api/onepanel/config 获取)"}},
 		},
 	},
 	{
@@ -309,7 +316,7 @@ var onepanelGeneratedSeeds = []apiDocSeed{
 		Docs: apiRouteDocs{
 			Detail:  "读取 OpenResty 状态与连接数",
 			Methods: []string{"GET"},
-			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID"}},
+			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID(先由 /api/server/accounts 或 /api/onepanel/config 获取)"}},
 		},
 	},
 	{
@@ -317,7 +324,7 @@ var onepanelGeneratedSeeds = []apiDocSeed{
 		Docs: apiRouteDocs{
 			Detail:  "校验并重载 OpenResty 配置（docker exec nginx -t && nginx -s reload）",
 			Methods: []string{"POST"},
-			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID"}},
+			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID(先由 /api/server/accounts 或 /api/onepanel/config 获取)"}},
 		},
 	},
 	{
@@ -325,7 +332,7 @@ var onepanelGeneratedSeeds = []apiDocSeed{
 		Docs: apiRouteDocs{
 			Detail:  "立即执行备份",
 			Methods: []string{"POST"},
-			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID"}},
+			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID(先由 /api/server/accounts 或 /api/onepanel/config 获取)"}},
 		},
 	},
 	{
@@ -333,7 +340,7 @@ var onepanelGeneratedSeeds = []apiDocSeed{
 		Docs: apiRouteDocs{
 			Detail:  "查询备份记录",
 			Methods: []string{"GET"},
-			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID"}},
+			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID(先由 /api/server/accounts 或 /api/onepanel/config 获取)"}},
 			QueryParams: []apiDocParameter{{Name: "type", In: "query", Required: false, Description: "资源类型：mysql / mariadb / postgresql / redis / mongodb", Example: "mysql"}, {Name: "name", In: "query", Required: false, Description: "按名称过滤"}, {Name: "detailName", In: "query", Required: false, Description: "按备份对象名过滤"}},
 		},
 	},
@@ -342,7 +349,7 @@ var onepanelGeneratedSeeds = []apiDocSeed{
 		Docs: apiRouteDocs{
 			Detail:  "读取备份存储账号",
 			Methods: []string{"GET"},
-			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID"}},
+			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID(先由 /api/server/accounts 或 /api/onepanel/config 获取)"}},
 		},
 	},
 	{
@@ -350,7 +357,7 @@ var onepanelGeneratedSeeds = []apiDocSeed{
 		Docs: apiRouteDocs{
 			Detail:  "列出或创建数据库",
 			Methods: []string{"GET", "POST"},
-			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID"}},
+			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID(先由 /api/server/accounts 或 /api/onepanel/config 获取)"}},
 			QueryParams: []apiDocParameter{{Name: "type", In: "query", Required: false, Description: "资源类型：mysql / mariadb / postgresql / redis / mongodb", Example: "mysql"}},
 		},
 	},
@@ -359,7 +366,8 @@ var onepanelGeneratedSeeds = []apiDocSeed{
 		Docs: apiRouteDocs{
 			Detail:  "删除数据库",
 			Methods: []string{"DELETE"},
-			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID"}, {Name: "id", In: "path", Required: true, Description: "资源主键 ID"}},
+			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID(先由 /api/server/accounts 或 /api/onepanel/config 获取)"}, {Name: "id", In: "path", Required: true, Description: "数据库 ID(取自 /databases 列表)"}},
+			Notes: []string{"该接口按资源 id 操作:先调用对应列表接口取回 id 再按 id 调用;每台 1Panel 的 id 相互独立,不要跨主机复用。"},
 		},
 	},
 	{
@@ -367,7 +375,8 @@ var onepanelGeneratedSeeds = []apiDocSeed{
 		Docs: apiRouteDocs{
 			Detail:  "修改数据库密码",
 			Methods: []string{"POST"},
-			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID"}, {Name: "id", In: "path", Required: true, Description: "资源主键 ID"}},
+			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID(先由 /api/server/accounts 或 /api/onepanel/config 获取)"}, {Name: "id", In: "path", Required: true, Description: "数据库 ID(取自 /databases 列表)"}},
+			Notes: []string{"该接口按资源 id 操作:先调用对应列表接口取回 id 再按 id 调用;每台 1Panel 的 id 相互独立,不要跨主机复用。"},
 		},
 	},
 	{
@@ -375,7 +384,7 @@ var onepanelGeneratedSeeds = []apiDocSeed{
 		Docs: apiRouteDocs{
 			Detail:  "列出或创建运行环境（PHP / Node）",
 			Methods: []string{"GET", "POST"},
-			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID"}},
+			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID(先由 /api/server/accounts 或 /api/onepanel/config 获取)"}},
 		},
 	},
 	{
@@ -383,7 +392,7 @@ var onepanelGeneratedSeeds = []apiDocSeed{
 		Docs: apiRouteDocs{
 			Detail:  "列出或创建定时任务",
 			Methods: []string{"GET", "POST"},
-			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID"}},
+			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID(先由 /api/server/accounts 或 /api/onepanel/config 获取)"}},
 		},
 	},
 	{
@@ -391,7 +400,7 @@ var onepanelGeneratedSeeds = []apiDocSeed{
 		Docs: apiRouteDocs{
 			Detail:  "读取内置 1Panel 官方 API 目录",
 			Methods: []string{"GET"},
-			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID"}},
+			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID(先由 /api/server/accounts 或 /api/onepanel/config 获取)"}},
 		},
 	},
 	{
@@ -399,7 +408,7 @@ var onepanelGeneratedSeeds = []apiDocSeed{
 		Docs: apiRouteDocs{
 			Detail:  "通用代理：直接调用任意 1Panel API（method / path / body 由调用方指定）",
 			Methods: []string{"POST"},
-			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID"}},
+			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID(先由 /api/server/accounts 或 /api/onepanel/config 获取)"}},
 		},
 	},
 	{
@@ -407,7 +416,7 @@ var onepanelGeneratedSeeds = []apiDocSeed{
 		Docs: apiRouteDocs{
 			Detail:  "汇总 1Panel 站点反代域名（上游端口 → 域名列表），供容器列表匹配打开",
 			Methods: []string{"GET"},
-			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID"}},
+			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID(先由 /api/server/accounts 或 /api/onepanel/config 获取)"}},
 		},
 	},
 	{
@@ -422,7 +431,7 @@ var onepanelGeneratedSeeds = []apiDocSeed{
 		Docs: apiRouteDocs{
 			Detail:  "分页搜索网站（支持按名称/域名过滤）",
 			Methods: []string{"POST"},
-			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID"}},
+			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID(先由 /api/server/accounts 或 /api/onepanel/config 获取)"}},
 		},
 	},
 	{
@@ -430,7 +439,8 @@ var onepanelGeneratedSeeds = []apiDocSeed{
 		Docs: apiRouteDocs{
 			Detail:  "更新网站基础信息（备注/分组/域名等）",
 			Methods: []string{"POST"},
-			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID"}, {Name: "id", In: "path", Required: true, Description: "资源主键 ID"}},
+			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID(先由 /api/server/accounts 或 /api/onepanel/config 获取)"}, {Name: "id", In: "path", Required: true, Description: "网站 ID(取自 /websites/search 的 items[].id;每台 1Panel 的 id 相互独立)"}},
+			Notes: []string{"该接口按资源 id 操作:先调用对应列表接口取回 id 再按 id 调用;每台 1Panel 的 id 相互独立,不要跨主机复用。"},
 		},
 	},
 	{
@@ -438,7 +448,7 @@ var onepanelGeneratedSeeds = []apiDocSeed{
 		Docs: apiRouteDocs{
 			Detail:  "列出网站名称选项（下拉用）",
 			Methods: []string{"POST"},
-			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID"}},
+			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID(先由 /api/server/accounts 或 /api/onepanel/config 获取)"}},
 		},
 	},
 	{
@@ -446,7 +456,7 @@ var onepanelGeneratedSeeds = []apiDocSeed{
 		Docs: apiRouteDocs{
 			Detail:  "创建网站前的可用性检查",
 			Methods: []string{"POST"},
-			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID"}},
+			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID(先由 /api/server/accounts 或 /api/onepanel/config 获取)"}},
 		},
 	},
 	{
@@ -454,7 +464,7 @@ var onepanelGeneratedSeeds = []apiDocSeed{
 		Docs: apiRouteDocs{
 			Detail:  "批量启停网站",
 			Methods: []string{"POST"},
-			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID"}},
+			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID(先由 /api/server/accounts 或 /api/onepanel/config 获取)"}},
 		},
 	},
 	{
@@ -462,7 +472,7 @@ var onepanelGeneratedSeeds = []apiDocSeed{
 		Docs: apiRouteDocs{
 			Detail:  "批量设置网站 HTTPS",
 			Methods: []string{"POST"},
-			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID"}},
+			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID(先由 /api/server/accounts 或 /api/onepanel/config 获取)"}},
 		},
 	},
 	{
@@ -470,7 +480,7 @@ var onepanelGeneratedSeeds = []apiDocSeed{
 		Docs: apiRouteDocs{
 			Detail:  "批量设置网站分组",
 			Methods: []string{"POST"},
-			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID"}},
+			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID(先由 /api/server/accounts 或 /api/onepanel/config 获取)"}},
 		},
 	},
 	{
@@ -478,7 +488,8 @@ var onepanelGeneratedSeeds = []apiDocSeed{
 		Docs: apiRouteDocs{
 			Detail:  "读取网站反代配置",
 			Methods: []string{"POST"},
-			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID"}, {Name: "id", In: "path", Required: true, Description: "资源主键 ID"}},
+			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID(先由 /api/server/accounts 或 /api/onepanel/config 获取)"}, {Name: "id", In: "path", Required: true, Description: "网站 ID(取自 /websites/search 的 items[].id;每台 1Panel 的 id 相互独立)"}},
+			Notes: []string{"该接口按资源 id 操作:先调用对应列表接口取回 id 再按 id 调用;每台 1Panel 的 id 相互独立,不要跨主机复用。"},
 		},
 	},
 	{
@@ -486,7 +497,8 @@ var onepanelGeneratedSeeds = []apiDocSeed{
 		Docs: apiRouteDocs{
 			Detail:  "删除网站反代配置",
 			Methods: []string{"POST"},
-			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID"}, {Name: "id", In: "path", Required: true, Description: "资源主键 ID"}},
+			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID(先由 /api/server/accounts 或 /api/onepanel/config 获取)"}, {Name: "id", In: "path", Required: true, Description: "网站 ID(取自 /websites/search 的 items[].id;每台 1Panel 的 id 相互独立)"}},
+			Notes: []string{"该接口按资源 id 操作:先调用对应列表接口取回 id 再按 id 调用;每台 1Panel 的 id 相互独立,不要跨主机复用。"},
 		},
 	},
 	{
@@ -494,7 +506,8 @@ var onepanelGeneratedSeeds = []apiDocSeed{
 		Docs: apiRouteDocs{
 			Detail:  "启用/停用网站反代配置",
 			Methods: []string{"POST"},
-			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID"}, {Name: "id", In: "path", Required: true, Description: "资源主键 ID"}},
+			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID(先由 /api/server/accounts 或 /api/onepanel/config 获取)"}, {Name: "id", In: "path", Required: true, Description: "网站 ID(取自 /websites/search 的 items[].id;每台 1Panel 的 id 相互独立)"}},
+			Notes: []string{"该接口按资源 id 操作:先调用对应列表接口取回 id 再按 id 调用;每台 1Panel 的 id 相互独立,不要跨主机复用。"},
 		},
 	},
 	{
@@ -502,7 +515,8 @@ var onepanelGeneratedSeeds = []apiDocSeed{
 		Docs: apiRouteDocs{
 			Detail:  "读取网站伪静态配置",
 			Methods: []string{"POST"},
-			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID"}, {Name: "id", In: "path", Required: true, Description: "资源主键 ID"}},
+			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID(先由 /api/server/accounts 或 /api/onepanel/config 获取)"}, {Name: "id", In: "path", Required: true, Description: "网站 ID(取自 /websites/search 的 items[].id;每台 1Panel 的 id 相互独立)"}},
+			Notes: []string{"该接口按资源 id 操作:先调用对应列表接口取回 id 再按 id 调用;每台 1Panel 的 id 相互独立,不要跨主机复用。"},
 		},
 	},
 	{
@@ -510,7 +524,8 @@ var onepanelGeneratedSeeds = []apiDocSeed{
 		Docs: apiRouteDocs{
 			Detail:  "更新网站伪静态配置",
 			Methods: []string{"POST"},
-			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID"}, {Name: "id", In: "path", Required: true, Description: "资源主键 ID"}},
+			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID(先由 /api/server/accounts 或 /api/onepanel/config 获取)"}, {Name: "id", In: "path", Required: true, Description: "网站 ID(取自 /websites/search 的 items[].id;每台 1Panel 的 id 相互独立)"}},
+			Notes: []string{"该接口按资源 id 操作:先调用对应列表接口取回 id 再按 id 调用;每台 1Panel 的 id 相互独立,不要跨主机复用。"},
 		},
 	},
 	{
@@ -518,7 +533,7 @@ var onepanelGeneratedSeeds = []apiDocSeed{
 		Docs: apiRouteDocs{
 			Detail:  "列出或维护自定义伪静态模板",
 			Methods: []string{"GET", "POST"},
-			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID"}},
+			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID(先由 /api/server/accounts 或 /api/onepanel/config 获取)"}},
 		},
 	},
 	{
@@ -526,7 +541,8 @@ var onepanelGeneratedSeeds = []apiDocSeed{
 		Docs: apiRouteDocs{
 			Detail:  "读取网站重定向配置",
 			Methods: []string{"POST"},
-			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID"}, {Name: "id", In: "path", Required: true, Description: "资源主键 ID"}},
+			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID(先由 /api/server/accounts 或 /api/onepanel/config 获取)"}, {Name: "id", In: "path", Required: true, Description: "网站 ID(取自 /websites/search 的 items[].id;每台 1Panel 的 id 相互独立)"}},
+			Notes: []string{"该接口按资源 id 操作:先调用对应列表接口取回 id 再按 id 调用;每台 1Panel 的 id 相互独立,不要跨主机复用。"},
 		},
 	},
 	{
@@ -534,7 +550,8 @@ var onepanelGeneratedSeeds = []apiDocSeed{
 		Docs: apiRouteDocs{
 			Detail:  "更新网站重定向配置",
 			Methods: []string{"POST"},
-			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID"}, {Name: "id", In: "path", Required: true, Description: "资源主键 ID"}},
+			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID(先由 /api/server/accounts 或 /api/onepanel/config 获取)"}, {Name: "id", In: "path", Required: true, Description: "网站 ID(取自 /websites/search 的 items[].id;每台 1Panel 的 id 相互独立)"}},
+			Notes: []string{"该接口按资源 id 操作:先调用对应列表接口取回 id 再按 id 调用;每台 1Panel 的 id 相互独立,不要跨主机复用。"},
 		},
 	},
 	{
@@ -542,7 +559,8 @@ var onepanelGeneratedSeeds = []apiDocSeed{
 		Docs: apiRouteDocs{
 			Detail:  "读取网站防盗链配置",
 			Methods: []string{"POST"},
-			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID"}, {Name: "id", In: "path", Required: true, Description: "资源主键 ID"}},
+			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID(先由 /api/server/accounts 或 /api/onepanel/config 获取)"}, {Name: "id", In: "path", Required: true, Description: "网站 ID(取自 /websites/search 的 items[].id;每台 1Panel 的 id 相互独立)"}},
+			Notes: []string{"该接口按资源 id 操作:先调用对应列表接口取回 id 再按 id 调用;每台 1Panel 的 id 相互独立,不要跨主机复用。"},
 		},
 	},
 	{
@@ -550,7 +568,8 @@ var onepanelGeneratedSeeds = []apiDocSeed{
 		Docs: apiRouteDocs{
 			Detail:  "更新网站防盗链配置",
 			Methods: []string{"POST"},
-			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID"}, {Name: "id", In: "path", Required: true, Description: "资源主键 ID"}},
+			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID(先由 /api/server/accounts 或 /api/onepanel/config 获取)"}, {Name: "id", In: "path", Required: true, Description: "网站 ID(取自 /websites/search 的 items[].id;每台 1Panel 的 id 相互独立)"}},
+			Notes: []string{"该接口按资源 id 操作:先调用对应列表接口取回 id 再按 id 调用;每台 1Panel 的 id 相互独立,不要跨主机复用。"},
 		},
 	},
 	{
@@ -558,7 +577,8 @@ var onepanelGeneratedSeeds = []apiDocSeed{
 		Docs: apiRouteDocs{
 			Detail:  "读取网站密码访问（AuthBasic）配置",
 			Methods: []string{"POST"},
-			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID"}, {Name: "id", In: "path", Required: true, Description: "资源主键 ID"}},
+			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID(先由 /api/server/accounts 或 /api/onepanel/config 获取)"}, {Name: "id", In: "path", Required: true, Description: "网站 ID(取自 /websites/search 的 items[].id;每台 1Panel 的 id 相互独立)"}},
+			Notes: []string{"该接口按资源 id 操作:先调用对应列表接口取回 id 再按 id 调用;每台 1Panel 的 id 相互独立,不要跨主机复用。"},
 		},
 	},
 	{
@@ -566,7 +586,8 @@ var onepanelGeneratedSeeds = []apiDocSeed{
 		Docs: apiRouteDocs{
 			Detail:  "更新网站密码访问配置",
 			Methods: []string{"POST"},
-			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID"}, {Name: "id", In: "path", Required: true, Description: "资源主键 ID"}},
+			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID(先由 /api/server/accounts 或 /api/onepanel/config 获取)"}, {Name: "id", In: "path", Required: true, Description: "网站 ID(取自 /websites/search 的 items[].id;每台 1Panel 的 id 相互独立)"}},
+			Notes: []string{"该接口按资源 id 操作:先调用对应列表接口取回 id 再按 id 调用;每台 1Panel 的 id 相互独立,不要跨主机复用。"},
 		},
 	},
 	{
@@ -574,7 +595,8 @@ var onepanelGeneratedSeeds = []apiDocSeed{
 		Docs: apiRouteDocs{
 			Detail:  "读取网站跨域（CORS）配置",
 			Methods: []string{"GET"},
-			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID"}, {Name: "id", In: "path", Required: true, Description: "资源主键 ID"}},
+			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID(先由 /api/server/accounts 或 /api/onepanel/config 获取)"}, {Name: "id", In: "path", Required: true, Description: "网站 ID(取自 /websites/search 的 items[].id;每台 1Panel 的 id 相互独立)"}},
+			Notes: []string{"该接口按资源 id 操作:先调用对应列表接口取回 id 再按 id 调用;每台 1Panel 的 id 相互独立,不要跨主机复用。"},
 		},
 	},
 	{
@@ -582,7 +604,8 @@ var onepanelGeneratedSeeds = []apiDocSeed{
 		Docs: apiRouteDocs{
 			Detail:  "更新网站跨域配置",
 			Methods: []string{"POST"},
-			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID"}, {Name: "id", In: "path", Required: true, Description: "资源主键 ID"}},
+			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID(先由 /api/server/accounts 或 /api/onepanel/config 获取)"}, {Name: "id", In: "path", Required: true, Description: "网站 ID(取自 /websites/search 的 items[].id;每台 1Panel 的 id 相互独立)"}},
+			Notes: []string{"该接口按资源 id 操作:先调用对应列表接口取回 id 再按 id 调用;每台 1Panel 的 id 相互独立,不要跨主机复用。"},
 		},
 	},
 	{
@@ -590,7 +613,8 @@ var onepanelGeneratedSeeds = []apiDocSeed{
 		Docs: apiRouteDocs{
 			Detail:  "读取网站目录配置",
 			Methods: []string{"POST"},
-			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID"}, {Name: "id", In: "path", Required: true, Description: "资源主键 ID"}},
+			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID(先由 /api/server/accounts 或 /api/onepanel/config 获取)"}, {Name: "id", In: "path", Required: true, Description: "网站 ID(取自 /websites/search 的 items[].id;每台 1Panel 的 id 相互独立)"}},
+			Notes: []string{"该接口按资源 id 操作:先调用对应列表接口取回 id 再按 id 调用;每台 1Panel 的 id 相互独立,不要跨主机复用。"},
 		},
 	},
 	{
@@ -598,7 +622,8 @@ var onepanelGeneratedSeeds = []apiDocSeed{
 		Docs: apiRouteDocs{
 			Detail:  "更新网站目录配置",
 			Methods: []string{"POST"},
-			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID"}, {Name: "id", In: "path", Required: true, Description: "资源主键 ID"}},
+			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID(先由 /api/server/accounts 或 /api/onepanel/config 获取)"}, {Name: "id", In: "path", Required: true, Description: "网站 ID(取自 /websites/search 的 items[].id;每台 1Panel 的 id 相互独立)"}},
+			Notes: []string{"该接口按资源 id 操作:先调用对应列表接口取回 id 再按 id 调用;每台 1Panel 的 id 相互独立,不要跨主机复用。"},
 		},
 	},
 	{
@@ -606,7 +631,8 @@ var onepanelGeneratedSeeds = []apiDocSeed{
 		Docs: apiRouteDocs{
 			Detail:  "更新网站目录权限",
 			Methods: []string{"POST"},
-			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID"}, {Name: "id", In: "path", Required: true, Description: "资源主键 ID"}},
+			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID(先由 /api/server/accounts 或 /api/onepanel/config 获取)"}, {Name: "id", In: "path", Required: true, Description: "网站 ID(取自 /websites/search 的 items[].id;每台 1Panel 的 id 相互独立)"}},
+			Notes: []string{"该接口按资源 id 操作:先调用对应列表接口取回 id 再按 id 调用;每台 1Panel 的 id 相互独立,不要跨主机复用。"},
 		},
 	},
 	{
@@ -614,7 +640,8 @@ var onepanelGeneratedSeeds = []apiDocSeed{
 		Docs: apiRouteDocs{
 			Detail:  "读取网站资源用量",
 			Methods: []string{"GET"},
-			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID"}, {Name: "id", In: "path", Required: true, Description: "资源主键 ID"}},
+			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID(先由 /api/server/accounts 或 /api/onepanel/config 获取)"}, {Name: "id", In: "path", Required: true, Description: "网站 ID(取自 /websites/search 的 items[].id;每台 1Panel 的 id 相互独立)"}},
+			Notes: []string{"该接口按资源 id 操作:先调用对应列表接口取回 id 再按 id 调用;每台 1Panel 的 id 相互独立,不要跨主机复用。"},
 		},
 	},
 	{
@@ -622,7 +649,8 @@ var onepanelGeneratedSeeds = []apiDocSeed{
 		Docs: apiRouteDocs{
 			Detail:  "查询网站日志",
 			Methods: []string{"POST"},
-			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID"}, {Name: "id", In: "path", Required: true, Description: "资源主键 ID"}},
+			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID(先由 /api/server/accounts 或 /api/onepanel/config 获取)"}, {Name: "id", In: "path", Required: true, Description: "网站 ID(取自 /websites/search 的 items[].id;每台 1Panel 的 id 相互独立)"}},
+			Notes: []string{"该接口按资源 id 操作:先调用对应列表接口取回 id 再按 id 调用;每台 1Panel 的 id 相互独立,不要跨主机复用。"},
 		},
 	},
 	{
@@ -630,7 +658,8 @@ var onepanelGeneratedSeeds = []apiDocSeed{
 		Docs: apiRouteDocs{
 			Detail:  "操作网站日志（清理等）",
 			Methods: []string{"POST"},
-			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID"}, {Name: "id", In: "path", Required: true, Description: "资源主键 ID"}},
+			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID(先由 /api/server/accounts 或 /api/onepanel/config 获取)"}, {Name: "id", In: "path", Required: true, Description: "网站 ID(取自 /websites/search 的 items[].id;每台 1Panel 的 id 相互独立)"}},
+			Notes: []string{"该接口按资源 id 操作:先调用对应列表接口取回 id 再按 id 调用;每台 1Panel 的 id 相互独立,不要跨主机复用。"},
 		},
 	},
 	{
@@ -638,7 +667,8 @@ var onepanelGeneratedSeeds = []apiDocSeed{
 		Docs: apiRouteDocs{
 			Detail:  "读取网站上游节点列表",
 			Methods: []string{"GET"},
-			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID"}, {Name: "id", In: "path", Required: true, Description: "资源主键 ID"}},
+			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID(先由 /api/server/accounts 或 /api/onepanel/config 获取)"}, {Name: "id", In: "path", Required: true, Description: "网站 ID(取自 /websites/search 的 items[].id;每台 1Panel 的 id 相互独立)"}},
+			Notes: []string{"该接口按资源 id 操作:先调用对应列表接口取回 id 再按 id 调用;每台 1Panel 的 id 相互独立,不要跨主机复用。"},
 		},
 	},
 	{
@@ -646,7 +676,8 @@ var onepanelGeneratedSeeds = []apiDocSeed{
 		Docs: apiRouteDocs{
 			Detail:  "新增网站上游节点",
 			Methods: []string{"POST"},
-			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID"}, {Name: "id", In: "path", Required: true, Description: "资源主键 ID"}},
+			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID(先由 /api/server/accounts 或 /api/onepanel/config 获取)"}, {Name: "id", In: "path", Required: true, Description: "网站 ID(取自 /websites/search 的 items[].id;每台 1Panel 的 id 相互独立)"}},
+			Notes: []string{"该接口按资源 id 操作:先调用对应列表接口取回 id 再按 id 调用;每台 1Panel 的 id 相互独立,不要跨主机复用。"},
 		},
 	},
 	{
@@ -654,7 +685,8 @@ var onepanelGeneratedSeeds = []apiDocSeed{
 		Docs: apiRouteDocs{
 			Detail:  "更新网站上游节点",
 			Methods: []string{"POST"},
-			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID"}, {Name: "id", In: "path", Required: true, Description: "资源主键 ID"}},
+			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID(先由 /api/server/accounts 或 /api/onepanel/config 获取)"}, {Name: "id", In: "path", Required: true, Description: "网站 ID(取自 /websites/search 的 items[].id;每台 1Panel 的 id 相互独立)"}},
+			Notes: []string{"该接口按资源 id 操作:先调用对应列表接口取回 id 再按 id 调用;每台 1Panel 的 id 相互独立,不要跨主机复用。"},
 		},
 	},
 	{
@@ -662,7 +694,8 @@ var onepanelGeneratedSeeds = []apiDocSeed{
 		Docs: apiRouteDocs{
 			Detail:  "删除网站上游节点",
 			Methods: []string{"POST"},
-			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID"}, {Name: "id", In: "path", Required: true, Description: "资源主键 ID"}},
+			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID(先由 /api/server/accounts 或 /api/onepanel/config 获取)"}, {Name: "id", In: "path", Required: true, Description: "网站 ID(取自 /websites/search 的 items[].id;每台 1Panel 的 id 相互独立)"}},
+			Notes: []string{"该接口按资源 id 操作:先调用对应列表接口取回 id 再按 id 调用;每台 1Panel 的 id 相互独立,不要跨主机复用。"},
 		},
 	},
 	{
@@ -670,7 +703,8 @@ var onepanelGeneratedSeeds = []apiDocSeed{
 		Docs: apiRouteDocs{
 			Detail:  "读取网站代理缓存配置",
 			Methods: []string{"GET"},
-			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID"}, {Name: "id", In: "path", Required: true, Description: "资源主键 ID"}},
+			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID(先由 /api/server/accounts 或 /api/onepanel/config 获取)"}, {Name: "id", In: "path", Required: true, Description: "网站 ID(取自 /websites/search 的 items[].id;每台 1Panel 的 id 相互独立)"}},
+			Notes: []string{"该接口按资源 id 操作:先调用对应列表接口取回 id 再按 id 调用;每台 1Panel 的 id 相互独立,不要跨主机复用。"},
 		},
 	},
 	{
@@ -678,7 +712,8 @@ var onepanelGeneratedSeeds = []apiDocSeed{
 		Docs: apiRouteDocs{
 			Detail:  "更新网站代理缓存配置",
 			Methods: []string{"POST"},
-			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID"}, {Name: "id", In: "path", Required: true, Description: "资源主键 ID"}},
+			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID(先由 /api/server/accounts 或 /api/onepanel/config 获取)"}, {Name: "id", In: "path", Required: true, Description: "网站 ID(取自 /websites/search 的 items[].id;每台 1Panel 的 id 相互独立)"}},
+			Notes: []string{"该接口按资源 id 操作:先调用对应列表接口取回 id 再按 id 调用;每台 1Panel 的 id 相互独立,不要跨主机复用。"},
 		},
 	},
 	{
@@ -686,7 +721,8 @@ var onepanelGeneratedSeeds = []apiDocSeed{
 		Docs: apiRouteDocs{
 			Detail:  "清理网站代理缓存",
 			Methods: []string{"POST"},
-			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID"}, {Name: "id", In: "path", Required: true, Description: "资源主键 ID"}},
+			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID(先由 /api/server/accounts 或 /api/onepanel/config 获取)"}, {Name: "id", In: "path", Required: true, Description: "网站 ID(取自 /websites/search 的 items[].id;每台 1Panel 的 id 相互独立)"}},
+			Notes: []string{"该接口按资源 id 操作:先调用对应列表接口取回 id 再按 id 调用;每台 1Panel 的 id 相互独立,不要跨主机复用。"},
 		},
 	},
 	{
@@ -694,7 +730,8 @@ var onepanelGeneratedSeeds = []apiDocSeed{
 		Docs: apiRouteDocs{
 			Detail:  "读取网站真实 IP 配置",
 			Methods: []string{"GET"},
-			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID"}, {Name: "id", In: "path", Required: true, Description: "资源主键 ID"}},
+			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID(先由 /api/server/accounts 或 /api/onepanel/config 获取)"}, {Name: "id", In: "path", Required: true, Description: "网站 ID(取自 /websites/search 的 items[].id;每台 1Panel 的 id 相互独立)"}},
+			Notes: []string{"该接口按资源 id 操作:先调用对应列表接口取回 id 再按 id 调用;每台 1Panel 的 id 相互独立,不要跨主机复用。"},
 		},
 	},
 	{
@@ -702,7 +739,8 @@ var onepanelGeneratedSeeds = []apiDocSeed{
 		Docs: apiRouteDocs{
 			Detail:  "设置网站真实 IP 配置",
 			Methods: []string{"POST"},
-			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID"}, {Name: "id", In: "path", Required: true, Description: "资源主键 ID"}},
+			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID(先由 /api/server/accounts 或 /api/onepanel/config 获取)"}, {Name: "id", In: "path", Required: true, Description: "网站 ID(取自 /websites/search 的 items[].id;每台 1Panel 的 id 相互独立)"}},
+			Notes: []string{"该接口按资源 id 操作:先调用对应列表接口取回 id 再按 id 调用;每台 1Panel 的 id 相互独立,不要跨主机复用。"},
 		},
 	},
 	{
@@ -710,7 +748,8 @@ var onepanelGeneratedSeeds = []apiDocSeed{
 		Docs: apiRouteDocs{
 			Detail:  "更新网站流媒体配置",
 			Methods: []string{"POST"},
-			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID"}, {Name: "id", In: "path", Required: true, Description: "资源主键 ID"}},
+			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID(先由 /api/server/accounts 或 /api/onepanel/config 获取)"}, {Name: "id", In: "path", Required: true, Description: "网站 ID(取自 /websites/search 的 items[].id;每台 1Panel 的 id 相互独立)"}},
+			Notes: []string{"该接口按资源 id 操作:先调用对应列表接口取回 id 再按 id 调用;每台 1Panel 的 id 相互独立,不要跨主机复用。"},
 		},
 	},
 	{
@@ -718,7 +757,7 @@ var onepanelGeneratedSeeds = []apiDocSeed{
 		Docs: apiRouteDocs{
 			Detail:  "操作跨站访问设置",
 			Methods: []string{"POST"},
-			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID"}},
+			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID(先由 /api/server/accounts 或 /api/onepanel/config 获取)"}},
 		},
 	},
 	{
@@ -726,7 +765,7 @@ var onepanelGeneratedSeeds = []apiDocSeed{
 		Docs: apiRouteDocs{
 			Detail:  "读取网站可绑定的数据库列表",
 			Methods: []string{"GET"},
-			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID"}},
+			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID(先由 /api/server/accounts 或 /api/onepanel/config 获取)"}},
 		},
 	},
 	{
@@ -734,7 +773,8 @@ var onepanelGeneratedSeeds = []apiDocSeed{
 		Docs: apiRouteDocs{
 			Detail:  "变更网站绑定数据库",
 			Methods: []string{"POST"},
-			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID"}, {Name: "id", In: "path", Required: true, Description: "资源主键 ID"}},
+			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID(先由 /api/server/accounts 或 /api/onepanel/config 获取)"}, {Name: "id", In: "path", Required: true, Description: "网站 ID(取自 /websites/search 的 items[].id;每台 1Panel 的 id 相互独立)"}},
+			Notes: []string{"该接口按资源 id 操作:先调用对应列表接口取回 id 再按 id 调用;每台 1Panel 的 id 相互独立,不要跨主机复用。"},
 		},
 	},
 	{
@@ -742,7 +782,7 @@ var onepanelGeneratedSeeds = []apiDocSeed{
 		Docs: apiRouteDocs{
 			Detail:  "读取默认站点页面内容",
 			Methods: []string{"GET"},
-			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID"}, {Name: "type", In: "path", Required: true, Description: "路径参数"}},
+			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID(先由 /api/server/accounts 或 /api/onepanel/config 获取)"}, {Name: "type", In: "path", Required: true, Description: "模板类型(1Panel 默认站点类型,如 html / php)"}},
 		},
 	},
 	{
@@ -750,7 +790,7 @@ var onepanelGeneratedSeeds = []apiDocSeed{
 		Docs: apiRouteDocs{
 			Detail:  "更新默认站点页面",
 			Methods: []string{"POST"},
-			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID"}},
+			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID(先由 /api/server/accounts 或 /api/onepanel/config 获取)"}},
 		},
 	},
 	{
@@ -758,7 +798,7 @@ var onepanelGeneratedSeeds = []apiDocSeed{
 		Docs: apiRouteDocs{
 			Detail:  "设置默认站点",
 			Methods: []string{"POST"},
-			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID"}},
+			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID(先由 /api/server/accounts 或 /api/onepanel/config 获取)"}},
 		},
 	},
 	{
@@ -766,7 +806,8 @@ var onepanelGeneratedSeeds = []apiDocSeed{
 		Docs: apiRouteDocs{
 			Detail:  "在网站目录执行 Composer",
 			Methods: []string{"POST"},
-			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID"}, {Name: "id", In: "path", Required: true, Description: "资源主键 ID"}},
+			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID(先由 /api/server/accounts 或 /api/onepanel/config 获取)"}, {Name: "id", In: "path", Required: true, Description: "网站 ID(取自 /websites/search 的 items[].id;每台 1Panel 的 id 相互独立)"}},
+			Notes: []string{"该接口按资源 id 操作:先调用对应列表接口取回 id 再按 id 调用;每台 1Panel 的 id 相互独立,不要跨主机复用。"},
 		},
 	},
 	{
@@ -774,7 +815,7 @@ var onepanelGeneratedSeeds = []apiDocSeed{
 		Docs: apiRouteDocs{
 			Detail:  "分页搜索证书",
 			Methods: []string{"POST"},
-			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID"}},
+			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID(先由 /api/server/accounts 或 /api/onepanel/config 获取)"}},
 		},
 	},
 	{
@@ -782,7 +823,8 @@ var onepanelGeneratedSeeds = []apiDocSeed{
 		Docs: apiRouteDocs{
 			Detail:  "按 ID 读取证书详情",
 			Methods: []string{"GET"},
-			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID"}, {Name: "id", In: "path", Required: true, Description: "资源主键 ID"}},
+			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID(先由 /api/server/accounts 或 /api/onepanel/config 获取)"}, {Name: "id", In: "path", Required: true, Description: "证书 ID(取自 /ssl/search 的 items[].id;每台 1Panel 的 id 相互独立)"}},
+			Notes: []string{"该接口按资源 id 操作:先调用对应列表接口取回 id 再按 id 调用;每台 1Panel 的 id 相互独立,不要跨主机复用。"},
 		},
 	},
 	{
@@ -790,7 +832,8 @@ var onepanelGeneratedSeeds = []apiDocSeed{
 		Docs: apiRouteDocs{
 			Detail:  "更新证书信息",
 			Methods: []string{"POST"},
-			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID"}, {Name: "id", In: "path", Required: true, Description: "资源主键 ID"}},
+			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID(先由 /api/server/accounts 或 /api/onepanel/config 获取)"}, {Name: "id", In: "path", Required: true, Description: "证书 ID(取自 /ssl/search 的 items[].id;每台 1Panel 的 id 相互独立)"}},
+			Notes: []string{"该接口按资源 id 操作:先调用对应列表接口取回 id 再按 id 调用;每台 1Panel 的 id 相互独立,不要跨主机复用。"},
 		},
 	},
 	{
@@ -798,7 +841,8 @@ var onepanelGeneratedSeeds = []apiDocSeed{
 		Docs: apiRouteDocs{
 			Detail:  "删除证书",
 			Methods: []string{"POST"},
-			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID"}, {Name: "id", In: "path", Required: true, Description: "资源主键 ID"}},
+			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID(先由 /api/server/accounts 或 /api/onepanel/config 获取)"}, {Name: "id", In: "path", Required: true, Description: "证书 ID(取自 /ssl/search 的 items[].id;每台 1Panel 的 id 相互独立)"}},
+			Notes: []string{"该接口按资源 id 操作:先调用对应列表接口取回 id 再按 id 调用;每台 1Panel 的 id 相互独立,不要跨主机复用。"},
 		},
 	},
 	{
@@ -806,7 +850,7 @@ var onepanelGeneratedSeeds = []apiDocSeed{
 		Docs: apiRouteDocs{
 			Detail:  "上传/导入证书（paste / local）",
 			Methods: []string{"POST"},
-			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID"}},
+			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID(先由 /api/server/accounts 或 /api/onepanel/config 获取)"}},
 		},
 	},
 	{
@@ -814,7 +858,7 @@ var onepanelGeneratedSeeds = []apiDocSeed{
 		Docs: apiRouteDocs{
 			Detail:  "下载证书文件",
 			Methods: []string{"POST"},
-			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID"}},
+			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID(先由 /api/server/accounts 或 /api/onepanel/config 获取)"}},
 		},
 	},
 	{
@@ -822,7 +866,7 @@ var onepanelGeneratedSeeds = []apiDocSeed{
 		Docs: apiRouteDocs{
 			Detail:  "下发证书到节点",
 			Methods: []string{"POST"},
-			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID"}},
+			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID(先由 /api/server/accounts 或 /api/onepanel/config 获取)"}},
 		},
 	},
 	{
@@ -830,7 +874,7 @@ var onepanelGeneratedSeeds = []apiDocSeed{
 		Docs: apiRouteDocs{
 			Detail:  "解析证书（证书链补全）",
 			Methods: []string{"POST"},
-			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID"}},
+			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID(先由 /api/server/accounts 或 /api/onepanel/config 获取)"}},
 		},
 	},
 	{
@@ -838,7 +882,25 @@ var onepanelGeneratedSeeds = []apiDocSeed{
 		Docs: apiRouteDocs{
 			Detail:  "按网站 ID 查询其证书",
 			Methods: []string{"GET"},
-			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID"}, {Name: "websiteId", In: "path", Required: true, Description: "路径参数"}},
+			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID(先由 /api/server/accounts 或 /api/onepanel/config 获取)"}, {Name: "websiteId", In: "path", Required: true, Description: "网站 ID(取自 /websites/search 的 items[].id)"}},
+		},
+	},
+	{
+		Route: manifest.Route{Prefix: "/api/onepanel/{serverId}/ssl/resolve-id", Module: "onepanel", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "按域名解析证书 id(用域名重试,避免猜 id;返回当前 id 与证书关键字段)", MatchMode: manifest.MatchPattern},
+		Docs: apiRouteDocs{
+			Detail:  "按域名解析证书 id(用域名重试,避免猜 id;返回当前 id 与证书关键字段)",
+			Methods: []string{"GET"},
+			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID(先由 /api/server/accounts 或 /api/onepanel/config 获取)"}},
+			QueryParams: []apiDocParameter{{Name: "domain", In: "query", Required: false, Description: "域名(精确域名或 *.example.com 泛域名)"}},
+		},
+	},
+	{
+		Route: manifest.Route{Prefix: "/api/onepanel/{serverId}/websites/resolve-id", Module: "onepanel", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "按域名解析网站 id(用域名重试,避免猜 id;返回当前 id 与网站关键字段)", MatchMode: manifest.MatchPattern},
+		Docs: apiRouteDocs{
+			Detail:  "按域名解析网站 id(用域名重试,避免猜 id;返回当前 id 与网站关键字段)",
+			Methods: []string{"GET"},
+			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID(先由 /api/server/accounts 或 /api/onepanel/config 获取)"}},
+			QueryParams: []apiDocParameter{{Name: "domain", In: "query", Required: false, Description: "域名(精确域名或 *.example.com 泛域名)"}},
 		},
 	},
 }
@@ -878,7 +940,7 @@ func init() {
 	routeRequestContracts["/api/onepanel/{serverId}/websites"] = obj([]string{"alias", "type", "webSiteGroupID"}, map[string]prop{
 		"IPV6": {t: "boolean", req: false, d: "request.WebsiteCreate.IPV6"},
 		"algorithm": {t: "string", req: false, d: "request.WebsiteCreate.algorithm"},
-		"alias": {t: "string", req: true, d: "request.WebsiteCreate.alias"},
+		"alias": {t: "string", req: true, d: "别名(request.WebsiteCreate.alias)"},
 		"appID": {t: "integer", req: false, d: "request.WebsiteCreate.appID"},
 		"appInstall": {t: "string", req: false, d: "request.WebsiteCreate.appInstall"},
 		"appInstallID": {t: "integer", req: false, d: "request.WebsiteCreate.appInstallID"},
@@ -889,23 +951,23 @@ func init() {
 		"dbName": {t: "string", req: false, d: "request.WebsiteCreate.dbName"},
 		"dbPassword": {t: "string", req: false, d: "request.WebsiteCreate.dbPassword"},
 		"dbUser": {t: "string", req: false, d: "request.WebsiteCreate.dbUser"},
-		"domains": {t: "array", req: false, d: "request.WebsiteCreate.domains"},
+		"domains": {t: "array", req: false, d: "域名列表(request.WebsiteCreate.domains)"},
 		"enableSSL": {t: "boolean", req: false, d: "request.WebsiteCreate.enableSSL"},
 		"ftpPassword": {t: "string", req: false, d: "request.WebsiteCreate.ftpPassword"},
 		"ftpUser": {t: "string", req: false, d: "request.WebsiteCreate.ftpUser"},
-		"name": {t: "string", req: false, d: "request.WebsiteCreate.name"},
+		"name": {t: "string", req: false, d: "名称(request.WebsiteCreate.name)"},
 		"parentWebsiteID": {t: "integer", req: false, d: "request.WebsiteCreate.parentWebsiteID"},
 		"port": {t: "integer", req: false, d: "request.WebsiteCreate.port"},
 		"proxy": {t: "string", req: false, d: "request.WebsiteCreate.proxy"},
 		"proxyType": {t: "string", req: false, d: "request.WebsiteCreate.proxyType"},
-		"remark": {t: "string", req: false, d: "request.WebsiteCreate.remark"},
+		"remark": {t: "string", req: false, d: "备注(request.WebsiteCreate.remark)"},
 		"runtimeID": {t: "integer", req: false, d: "request.WebsiteCreate.runtimeID"},
 		"servers": {t: "array", req: false, d: "request.WebsiteCreate.servers"},
 		"siteDir": {t: "string", req: false, d: "request.WebsiteCreate.siteDir"},
 		"streamPorts": {t: "string", req: false, d: "request.WebsiteCreate.streamPorts"},
 		"taskID": {t: "string", req: false, d: "request.WebsiteCreate.taskID"},
 		"templateOutputID": {t: "integer", req: false, d: "request.WebsiteCreate.templateOutputID"},
-		"type": {t: "string", req: true, d: "request.WebsiteCreate.type"},
+		"type": {t: "string", req: true, d: "类型(request.WebsiteCreate.type)"},
 		"udp": {t: "boolean", req: false, d: "request.WebsiteCreate.udp"},
 		"webSiteGroupID": {t: "integer", req: true, d: "request.WebsiteCreate.webSiteGroupID"},
 		"websiteSSLID": {t: "integer", req: false, d: "request.WebsiteCreate.websiteSSLID"},
@@ -921,7 +983,7 @@ func init() {
 
 	routeRequestContracts["/api/onepanel/{serverId}/websites/{id}/operate"] = obj([]string{}, map[string]prop{
 		"id": {t: "integer", req: false, d: "request.WebsiteOp.id（可由路径参数自动注入）"},
-		"operate": {t: "string", req: false, d: "request.WebsiteOp.operate"},
+		"operate": {t: "string", req: false, d: "操作(request.WebsiteOp.operate)"},
 	})
 
 	routeRequestContracts["/api/onepanel/{serverId}/websites/{id}/proxy"] = obj([]string{"match", "name", "operate", "proxyHost", "proxyPass"}, map[string]prop{
@@ -932,15 +994,15 @@ func init() {
 		"cache": {t: "boolean", req: false, d: "request.WebsiteProxyConfig.cache"},
 		"cacheTime": {t: "integer", req: false, d: "request.WebsiteProxyConfig.cacheTime"},
 		"cacheUnit": {t: "string", req: false, d: "request.WebsiteProxyConfig.cacheUnit"},
-		"content": {t: "string", req: false, d: "request.WebsiteProxyConfig.content"},
+		"content": {t: "string", req: false, d: "内容(request.WebsiteProxyConfig.content)"},
 		"cors": {t: "boolean", req: false, d: "request.WebsiteProxyConfig.cors"},
 		"enable": {t: "boolean", req: false, d: "request.WebsiteProxyConfig.enable"},
 		"filePath": {t: "string", req: false, d: "request.WebsiteProxyConfig.filePath"},
 		"id": {t: "integer", req: false, d: "request.WebsiteProxyConfig.id（可由路径参数自动注入）"},
 		"match": {t: "string", req: true, d: "request.WebsiteProxyConfig.match"},
 		"modifier": {t: "string", req: false, d: "request.WebsiteProxyConfig.modifier"},
-		"name": {t: "string", req: true, d: "request.WebsiteProxyConfig.name"},
-		"operate": {t: "string", req: true, d: "request.WebsiteProxyConfig.operate"},
+		"name": {t: "string", req: true, d: "名称(request.WebsiteProxyConfig.name)"},
+		"operate": {t: "string", req: true, d: "操作(request.WebsiteProxyConfig.operate)"},
 		"preflight": {t: "boolean", req: false, d: "request.WebsiteProxyConfig.preflight"},
 		"proxyHost": {t: "string", req: true, d: "request.WebsiteProxyConfig.proxyHost"},
 		"proxyPass": {t: "string", req: true, d: "request.WebsiteProxyConfig.proxyPass"},
@@ -966,13 +1028,13 @@ func init() {
 		"importType": {t: "string", req: false, d: "request.WebsiteHTTPSOp.importType"},
 		"privateKey": {t: "string", req: false, d: "request.WebsiteHTTPSOp.privateKey"},
 		"privateKeyPath": {t: "string", req: false, d: "request.WebsiteHTTPSOp.privateKeyPath"},
-		"type": {t: "string", req: false, e: []string{"existed", "auto", "manual"}, d: "request.WebsiteHTTPSOp.type"},
+		"type": {t: "string", req: false, e: []string{"existed", "auto", "manual"}, d: "类型(request.WebsiteHTTPSOp.type)"},
 		"websiteId": {t: "integer", req: true, d: "request.WebsiteHTTPSOp.websiteId"},
 		"websiteSSLId": {t: "integer", req: false, d: "request.WebsiteHTTPSOp.websiteSSLId"},
 	})
 
 	routeRequestContracts["/api/onepanel/{serverId}/websites/{id}/nginx"] = obj([]string{"content"}, map[string]prop{
-		"content": {t: "string", req: true, d: "request.WebsiteNginxUpdate.content"},
+		"content": {t: "string", req: true, d: "内容(request.WebsiteNginxUpdate.content)"},
 		"id": {t: "integer", req: false, d: "request.WebsiteNginxUpdate.id（可由路径参数自动注入）"},
 	})
 
@@ -989,7 +1051,7 @@ func init() {
 		"hostMode": {t: "boolean", req: false, d: "request.AppInstallCreate.hostMode"},
 		"memoryLimit": {t: "number", req: false, d: "request.AppInstallCreate.memoryLimit"},
 		"memoryUnit": {t: "string", req: false, d: "request.AppInstallCreate.memoryUnit"},
-		"name": {t: "string", req: true, d: "request.AppInstallCreate.name"},
+		"name": {t: "string", req: true, d: "名称(request.AppInstallCreate.name)"},
 		"nodes": {t: "array", req: false, d: "request.AppInstallCreate.nodes"},
 		"params": {t: "object", req: false, d: "request.AppInstallCreate.params"},
 		"pullImage": {t: "boolean", req: false, d: "request.AppInstallCreate.pullImage"},
@@ -998,7 +1060,7 @@ func init() {
 		"services": {t: "object", req: false, d: "request.AppInstallCreate.services"},
 		"specifyIP": {t: "string", req: false, d: "request.AppInstallCreate.specifyIP"},
 		"taskID": {t: "string", req: false, d: "request.AppInstallCreate.taskID"},
-		"type": {t: "string", req: false, d: "request.AppInstallCreate.type"},
+		"type": {t: "string", req: false, d: "类型(request.AppInstallCreate.type)"},
 		"version": {t: "string", req: false, d: "request.AppInstallCreate.version"},
 		"webUI": {t: "string", req: false, d: "request.AppInstallCreate.webUI"},
 	})
@@ -1014,14 +1076,14 @@ func init() {
 		"favorite": {t: "boolean", req: false, d: "request.AppInstalledOperate.favorite"},
 		"forceDelete": {t: "boolean", req: false, d: "request.AppInstalledOperate.forceDelete"},
 		"installId": {t: "integer", req: false, d: "request.AppInstalledOperate.installId（可由路径参数自动注入）"},
-		"operate": {t: "string", req: true, d: "request.AppInstalledOperate.operate"},
+		"operate": {t: "string", req: true, d: "操作(request.AppInstalledOperate.operate)"},
 		"pullImage": {t: "boolean", req: false, d: "request.AppInstalledOperate.pullImage"},
 		"taskID": {t: "string", req: false, d: "request.AppInstalledOperate.taskID"},
 	})
 
 	routeRequestContracts["/api/onepanel/{serverId}/containers/operate"] = obj([]string{"names", "operation"}, map[string]prop{
-		"names": {t: "array", req: true, d: "dto.ContainerOperation.names"},
-		"operation": {t: "string", req: true, e: []string{"up", "start", "stop", "restart", "kill", "pause", "unpause", "remove"}, d: "dto.ContainerOperation.operation"},
+		"names": {t: "array", req: true, d: "容器名列表(dto.ContainerOperation.names)"},
+		"operation": {t: "string", req: true, e: []string{"up", "start", "stop", "restart", "kill", "pause", "unpause", "remove"}, d: "操作(start/stop/restart 等)(dto.ContainerOperation.operation)"},
 		"taskID": {t: "string", req: false, d: "dto.ContainerOperation.taskID"},
 	})
 
@@ -1031,7 +1093,7 @@ func init() {
 		"file": {t: "string", req: false, d: "dto.ComposeCreate.file"},
 		"forcePull": {t: "boolean", req: false, d: "dto.ComposeCreate.forcePull"},
 		"from": {t: "string", req: true, e: []string{"edit", "path", "template"}, d: "dto.ComposeCreate.from"},
-		"name": {t: "string", req: false, d: "dto.ComposeCreate.name"},
+		"name": {t: "string", req: false, d: "名称(dto.ComposeCreate.name)"},
 		"path": {t: "string", req: false, d: "dto.ComposeCreate.path"},
 		"taskID": {t: "string", req: false, d: "dto.ComposeCreate.taskID"},
 		"template": {t: "integer", req: false, d: "dto.ComposeCreate.template"},
@@ -1048,8 +1110,8 @@ func init() {
 		"eabHmacKey": {t: "string", req: false, d: "request.WebsiteAcmeAccountCreate.eabHmacKey"},
 		"eabKid": {t: "string", req: false, d: "request.WebsiteAcmeAccountCreate.eabKid"},
 		"email": {t: "string", req: true, d: "request.WebsiteAcmeAccountCreate.email"},
-		"keyType": {t: "string", req: true, e: []string{"EC256", "EC384", "RSA2048", "RSA3072", "RSA4096", "RSA8192"}, d: "request.WebsiteAcmeAccountCreate.keyType"},
-		"type": {t: "string", req: true, e: []string{"letsencrypt", "zerossl", "buypass", "google", "custom"}, d: "request.WebsiteAcmeAccountCreate.type"},
+		"keyType": {t: "string", req: true, e: []string{"EC256", "EC384", "RSA2048", "RSA3072", "RSA4096", "RSA8192"}, d: "密钥类型(request.WebsiteAcmeAccountCreate.keyType)"},
+		"type": {t: "string", req: true, e: []string{"letsencrypt", "zerossl", "buypass", "google", "custom"}, d: "类型(request.WebsiteAcmeAccountCreate.type)"},
 		"useEAB": {t: "boolean", req: false, d: "request.WebsiteAcmeAccountCreate.useEAB"},
 		"useProxy": {t: "boolean", req: false, d: "request.WebsiteAcmeAccountCreate.useProxy"},
 	})
@@ -1058,32 +1120,32 @@ func init() {
 
 	routeRequestContracts["/api/onepanel/{serverId}/backup"] = obj([]string{"type"}, map[string]prop{
 		"args": {t: "array", req: false, d: "dto.CommonBackup.args"},
-		"description": {t: "string", req: false, d: "dto.CommonBackup.description"},
+		"description": {t: "string", req: false, d: "备注/描述(dto.CommonBackup.description)"},
 		"detailName": {t: "string", req: false, d: "dto.CommonBackup.detailName"},
 		"fileName": {t: "string", req: false, d: "dto.CommonBackup.fileName"},
 		"isImmediate": {t: "boolean", req: false, d: "dto.CommonBackup.isImmediate"},
-		"name": {t: "string", req: false, d: "dto.CommonBackup.name"},
+		"name": {t: "string", req: false, d: "名称(dto.CommonBackup.name)"},
 		"secret": {t: "string", req: false, d: "dto.CommonBackup.secret"},
 		"stopBefore": {t: "boolean", req: false, d: "dto.CommonBackup.stopBefore"},
 		"taskID": {t: "string", req: false, d: "dto.CommonBackup.taskID"},
-		"type": {t: "string", req: true, e: []string{"app", "mysql", "mariadb", "redis", "website", "postgresql", "mongodb", "mysql-cluster", "postgresql-cluster", "redis-cluster", "container", "compose"}, d: "dto.CommonBackup.type"},
+		"type": {t: "string", req: true, e: []string{"app", "mysql", "mariadb", "redis", "website", "postgresql", "mongodb", "mysql-cluster", "postgresql-cluster", "redis-cluster", "container", "compose"}, d: "类型(dto.CommonBackup.type)"},
 	})
 
 	routeRequestContracts["/api/onepanel/{serverId}/databases"] = obj([]string{"from", "name", "type", "username", "version"}, map[string]prop{
 		"address": {t: "string", req: false, d: "dto.DatabaseCreate.address"},
 		"clientCert": {t: "string", req: false, d: "dto.DatabaseCreate.clientCert"},
 		"clientKey": {t: "string", req: false, d: "dto.DatabaseCreate.clientKey"},
-		"description": {t: "string", req: false, d: "dto.DatabaseCreate.description"},
+		"description": {t: "string", req: false, d: "备注/描述(dto.DatabaseCreate.description)"},
 		"from": {t: "string", req: true, e: []string{"local", "remote"}, d: "dto.DatabaseCreate.from"},
 		"initialDB": {t: "string", req: false, d: "dto.DatabaseCreate.initialDB"},
-		"name": {t: "string", req: true, d: "dto.DatabaseCreate.name"},
-		"password": {t: "string", req: false, d: "dto.DatabaseCreate.password"},
+		"name": {t: "string", req: true, d: "名称(dto.DatabaseCreate.name)"},
+		"password": {t: "string", req: false, d: "密码(dto.DatabaseCreate.password)"},
 		"port": {t: "integer", req: false, d: "dto.DatabaseCreate.port"},
 		"rootCert": {t: "string", req: false, d: "dto.DatabaseCreate.rootCert"},
 		"skipVerify": {t: "boolean", req: false, d: "dto.DatabaseCreate.skipVerify"},
 		"ssl": {t: "boolean", req: false, d: "dto.DatabaseCreate.ssl"},
 		"timeout": {t: "integer", req: false, d: "dto.DatabaseCreate.timeout"},
-		"type": {t: "string", req: true, d: "dto.DatabaseCreate.type"},
+		"type": {t: "string", req: true, d: "类型(dto.DatabaseCreate.type)"},
 		"username": {t: "string", req: true, d: "dto.DatabaseCreate.username"},
 		"version": {t: "string", req: true, d: "dto.DatabaseCreate.version"},
 	})
@@ -1098,7 +1160,7 @@ func init() {
 		"database": {t: "string", req: true, d: "dto.ChangeDBInfo.database"},
 		"from": {t: "string", req: true, e: []string{"local", "remote"}, d: "dto.ChangeDBInfo.from"},
 		"id": {t: "integer", req: false, d: "dto.ChangeDBInfo.id（可由路径参数自动注入）"},
-		"type": {t: "string", req: true, e: []string{"mysql", "mariadb", "postgresql", "redis", "mongodb", "mysql-cluster", "postgresql-cluster", "redis-cluster"}, d: "dto.ChangeDBInfo.type"},
+		"type": {t: "string", req: true, e: []string{"mysql", "mariadb", "postgresql", "redis", "mongodb", "mysql-cluster", "postgresql-cluster", "redis-cluster"}, d: "类型(dto.ChangeDBInfo.type)"},
 		"value": {t: "string", req: true, d: "dto.ChangeDBInfo.value"},
 	})
 
@@ -1109,15 +1171,15 @@ func init() {
 		"environments": {t: "array", req: false, d: "request.RuntimeCreate.environments"},
 		"exposedPorts": {t: "array", req: false, d: "request.RuntimeCreate.exposedPorts"},
 		"extraHosts": {t: "array", req: false, d: "request.RuntimeCreate.extraHosts"},
-		"image": {t: "string", req: false, d: "request.RuntimeCreate.image"},
+		"image": {t: "string", req: false, d: "镜像(request.RuntimeCreate.image)"},
 		"install": {t: "boolean", req: false, d: "request.RuntimeCreate.install"},
-		"name": {t: "string", req: false, d: "request.RuntimeCreate.name"},
+		"name": {t: "string", req: false, d: "名称(request.RuntimeCreate.name)"},
 		"params": {t: "object", req: false, d: "request.RuntimeCreate.params"},
-		"remark": {t: "string", req: false, d: "request.RuntimeCreate.remark"},
+		"remark": {t: "string", req: false, d: "备注(request.RuntimeCreate.remark)"},
 		"resource": {t: "string", req: false, d: "request.RuntimeCreate.resource"},
 		"source": {t: "string", req: false, d: "request.RuntimeCreate.source"},
 		"taskID": {t: "string", req: false, d: "request.RuntimeCreate.taskID"},
-		"type": {t: "string", req: false, d: "request.RuntimeCreate.type"},
+		"type": {t: "string", req: false, d: "类型(request.RuntimeCreate.type)"},
 		"version": {t: "string", req: false, d: "request.RuntimeCreate.version"},
 		"volumes": {t: "array", req: false, d: "request.RuntimeCreate.volumes"},
 	})
@@ -1139,7 +1201,7 @@ func init() {
 		"id": {t: "integer", req: false, d: "dto.CronjobOperate.id"},
 		"ignoreErr": {t: "boolean", req: false, d: "dto.CronjobOperate.ignoreErr"},
 		"isDir": {t: "boolean", req: false, d: "dto.CronjobOperate.isDir"},
-		"name": {t: "string", req: true, d: "dto.CronjobOperate.name"},
+		"name": {t: "string", req: true, d: "名称(dto.CronjobOperate.name)"},
 		"retainCopies": {t: "integer", req: false, d: "dto.CronjobOperate.retainCopies"},
 		"retryTimes": {t: "integer", req: false, d: "dto.CronjobOperate.retryTimes"},
 		"scopes": {t: "array", req: false, d: "dto.CronjobOperate.scopes"},
@@ -1153,7 +1215,7 @@ func init() {
 		"spec": {t: "string", req: true, d: "dto.CronjobOperate.spec"},
 		"specCustom": {t: "boolean", req: false, d: "dto.CronjobOperate.specCustom"},
 		"timeout": {t: "integer", req: false, d: "dto.CronjobOperate.timeout"},
-		"type": {t: "string", req: true, d: "dto.CronjobOperate.type"},
+		"type": {t: "string", req: true, d: "类型(dto.CronjobOperate.type)"},
 		"url": {t: "string", req: false, d: "dto.CronjobOperate.url"},
 		"user": {t: "string", req: false, d: "dto.CronjobOperate.user"},
 		"website": {t: "string", req: false, d: "dto.CronjobOperate.website"},
@@ -1174,12 +1236,12 @@ func init() {
 	})
 
 	routeRequestContracts["/api/onepanel/{serverId}/websites/search"] = obj([]string{"order", "orderBy", "page", "pageSize"}, map[string]prop{
-		"name": {t: "string", req: false, d: "request.WebsiteSearch.name"},
+		"name": {t: "string", req: false, d: "名称(request.WebsiteSearch.name)"},
 		"order": {t: "string", req: true, e: []string{"null", "ascending", "descending"}, d: "request.WebsiteSearch.order"},
 		"orderBy": {t: "string", req: true, e: []string{"primary_domain", "type", "status", "createdAt", "expire_date", "created_at", "favorite"}, d: "request.WebsiteSearch.orderBy"},
 		"page": {t: "integer", req: true, d: "request.WebsiteSearch.page"},
 		"pageSize": {t: "integer", req: true, d: "request.WebsiteSearch.pageSize"},
-		"type": {t: "string", req: false, d: "request.WebsiteSearch.type"},
+		"type": {t: "string", req: false, d: "类型(request.WebsiteSearch.type)"},
 		"websiteGroupId": {t: "integer", req: false, d: "request.WebsiteSearch.websiteGroupId"},
 	})
 
@@ -1188,8 +1250,8 @@ func init() {
 		"expireDate": {t: "string", req: false, d: "request.WebsiteUpdate.expireDate"},
 		"favorite": {t: "boolean", req: false, d: "request.WebsiteUpdate.favorite"},
 		"id": {t: "integer", req: false, d: "request.WebsiteUpdate.id（可由路径参数自动注入）"},
-		"primaryDomain": {t: "string", req: true, d: "request.WebsiteUpdate.primaryDomain"},
-		"remark": {t: "string", req: false, d: "request.WebsiteUpdate.remark"},
+		"primaryDomain": {t: "string", req: true, d: "主域名(request.WebsiteUpdate.primaryDomain)"},
+		"remark": {t: "string", req: false, d: "备注(request.WebsiteUpdate.remark)"},
 		"webSiteGroupID": {t: "integer", req: false, d: "request.WebsiteUpdate.webSiteGroupID"},
 	})
 
@@ -1201,7 +1263,7 @@ func init() {
 
 	routeRequestContracts["/api/onepanel/{serverId}/websites/batch/operate"] = obj([]string{"ids", "operate", "taskID"}, map[string]prop{
 		"ids": {t: "array", req: true, d: "request.BatchWebsiteOp.ids"},
-		"operate": {t: "string", req: true, d: "request.BatchWebsiteOp.operate"},
+		"operate": {t: "string", req: true, d: "操作(request.BatchWebsiteOp.operate)"},
 		"taskID": {t: "string", req: true, d: "request.BatchWebsiteOp.taskID"},
 	})
 
@@ -1220,7 +1282,7 @@ func init() {
 		"privateKey": {t: "string", req: false, d: "request.BatchWebsiteHttps.privateKey"},
 		"privateKeyPath": {t: "string", req: false, d: "request.BatchWebsiteHttps.privateKeyPath"},
 		"taskID": {t: "string", req: true, d: "request.BatchWebsiteHttps.taskID"},
-		"type": {t: "string", req: false, e: []string{"existed", "auto", "manual"}, d: "request.BatchWebsiteHttps.type"},
+		"type": {t: "string", req: false, e: []string{"existed", "auto", "manual"}, d: "类型(request.BatchWebsiteHttps.type)"},
 		"websiteSSLId": {t: "integer", req: false, d: "request.BatchWebsiteHttps.websiteSSLId"},
 	})
 
@@ -1235,30 +1297,30 @@ func init() {
 
 	routeRequestContracts["/api/onepanel/{serverId}/websites/{id}/proxies/delete"] = obj([]string{"name"}, map[string]prop{
 		"id": {t: "integer", req: false, d: "request.WebsiteProxyDel.id（可由路径参数自动注入）"},
-		"name": {t: "string", req: true, d: "request.WebsiteProxyDel.name"},
+		"name": {t: "string", req: true, d: "名称(request.WebsiteProxyDel.name)"},
 	})
 
 	routeRequestContracts["/api/onepanel/{serverId}/websites/{id}/proxies/status"] = obj([]string{"name", "status"}, map[string]prop{
 		"id": {t: "integer", req: false, d: "request.WebsiteProxyStatusUpdate.id（可由路径参数自动注入）"},
-		"name": {t: "string", req: true, d: "request.WebsiteProxyStatusUpdate.name"},
+		"name": {t: "string", req: true, d: "名称(request.WebsiteProxyStatusUpdate.name)"},
 		"status": {t: "string", req: true, d: "request.WebsiteProxyStatusUpdate.status"},
 	})
 
 	routeRequestContracts["/api/onepanel/{serverId}/websites/{id}/rewrite"] = obj([]string{"name", "websiteId"}, map[string]prop{
-		"name": {t: "string", req: true, d: "request.NginxRewriteReq.name"},
+		"name": {t: "string", req: true, d: "名称(request.NginxRewriteReq.name)"},
 		"websiteId": {t: "integer", req: true, d: "request.NginxRewriteReq.websiteId"},
 	})
 
 	routeRequestContracts["/api/onepanel/{serverId}/websites/{id}/rewrite/update"] = obj([]string{"name", "websiteId"}, map[string]prop{
-		"content": {t: "string", req: false, d: "request.NginxRewriteUpdate.content"},
-		"name": {t: "string", req: true, d: "request.NginxRewriteUpdate.name"},
+		"content": {t: "string", req: false, d: "内容(request.NginxRewriteUpdate.content)"},
+		"name": {t: "string", req: true, d: "名称(request.NginxRewriteUpdate.name)"},
 		"websiteId": {t: "integer", req: true, d: "request.NginxRewriteUpdate.websiteId"},
 	})
 
 	routeRequestContracts["/api/onepanel/{serverId}/websites/rewrite/custom"] = obj([]string{"operate"}, map[string]prop{
-		"content": {t: "string", req: false, d: "request.CustomRewriteOperate.content"},
-		"name": {t: "string", req: false, d: "request.CustomRewriteOperate.name"},
-		"operate": {t: "string", req: true, e: []string{"create", "delete"}, d: "request.CustomRewriteOperate.operate"},
+		"content": {t: "string", req: false, d: "内容(request.CustomRewriteOperate.content)"},
+		"name": {t: "string", req: false, d: "名称(request.CustomRewriteOperate.name)"},
+		"operate": {t: "string", req: true, e: []string{"create", "delete"}, d: "操作(request.CustomRewriteOperate.operate)"},
 	})
 
 	routeRequestContracts["/api/onepanel/{serverId}/websites/{id}/redirect"] = obj([]string{}, map[string]prop{
@@ -1266,16 +1328,16 @@ func init() {
 	})
 
 	routeRequestContracts["/api/onepanel/{serverId}/websites/{id}/redirect/update"] = obj([]string{"name", "operate", "redirect", "target", "type", "websiteID"}, map[string]prop{
-		"domains": {t: "array", req: false, d: "request.NginxRedirectReq.domains"},
+		"domains": {t: "array", req: false, d: "域名列表(request.NginxRedirectReq.domains)"},
 		"enable": {t: "boolean", req: false, d: "request.NginxRedirectReq.enable"},
 		"keepPath": {t: "boolean", req: false, d: "request.NginxRedirectReq.keepPath"},
-		"name": {t: "string", req: true, d: "request.NginxRedirectReq.name"},
-		"operate": {t: "string", req: true, d: "request.NginxRedirectReq.operate"},
+		"name": {t: "string", req: true, d: "名称(request.NginxRedirectReq.name)"},
+		"operate": {t: "string", req: true, d: "操作(request.NginxRedirectReq.operate)"},
 		"path": {t: "string", req: false, d: "request.NginxRedirectReq.path"},
 		"redirect": {t: "string", req: true, d: "request.NginxRedirectReq.redirect"},
 		"redirectRoot": {t: "boolean", req: false, d: "request.NginxRedirectReq.redirectRoot"},
 		"target": {t: "string", req: true, d: "request.NginxRedirectReq.target"},
-		"type": {t: "string", req: true, d: "request.NginxRedirectReq.type"},
+		"type": {t: "string", req: true, d: "类型(request.NginxRedirectReq.type)"},
 		"websiteID": {t: "integer", req: true, d: "request.NginxRedirectReq.websiteID"},
 	})
 
@@ -1302,9 +1364,9 @@ func init() {
 	})
 
 	routeRequestContracts["/api/onepanel/{serverId}/websites/{id}/auths/update"] = obj([]string{"operate", "websiteID"}, map[string]prop{
-		"operate": {t: "string", req: true, d: "request.NginxAuthUpdate.operate"},
-		"password": {t: "string", req: false, d: "request.NginxAuthUpdate.password"},
-		"remark": {t: "string", req: false, d: "request.NginxAuthUpdate.remark"},
+		"operate": {t: "string", req: true, d: "操作(request.NginxAuthUpdate.operate)"},
+		"password": {t: "string", req: false, d: "密码(request.NginxAuthUpdate.password)"},
+		"remark": {t: "string", req: false, d: "备注(request.NginxAuthUpdate.remark)"},
 		"username": {t: "string", req: false, d: "request.NginxAuthUpdate.username"},
 		"websiteID": {t: "integer", req: true, d: "request.NginxAuthUpdate.websiteID"},
 	})
@@ -1344,25 +1406,25 @@ func init() {
 	routeRequestContracts["/api/onepanel/{serverId}/websites/{id}/log/operate"] = obj([]string{"logType", "operate"}, map[string]prop{
 		"id": {t: "integer", req: false, d: "request.WebsiteLogReq.id（可由路径参数自动注入）"},
 		"logType": {t: "string", req: true, e: []string{"access.log", "error.log"}, d: "request.WebsiteLogReq.logType"},
-		"operate": {t: "string", req: true, e: []string{"enable", "disable", "delete"}, d: "request.WebsiteLogReq.operate"},
+		"operate": {t: "string", req: true, e: []string{"enable", "disable", "delete"}, d: "操作(request.WebsiteLogReq.operate)"},
 	})
 
 	routeRequestContracts["/api/onepanel/{serverId}/websites/{id}/lbs/create"] = obj([]string{"name", "websiteID"}, map[string]prop{
 		"algorithm": {t: "string", req: false, d: "request.WebsiteLBCreate.algorithm"},
-		"name": {t: "string", req: true, d: "request.WebsiteLBCreate.name"},
+		"name": {t: "string", req: true, d: "名称(request.WebsiteLBCreate.name)"},
 		"servers": {t: "array", req: false, d: "request.WebsiteLBCreate.servers"},
 		"websiteID": {t: "integer", req: true, d: "request.WebsiteLBCreate.websiteID"},
 	})
 
 	routeRequestContracts["/api/onepanel/{serverId}/websites/{id}/lbs/update"] = obj([]string{"name", "websiteID"}, map[string]prop{
 		"algorithm": {t: "string", req: false, d: "request.WebsiteLBUpdate.algorithm"},
-		"name": {t: "string", req: true, d: "request.WebsiteLBUpdate.name"},
+		"name": {t: "string", req: true, d: "名称(request.WebsiteLBUpdate.name)"},
 		"servers": {t: "array", req: false, d: "request.WebsiteLBUpdate.servers"},
 		"websiteID": {t: "integer", req: true, d: "request.WebsiteLBUpdate.websiteID"},
 	})
 
 	routeRequestContracts["/api/onepanel/{serverId}/websites/{id}/lbs/delete"] = obj([]string{"name", "websiteID"}, map[string]prop{
-		"name": {t: "string", req: true, d: "request.WebsiteLBDelete.name"},
+		"name": {t: "string", req: true, d: "名称(request.WebsiteLBDelete.name)"},
 		"websiteID": {t: "integer", req: true, d: "request.WebsiteLBDelete.websiteID"},
 	})
 
@@ -1389,7 +1451,7 @@ func init() {
 
 	routeRequestContracts["/api/onepanel/{serverId}/websites/{id}/stream/update"] = obj([]string{"websiteID"}, map[string]prop{
 		"algorithm": {t: "string", req: false, d: "request.StreamUpdate.algorithm"},
-		"name": {t: "string", req: false, d: "request.StreamUpdate.name"},
+		"name": {t: "string", req: false, d: "名称(request.StreamUpdate.name)"},
 		"servers": {t: "array", req: false, d: "request.StreamUpdate.servers"},
 		"streamPorts": {t: "string", req: false, d: "request.StreamUpdate.streamPorts"},
 		"udp": {t: "boolean", req: false, d: "request.StreamUpdate.udp"},
@@ -1397,7 +1459,7 @@ func init() {
 	})
 
 	routeRequestContracts["/api/onepanel/{serverId}/websites/crosssite"] = obj([]string{"operation", "websiteID"}, map[string]prop{
-		"operation": {t: "string", req: true, e: []string{"Enable", "Disable"}, d: "request.CrossSiteAccessOp.operation"},
+		"operation": {t: "string", req: true, e: []string{"Enable", "Disable"}, d: "操作(start/stop/restart 等)(request.CrossSiteAccessOp.operation)"},
 		"websiteID": {t: "integer", req: true, d: "request.CrossSiteAccessOp.websiteID"},
 	})
 
@@ -1408,9 +1470,9 @@ func init() {
 	})
 
 	routeRequestContracts["/api/onepanel/{serverId}/websites/default/html/update"] = obj([]string{"content", "type"}, map[string]prop{
-		"content": {t: "string", req: true, d: "request.WebsiteHtmlUpdate.content"},
+		"content": {t: "string", req: true, d: "内容(request.WebsiteHtmlUpdate.content)"},
 		"sync": {t: "boolean", req: false, d: "request.WebsiteHtmlUpdate.sync"},
-		"type": {t: "string", req: true, d: "request.WebsiteHtmlUpdate.type"},
+		"type": {t: "string", req: true, d: "类型(request.WebsiteHtmlUpdate.type)"},
 	})
 
 	routeRequestContracts["/api/onepanel/{serverId}/websites/default/server"] = obj([]string{}, map[string]prop{
@@ -1439,21 +1501,21 @@ func init() {
 	routeRequestContracts["/api/onepanel/{serverId}/ssl/{id}/update"] = obj([]string{"primaryDomain", "provider"}, map[string]prop{
 		"acmeAccountId": {t: "integer", req: false, d: "request.WebsiteSSLUpdate.acmeAccountId"},
 		"apply": {t: "boolean", req: false, d: "request.WebsiteSSLUpdate.apply"},
-		"autoRenew": {t: "boolean", req: false, d: "request.WebsiteSSLUpdate.autoRenew"},
-		"description": {t: "string", req: false, d: "request.WebsiteSSLUpdate.description"},
+		"autoRenew": {t: "boolean", req: false, d: "是否自动续签(request.WebsiteSSLUpdate.autoRenew)"},
+		"description": {t: "string", req: false, d: "备注/描述(request.WebsiteSSLUpdate.description)"},
 		"dir": {t: "string", req: false, d: "request.WebsiteSSLUpdate.dir"},
 		"disableCNAME": {t: "boolean", req: false, d: "request.WebsiteSSLUpdate.disableCNAME"},
 		"dnsAccountId": {t: "integer", req: false, d: "request.WebsiteSSLUpdate.dnsAccountId"},
 		"execShell": {t: "boolean", req: false, d: "request.WebsiteSSLUpdate.execShell"},
 		"id": {t: "integer", req: false, d: "request.WebsiteSSLUpdate.id（可由路径参数自动注入）"},
-		"keyType": {t: "string", req: false, d: "request.WebsiteSSLUpdate.keyType"},
+		"keyType": {t: "string", req: false, d: "密钥类型(request.WebsiteSSLUpdate.keyType)"},
 		"nameserver1": {t: "string", req: false, d: "request.WebsiteSSLUpdate.nameserver1"},
 		"nameserver2": {t: "string", req: false, d: "request.WebsiteSSLUpdate.nameserver2"},
 		"nodes": {t: "string", req: false, d: "request.WebsiteSSLUpdate.nodes"},
-		"otherDomains": {t: "string", req: false, d: "request.WebsiteSSLUpdate.otherDomains"},
-		"primaryDomain": {t: "string", req: true, d: "request.WebsiteSSLUpdate.primaryDomain"},
-		"provider": {t: "string", req: true, d: "request.WebsiteSSLUpdate.provider"},
-		"pushDir": {t: "boolean", req: false, d: "request.WebsiteSSLUpdate.pushDir"},
+		"otherDomains": {t: "string", req: false, d: "附加域名(每行一个)(request.WebsiteSSLUpdate.otherDomains)"},
+		"primaryDomain": {t: "string", req: true, d: "主域名(request.WebsiteSSLUpdate.primaryDomain)"},
+		"provider": {t: "string", req: true, d: "签发方式(request.WebsiteSSLUpdate.provider)"},
+		"pushDir": {t: "boolean", req: false, d: "是否推送目录(request.WebsiteSSLUpdate.pushDir)"},
 		"pushNode": {t: "boolean", req: false, d: "request.WebsiteSSLUpdate.pushNode"},
 		"shell": {t: "string", req: false, d: "request.WebsiteSSLUpdate.shell"},
 		"skipDNS": {t: "boolean", req: false, d: "request.WebsiteSSLUpdate.skipDNS"},
@@ -1466,13 +1528,13 @@ func init() {
 	routeRequestContracts["/api/onepanel/{serverId}/ssl/upload"] = obj([]string{"type"}, map[string]prop{
 		"certificate": {t: "string", req: false, d: "request.WebsiteSSLUpload.certificate"},
 		"certificatePath": {t: "string", req: false, d: "request.WebsiteSSLUpload.certificatePath"},
-		"description": {t: "string", req: false, d: "request.WebsiteSSLUpload.description"},
+		"description": {t: "string", req: false, d: "备注/描述(request.WebsiteSSLUpload.description)"},
 		"nodes": {t: "string", req: false, d: "request.WebsiteSSLUpload.nodes"},
 		"privateKey": {t: "string", req: false, d: "request.WebsiteSSLUpload.privateKey"},
 		"privateKeyPath": {t: "string", req: false, d: "request.WebsiteSSLUpload.privateKeyPath"},
 		"pushNode": {t: "boolean", req: false, d: "request.WebsiteSSLUpload.pushNode"},
 		"sslID": {t: "integer", req: false, d: "request.WebsiteSSLUpload.sslID"},
-		"type": {t: "string", req: true, e: []string{"paste", "local"}, d: "request.WebsiteSSLUpload.type"},
+		"type": {t: "string", req: true, e: []string{"paste", "local"}, d: "类型(request.WebsiteSSLUpload.type)"},
 	})
 
 	routeRequestContracts["/api/onepanel/{serverId}/ssl/download"] = obj([]string{"id"}, map[string]prop{
@@ -1587,4 +1649,6 @@ var onepanelDescriptions = map[string]string{
 	"/api/onepanel/{serverId}/ssl/push": "下发证书到节点",
 	"/api/onepanel/{serverId}/ssl/resolve": "解析证书（证书链补全）",
 	"/api/onepanel/{serverId}/ssl/website/{websiteId}": "按网站 ID 查询其证书",
+	"/api/onepanel/{serverId}/ssl/resolve-id": "按域名解析证书 id(用域名重试,避免猜 id;返回当前 id 与证书关键字段)",
+	"/api/onepanel/{serverId}/websites/resolve-id": "按域名解析网站 id(用域名重试,避免猜 id;返回当前 id 与网站关键字段)",
 }

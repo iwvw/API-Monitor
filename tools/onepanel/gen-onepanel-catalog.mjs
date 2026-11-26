@@ -405,16 +405,14 @@ for (const route of spec.routes) {
   const mode = route.matchMode || inferredMode;
   const matchMode = mode === 'exact' ? 'manifest.MatchExact' : mode === 'pattern' ? 'manifest.MatchPattern' : 'manifest.MatchPrefix';
   const pathParams = [...route.prefix.matchAll(/\{([^}]+)\}/g)].map((m) => m[1]);
-  const paramDescs = {
-    serverId: 'API Monitor 服务器 ID',
-    id: '资源主键 ID',
-    appInstallId: '1Panel 应用安装 ID',
-    name: '容器名',
-  };
   const pathParamsGo = pathParams.length
     ? `PathParams: []apiDocParameter{${pathParams
-        .map((n) => `{Name: ${goStr(n)}, In: "path", Required: true, Description: ${goStr(paramDescs[n] || '路径参数')}}`)
+        .map((n) => `{Name: ${goStr(n)}, In: "path", Required: true, Description: ${goStr(pathParamDescription(route.prefix, n))}}`)
         .join(', ')}},`
+    : '';
+  // 按 id 操作的接口统一补一条 note:Agent 最常踩的坑是「跨主机复用 id」或「用过期的 id」。
+  const notesGo = pathParams.includes('id')
+    ? `Notes: []string{${goStr('该接口按资源 id 操作:先调用对应列表接口取回 id 再按 id 调用;每台 1Panel 的 id 相互独立,不要跨主机复用。')}},`
     : '';
 
   const queryGo = (route.query || []).length
@@ -430,7 +428,7 @@ for (const route of spec.routes) {
 		Route: manifest.Route{Prefix: ${goStr(route.prefix)}, Module: ${goStr(route.module || 'onepanel')}, Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: ${goStr(route.description)}, MatchMode: ${matchMode}},
 		Docs: apiRouteDocs{
 			Detail:  ${goStr(route.description)},
-			Methods: ${methodsGo},${pathParamsGo ? `\n\t\t\t${pathParamsGo}` : ''}${queryGo ? `\n\t\t\t${queryGo}` : ''}
+			Methods: ${methodsGo},${pathParamsGo ? `\n\t\t\t${pathParamsGo}` : ''}${queryGo ? `\n\t\t\t${queryGo}` : ''}${notesGo ? `\n\t\t\t${notesGo}` : ''}
 		},
 	},`);
 
@@ -472,7 +470,9 @@ ${fields.join('\n')}
           const injected = injectedField(name, up, pathVarNames);
           const type = goTypeOf(prop);
           const enumTag = prop.enum ? `, e: []string{${prop.enum.map((v) => goStr(v)).join(', ')}}` : '';
-          const desc = `${schema.name}.${name}${injected ? '（可由路径参数自动注入）' : ''}`;
+          const cn = fieldDescCN(name);
+          const base = cn ? `${cn}(${schema.name}.${name})` : `${schema.name}.${name}`;
+          const desc = `${base}${injected ? '（可由路径参数自动注入）' : ''}`;
           fields.push(`\t\t${goStr(name)}: {t: ${goStr(type)}, req: ${required && !injected}${enumTag}, d: ${goStr(desc)}},`);
         }
         contracts.push(`	routeRequestContracts[${goStr(route.prefix)}] = obj([]string{${schema.required
@@ -504,6 +504,50 @@ function injectedField(name, up, pathVars) {
   return pathVars.includes(name);
 }
 
+/** 路径参数语义:告诉 Agent 该 id 属于哪个资源、从哪个列表接口取,避免跨主机/过期 id。 */
+function pathParamDescription(prefix, name) {
+  if (name === 'serverId') return 'API Monitor 服务器 ID(先由 /api/server/accounts 或 /api/onepanel/config 获取)';
+  if (name === 'appInstallId') return '已安装应用 ID(取自 /apps/installed 列表)';
+  if (name === 'websiteId') return '网站 ID(取自 /websites/search 的 items[].id)';
+  if (name === 'name') return '容器名(取自 /containers 列表)';
+  if (name === 'type') return '模板类型(1Panel 默认站点类型,如 html / php)';
+  if (name === 'id') {
+    if (prefix.includes('/ssl/')) return '证书 ID(取自 /ssl/search 的 items[].id;每台 1Panel 的 id 相互独立)';
+    if (prefix.includes('/websites/')) return '网站 ID(取自 /websites/search 的 items[].id;每台 1Panel 的 id 相互独立)';
+    if (prefix.includes('/databases/')) return '数据库 ID(取自 /databases 列表)';
+    return '资源主键 ID(取自对应列表接口;每台 1Panel 的 id 相互独立)';
+  }
+  return '路径参数';
+}
+
+/** 请求体字段的中文别名:让 find_api / list_apis 能按字段语义(如“备注”)召回接口。 */
+function fieldDescCN(name) {
+  // 说明:此 map 必须定义在函数体内(而非模块级 const),否则在下方 routes 循环
+  // 首次调用时会触发 TDZ(暂时性死区)。
+  const map = {
+    description: '备注/描述',
+    remark: '备注',
+    alias: '别名',
+    name: '名称',
+    primaryDomain: '主域名',
+    otherDomains: '附加域名(每行一个)',
+    domains: '域名列表',
+    autoRenew: '是否自动续签',
+    provider: '签发方式',
+    keyType: '密钥类型',
+    pushDir: '是否推送目录',
+    image: '镜像',
+    imageName: '镜像名',
+    operation: '操作(start/stop/restart 等)',
+    operate: '操作',
+    names: '容器名列表',
+    password: '密码',
+    content: '内容',
+    type: '类型',
+  };
+  return map[name] || '';
+}
+
 function queryDesc(name) {
   const map = {
     type: '资源类型：mysql / mariadb / postgresql / redis / mongodb',
@@ -511,6 +555,7 @@ function queryDesc(name) {
     since: '时间窗口，如 1h / 30m',
     name: '按名称过滤',
     detailName: '按备份对象名过滤',
+    domain: '域名(精确域名或 *.example.com 泛域名)',
   };
   return map[name] || name;
 }
