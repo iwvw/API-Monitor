@@ -1708,6 +1708,7 @@ func TestAgentFileToolsRegistered(t *testing.T) {
 		"agent_file_roots", "agent_file_stat", "agent_file_chmod",
 		"agent_file_list", "agent_file_read", "agent_file_write",
 		"agent_file_mkdir", "agent_file_rename", "agent_file_delete", "agent_file_rmdir",
+		"host_file_copy",
 	} {
 		if !names[want] {
 			t.Fatalf("工具 %s 未注册", want)
@@ -1774,6 +1775,27 @@ func TestAgentFileRenameBuildsSFTPCall(t *testing.T) {
 	}
 	if _, hasPath := gotBody["path"]; hasPath {
 		t.Fatalf("rename 不应携带 path: %#v", gotBody)
+	}
+}
+
+func TestHostFileCopyBuildsRelayCall(t *testing.T) {
+	cfg := config.Config{DataDir: t.TempDir(), DBName: "data.db"}
+	service := New(cfg)
+	defer service.Shutdown()
+
+	var gotSrc, gotDst string
+	service.agentFileOps = fakeFileOperator{onCopy: func(src, dst string) { gotSrc, gotDst = src, dst }}
+
+	if _, err := service.hostFileCopy(context.Background(), map[string]interface{}{
+		"sourceServerId": "srv-a",
+		"sourcePath":     "/data/a.bin",
+		"targetServerId": "srv-b",
+		"targetPath":     "/data/b.bin",
+	}); err != nil {
+		t.Fatalf("hostFileCopy err: %v", err)
+	}
+	if gotSrc != "srv-a:/data/a.bin" || gotDst != "srv-b:/data/b.bin" {
+		t.Fatalf("copy 参数错误: src=%s dst=%s", gotSrc, gotDst)
 	}
 }
 
@@ -1845,6 +1867,14 @@ type fakeFileOperator struct {
 	realPath    string
 	onChunk     func(offset int64, truncate bool)
 	gotRealPath *bool
+	onCopy      func(src, dst string)
+}
+
+func (f fakeFileOperator) CopyAgentFile(_ context.Context, srcID, srcPath string, _ bool, dstID, dstPath string, _ bool, _ time.Duration) (int64, error) {
+	if f.onCopy != nil {
+		f.onCopy(srcID+":"+srcPath, dstID+":"+dstPath)
+	}
+	return 0, nil
 }
 
 func (f fakeFileOperator) WriteAgentFileChunk(_ context.Context, _, _ string, data []byte, offset int64, truncate bool, _ time.Duration) (AgentFileWriteResult, error) {

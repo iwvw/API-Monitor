@@ -62,6 +62,7 @@ type AgentFileOperator interface {
 	AgentFileRoots(ctx context.Context, serverID string) (map[string]interface{}, error)
 	AgentFileStat(ctx context.Context, serverID, remotePath string) (map[string]interface{}, error)
 	AgentFileChmod(ctx context.Context, serverID, remotePath string, mode uint32) (string, error)
+	CopyAgentFile(ctx context.Context, srcServerID, srcPath string, srcRealPath bool, dstServerID, dstPath string, dstRealPath bool, timeout time.Duration) (int64, error)
 }
 
 type alertState struct {
@@ -79,23 +80,23 @@ type Service struct {
 	statsCache map[string]*APICounters
 	// 小时粒度缓存（key = "YYYY-MM-DD HH:00"），近 24 小时保留，供 api-stats 小时视图
 	statsCacheHour map[string]*APICounters
-	stopChan   chan struct{}
-	wg         sync.WaitGroup
-	notifier   Notifier
-	aiCaller   AICaller
-	agentFiles AgentFileUploader
-	agentFileOps AgentFileOperator
-	apiKeys    *apikeys.Manager
-	alertState alertState
-	statusHub  *statusHub
+	stopChan       chan struct{}
+	wg             sync.WaitGroup
+	notifier       Notifier
+	aiCaller       AICaller
+	agentFiles     AgentFileUploader
+	agentFileOps   AgentFileOperator
+	apiKeys        *apikeys.Manager
+	alertState     alertState
+	statusHub      *statusHub
 
 	apiStatsMu        sync.Mutex
 	apiStatsCacheDays int
 	apiStatsCacheAt   time.Time
 	apiStatsCacheVal  map[string]interface{}
 
-	siteTzMu       sync.Mutex
-	siteTzName     string
+	siteTzMu        sync.Mutex
+	siteTzName      string
 	siteTzRefreshAt time.Time
 
 	// 主机指标 1 分钟滚动采样（约 5s 一点，保留 12 点），供前端图表显示"1 分钟前到现在"并实时滚动
@@ -162,14 +163,14 @@ func (s *Service) SetAgentFileOperator(operator AgentFileOperator) {
 
 func New(cfg config.Config) *Service {
 	s := &Service{
-		cfg:        cfg,
-		startedAt:  time.Now(),
-		store:      database.New(cfg),
-		apiKeys:    apikeys.New(cfg),
-		statsCache: make(map[string]*APICounters),
+		cfg:            cfg,
+		startedAt:      time.Now(),
+		store:          database.New(cfg),
+		apiKeys:        apikeys.New(cfg),
+		statsCache:     make(map[string]*APICounters),
 		statsCacheHour: make(map[string]*APICounters),
-		stopChan:   make(chan struct{}),
-		statusHub:  newStatusHub(),
+		stopChan:       make(chan struct{}),
+		statusHub:      newStatusHub(),
 	}
 
 	s.wg.Add(1)
@@ -2090,9 +2091,9 @@ func (s *Service) collectHostMetrics() map[string]interface{} {
 			"model":         cpuInfo.model,
 			"loadAverage":   readLoadAverage(),
 		},
-		"memory":      virtualMemory,
-		"disk":        diskUsage,
-		"process":     currentProcess,
+		"memory":  virtualMemory,
+		"disk":    diskUsage,
+		"process": currentProcess,
 		"history": map[string]interface{}{
 			"cpu":    cpuSeq,
 			"memory": memSeq,
@@ -2137,14 +2138,14 @@ func (s *Service) authoritativeTime() map[string]interface{} {
 	now := time.Now().UTC()
 	zone, loc := s.siteZone()
 	return map[string]interface{}{
-		"utc":        now.Format(time.RFC3339Nano),
-		"timezone":   zone,
-		"local":      now.In(loc).Format("2006-01-02 15:04:05"),
-		"localISO":   now.In(loc).Format(time.RFC3339),
-		"weekday":    now.In(loc).Weekday().String(),
-		"date":       now.In(loc).Format("2006-01-02"),
-		"clock":      now.In(loc).Format("15:04:05"),
-		"note":       "时间以 serverTime 为准，禁止凭训练记忆推测当前时间",
+		"utc":      now.Format(time.RFC3339Nano),
+		"timezone": zone,
+		"local":    now.In(loc).Format("2006-01-02 15:04:05"),
+		"localISO": now.In(loc).Format(time.RFC3339),
+		"weekday":  now.In(loc).Weekday().String(),
+		"date":     now.In(loc).Format("2006-01-02"),
+		"clock":    now.In(loc).Format("15:04:05"),
+		"note":     "时间以 serverTime 为准，禁止凭训练记忆推测当前时间",
 	}
 }
 

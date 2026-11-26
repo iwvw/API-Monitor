@@ -21,6 +21,7 @@ type AgentFileStream struct {
 	service  *Service
 	serverID string
 	path     string
+	realPath bool
 	size     int64
 	offset   int64
 	buffer   []byte
@@ -29,7 +30,13 @@ type AgentFileStream struct {
 
 // OpenAgentFile 打开 Agent 主机上的文件，返回可读流与文件大小。
 func (s *Service) OpenAgentFile(ctx context.Context, serverID, remotePath string) (io.ReadCloser, int64, error) {
-	size, exists, err := s.AgentFileExists(ctx, serverID, remotePath)
+	return s.OpenAgentFileMode(ctx, serverID, remotePath, false)
+}
+
+// OpenAgentFileMode 与 OpenAgentFile 相同,但可指定 realPath:
+// true 时按主机真实绝对路径读取(须落在 API_MONITOR_FILE_ROOTS 白名单内)。
+func (s *Service) OpenAgentFileMode(ctx context.Context, serverID, remotePath string, realPath bool) (io.ReadCloser, int64, error) {
+	size, exists, err := s.AgentFileExistsMode(ctx, serverID, remotePath, realPath)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -41,12 +48,18 @@ func (s *Service) OpenAgentFile(ctx context.Context, serverID, remotePath string
 		service:  s,
 		serverID: serverID,
 		path:     normalizeRemotePath(remotePath),
+		realPath: realPath,
 		size:     size,
 	}, size, nil
 }
 
 // AgentFileExists 通过文件 stat 任务确认主机文件存在并返回大小。
 func (s *Service) AgentFileExists(ctx context.Context, serverID, remotePath string) (int64, bool, error) {
+	return s.AgentFileExistsMode(ctx, serverID, remotePath, false)
+}
+
+// AgentFileExistsMode 与 AgentFileExists 相同,但可指定 realPath。
+func (s *Service) AgentFileExistsMode(ctx context.Context, serverID, remotePath string, realPath bool) (int64, bool, error) {
 	serverID = strings.TrimSpace(serverID)
 	if serverID == "" {
 		return 0, false, fmt.Errorf("server id is required")
@@ -54,9 +67,13 @@ func (s *Service) AgentFileExists(ctx context.Context, serverID, remotePath stri
 	if !s.hasAgentConnection(serverID) {
 		return 0, false, fmt.Errorf("agent offline")
 	}
-	result, err := s.runAgentTransientFileTask(serverID, agentFileStatTask, map[string]interface{}{
+	payload := map[string]interface{}{
 		"path": normalizeRemotePath(remotePath),
-	}, agentFileTimeout)
+	}
+	if realPath {
+		payload["realPath"] = true
+	}
+	result, err := s.runAgentTransientFileTask(serverID, agentFileStatTask, payload, agentFileTimeout)
 	if err != nil {
 		return 0, false, err
 	}
@@ -82,11 +99,15 @@ func (st *AgentFileStream) Read(p []byte) (int, error) {
 		if st.size >= 0 && st.offset >= st.size {
 			return 0, io.EOF
 		}
-		encoded, err := st.service.runAgentTransientFileTask(st.serverID, agentFileDownloadChunkTask, map[string]interface{}{
+		payload := map[string]interface{}{
 			"path":   st.path,
 			"offset": st.offset,
 			"size":   agentFileStreamChunkSize,
-		}, agentFileTimeout)
+		}
+		if st.realPath {
+			payload["realPath"] = true
+		}
+		encoded, err := st.service.runAgentTransientFileTask(st.serverID, agentFileDownloadChunkTask, payload, agentFileTimeout)
 		if err != nil {
 			return 0, err
 		}

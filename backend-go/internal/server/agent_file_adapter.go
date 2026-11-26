@@ -66,6 +66,12 @@ func (a agentFileOperatorAdapter) AgentFileChmod(ctx context.Context, serverID, 
 	return a.svc.AgentFileChmod(ctx, serverID, remotePath, mode)
 }
 
+func (a agentFileOperatorAdapter) CopyAgentFile(
+	ctx context.Context, srcServerID, srcPath string, srcRealPath bool, dstServerID, dstPath string, dstRealPath bool, timeout time.Duration,
+) (int64, error) {
+	return a.svc.CopyAgentFile(ctx, srcServerID, srcPath, srcRealPath, dstServerID, dstPath, dstRealPath, timeout)
+}
+
 func toSystemFileWriteResult(result serveragent.AgentFileWriteResult) systemmetrics.AgentFileWriteResult {
 	return systemmetrics.AgentFileWriteResult{
 		Size:     result.Size,
