@@ -1877,6 +1877,13 @@ func (f fakeFileOperator) CopyAgentFile(_ context.Context, srcID, srcPath string
 	return 0, nil
 }
 
+func (f fakeFileOperator) CopyAgentPath(_ context.Context, srcID, srcPath string, _ bool, dstID, dstPath string, _ bool, _ time.Duration) (int64, int64, error) {
+	if f.onCopy != nil {
+		f.onCopy(srcID+":"+srcPath, dstID+":"+dstPath)
+	}
+	return 1, 0, nil
+}
+
 func (f fakeFileOperator) WriteAgentFileChunk(_ context.Context, _, _ string, data []byte, offset int64, truncate bool, _ time.Duration) (AgentFileWriteResult, error) {
 	if f.onChunk != nil {
 		f.onChunk(offset, truncate)

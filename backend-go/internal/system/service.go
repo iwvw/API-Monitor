@@ -63,6 +63,7 @@ type AgentFileOperator interface {
 	AgentFileStat(ctx context.Context, serverID, remotePath string) (map[string]interface{}, error)
 	AgentFileChmod(ctx context.Context, serverID, remotePath string, mode uint32) (string, error)
 	CopyAgentFile(ctx context.Context, srcServerID, srcPath string, srcRealPath bool, dstServerID, dstPath string, dstRealPath bool, timeout time.Duration) (int64, error)
+	CopyAgentPath(ctx context.Context, srcServerID, srcPath string, srcRealPath bool, dstServerID, dstPath string, dstRealPath bool, timeout time.Duration) (int64, int64, error)
 }
 
 type alertState struct {

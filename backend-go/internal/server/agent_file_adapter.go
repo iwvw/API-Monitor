@@ -72,6 +72,12 @@ func (a agentFileOperatorAdapter) CopyAgentFile(
 	return a.svc.CopyAgentFile(ctx, srcServerID, srcPath, srcRealPath, dstServerID, dstPath, dstRealPath, timeout)
 }
 
+func (a agentFileOperatorAdapter) CopyAgentPath(
+	ctx context.Context, srcServerID, srcPath string, srcRealPath bool, dstServerID, dstPath string, dstRealPath bool, timeout time.Duration,
+) (int64, int64, error) {
+	return a.svc.CopyAgentPath(ctx, srcServerID, srcPath, srcRealPath, dstServerID, dstPath, dstRealPath, timeout)
+}
+
 func toSystemFileWriteResult(result serveragent.AgentFileWriteResult) systemmetrics.AgentFileWriteResult {
 	return systemmetrics.AgentFileWriteResult{
 		Size:     result.Size,
