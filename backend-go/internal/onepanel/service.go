@@ -183,6 +183,10 @@ func (s *Service) serveQuickLocal(w http.ResponseWriter, r *http.Request, route 
 		s.reloadOpenResty(w, r, params["serverId"])
 	case "/api/onepanel/{serverId}/proxy":
 		s.proxyGeneric(w, r, params["serverId"])
+	case "/api/onepanel/{serverId}/ssl/resolve-id":
+		s.resolveSSLID(w, r, params["serverId"])
+	case "/api/onepanel/{serverId}/websites/resolve-id":
+		s.resolveWebsiteID(w, r, params["serverId"])
 	case "/api/onepanel/{serverId}/reverse-proxy/domains":
 		s.reverseProxyDomains(w, r, params["serverId"])
 	case "/api/onepanel/probe":
@@ -247,9 +251,7 @@ func (s *Service) serveQuickProxy(w http.ResponseWriter, r *http.Request, route 
 		response.Error(w, http.StatusBadGateway, result.err.Error())
 		return
 	}
-	var payload interface{}
-	_ = json.Unmarshal([]byte(result.output), &payload)
-	response.JSON(w, http.StatusOK, payload)
+	s.writePanelResult(w, route.Prefix, upstreamPath, serverID, params, result.output)
 }
 
 // buildQuickBody 组装发往 1Panel 的 JSON 请求体：
@@ -638,6 +640,10 @@ func panelData(output string) interface{} {
 	if err := json.Unmarshal([]byte(output), &envelope); err != nil {
 		return nil
 	}
+	// 上游明确失败(如 4xx/5xx)时不计入聚合,避免把错误当数据。
+	if envelope.Code >= 400 {
+		return nil
+	}
 	if len(envelope.Data) == 0 {
 		return nil
 	}
@@ -706,9 +712,7 @@ func (s *Service) proxyGeneric(w http.ResponseWriter, r *http.Request, serverID 
 		response.Error(w, http.StatusBadGateway, result.err.Error())
 		return
 	}
-	var payload interface{}
-	_ = json.Unmarshal([]byte(result.output), &payload)
-	response.JSON(w, http.StatusOK, payload)
+	s.writePanelResult(w, "/api/onepanel/{serverId}/proxy", req.Path, serverID, nil, result.output)
 }
 
 // ========== 内部 ==========
