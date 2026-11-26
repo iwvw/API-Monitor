@@ -10,11 +10,12 @@ const PANE_SHELL_CLASS = 'flex min-w-0 flex-col gap-3 cq-xl:order-2 cq-xl:min-h-
 const CARD_CLASS =
   'flex min-h-0 min-w-0 flex-col overflow-hidden bg-kumo-base p-0 shadow-none cq-xl:h-[calc(100dvh-184px)] cq-xl:min-h-64';
 const STAT_TILE_CLASS = 'rounded-md border border-kumo-line/70 bg-kumo-recessed/20 px-2 py-1.5';
-// 窄屏卡片为自然高度、跟随整页滚动:此时只能让表格横向滚动(overflow-x-auto +
-// touch-pan-x,竖向手势交给页面),否则 overflow-auto + overscroll-contain 会把手指
-// 落在表格上的竖向滚动吃掉,页面滚不动。桌面(cq-xl 卡片固定视口高度)才启用内部滚动。
+// 窄屏卡片为自然高度、跟随整页滚动,表格壳只横向滚动。这里**不能**加 touch-pan-x:
+// 实测 touch-action:pan-x(或 overscroll-x-contain 与它叠加)会让浏览器把竖向手势
+// 判定为「本元素不处理」后既不滚动本元素也不上抛,页面滚不动(容器页与 AppTable 的
+// DataTableFrame 同源问题)。去掉后横向滚动照常,竖向手势正常上抛给整页。
 const SCROLL_BODY_CLASS =
-  'min-w-0 overflow-x-auto overscroll-x-contain touch-pan-x scrollbar-thin cq-xl:min-h-0 cq-xl:flex-1 cq-xl:overflow-y-auto cq-xl:overscroll-contain cq-xl:touch-auto';
+  'min-w-0 overflow-x-auto overscroll-x-contain scrollbar-thin cq-xl:min-h-0 cq-xl:flex-1 cq-xl:overflow-y-auto cq-xl:overscroll-contain';
 
 export function DockerManageCard({
   hosts = [],
