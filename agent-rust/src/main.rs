@@ -55,6 +55,21 @@ use clap::Parser;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
+// 1Panel 安装探测脚本（task_type 61）。
+// 只读检查：1pctl 命令、/opt/1panel 目录、8888 端口监听、systemd 服务状态。
+// 输出固定格式 key=value，由后端解析；任何一项命中即认为已安装。
+#[cfg(not(target_os = "windows"))]
+const ONEPANEL_PROBE_SCRIPT: &str = concat!(
+    "if command -v 1pctl >/dev/null 2>&1; then echo cmd=1; else echo cmd=0; fi; ",
+    "if [ -d /opt/1panel ]; then echo dir=1; else echo dir=0; fi; ",
+    "if command -v 1panel-core >/dev/null 2>&1 || pgrep -f '1panel-core' >/dev/null 2>&1; then echo proc=1; else echo proc=0; fi; ",
+    "if (ss -tln 2>/dev/null || netstat -tln 2>/dev/null) | grep -q ':8888 '; then echo port=1; else echo port=0; fi"
+);
+
+// Windows 主机上 1Panel 不是标准安装形态，直接返回未安装。
+#[cfg(target_os = "windows")]
+const ONEPANEL_PROBE_SCRIPT: &str = "echo cmd=0 & echo dir=0 & echo proc=0 & echo port=0";
+
 fn agent_capabilities() -> Vec<String> {
     #[allow(unused_mut)]
     let mut capabilities = vec![
@@ -1632,6 +1647,26 @@ async fn run_client(
                                         )
                                         .await;
                                         return; // PTY runs in background long connection, does not yield instant TaskResult
+                                    }
+                                    61 => {
+                                        // ONEPANEL_PROBE：探测本机是否安装 1Panel。
+                                        // 只做只读检查（命令 / 目录 / 端口 / systemd），
+                                        // 不读写 1Panel 的任何配置或数据。
+                                        match execute_command_in(
+                                            ONEPANEL_PROBE_SCRIPT,
+                                            10,
+                                            None,
+                                        )
+                                        .await
+                                        {
+                                            Ok((out, _)) => {
+                                                successful = true;
+                                                res_data = out;
+                                            }
+                                            Err(err) => {
+                                                res_data = err;
+                                            }
+                                        }
                                     }
                                     _ => {
                                         res_data = format!("不支持的任务类型: {}", task.task_type);
