@@ -8,8 +8,10 @@ import { SkeletonLine } from '@cloudflare/kumo/components/loader';
 import { AppCard, AppTable, EmptyState } from '../../components/ui/AppPrimitives.jsx';
 import { DockerManageCard, DockerResourceTableCard } from './DockerResourceCards.jsx';
 import DockerAutoUpdatePanel from './DockerAutoUpdatePanel.jsx';
-import { Box, Database, FileText, FolderOpen, Globe, HardDrive, Pause, Play, RefreshCw, RotateCw, Search, Settings, Square, Trash, Upload } from '../../components/Icons.jsx';
+import { Box, Database, ExternalLink, FileText, FolderOpen, Globe, HardDrive, Pause, Play, RefreshCw, RotateCw, Search, Settings, Square, Trash, Upload } from '../../components/Icons.jsx';
 import { TOOL_TABS_PROPS } from '../../modules/kumoTabs.js';
+import { getDockerContainerPortLinks } from '../../modules/docker-format.js';
+import { matchContainerReverseProxyDomains } from '../../modules/reverseProxyDomains.js';
 import { isDockerImagePruneCandidate } from '../../modules/dockerTasks.js';
 import { asArray, formatComposeStatusLabel, getComposeConfigFiles, getComposePrimaryConfigFile, getComposeProjectName, getComposeStatus, getComposeWorkingDir, getContainerAutoUpdateBadge, getDockerImageId, getDockerImageRepository, getDockerImageSize, getDockerImageTag, getDockerNetworkDriver, getDockerNetworkId, getDockerNetworkName, getDockerNetworkScope, getDockerVolumeDriver, getDockerVolumeName, getDockerVolumeScope, isComposeConfigMissing, isDockerOverviewHostVisible, matchContainerAutoUpdateLabel } from './serverHelpers.js';
 import { SERVER_SECONDARY_TABS_GROUP_CLASS, SERVER_SECTION_HEADER_CLASS } from './constants.js';
@@ -48,6 +50,7 @@ export default function ServerDockerConsole(props) {
     dockerManagementBatchUpdateConfirmKey,
     dockerNetworks,
     dockerOverviewServers,
+    dockerReverseProxyDomains,
     dockerResourceLoading,
     dockerSearchQuery,
     dockerSelectedContainerKeySet,
@@ -456,6 +459,11 @@ export default function ServerDockerConsole(props) {
                                   const containerName = getDockerContainerName(c);
                                   const containerImage = getDockerContainerImage(c);
                                   const containerPorts = getDockerContainerPorts(c);
+                                  const containerPortLinks = getDockerContainerPortLinks(c, activeServer?.host);
+                                  const containerReverseProxyDomains = matchContainerReverseProxyDomains(
+                                    c,
+                                    dockerReverseProxyDomains?.[activeServer.id]
+                                  );
                                   const updateCheck = getDockerContainerUpdateCheck(
                                     activeServer.id,
                                     c
@@ -545,11 +553,33 @@ export default function ServerDockerConsole(props) {
                                       </Table.Cell>
                                       <Table.Cell className="!px-2.5 !py-1.5">
                                         <div className="min-w-0">
-                                          <div
-                                            className="truncate text-sm leading-normal font-medium text-kumo-strong"
-                                            title={containerName}
-                                          >
-                                            {containerName}
+                                          <div className="flex min-w-0 items-center gap-1">
+                                            <div
+                                              className="min-w-0 truncate text-sm leading-normal font-medium text-kumo-strong"
+                                              title={containerName}
+                                            >
+                                              {containerName}
+                                            </div>
+                                            {containerReverseProxyDomains.map(item => (
+                                              <Button
+                                                key={item.url}
+                                                size="xs"
+                                                shape="square"
+                                                variant="primary"
+                                                className="shrink-0"
+                                                icon={<ExternalLink className="h-3 w-3" />}
+                                                aria-label={`打开 ${item.domain}`}
+                                                title={
+                                                  containerReverseProxyDomains.length > 1
+                                                    ? `反代域名：${containerReverseProxyDomains.map(d => d.domain).join('、')}`
+                                                    : `打开反代站点 ${item.url}`
+                                                }
+                                                onClick={event => {
+                                                  event.stopPropagation();
+                                                  window.open(item.url, '_blank', 'noopener,noreferrer');
+                                                }}
+                                              />
+                                            ))}
                                           </div>
                                           <div
                                             className="truncate font-mono leading-5 text-kumo-subtle"
@@ -574,12 +604,37 @@ export default function ServerDockerConsole(props) {
                                         </Badge>
                                       </Table.Cell>
                                       <Table.Cell className="!px-2 !py-1.5 text-center">
-                                        <span
-                                          className="block max-w-full truncate font-mono text-xs leading-5 text-kumo-subtle"
-                                          title={containerPorts}
-                                        >
-                                          {containerPorts || '-'}
-                                        </span>
+                                        {containerPortLinks.some(item => item.url) ? (
+                                          <span
+                                            className="flex max-w-full flex-wrap items-center justify-center gap-x-1.5 font-mono text-xs leading-5 text-kumo-subtle"
+                                            title={containerPorts}
+                                          >
+                                            {containerPortLinks.map(item => (
+                                              item.url ? (
+                                                <a
+                                                  key={item.label}
+                                                  href={item.url}
+                                                  target="_blank"
+                                                  rel="noopener noreferrer"
+                                                  className="text-brand hover:underline"
+                                                  title={`打开 ${item.url}`}
+                                                  onClick={event => event.stopPropagation()}
+                                                >
+                                                  {item.label}
+                                                </a>
+                                              ) : (
+                                                <span key={item.label}>{item.label}</span>
+                                              )
+                                            ))}
+                                          </span>
+                                        ) : (
+                                          <span
+                                            className="block max-w-full truncate font-mono text-xs leading-5 text-kumo-subtle"
+                                            title={containerPorts}
+                                          >
+                                            {containerPorts || '-'}
+                                          </span>
+                                        )}
                                       </Table.Cell>
                                       <Table.Cell className="!px-2 !py-1.5 text-center">
                                         {updatePending ? (

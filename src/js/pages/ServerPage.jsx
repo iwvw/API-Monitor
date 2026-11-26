@@ -70,6 +70,7 @@ import {
 import { canOpenRemoteDesktop, remoteDesktopPath } from '../modules/remoteDesktop.js';
 import { getSftpRoots, readSftpFile, writeSftpFile } from '../modules/server-sftp.js';
 import { formatDockerContainerPorts } from '../modules/docker-format.js';
+import { getOnepanelReverseProxyDomains } from '../modules/onepanel.js';
 import { summarizeDockerContainers } from '../modules/dockerSummary.js';
 import {
   formatDockerPruneResult,
@@ -356,6 +357,7 @@ import {
 } from './server/serverHelpers.js';
 import ServerModals from './server/ServerModals.jsx';
 import ServerAdminPanel from './server/ServerAdminPanel.jsx';
+import ServerOnepanelPanel from './server/ServerOnepanelPanel.jsx';
 import ServerDockerConsole from './server/ServerDockerConsole.jsx';
 import ServerHostTable from './server/ServerHostTable.jsx';
 import ServerSshTerminal from './server/ServerSshTerminal.jsx';
@@ -562,6 +564,7 @@ function ServerPage() {
 
   // Docker 状态
   const [dockerOverviewServers, setDockerOverviewServers] = useState([]);
+  const [dockerReverseProxyDomains, setDockerReverseProxyDomains] = useState({});
   const [dockerOverviewLoading, setDockerOverviewLoading] = useState(false);
   const [dockerSubTab, setDockerSubTab] = useState('containers'); // 'containers', 'compose', 'images', 'networks', 'volumes', 'auto-update'
   const [dockerAutoUpdate, setDockerAutoUpdate] = useState(null);
@@ -4797,6 +4800,41 @@ function ServerPage() {
     );
   }, [dockerSubTab, visibleDockerContainerServers]);
 
+  // 反代域名只是容器页的可选增强：1Panel 未连接/接口失败时静默跳过，
+  // 不影响容器列表本身。只在容器页可见时拉取，避免无谓请求。
+  const dockerReverseProxyHostIds = useMemo(
+    () => (dockerSubTab === 'containers' ? dockerContainerManagementServers.map(s => s.id) : []),
+    [dockerSubTab, dockerContainerManagementServers]
+  );
+
+  useEffect(() => {
+    const hostIds = dockerReverseProxyHostIds;
+    if (hostIds.length === 0) {
+      setDockerReverseProxyDomains({});
+      return;
+    }
+    let cancelled = false;
+    const load = async () => {
+      const entries = await Promise.all(
+        hostIds.map(async serverId => {
+          try {
+            const payload = await getOnepanelReverseProxyDomains(serverId);
+            return [serverId, asArray(payload?.data?.targets)];
+          } catch {
+            return [serverId, []];
+          }
+        })
+      );
+      if (cancelled) return;
+      setDockerReverseProxyDomains(Object.fromEntries(entries));
+    };
+    load();
+    return () => {
+      cancelled = true;
+    };
+    // hostIds 的加入顺序稳定，用 join 作为依赖避免每次渲染都重拉。
+  }, [dockerReverseProxyHostIds.join('|')]);
+
   useEffect(() => {
     if (!['compose', 'images', 'networks', 'volumes', 'stats'].includes(dockerSubTab)) return;
     const hostIds = dockerOverviewServers
@@ -6668,6 +6706,14 @@ function ServerPage() {
                 </ServerModuleTabLabel>
               ),
             },
+            {
+              value: 'onepanel',
+              label: (
+                <ServerModuleTabLabel icon={Server} short="1Panel">
+                  1Panel
+                </ServerModuleTabLabel>
+              ),
+            },
             ...(sshSessions.length > 0
               ? [
                   {
@@ -7188,6 +7234,7 @@ function ServerPage() {
         dockerManagementBatchUpdateConfirmKey={dockerManagementBatchUpdateConfirmKey}
         dockerNetworks={dockerNetworks}
         dockerOverviewServers={dockerOverviewServers}
+        dockerReverseProxyDomains={dockerReverseProxyDomains}
         dockerResourceLoading={dockerResourceLoading}
         dockerSearchQuery={dockerSearchQuery}
         dockerSelectedContainerKeySet={dockerSelectedContainerKeySet}
@@ -7252,6 +7299,7 @@ function ServerPage() {
       />
 
       {/* ==================== 4. 后台管理 ==================== */}
+      <ServerOnepanelPanel serverCurrentTab={serverCurrentTab} />
       <ServerAdminPanel
         batchAddServers={batchAddServers}
         deleteCredential={deleteCredential}
