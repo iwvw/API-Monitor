@@ -10,7 +10,11 @@ const PANE_SHELL_CLASS = 'flex min-w-0 flex-col gap-3 cq-xl:order-2 cq-xl:min-h-
 const CARD_CLASS =
   'flex min-h-0 min-w-0 flex-col overflow-hidden bg-kumo-base p-0 shadow-none cq-xl:h-[calc(100dvh-184px)] cq-xl:min-h-64';
 const STAT_TILE_CLASS = 'rounded-md border border-kumo-line/70 bg-kumo-recessed/20 px-2 py-1.5';
-const SCROLL_BODY_CLASS = 'min-h-0 min-w-0 flex-1 overflow-auto overscroll-contain scrollbar-thin';
+// 窄屏卡片为自然高度、跟随整页滚动:此时只能让表格横向滚动(overflow-x-auto +
+// touch-pan-x,竖向手势交给页面),否则 overflow-auto + overscroll-contain 会把手指
+// 落在表格上的竖向滚动吃掉,页面滚不动。桌面(cq-xl 卡片固定视口高度)才启用内部滚动。
+const SCROLL_BODY_CLASS =
+  'min-w-0 overflow-x-auto overscroll-x-contain touch-pan-x scrollbar-thin cq-xl:min-h-0 cq-xl:flex-1 cq-xl:overflow-y-auto cq-xl:overscroll-contain cq-xl:touch-auto';
 
 export function DockerManageCard({
   hosts = [],

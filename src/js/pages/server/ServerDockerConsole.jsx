@@ -428,7 +428,9 @@ export default function ServerDockerConsole(props) {
                         </LayerCard.Secondary>
 
                         <LayerCard.Primary className="flex min-h-0 min-w-0 flex-1 flex-col gap-0 overflow-hidden p-0">
-                          <div className="min-h-0 min-w-0 flex-1 overflow-auto overscroll-contain scrollbar-thin">
+                          {/* 窄屏只横向滚动(见 DockerResourceCards 的 SCROLL_BODY_CLASS 说明);
+                              桌面 cq-xl 卡片固定视口高度时才启用内部竖向滚动。 */}
+                          <div className="min-w-0 overflow-x-auto overscroll-x-contain touch-pan-x scrollbar-thin cq-xl:min-h-0 cq-xl:flex-1 cq-xl:overflow-y-auto cq-xl:overscroll-contain cq-xl:touch-auto">
                           {activeContainers.length === 0 ? (
                             <div className="p-4">
                               <EmptyState
