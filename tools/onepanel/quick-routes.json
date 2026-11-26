@@ -638,6 +638,765 @@
           }
         }
       }
+    },
+    {
+      "prefix": "/api/onepanel/{serverId}/reverse-proxy/domains",
+      "kind": "local",
+      "methods": [
+        "GET"
+      ],
+      "description": "汇总 1Panel 站点反代域名（上游端口 → 域名列表），供容器列表匹配打开",
+      "contract": {
+        "noBody": true
+      }
+    },
+    {
+      "prefix": "/api/onepanel/probe",
+      "kind": "local",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "description": "探测主机是否安装 1Panel（Agent 只读检查 1pctl / 目录 / 进程 / 8888 端口）",
+      "contract": {
+        "required": [],
+        "fields": {
+          "serverIds": {
+            "type": "array",
+            "description": "要探测的主机 ID 列表；留空则探测全部主机"
+          }
+        }
+      }
+    },
+    {
+      "prefix": "/api/onepanel/{serverId}/websites/search",
+      "kind": "proxy",
+      "methods": [
+        "POST"
+      ],
+      "description": "分页搜索网站（支持按名称/域名过滤）",
+      "upstream": {
+        "POST": {
+          "path": "/websites/search",
+          "defaults": {
+            "page": 1,
+            "pageSize": 50
+          }
+        }
+      }
+    },
+    {
+      "prefix": "/api/onepanel/{serverId}/websites/{id}/update",
+      "kind": "proxy",
+      "methods": [
+        "POST"
+      ],
+      "description": "更新网站基础信息（备注/分组/域名等）",
+      "upstream": {
+        "POST": {
+          "path": "/websites/update",
+          "bodyFrom": "path:id"
+        }
+      }
+    },
+    {
+      "prefix": "/api/onepanel/{serverId}/websites/options",
+      "kind": "proxy",
+      "methods": [
+        "POST"
+      ],
+      "description": "列出网站名称选项（下拉用）",
+      "upstream": {
+        "POST": {
+          "path": "/websites/options"
+        }
+      }
+    },
+    {
+      "prefix": "/api/onepanel/{serverId}/websites/check",
+      "kind": "proxy",
+      "methods": [
+        "POST"
+      ],
+      "description": "创建网站前的可用性检查",
+      "upstream": {
+        "POST": {
+          "path": "/websites/check"
+        }
+      }
+    },
+    {
+      "prefix": "/api/onepanel/{serverId}/websites/batch/operate",
+      "kind": "proxy",
+      "methods": [
+        "POST"
+      ],
+      "description": "批量启停网站",
+      "upstream": {
+        "POST": {
+          "path": "/websites/batch/operate"
+        }
+      }
+    },
+    {
+      "prefix": "/api/onepanel/{serverId}/websites/batch/ssl",
+      "kind": "proxy",
+      "methods": [
+        "POST"
+      ],
+      "description": "批量设置网站 HTTPS",
+      "upstream": {
+        "POST": {
+          "path": "/websites/batch/ssl"
+        }
+      }
+    },
+    {
+      "prefix": "/api/onepanel/{serverId}/websites/batch/group",
+      "kind": "proxy",
+      "methods": [
+        "POST"
+      ],
+      "description": "批量设置网站分组",
+      "upstream": {
+        "POST": {
+          "path": "/websites/batch/group"
+        }
+      }
+    },
+    {
+      "prefix": "/api/onepanel/{serverId}/websites/{id}/proxies",
+      "kind": "proxy",
+      "methods": [
+        "POST"
+      ],
+      "description": "读取网站反代配置",
+      "upstream": {
+        "POST": {
+          "path": "/websites/proxies",
+          "bodyFrom": "path:id"
+        }
+      }
+    },
+    {
+      "prefix": "/api/onepanel/{serverId}/websites/{id}/proxies/delete",
+      "kind": "proxy",
+      "methods": [
+        "POST"
+      ],
+      "description": "删除网站反代配置",
+      "upstream": {
+        "POST": {
+          "path": "/websites/proxies/delete",
+          "bodyFrom": "path:id"
+        }
+      }
+    },
+    {
+      "prefix": "/api/onepanel/{serverId}/websites/{id}/proxies/status",
+      "kind": "proxy",
+      "methods": [
+        "POST"
+      ],
+      "description": "启用/停用网站反代配置",
+      "upstream": {
+        "POST": {
+          "path": "/websites/proxies/status",
+          "bodyFrom": "path:id"
+        }
+      }
+    },
+    {
+      "prefix": "/api/onepanel/{serverId}/websites/{id}/rewrite",
+      "kind": "proxy",
+      "methods": [
+        "POST"
+      ],
+      "description": "读取网站伪静态配置",
+      "upstream": {
+        "POST": {
+          "path": "/websites/rewrite",
+          "bodyFrom": "path:id"
+        }
+      }
+    },
+    {
+      "prefix": "/api/onepanel/{serverId}/websites/{id}/rewrite/update",
+      "kind": "proxy",
+      "methods": [
+        "POST"
+      ],
+      "description": "更新网站伪静态配置",
+      "upstream": {
+        "POST": {
+          "path": "/websites/rewrite/update",
+          "bodyFrom": "path:id"
+        }
+      }
+    },
+    {
+      "prefix": "/api/onepanel/{serverId}/websites/rewrite/custom",
+      "kind": "proxy",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "description": "列出或维护自定义伪静态模板",
+      "upstream": {
+        "GET": {
+          "path": "/websites/rewrite/custom"
+        },
+        "POST": {
+          "path": "/websites/rewrite/custom"
+        }
+      }
+    },
+    {
+      "prefix": "/api/onepanel/{serverId}/websites/{id}/redirect",
+      "kind": "proxy",
+      "methods": [
+        "POST"
+      ],
+      "description": "读取网站重定向配置",
+      "upstream": {
+        "POST": {
+          "path": "/websites/redirect",
+          "bodyFrom": "path:id"
+        }
+      }
+    },
+    {
+      "prefix": "/api/onepanel/{serverId}/websites/{id}/redirect/update",
+      "kind": "proxy",
+      "methods": [
+        "POST"
+      ],
+      "description": "更新网站重定向配置",
+      "upstream": {
+        "POST": {
+          "path": "/websites/redirect/update",
+          "bodyFrom": "path:id"
+        }
+      }
+    },
+    {
+      "prefix": "/api/onepanel/{serverId}/websites/{id}/leech",
+      "kind": "proxy",
+      "methods": [
+        "POST"
+      ],
+      "description": "读取网站防盗链配置",
+      "upstream": {
+        "POST": {
+          "path": "/websites/leech",
+          "bodyFrom": "path:id"
+        }
+      }
+    },
+    {
+      "prefix": "/api/onepanel/{serverId}/websites/{id}/leech/update",
+      "kind": "proxy",
+      "methods": [
+        "POST"
+      ],
+      "description": "更新网站防盗链配置",
+      "upstream": {
+        "POST": {
+          "path": "/websites/leech/update",
+          "bodyFrom": "path:id"
+        }
+      }
+    },
+    {
+      "prefix": "/api/onepanel/{serverId}/websites/{id}/auths",
+      "kind": "proxy",
+      "methods": [
+        "POST"
+      ],
+      "description": "读取网站密码访问（AuthBasic）配置",
+      "upstream": {
+        "POST": {
+          "path": "/websites/auths",
+          "bodyFrom": "path:id"
+        }
+      }
+    },
+    {
+      "prefix": "/api/onepanel/{serverId}/websites/{id}/auths/update",
+      "kind": "proxy",
+      "methods": [
+        "POST"
+      ],
+      "description": "更新网站密码访问配置",
+      "upstream": {
+        "POST": {
+          "path": "/websites/auths/update",
+          "bodyFrom": "path:id"
+        }
+      }
+    },
+    {
+      "prefix": "/api/onepanel/{serverId}/websites/{id}/cors",
+      "kind": "proxy",
+      "methods": [
+        "GET"
+      ],
+      "description": "读取网站跨域（CORS）配置",
+      "upstream": {
+        "GET": {
+          "path": "/websites/cors/{id}"
+        }
+      }
+    },
+    {
+      "prefix": "/api/onepanel/{serverId}/websites/{id}/cors/update",
+      "kind": "proxy",
+      "methods": [
+        "POST"
+      ],
+      "description": "更新网站跨域配置",
+      "upstream": {
+        "POST": {
+          "path": "/websites/cors/update",
+          "bodyFrom": "path:id"
+        }
+      }
+    },
+    {
+      "prefix": "/api/onepanel/{serverId}/websites/{id}/dir",
+      "kind": "proxy",
+      "methods": [
+        "POST"
+      ],
+      "description": "读取网站目录配置",
+      "upstream": {
+        "POST": {
+          "path": "/websites/dir",
+          "bodyFrom": "path:id"
+        }
+      }
+    },
+    {
+      "prefix": "/api/onepanel/{serverId}/websites/{id}/dir/update",
+      "kind": "proxy",
+      "methods": [
+        "POST"
+      ],
+      "description": "更新网站目录配置",
+      "upstream": {
+        "POST": {
+          "path": "/websites/dir/update",
+          "bodyFrom": "path:id"
+        }
+      }
+    },
+    {
+      "prefix": "/api/onepanel/{serverId}/websites/{id}/dir/permission",
+      "kind": "proxy",
+      "methods": [
+        "POST"
+      ],
+      "description": "更新网站目录权限",
+      "upstream": {
+        "POST": {
+          "path": "/websites/dir/permission",
+          "bodyFrom": "path:id"
+        }
+      }
+    },
+    {
+      "prefix": "/api/onepanel/{serverId}/websites/{id}/resource",
+      "kind": "proxy",
+      "methods": [
+        "GET"
+      ],
+      "description": "读取网站资源用量",
+      "upstream": {
+        "GET": {
+          "path": "/websites/resource/{id}"
+        }
+      }
+    },
+    {
+      "prefix": "/api/onepanel/{serverId}/websites/{id}/log",
+      "kind": "proxy",
+      "methods": [
+        "POST"
+      ],
+      "description": "查询网站日志",
+      "upstream": {
+        "POST": {
+          "path": "/websites/log/search",
+          "bodyFrom": "path:id"
+        }
+      }
+    },
+    {
+      "prefix": "/api/onepanel/{serverId}/websites/{id}/log/operate",
+      "kind": "proxy",
+      "methods": [
+        "POST"
+      ],
+      "description": "操作网站日志（清理等）",
+      "upstream": {
+        "POST": {
+          "path": "/websites/log/operate",
+          "bodyFrom": "path:id"
+        }
+      }
+    },
+    {
+      "prefix": "/api/onepanel/{serverId}/websites/{id}/lbs",
+      "kind": "proxy",
+      "methods": [
+        "GET"
+      ],
+      "description": "读取网站上游节点列表",
+      "upstream": {
+        "GET": {
+          "path": "/websites/{id}/lbs"
+        }
+      }
+    },
+    {
+      "prefix": "/api/onepanel/{serverId}/websites/{id}/lbs/create",
+      "kind": "proxy",
+      "methods": [
+        "POST"
+      ],
+      "description": "新增网站上游节点",
+      "upstream": {
+        "POST": {
+          "path": "/websites/lbs/create",
+          "bodyFrom": "path:id"
+        }
+      }
+    },
+    {
+      "prefix": "/api/onepanel/{serverId}/websites/{id}/lbs/update",
+      "kind": "proxy",
+      "methods": [
+        "POST"
+      ],
+      "description": "更新网站上游节点",
+      "upstream": {
+        "POST": {
+          "path": "/websites/lbs/update",
+          "bodyFrom": "path:id"
+        }
+      }
+    },
+    {
+      "prefix": "/api/onepanel/{serverId}/websites/{id}/lbs/delete",
+      "kind": "proxy",
+      "methods": [
+        "POST"
+      ],
+      "description": "删除网站上游节点",
+      "upstream": {
+        "POST": {
+          "path": "/websites/lbs/del",
+          "bodyFrom": "path:id"
+        }
+      }
+    },
+    {
+      "prefix": "/api/onepanel/{serverId}/websites/{id}/proxy/config",
+      "kind": "proxy",
+      "methods": [
+        "GET"
+      ],
+      "description": "读取网站代理缓存配置",
+      "upstream": {
+        "GET": {
+          "path": "/websites/proxy/config/{id}"
+        }
+      }
+    },
+    {
+      "prefix": "/api/onepanel/{serverId}/websites/{id}/proxy/config/update",
+      "kind": "proxy",
+      "methods": [
+        "POST"
+      ],
+      "description": "更新网站代理缓存配置",
+      "upstream": {
+        "POST": {
+          "path": "/websites/proxy/config",
+          "bodyFrom": "path:id"
+        }
+      }
+    },
+    {
+      "prefix": "/api/onepanel/{serverId}/websites/{id}/proxy/clear",
+      "kind": "proxy",
+      "methods": [
+        "POST"
+      ],
+      "description": "清理网站代理缓存",
+      "upstream": {
+        "POST": {
+          "path": "/websites/proxy/clear",
+          "bodyFrom": "path:id"
+        }
+      }
+    },
+    {
+      "prefix": "/api/onepanel/{serverId}/websites/{id}/realip",
+      "kind": "proxy",
+      "methods": [
+        "GET"
+      ],
+      "description": "读取网站真实 IP 配置",
+      "upstream": {
+        "GET": {
+          "path": "/websites/realip/config/{id}"
+        }
+      }
+    },
+    {
+      "prefix": "/api/onepanel/{serverId}/websites/{id}/realip/update",
+      "kind": "proxy",
+      "methods": [
+        "POST"
+      ],
+      "description": "设置网站真实 IP 配置",
+      "upstream": {
+        "POST": {
+          "path": "/websites/realip/config",
+          "bodyFrom": "path:id"
+        }
+      }
+    },
+    {
+      "prefix": "/api/onepanel/{serverId}/websites/{id}/stream/update",
+      "kind": "proxy",
+      "methods": [
+        "POST"
+      ],
+      "description": "更新网站流媒体配置",
+      "upstream": {
+        "POST": {
+          "path": "/websites/stream/update",
+          "bodyFrom": "path:id"
+        }
+      }
+    },
+    {
+      "prefix": "/api/onepanel/{serverId}/websites/crosssite",
+      "kind": "proxy",
+      "methods": [
+        "POST"
+      ],
+      "description": "操作跨站访问设置",
+      "upstream": {
+        "POST": {
+          "path": "/websites/crosssite"
+        }
+      }
+    },
+    {
+      "prefix": "/api/onepanel/{serverId}/websites/databases",
+      "kind": "proxy",
+      "methods": [
+        "GET"
+      ],
+      "description": "读取网站可绑定的数据库列表",
+      "upstream": {
+        "GET": {
+          "path": "/websites/databases"
+        }
+      }
+    },
+    {
+      "prefix": "/api/onepanel/{serverId}/websites/{id}/database",
+      "kind": "proxy",
+      "methods": [
+        "POST"
+      ],
+      "description": "变更网站绑定数据库",
+      "upstream": {
+        "POST": {
+          "path": "/websites/databases",
+          "bodyFrom": "path:id"
+        }
+      }
+    },
+    {
+      "prefix": "/api/onepanel/{serverId}/websites/default/html/{type}",
+      "kind": "proxy",
+      "methods": [
+        "GET"
+      ],
+      "description": "读取默认站点页面内容",
+      "upstream": {
+        "GET": {
+          "path": "/websites/default/html/{type}"
+        }
+      }
+    },
+    {
+      "prefix": "/api/onepanel/{serverId}/websites/default/html/update",
+      "kind": "proxy",
+      "methods": [
+        "POST"
+      ],
+      "description": "更新默认站点页面",
+      "upstream": {
+        "POST": {
+          "path": "/websites/default/html/update"
+        }
+      }
+    },
+    {
+      "prefix": "/api/onepanel/{serverId}/websites/default/server",
+      "kind": "proxy",
+      "methods": [
+        "POST"
+      ],
+      "description": "设置默认站点",
+      "upstream": {
+        "POST": {
+          "path": "/websites/default/server"
+        }
+      }
+    },
+    {
+      "prefix": "/api/onepanel/{serverId}/websites/{id}/composer",
+      "kind": "proxy",
+      "methods": [
+        "POST"
+      ],
+      "description": "在网站目录执行 Composer",
+      "upstream": {
+        "POST": {
+          "path": "/websites/exec/composer",
+          "bodyFrom": "path:id"
+        }
+      }
+    },
+    {
+      "prefix": "/api/onepanel/{serverId}/ssl/search",
+      "kind": "proxy",
+      "methods": [
+        "POST"
+      ],
+      "description": "分页搜索证书",
+      "upstream": {
+        "POST": {
+          "path": "/websites/ssl/search",
+          "defaults": {
+            "page": 1,
+            "pageSize": 50
+          }
+        }
+      }
+    },
+    {
+      "prefix": "/api/onepanel/{serverId}/ssl/{id}",
+      "kind": "proxy",
+      "methods": [
+        "GET"
+      ],
+      "description": "按 ID 读取证书详情",
+      "upstream": {
+        "GET": {
+          "path": "/websites/ssl/{id}"
+        }
+      }
+    },
+    {
+      "prefix": "/api/onepanel/{serverId}/ssl/{id}/update",
+      "kind": "proxy",
+      "methods": [
+        "POST"
+      ],
+      "description": "更新证书信息",
+      "upstream": {
+        "POST": {
+          "path": "/websites/ssl/update",
+          "bodyFrom": "path:id"
+        }
+      }
+    },
+    {
+      "prefix": "/api/onepanel/{serverId}/ssl/{id}/delete",
+      "kind": "proxy",
+      "methods": [
+        "POST"
+      ],
+      "description": "删除证书",
+      "upstream": {
+        "POST": {
+          "path": "/websites/ssl/del",
+          "bodyFrom": "path:id"
+        }
+      }
+    },
+    {
+      "prefix": "/api/onepanel/{serverId}/ssl/upload",
+      "kind": "proxy",
+      "methods": [
+        "POST"
+      ],
+      "description": "上传/导入证书（paste / local）",
+      "upstream": {
+        "POST": {
+          "path": "/websites/ssl/upload"
+        }
+      }
+    },
+    {
+      "prefix": "/api/onepanel/{serverId}/ssl/download",
+      "kind": "proxy",
+      "methods": [
+        "POST"
+      ],
+      "description": "下载证书文件",
+      "upstream": {
+        "POST": {
+          "path": "/websites/ssl/download"
+        }
+      }
+    },
+    {
+      "prefix": "/api/onepanel/{serverId}/ssl/push",
+      "kind": "proxy",
+      "methods": [
+        "POST"
+      ],
+      "description": "下发证书到节点",
+      "upstream": {
+        "POST": {
+          "path": "/websites/ssl/push"
+        }
+      }
+    },
+    {
+      "prefix": "/api/onepanel/{serverId}/ssl/resolve",
+      "kind": "proxy",
+      "methods": [
+        "POST"
+      ],
+      "description": "解析证书（证书链补全）",
+      "upstream": {
+        "POST": {
+          "path": "/websites/ssl/resolve"
+        }
+      }
+    },
+    {
+      "prefix": "/api/onepanel/{serverId}/ssl/website/{websiteId}",
+      "kind": "proxy",
+      "methods": [
+        "GET"
+      ],
+      "description": "按网站 ID 查询其证书",
+      "upstream": {
+        "GET": {
+          "path": "/websites/ssl/website/{websiteId}"
+        }
+      }
     }
   ]
 }

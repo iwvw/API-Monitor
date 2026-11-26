@@ -46,6 +46,61 @@ var onepanelRouteMethods = map[string][]string{
 	"/api/onepanel/{serverId}/cronjobs": []string{"GET", "POST"},
 	"/api/onepanel/{serverId}/proxy/catalog": []string{"GET"},
 	"/api/onepanel/{serverId}/proxy": []string{"POST"},
+	"/api/onepanel/{serverId}/reverse-proxy/domains": []string{"GET"},
+	"/api/onepanel/probe": []string{"GET", "POST"},
+	"/api/onepanel/{serverId}/websites/search": []string{"POST"},
+	"/api/onepanel/{serverId}/websites/{id}/update": []string{"POST"},
+	"/api/onepanel/{serverId}/websites/options": []string{"POST"},
+	"/api/onepanel/{serverId}/websites/check": []string{"POST"},
+	"/api/onepanel/{serverId}/websites/batch/operate": []string{"POST"},
+	"/api/onepanel/{serverId}/websites/batch/ssl": []string{"POST"},
+	"/api/onepanel/{serverId}/websites/batch/group": []string{"POST"},
+	"/api/onepanel/{serverId}/websites/{id}/proxies": []string{"POST"},
+	"/api/onepanel/{serverId}/websites/{id}/proxies/delete": []string{"POST"},
+	"/api/onepanel/{serverId}/websites/{id}/proxies/status": []string{"POST"},
+	"/api/onepanel/{serverId}/websites/{id}/rewrite": []string{"POST"},
+	"/api/onepanel/{serverId}/websites/{id}/rewrite/update": []string{"POST"},
+	"/api/onepanel/{serverId}/websites/rewrite/custom": []string{"GET", "POST"},
+	"/api/onepanel/{serverId}/websites/{id}/redirect": []string{"POST"},
+	"/api/onepanel/{serverId}/websites/{id}/redirect/update": []string{"POST"},
+	"/api/onepanel/{serverId}/websites/{id}/leech": []string{"POST"},
+	"/api/onepanel/{serverId}/websites/{id}/leech/update": []string{"POST"},
+	"/api/onepanel/{serverId}/websites/{id}/auths": []string{"POST"},
+	"/api/onepanel/{serverId}/websites/{id}/auths/update": []string{"POST"},
+	"/api/onepanel/{serverId}/websites/{id}/cors": []string{"GET"},
+	"/api/onepanel/{serverId}/websites/{id}/cors/update": []string{"POST"},
+	"/api/onepanel/{serverId}/websites/{id}/dir": []string{"POST"},
+	"/api/onepanel/{serverId}/websites/{id}/dir/update": []string{"POST"},
+	"/api/onepanel/{serverId}/websites/{id}/dir/permission": []string{"POST"},
+	"/api/onepanel/{serverId}/websites/{id}/resource": []string{"GET"},
+	"/api/onepanel/{serverId}/websites/{id}/log": []string{"POST"},
+	"/api/onepanel/{serverId}/websites/{id}/log/operate": []string{"POST"},
+	"/api/onepanel/{serverId}/websites/{id}/lbs": []string{"GET"},
+	"/api/onepanel/{serverId}/websites/{id}/lbs/create": []string{"POST"},
+	"/api/onepanel/{serverId}/websites/{id}/lbs/update": []string{"POST"},
+	"/api/onepanel/{serverId}/websites/{id}/lbs/delete": []string{"POST"},
+	"/api/onepanel/{serverId}/websites/{id}/proxy/config": []string{"GET"},
+	"/api/onepanel/{serverId}/websites/{id}/proxy/config/update": []string{"POST"},
+	"/api/onepanel/{serverId}/websites/{id}/proxy/clear": []string{"POST"},
+	"/api/onepanel/{serverId}/websites/{id}/realip": []string{"GET"},
+	"/api/onepanel/{serverId}/websites/{id}/realip/update": []string{"POST"},
+	"/api/onepanel/{serverId}/websites/{id}/stream/update": []string{"POST"},
+	"/api/onepanel/{serverId}/websites/crosssite": []string{"POST"},
+	"/api/onepanel/{serverId}/websites/databases": []string{"GET"},
+	"/api/onepanel/{serverId}/websites/{id}/database": []string{"POST"},
+	"/api/onepanel/{serverId}/websites/default/html/{type}": []string{"GET"},
+	"/api/onepanel/{serverId}/websites/default/html/update": []string{"POST"},
+	"/api/onepanel/{serverId}/websites/default/server": []string{"POST"},
+	"/api/onepanel/{serverId}/websites/{id}/composer": []string{"POST"},
+	"/api/onepanel/{serverId}/ssl/search": []string{"POST"},
+	"/api/onepanel/{serverId}/ssl/{id}": []string{"GET"},
+	"/api/onepanel/{serverId}/ssl/{id}/update": []string{"POST"},
+	"/api/onepanel/{serverId}/ssl/{id}/delete": []string{"POST"},
+	"/api/onepanel/{serverId}/ssl/upload": []string{"POST"},
+	"/api/onepanel/{serverId}/ssl/download": []string{"POST"},
+	"/api/onepanel/{serverId}/ssl/push": []string{"POST"},
+	"/api/onepanel/{serverId}/ssl/resolve": []string{"POST"},
+	"/api/onepanel/{serverId}/ssl/website/{websiteId}": []string{"GET"},
 }
 
 // onepanelGeneratedSeeds 由生成器产出，覆盖 onepanel 全部快捷路由的文档条目。
@@ -345,6 +400,445 @@ var onepanelGeneratedSeeds = []apiDocSeed{
 			Detail:  "通用代理：直接调用任意 1Panel API（method / path / body 由调用方指定）",
 			Methods: []string{"POST"},
 			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID"}},
+		},
+	},
+	{
+		Route: manifest.Route{Prefix: "/api/onepanel/{serverId}/reverse-proxy/domains", Module: "onepanel", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "汇总 1Panel 站点反代域名（上游端口 → 域名列表），供容器列表匹配打开", MatchMode: manifest.MatchPattern},
+		Docs: apiRouteDocs{
+			Detail:  "汇总 1Panel 站点反代域名（上游端口 → 域名列表），供容器列表匹配打开",
+			Methods: []string{"GET"},
+			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID"}},
+		},
+	},
+	{
+		Route: manifest.Route{Prefix: "/api/onepanel/probe", Module: "onepanel", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "探测主机是否安装 1Panel（Agent 只读检查 1pctl / 目录 / 进程 / 8888 端口）", MatchMode: manifest.MatchExact},
+		Docs: apiRouteDocs{
+			Detail:  "探测主机是否安装 1Panel（Agent 只读检查 1pctl / 目录 / 进程 / 8888 端口）",
+			Methods: []string{"GET", "POST"},
+		},
+	},
+	{
+		Route: manifest.Route{Prefix: "/api/onepanel/{serverId}/websites/search", Module: "onepanel", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "分页搜索网站（支持按名称/域名过滤）", MatchMode: manifest.MatchPattern},
+		Docs: apiRouteDocs{
+			Detail:  "分页搜索网站（支持按名称/域名过滤）",
+			Methods: []string{"POST"},
+			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID"}},
+		},
+	},
+	{
+		Route: manifest.Route{Prefix: "/api/onepanel/{serverId}/websites/{id}/update", Module: "onepanel", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "更新网站基础信息（备注/分组/域名等）", MatchMode: manifest.MatchPattern},
+		Docs: apiRouteDocs{
+			Detail:  "更新网站基础信息（备注/分组/域名等）",
+			Methods: []string{"POST"},
+			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID"}, {Name: "id", In: "path", Required: true, Description: "资源主键 ID"}},
+		},
+	},
+	{
+		Route: manifest.Route{Prefix: "/api/onepanel/{serverId}/websites/options", Module: "onepanel", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "列出网站名称选项（下拉用）", MatchMode: manifest.MatchPattern},
+		Docs: apiRouteDocs{
+			Detail:  "列出网站名称选项（下拉用）",
+			Methods: []string{"POST"},
+			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID"}},
+		},
+	},
+	{
+		Route: manifest.Route{Prefix: "/api/onepanel/{serverId}/websites/check", Module: "onepanel", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "创建网站前的可用性检查", MatchMode: manifest.MatchPattern},
+		Docs: apiRouteDocs{
+			Detail:  "创建网站前的可用性检查",
+			Methods: []string{"POST"},
+			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID"}},
+		},
+	},
+	{
+		Route: manifest.Route{Prefix: "/api/onepanel/{serverId}/websites/batch/operate", Module: "onepanel", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "批量启停网站", MatchMode: manifest.MatchPattern},
+		Docs: apiRouteDocs{
+			Detail:  "批量启停网站",
+			Methods: []string{"POST"},
+			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID"}},
+		},
+	},
+	{
+		Route: manifest.Route{Prefix: "/api/onepanel/{serverId}/websites/batch/ssl", Module: "onepanel", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "批量设置网站 HTTPS", MatchMode: manifest.MatchPattern},
+		Docs: apiRouteDocs{
+			Detail:  "批量设置网站 HTTPS",
+			Methods: []string{"POST"},
+			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID"}},
+		},
+	},
+	{
+		Route: manifest.Route{Prefix: "/api/onepanel/{serverId}/websites/batch/group", Module: "onepanel", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "批量设置网站分组", MatchMode: manifest.MatchPattern},
+		Docs: apiRouteDocs{
+			Detail:  "批量设置网站分组",
+			Methods: []string{"POST"},
+			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID"}},
+		},
+	},
+	{
+		Route: manifest.Route{Prefix: "/api/onepanel/{serverId}/websites/{id}/proxies", Module: "onepanel", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "读取网站反代配置", MatchMode: manifest.MatchPattern},
+		Docs: apiRouteDocs{
+			Detail:  "读取网站反代配置",
+			Methods: []string{"POST"},
+			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID"}, {Name: "id", In: "path", Required: true, Description: "资源主键 ID"}},
+		},
+	},
+	{
+		Route: manifest.Route{Prefix: "/api/onepanel/{serverId}/websites/{id}/proxies/delete", Module: "onepanel", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "删除网站反代配置", MatchMode: manifest.MatchPattern},
+		Docs: apiRouteDocs{
+			Detail:  "删除网站反代配置",
+			Methods: []string{"POST"},
+			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID"}, {Name: "id", In: "path", Required: true, Description: "资源主键 ID"}},
+		},
+	},
+	{
+		Route: manifest.Route{Prefix: "/api/onepanel/{serverId}/websites/{id}/proxies/status", Module: "onepanel", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "启用/停用网站反代配置", MatchMode: manifest.MatchPattern},
+		Docs: apiRouteDocs{
+			Detail:  "启用/停用网站反代配置",
+			Methods: []string{"POST"},
+			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID"}, {Name: "id", In: "path", Required: true, Description: "资源主键 ID"}},
+		},
+	},
+	{
+		Route: manifest.Route{Prefix: "/api/onepanel/{serverId}/websites/{id}/rewrite", Module: "onepanel", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "读取网站伪静态配置", MatchMode: manifest.MatchPattern},
+		Docs: apiRouteDocs{
+			Detail:  "读取网站伪静态配置",
+			Methods: []string{"POST"},
+			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID"}, {Name: "id", In: "path", Required: true, Description: "资源主键 ID"}},
+		},
+	},
+	{
+		Route: manifest.Route{Prefix: "/api/onepanel/{serverId}/websites/{id}/rewrite/update", Module: "onepanel", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "更新网站伪静态配置", MatchMode: manifest.MatchPattern},
+		Docs: apiRouteDocs{
+			Detail:  "更新网站伪静态配置",
+			Methods: []string{"POST"},
+			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID"}, {Name: "id", In: "path", Required: true, Description: "资源主键 ID"}},
+		},
+	},
+	{
+		Route: manifest.Route{Prefix: "/api/onepanel/{serverId}/websites/rewrite/custom", Module: "onepanel", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "列出或维护自定义伪静态模板", MatchMode: manifest.MatchPattern},
+		Docs: apiRouteDocs{
+			Detail:  "列出或维护自定义伪静态模板",
+			Methods: []string{"GET", "POST"},
+			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID"}},
+		},
+	},
+	{
+		Route: manifest.Route{Prefix: "/api/onepanel/{serverId}/websites/{id}/redirect", Module: "onepanel", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "读取网站重定向配置", MatchMode: manifest.MatchPattern},
+		Docs: apiRouteDocs{
+			Detail:  "读取网站重定向配置",
+			Methods: []string{"POST"},
+			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID"}, {Name: "id", In: "path", Required: true, Description: "资源主键 ID"}},
+		},
+	},
+	{
+		Route: manifest.Route{Prefix: "/api/onepanel/{serverId}/websites/{id}/redirect/update", Module: "onepanel", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "更新网站重定向配置", MatchMode: manifest.MatchPattern},
+		Docs: apiRouteDocs{
+			Detail:  "更新网站重定向配置",
+			Methods: []string{"POST"},
+			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID"}, {Name: "id", In: "path", Required: true, Description: "资源主键 ID"}},
+		},
+	},
+	{
+		Route: manifest.Route{Prefix: "/api/onepanel/{serverId}/websites/{id}/leech", Module: "onepanel", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "读取网站防盗链配置", MatchMode: manifest.MatchPattern},
+		Docs: apiRouteDocs{
+			Detail:  "读取网站防盗链配置",
+			Methods: []string{"POST"},
+			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID"}, {Name: "id", In: "path", Required: true, Description: "资源主键 ID"}},
+		},
+	},
+	{
+		Route: manifest.Route{Prefix: "/api/onepanel/{serverId}/websites/{id}/leech/update", Module: "onepanel", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "更新网站防盗链配置", MatchMode: manifest.MatchPattern},
+		Docs: apiRouteDocs{
+			Detail:  "更新网站防盗链配置",
+			Methods: []string{"POST"},
+			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID"}, {Name: "id", In: "path", Required: true, Description: "资源主键 ID"}},
+		},
+	},
+	{
+		Route: manifest.Route{Prefix: "/api/onepanel/{serverId}/websites/{id}/auths", Module: "onepanel", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "读取网站密码访问（AuthBasic）配置", MatchMode: manifest.MatchPattern},
+		Docs: apiRouteDocs{
+			Detail:  "读取网站密码访问（AuthBasic）配置",
+			Methods: []string{"POST"},
+			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID"}, {Name: "id", In: "path", Required: true, Description: "资源主键 ID"}},
+		},
+	},
+	{
+		Route: manifest.Route{Prefix: "/api/onepanel/{serverId}/websites/{id}/auths/update", Module: "onepanel", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "更新网站密码访问配置", MatchMode: manifest.MatchPattern},
+		Docs: apiRouteDocs{
+			Detail:  "更新网站密码访问配置",
+			Methods: []string{"POST"},
+			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID"}, {Name: "id", In: "path", Required: true, Description: "资源主键 ID"}},
+		},
+	},
+	{
+		Route: manifest.Route{Prefix: "/api/onepanel/{serverId}/websites/{id}/cors", Module: "onepanel", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "读取网站跨域（CORS）配置", MatchMode: manifest.MatchPattern},
+		Docs: apiRouteDocs{
+			Detail:  "读取网站跨域（CORS）配置",
+			Methods: []string{"GET"},
+			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID"}, {Name: "id", In: "path", Required: true, Description: "资源主键 ID"}},
+		},
+	},
+	{
+		Route: manifest.Route{Prefix: "/api/onepanel/{serverId}/websites/{id}/cors/update", Module: "onepanel", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "更新网站跨域配置", MatchMode: manifest.MatchPattern},
+		Docs: apiRouteDocs{
+			Detail:  "更新网站跨域配置",
+			Methods: []string{"POST"},
+			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID"}, {Name: "id", In: "path", Required: true, Description: "资源主键 ID"}},
+		},
+	},
+	{
+		Route: manifest.Route{Prefix: "/api/onepanel/{serverId}/websites/{id}/dir", Module: "onepanel", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "读取网站目录配置", MatchMode: manifest.MatchPattern},
+		Docs: apiRouteDocs{
+			Detail:  "读取网站目录配置",
+			Methods: []string{"POST"},
+			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID"}, {Name: "id", In: "path", Required: true, Description: "资源主键 ID"}},
+		},
+	},
+	{
+		Route: manifest.Route{Prefix: "/api/onepanel/{serverId}/websites/{id}/dir/update", Module: "onepanel", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "更新网站目录配置", MatchMode: manifest.MatchPattern},
+		Docs: apiRouteDocs{
+			Detail:  "更新网站目录配置",
+			Methods: []string{"POST"},
+			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID"}, {Name: "id", In: "path", Required: true, Description: "资源主键 ID"}},
+		},
+	},
+	{
+		Route: manifest.Route{Prefix: "/api/onepanel/{serverId}/websites/{id}/dir/permission", Module: "onepanel", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "更新网站目录权限", MatchMode: manifest.MatchPattern},
+		Docs: apiRouteDocs{
+			Detail:  "更新网站目录权限",
+			Methods: []string{"POST"},
+			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID"}, {Name: "id", In: "path", Required: true, Description: "资源主键 ID"}},
+		},
+	},
+	{
+		Route: manifest.Route{Prefix: "/api/onepanel/{serverId}/websites/{id}/resource", Module: "onepanel", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "读取网站资源用量", MatchMode: manifest.MatchPattern},
+		Docs: apiRouteDocs{
+			Detail:  "读取网站资源用量",
+			Methods: []string{"GET"},
+			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID"}, {Name: "id", In: "path", Required: true, Description: "资源主键 ID"}},
+		},
+	},
+	{
+		Route: manifest.Route{Prefix: "/api/onepanel/{serverId}/websites/{id}/log", Module: "onepanel", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "查询网站日志", MatchMode: manifest.MatchPattern},
+		Docs: apiRouteDocs{
+			Detail:  "查询网站日志",
+			Methods: []string{"POST"},
+			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID"}, {Name: "id", In: "path", Required: true, Description: "资源主键 ID"}},
+		},
+	},
+	{
+		Route: manifest.Route{Prefix: "/api/onepanel/{serverId}/websites/{id}/log/operate", Module: "onepanel", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "操作网站日志（清理等）", MatchMode: manifest.MatchPattern},
+		Docs: apiRouteDocs{
+			Detail:  "操作网站日志（清理等）",
+			Methods: []string{"POST"},
+			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID"}, {Name: "id", In: "path", Required: true, Description: "资源主键 ID"}},
+		},
+	},
+	{
+		Route: manifest.Route{Prefix: "/api/onepanel/{serverId}/websites/{id}/lbs", Module: "onepanel", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "读取网站上游节点列表", MatchMode: manifest.MatchPattern},
+		Docs: apiRouteDocs{
+			Detail:  "读取网站上游节点列表",
+			Methods: []string{"GET"},
+			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID"}, {Name: "id", In: "path", Required: true, Description: "资源主键 ID"}},
+		},
+	},
+	{
+		Route: manifest.Route{Prefix: "/api/onepanel/{serverId}/websites/{id}/lbs/create", Module: "onepanel", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "新增网站上游节点", MatchMode: manifest.MatchPattern},
+		Docs: apiRouteDocs{
+			Detail:  "新增网站上游节点",
+			Methods: []string{"POST"},
+			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID"}, {Name: "id", In: "path", Required: true, Description: "资源主键 ID"}},
+		},
+	},
+	{
+		Route: manifest.Route{Prefix: "/api/onepanel/{serverId}/websites/{id}/lbs/update", Module: "onepanel", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "更新网站上游节点", MatchMode: manifest.MatchPattern},
+		Docs: apiRouteDocs{
+			Detail:  "更新网站上游节点",
+			Methods: []string{"POST"},
+			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID"}, {Name: "id", In: "path", Required: true, Description: "资源主键 ID"}},
+		},
+	},
+	{
+		Route: manifest.Route{Prefix: "/api/onepanel/{serverId}/websites/{id}/lbs/delete", Module: "onepanel", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "删除网站上游节点", MatchMode: manifest.MatchPattern},
+		Docs: apiRouteDocs{
+			Detail:  "删除网站上游节点",
+			Methods: []string{"POST"},
+			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID"}, {Name: "id", In: "path", Required: true, Description: "资源主键 ID"}},
+		},
+	},
+	{
+		Route: manifest.Route{Prefix: "/api/onepanel/{serverId}/websites/{id}/proxy/config", Module: "onepanel", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "读取网站代理缓存配置", MatchMode: manifest.MatchPattern},
+		Docs: apiRouteDocs{
+			Detail:  "读取网站代理缓存配置",
+			Methods: []string{"GET"},
+			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID"}, {Name: "id", In: "path", Required: true, Description: "资源主键 ID"}},
+		},
+	},
+	{
+		Route: manifest.Route{Prefix: "/api/onepanel/{serverId}/websites/{id}/proxy/config/update", Module: "onepanel", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "更新网站代理缓存配置", MatchMode: manifest.MatchPattern},
+		Docs: apiRouteDocs{
+			Detail:  "更新网站代理缓存配置",
+			Methods: []string{"POST"},
+			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID"}, {Name: "id", In: "path", Required: true, Description: "资源主键 ID"}},
+		},
+	},
+	{
+		Route: manifest.Route{Prefix: "/api/onepanel/{serverId}/websites/{id}/proxy/clear", Module: "onepanel", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "清理网站代理缓存", MatchMode: manifest.MatchPattern},
+		Docs: apiRouteDocs{
+			Detail:  "清理网站代理缓存",
+			Methods: []string{"POST"},
+			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID"}, {Name: "id", In: "path", Required: true, Description: "资源主键 ID"}},
+		},
+	},
+	{
+		Route: manifest.Route{Prefix: "/api/onepanel/{serverId}/websites/{id}/realip", Module: "onepanel", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "读取网站真实 IP 配置", MatchMode: manifest.MatchPattern},
+		Docs: apiRouteDocs{
+			Detail:  "读取网站真实 IP 配置",
+			Methods: []string{"GET"},
+			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID"}, {Name: "id", In: "path", Required: true, Description: "资源主键 ID"}},
+		},
+	},
+	{
+		Route: manifest.Route{Prefix: "/api/onepanel/{serverId}/websites/{id}/realip/update", Module: "onepanel", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "设置网站真实 IP 配置", MatchMode: manifest.MatchPattern},
+		Docs: apiRouteDocs{
+			Detail:  "设置网站真实 IP 配置",
+			Methods: []string{"POST"},
+			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID"}, {Name: "id", In: "path", Required: true, Description: "资源主键 ID"}},
+		},
+	},
+	{
+		Route: manifest.Route{Prefix: "/api/onepanel/{serverId}/websites/{id}/stream/update", Module: "onepanel", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "更新网站流媒体配置", MatchMode: manifest.MatchPattern},
+		Docs: apiRouteDocs{
+			Detail:  "更新网站流媒体配置",
+			Methods: []string{"POST"},
+			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID"}, {Name: "id", In: "path", Required: true, Description: "资源主键 ID"}},
+		},
+	},
+	{
+		Route: manifest.Route{Prefix: "/api/onepanel/{serverId}/websites/crosssite", Module: "onepanel", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "操作跨站访问设置", MatchMode: manifest.MatchPattern},
+		Docs: apiRouteDocs{
+			Detail:  "操作跨站访问设置",
+			Methods: []string{"POST"},
+			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID"}},
+		},
+	},
+	{
+		Route: manifest.Route{Prefix: "/api/onepanel/{serverId}/websites/databases", Module: "onepanel", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "读取网站可绑定的数据库列表", MatchMode: manifest.MatchPattern},
+		Docs: apiRouteDocs{
+			Detail:  "读取网站可绑定的数据库列表",
+			Methods: []string{"GET"},
+			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID"}},
+		},
+	},
+	{
+		Route: manifest.Route{Prefix: "/api/onepanel/{serverId}/websites/{id}/database", Module: "onepanel", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "变更网站绑定数据库", MatchMode: manifest.MatchPattern},
+		Docs: apiRouteDocs{
+			Detail:  "变更网站绑定数据库",
+			Methods: []string{"POST"},
+			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID"}, {Name: "id", In: "path", Required: true, Description: "资源主键 ID"}},
+		},
+	},
+	{
+		Route: manifest.Route{Prefix: "/api/onepanel/{serverId}/websites/default/html/{type}", Module: "onepanel", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "读取默认站点页面内容", MatchMode: manifest.MatchPattern},
+		Docs: apiRouteDocs{
+			Detail:  "读取默认站点页面内容",
+			Methods: []string{"GET"},
+			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID"}, {Name: "type", In: "path", Required: true, Description: "路径参数"}},
+		},
+	},
+	{
+		Route: manifest.Route{Prefix: "/api/onepanel/{serverId}/websites/default/html/update", Module: "onepanel", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "更新默认站点页面", MatchMode: manifest.MatchPattern},
+		Docs: apiRouteDocs{
+			Detail:  "更新默认站点页面",
+			Methods: []string{"POST"},
+			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID"}},
+		},
+	},
+	{
+		Route: manifest.Route{Prefix: "/api/onepanel/{serverId}/websites/default/server", Module: "onepanel", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "设置默认站点", MatchMode: manifest.MatchPattern},
+		Docs: apiRouteDocs{
+			Detail:  "设置默认站点",
+			Methods: []string{"POST"},
+			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID"}},
+		},
+	},
+	{
+		Route: manifest.Route{Prefix: "/api/onepanel/{serverId}/websites/{id}/composer", Module: "onepanel", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "在网站目录执行 Composer", MatchMode: manifest.MatchPattern},
+		Docs: apiRouteDocs{
+			Detail:  "在网站目录执行 Composer",
+			Methods: []string{"POST"},
+			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID"}, {Name: "id", In: "path", Required: true, Description: "资源主键 ID"}},
+		},
+	},
+	{
+		Route: manifest.Route{Prefix: "/api/onepanel/{serverId}/ssl/search", Module: "onepanel", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "分页搜索证书", MatchMode: manifest.MatchPattern},
+		Docs: apiRouteDocs{
+			Detail:  "分页搜索证书",
+			Methods: []string{"POST"},
+			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID"}},
+		},
+	},
+	{
+		Route: manifest.Route{Prefix: "/api/onepanel/{serverId}/ssl/{id}", Module: "onepanel", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "按 ID 读取证书详情", MatchMode: manifest.MatchPattern},
+		Docs: apiRouteDocs{
+			Detail:  "按 ID 读取证书详情",
+			Methods: []string{"GET"},
+			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID"}, {Name: "id", In: "path", Required: true, Description: "资源主键 ID"}},
+		},
+	},
+	{
+		Route: manifest.Route{Prefix: "/api/onepanel/{serverId}/ssl/{id}/update", Module: "onepanel", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "更新证书信息", MatchMode: manifest.MatchPattern},
+		Docs: apiRouteDocs{
+			Detail:  "更新证书信息",
+			Methods: []string{"POST"},
+			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID"}, {Name: "id", In: "path", Required: true, Description: "资源主键 ID"}},
+		},
+	},
+	{
+		Route: manifest.Route{Prefix: "/api/onepanel/{serverId}/ssl/{id}/delete", Module: "onepanel", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "删除证书", MatchMode: manifest.MatchPattern},
+		Docs: apiRouteDocs{
+			Detail:  "删除证书",
+			Methods: []string{"POST"},
+			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID"}, {Name: "id", In: "path", Required: true, Description: "资源主键 ID"}},
+		},
+	},
+	{
+		Route: manifest.Route{Prefix: "/api/onepanel/{serverId}/ssl/upload", Module: "onepanel", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "上传/导入证书（paste / local）", MatchMode: manifest.MatchPattern},
+		Docs: apiRouteDocs{
+			Detail:  "上传/导入证书（paste / local）",
+			Methods: []string{"POST"},
+			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID"}},
+		},
+	},
+	{
+		Route: manifest.Route{Prefix: "/api/onepanel/{serverId}/ssl/download", Module: "onepanel", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "下载证书文件", MatchMode: manifest.MatchPattern},
+		Docs: apiRouteDocs{
+			Detail:  "下载证书文件",
+			Methods: []string{"POST"},
+			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID"}},
+		},
+	},
+	{
+		Route: manifest.Route{Prefix: "/api/onepanel/{serverId}/ssl/push", Module: "onepanel", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "下发证书到节点", MatchMode: manifest.MatchPattern},
+		Docs: apiRouteDocs{
+			Detail:  "下发证书到节点",
+			Methods: []string{"POST"},
+			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID"}},
+		},
+	},
+	{
+		Route: manifest.Route{Prefix: "/api/onepanel/{serverId}/ssl/resolve", Module: "onepanel", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "解析证书（证书链补全）", MatchMode: manifest.MatchPattern},
+		Docs: apiRouteDocs{
+			Detail:  "解析证书（证书链补全）",
+			Methods: []string{"POST"},
+			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID"}},
+		},
+	},
+	{
+		Route: manifest.Route{Prefix: "/api/onepanel/{serverId}/ssl/website/{websiteId}", Module: "onepanel", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "按网站 ID 查询其证书", MatchMode: manifest.MatchPattern},
+		Docs: apiRouteDocs{
+			Detail:  "按网站 ID 查询其证书",
+			Methods: []string{"GET"},
+			PathParams: []apiDocParameter{{Name: "serverId", In: "path", Required: true, Description: "API Monitor 服务器 ID"}, {Name: "websiteId", In: "path", Required: true, Description: "路径参数"}},
 		},
 	},
 }
@@ -672,6 +1166,331 @@ func init() {
 		"path": {t: "string", req: true, d: "1Panel API 路径，如 /websites/list（不含 /api/v2 前缀）"},
 		"body": {t: "object", req: false, d: "请求体（可选）"},
 	})
+
+	routeRequestContracts["/api/onepanel/{serverId}/reverse-proxy/domains"] = obj(nil, map[string]prop{})
+
+	routeRequestContracts["/api/onepanel/probe"] = obj([]string{}, map[string]prop{
+		"serverIds": {t: "array", req: false, d: "要探测的主机 ID 列表；留空则探测全部主机"},
+	})
+
+	routeRequestContracts["/api/onepanel/{serverId}/websites/search"] = obj([]string{"order", "orderBy", "page", "pageSize"}, map[string]prop{
+		"name": {t: "string", req: false, d: "request.WebsiteSearch.name"},
+		"order": {t: "string", req: true, e: []string{"null", "ascending", "descending"}, d: "request.WebsiteSearch.order"},
+		"orderBy": {t: "string", req: true, e: []string{"primary_domain", "type", "status", "createdAt", "expire_date", "created_at", "favorite"}, d: "request.WebsiteSearch.orderBy"},
+		"page": {t: "integer", req: true, d: "request.WebsiteSearch.page"},
+		"pageSize": {t: "integer", req: true, d: "request.WebsiteSearch.pageSize"},
+		"type": {t: "string", req: false, d: "request.WebsiteSearch.type"},
+		"websiteGroupId": {t: "integer", req: false, d: "request.WebsiteSearch.websiteGroupId"},
+	})
+
+	routeRequestContracts["/api/onepanel/{serverId}/websites/{id}/update"] = obj([]string{"primaryDomain"}, map[string]prop{
+		"IPV6": {t: "boolean", req: false, d: "request.WebsiteUpdate.IPV6"},
+		"expireDate": {t: "string", req: false, d: "request.WebsiteUpdate.expireDate"},
+		"favorite": {t: "boolean", req: false, d: "request.WebsiteUpdate.favorite"},
+		"id": {t: "integer", req: false, d: "request.WebsiteUpdate.id（可由路径参数自动注入）"},
+		"primaryDomain": {t: "string", req: true, d: "request.WebsiteUpdate.primaryDomain"},
+		"remark": {t: "string", req: false, d: "request.WebsiteUpdate.remark"},
+		"webSiteGroupID": {t: "integer", req: false, d: "request.WebsiteUpdate.webSiteGroupID"},
+	})
+
+	routeRequestContracts["/api/onepanel/{serverId}/websites/options"] = obj(nil, map[string]prop{})
+
+	routeRequestContracts["/api/onepanel/{serverId}/websites/check"] = obj([]string{}, map[string]prop{
+		"InstallIds": {t: "array", req: false, d: "request.WebsiteInstallCheckReq.InstallIds"},
+	})
+
+	routeRequestContracts["/api/onepanel/{serverId}/websites/batch/operate"] = obj([]string{"ids", "operate", "taskID"}, map[string]prop{
+		"ids": {t: "array", req: true, d: "request.BatchWebsiteOp.ids"},
+		"operate": {t: "string", req: true, d: "request.BatchWebsiteOp.operate"},
+		"taskID": {t: "string", req: true, d: "request.BatchWebsiteOp.taskID"},
+	})
+
+	routeRequestContracts["/api/onepanel/{serverId}/websites/batch/ssl"] = obj([]string{"ids", "taskID"}, map[string]prop{
+		"SSLProtocol": {t: "array", req: false, d: "request.BatchWebsiteHttps.SSLProtocol"},
+		"algorithm": {t: "string", req: false, d: "request.BatchWebsiteHttps.algorithm"},
+		"certificate": {t: "string", req: false, d: "request.BatchWebsiteHttps.certificate"},
+		"certificatePath": {t: "string", req: false, d: "request.BatchWebsiteHttps.certificatePath"},
+		"hsts": {t: "boolean", req: false, d: "request.BatchWebsiteHttps.hsts"},
+		"hstsIncludeSubDomains": {t: "boolean", req: false, d: "request.BatchWebsiteHttps.hstsIncludeSubDomains"},
+		"http3": {t: "boolean", req: false, d: "request.BatchWebsiteHttps.http3"},
+		"httpConfig": {t: "string", req: false, e: []string{"HTTPSOnly", "HTTPAlso", "HTTPToHTTPS"}, d: "request.BatchWebsiteHttps.httpConfig"},
+		"httpsPorts": {t: "array", req: false, d: "request.BatchWebsiteHttps.httpsPorts"},
+		"ids": {t: "array", req: true, d: "request.BatchWebsiteHttps.ids"},
+		"importType": {t: "string", req: false, d: "request.BatchWebsiteHttps.importType"},
+		"privateKey": {t: "string", req: false, d: "request.BatchWebsiteHttps.privateKey"},
+		"privateKeyPath": {t: "string", req: false, d: "request.BatchWebsiteHttps.privateKeyPath"},
+		"taskID": {t: "string", req: true, d: "request.BatchWebsiteHttps.taskID"},
+		"type": {t: "string", req: false, e: []string{"existed", "auto", "manual"}, d: "request.BatchWebsiteHttps.type"},
+		"websiteSSLId": {t: "integer", req: false, d: "request.BatchWebsiteHttps.websiteSSLId"},
+	})
+
+	routeRequestContracts["/api/onepanel/{serverId}/websites/batch/group"] = obj([]string{"groupID", "ids"}, map[string]prop{
+		"groupID": {t: "integer", req: true, d: "request.BatchWebsiteGroup.groupID"},
+		"ids": {t: "array", req: true, d: "request.BatchWebsiteGroup.ids"},
+	})
+
+	routeRequestContracts["/api/onepanel/{serverId}/websites/{id}/proxies"] = obj([]string{}, map[string]prop{
+		"id": {t: "integer", req: false, d: "request.WebsiteProxyReq.id（可由路径参数自动注入）"},
+	})
+
+	routeRequestContracts["/api/onepanel/{serverId}/websites/{id}/proxies/delete"] = obj([]string{"name"}, map[string]prop{
+		"id": {t: "integer", req: false, d: "request.WebsiteProxyDel.id（可由路径参数自动注入）"},
+		"name": {t: "string", req: true, d: "request.WebsiteProxyDel.name"},
+	})
+
+	routeRequestContracts["/api/onepanel/{serverId}/websites/{id}/proxies/status"] = obj([]string{"name", "status"}, map[string]prop{
+		"id": {t: "integer", req: false, d: "request.WebsiteProxyStatusUpdate.id（可由路径参数自动注入）"},
+		"name": {t: "string", req: true, d: "request.WebsiteProxyStatusUpdate.name"},
+		"status": {t: "string", req: true, d: "request.WebsiteProxyStatusUpdate.status"},
+	})
+
+	routeRequestContracts["/api/onepanel/{serverId}/websites/{id}/rewrite"] = obj([]string{"name", "websiteId"}, map[string]prop{
+		"name": {t: "string", req: true, d: "request.NginxRewriteReq.name"},
+		"websiteId": {t: "integer", req: true, d: "request.NginxRewriteReq.websiteId"},
+	})
+
+	routeRequestContracts["/api/onepanel/{serverId}/websites/{id}/rewrite/update"] = obj([]string{"name", "websiteId"}, map[string]prop{
+		"content": {t: "string", req: false, d: "request.NginxRewriteUpdate.content"},
+		"name": {t: "string", req: true, d: "request.NginxRewriteUpdate.name"},
+		"websiteId": {t: "integer", req: true, d: "request.NginxRewriteUpdate.websiteId"},
+	})
+
+	routeRequestContracts["/api/onepanel/{serverId}/websites/rewrite/custom"] = obj([]string{"operate"}, map[string]prop{
+		"content": {t: "string", req: false, d: "request.CustomRewriteOperate.content"},
+		"name": {t: "string", req: false, d: "request.CustomRewriteOperate.name"},
+		"operate": {t: "string", req: true, e: []string{"create", "delete"}, d: "request.CustomRewriteOperate.operate"},
+	})
+
+	routeRequestContracts["/api/onepanel/{serverId}/websites/{id}/redirect"] = obj([]string{}, map[string]prop{
+		"id": {t: "integer", req: false, d: "request.WebsiteProxyReq.id（可由路径参数自动注入）"},
+	})
+
+	routeRequestContracts["/api/onepanel/{serverId}/websites/{id}/redirect/update"] = obj([]string{"name", "operate", "redirect", "target", "type", "websiteID"}, map[string]prop{
+		"domains": {t: "array", req: false, d: "request.NginxRedirectReq.domains"},
+		"enable": {t: "boolean", req: false, d: "request.NginxRedirectReq.enable"},
+		"keepPath": {t: "boolean", req: false, d: "request.NginxRedirectReq.keepPath"},
+		"name": {t: "string", req: true, d: "request.NginxRedirectReq.name"},
+		"operate": {t: "string", req: true, d: "request.NginxRedirectReq.operate"},
+		"path": {t: "string", req: false, d: "request.NginxRedirectReq.path"},
+		"redirect": {t: "string", req: true, d: "request.NginxRedirectReq.redirect"},
+		"redirectRoot": {t: "boolean", req: false, d: "request.NginxRedirectReq.redirectRoot"},
+		"target": {t: "string", req: true, d: "request.NginxRedirectReq.target"},
+		"type": {t: "string", req: true, d: "request.NginxRedirectReq.type"},
+		"websiteID": {t: "integer", req: true, d: "request.NginxRedirectReq.websiteID"},
+	})
+
+	routeRequestContracts["/api/onepanel/{serverId}/websites/{id}/leech"] = obj([]string{"websiteID"}, map[string]prop{
+		"websiteID": {t: "integer", req: true, d: "request.NginxCommonReq.websiteID"},
+	})
+
+	routeRequestContracts["/api/onepanel/{serverId}/websites/{id}/leech/update"] = obj([]string{"websiteID"}, map[string]prop{
+		"blocked": {t: "boolean", req: false, d: "request.NginxAntiLeechUpdate.blocked"},
+		"cache": {t: "boolean", req: false, d: "request.NginxAntiLeechUpdate.cache"},
+		"cacheTime": {t: "integer", req: false, d: "request.NginxAntiLeechUpdate.cacheTime"},
+		"cacheUint": {t: "string", req: false, d: "request.NginxAntiLeechUpdate.cacheUint"},
+		"enable": {t: "boolean", req: false, d: "request.NginxAntiLeechUpdate.enable"},
+		"extends": {t: "string", req: false, d: "request.NginxAntiLeechUpdate.extends"},
+		"logEnable": {t: "boolean", req: false, d: "request.NginxAntiLeechUpdate.logEnable"},
+		"noneRef": {t: "boolean", req: false, d: "request.NginxAntiLeechUpdate.noneRef"},
+		"return": {t: "string", req: false, d: "request.NginxAntiLeechUpdate.return"},
+		"serverNames": {t: "array", req: false, d: "request.NginxAntiLeechUpdate.serverNames"},
+		"websiteID": {t: "integer", req: true, d: "request.NginxAntiLeechUpdate.websiteID"},
+	})
+
+	routeRequestContracts["/api/onepanel/{serverId}/websites/{id}/auths"] = obj([]string{"websiteID"}, map[string]prop{
+		"websiteID": {t: "integer", req: true, d: "request.NginxAuthReq.websiteID"},
+	})
+
+	routeRequestContracts["/api/onepanel/{serverId}/websites/{id}/auths/update"] = obj([]string{"operate", "websiteID"}, map[string]prop{
+		"operate": {t: "string", req: true, d: "request.NginxAuthUpdate.operate"},
+		"password": {t: "string", req: false, d: "request.NginxAuthUpdate.password"},
+		"remark": {t: "string", req: false, d: "request.NginxAuthUpdate.remark"},
+		"username": {t: "string", req: false, d: "request.NginxAuthUpdate.username"},
+		"websiteID": {t: "integer", req: true, d: "request.NginxAuthUpdate.websiteID"},
+	})
+
+	routeRequestContracts["/api/onepanel/{serverId}/websites/{id}/cors/update"] = obj([]string{"websiteID"}, map[string]prop{
+		"allowCredentials": {t: "boolean", req: false, d: "request.CorsConfigReq.allowCredentials"},
+		"allowHeaders": {t: "string", req: false, d: "request.CorsConfigReq.allowHeaders"},
+		"allowMethods": {t: "string", req: false, d: "request.CorsConfigReq.allowMethods"},
+		"allowOrigins": {t: "string", req: false, d: "request.CorsConfigReq.allowOrigins"},
+		"cors": {t: "boolean", req: false, d: "request.CorsConfigReq.cors"},
+		"preflight": {t: "boolean", req: false, d: "request.CorsConfigReq.preflight"},
+		"websiteID": {t: "integer", req: true, d: "request.CorsConfigReq.websiteID"},
+	})
+
+	routeRequestContracts["/api/onepanel/{serverId}/websites/{id}/dir"] = obj([]string{}, map[string]prop{
+		"id": {t: "integer", req: false, d: "request.WebsiteCommonReq.id（可由路径参数自动注入）"},
+	})
+
+	routeRequestContracts["/api/onepanel/{serverId}/websites/{id}/dir/update"] = obj([]string{"siteDir"}, map[string]prop{
+		"id": {t: "integer", req: false, d: "request.WebsiteUpdateDir.id（可由路径参数自动注入）"},
+		"siteDir": {t: "string", req: true, d: "request.WebsiteUpdateDir.siteDir"},
+	})
+
+	routeRequestContracts["/api/onepanel/{serverId}/websites/{id}/dir/permission"] = obj([]string{"group", "user"}, map[string]prop{
+		"group": {t: "string", req: true, d: "request.WebsiteUpdateDirPermission.group"},
+		"id": {t: "integer", req: false, d: "request.WebsiteUpdateDirPermission.id（可由路径参数自动注入）"},
+		"user": {t: "string", req: true, d: "request.WebsiteUpdateDirPermission.user"},
+	})
+
+	routeRequestContracts["/api/onepanel/{serverId}/websites/{id}/log"] = obj([]string{"logType"}, map[string]prop{
+		"id": {t: "integer", req: false, d: "request.WebsiteLogSearchReq.id（可由路径参数自动注入）"},
+		"logType": {t: "string", req: true, e: []string{"access.log", "error.log"}, d: "request.WebsiteLogSearchReq.logType"},
+		"page": {t: "integer", req: false, d: "request.WebsiteLogSearchReq.page"},
+		"pageSize": {t: "integer", req: false, d: "request.WebsiteLogSearchReq.pageSize"},
+	})
+
+	routeRequestContracts["/api/onepanel/{serverId}/websites/{id}/log/operate"] = obj([]string{"logType", "operate"}, map[string]prop{
+		"id": {t: "integer", req: false, d: "request.WebsiteLogReq.id（可由路径参数自动注入）"},
+		"logType": {t: "string", req: true, e: []string{"access.log", "error.log"}, d: "request.WebsiteLogReq.logType"},
+		"operate": {t: "string", req: true, e: []string{"enable", "disable", "delete"}, d: "request.WebsiteLogReq.operate"},
+	})
+
+	routeRequestContracts["/api/onepanel/{serverId}/websites/{id}/lbs/create"] = obj([]string{"name", "websiteID"}, map[string]prop{
+		"algorithm": {t: "string", req: false, d: "request.WebsiteLBCreate.algorithm"},
+		"name": {t: "string", req: true, d: "request.WebsiteLBCreate.name"},
+		"servers": {t: "array", req: false, d: "request.WebsiteLBCreate.servers"},
+		"websiteID": {t: "integer", req: true, d: "request.WebsiteLBCreate.websiteID"},
+	})
+
+	routeRequestContracts["/api/onepanel/{serverId}/websites/{id}/lbs/update"] = obj([]string{"name", "websiteID"}, map[string]prop{
+		"algorithm": {t: "string", req: false, d: "request.WebsiteLBUpdate.algorithm"},
+		"name": {t: "string", req: true, d: "request.WebsiteLBUpdate.name"},
+		"servers": {t: "array", req: false, d: "request.WebsiteLBUpdate.servers"},
+		"websiteID": {t: "integer", req: true, d: "request.WebsiteLBUpdate.websiteID"},
+	})
+
+	routeRequestContracts["/api/onepanel/{serverId}/websites/{id}/lbs/delete"] = obj([]string{"name", "websiteID"}, map[string]prop{
+		"name": {t: "string", req: true, d: "request.WebsiteLBDelete.name"},
+		"websiteID": {t: "integer", req: true, d: "request.WebsiteLBDelete.websiteID"},
+	})
+
+	routeRequestContracts["/api/onepanel/{serverId}/websites/{id}/proxy/config/update"] = obj([]string{"cacheExpire", "cacheExpireUnit", "cacheLimit", "cacheLimitUnit", "shareCache", "shareCacheUnit", "websiteID"}, map[string]prop{
+		"cacheExpire": {t: "integer", req: true, d: "request.NginxProxyCacheUpdate.cacheExpire"},
+		"cacheExpireUnit": {t: "string", req: true, d: "request.NginxProxyCacheUpdate.cacheExpireUnit"},
+		"cacheLimit": {t: "integer", req: true, d: "request.NginxProxyCacheUpdate.cacheLimit"},
+		"cacheLimitUnit": {t: "string", req: true, d: "request.NginxProxyCacheUpdate.cacheLimitUnit"},
+		"open": {t: "boolean", req: false, d: "request.NginxProxyCacheUpdate.open"},
+		"shareCache": {t: "integer", req: true, d: "request.NginxProxyCacheUpdate.shareCache"},
+		"shareCacheUnit": {t: "string", req: true, d: "request.NginxProxyCacheUpdate.shareCacheUnit"},
+		"websiteID": {t: "integer", req: true, d: "request.NginxProxyCacheUpdate.websiteID"},
+	})
+
+	routeRequestContracts["/api/onepanel/{serverId}/websites/{id}/proxy/clear"] = obj(nil, map[string]prop{})
+
+	routeRequestContracts["/api/onepanel/{serverId}/websites/{id}/realip/update"] = obj([]string{"websiteID"}, map[string]prop{
+		"ipFrom": {t: "string", req: false, d: "request.WebsiteRealIP.ipFrom"},
+		"ipHeader": {t: "string", req: false, d: "request.WebsiteRealIP.ipHeader"},
+		"ipOther": {t: "string", req: false, d: "request.WebsiteRealIP.ipOther"},
+		"open": {t: "boolean", req: false, d: "request.WebsiteRealIP.open"},
+		"websiteID": {t: "integer", req: true, d: "request.WebsiteRealIP.websiteID"},
+	})
+
+	routeRequestContracts["/api/onepanel/{serverId}/websites/{id}/stream/update"] = obj([]string{"websiteID"}, map[string]prop{
+		"algorithm": {t: "string", req: false, d: "request.StreamUpdate.algorithm"},
+		"name": {t: "string", req: false, d: "request.StreamUpdate.name"},
+		"servers": {t: "array", req: false, d: "request.StreamUpdate.servers"},
+		"streamPorts": {t: "string", req: false, d: "request.StreamUpdate.streamPorts"},
+		"udp": {t: "boolean", req: false, d: "request.StreamUpdate.udp"},
+		"websiteID": {t: "integer", req: true, d: "request.StreamUpdate.websiteID"},
+	})
+
+	routeRequestContracts["/api/onepanel/{serverId}/websites/crosssite"] = obj([]string{"operation", "websiteID"}, map[string]prop{
+		"operation": {t: "string", req: true, e: []string{"Enable", "Disable"}, d: "request.CrossSiteAccessOp.operation"},
+		"websiteID": {t: "integer", req: true, d: "request.CrossSiteAccessOp.websiteID"},
+	})
+
+	routeRequestContracts["/api/onepanel/{serverId}/websites/{id}/database"] = obj([]string{"websiteID"}, map[string]prop{
+		"databaseID": {t: "integer", req: false, d: "request.ChangeDatabase.databaseID"},
+		"databaseType": {t: "string", req: false, d: "request.ChangeDatabase.databaseType"},
+		"websiteID": {t: "integer", req: true, d: "request.ChangeDatabase.websiteID"},
+	})
+
+	routeRequestContracts["/api/onepanel/{serverId}/websites/default/html/update"] = obj([]string{"content", "type"}, map[string]prop{
+		"content": {t: "string", req: true, d: "request.WebsiteHtmlUpdate.content"},
+		"sync": {t: "boolean", req: false, d: "request.WebsiteHtmlUpdate.sync"},
+		"type": {t: "string", req: true, d: "request.WebsiteHtmlUpdate.type"},
+	})
+
+	routeRequestContracts["/api/onepanel/{serverId}/websites/default/server"] = obj([]string{}, map[string]prop{
+		"id": {t: "integer", req: false, d: "request.WebsiteDefaultUpdate.id"},
+	})
+
+	routeRequestContracts["/api/onepanel/{serverId}/websites/{id}/composer"] = obj([]string{"command", "dir", "mirror", "taskID", "user", "websiteID"}, map[string]prop{
+		"command": {t: "string", req: true, d: "request.ExecComposerReq.command"},
+		"dir": {t: "string", req: true, d: "request.ExecComposerReq.dir"},
+		"extCommand": {t: "string", req: false, d: "request.ExecComposerReq.extCommand"},
+		"mirror": {t: "string", req: true, d: "request.ExecComposerReq.mirror"},
+		"taskID": {t: "string", req: true, d: "request.ExecComposerReq.taskID"},
+		"user": {t: "string", req: true, d: "request.ExecComposerReq.user"},
+		"websiteID": {t: "integer", req: true, d: "request.ExecComposerReq.websiteID"},
+	})
+
+	routeRequestContracts["/api/onepanel/{serverId}/ssl/search"] = obj([]string{"page", "pageSize"}, map[string]prop{
+		"acmeAccountID": {t: "string", req: false, d: "request.WebsiteSSLSearch.acmeAccountID"},
+		"domain": {t: "string", req: false, d: "request.WebsiteSSLSearch.domain"},
+		"order": {t: "string", req: false, e: []string{"null", "ascending", "descending"}, d: "request.WebsiteSSLSearch.order"},
+		"orderBy": {t: "string", req: false, e: []string{"created_at", "updated_at", "expire_date"}, d: "request.WebsiteSSLSearch.orderBy"},
+		"page": {t: "integer", req: true, d: "request.WebsiteSSLSearch.page"},
+		"pageSize": {t: "integer", req: true, d: "request.WebsiteSSLSearch.pageSize"},
+	})
+
+	routeRequestContracts["/api/onepanel/{serverId}/ssl/{id}/update"] = obj([]string{"primaryDomain", "provider"}, map[string]prop{
+		"acmeAccountId": {t: "integer", req: false, d: "request.WebsiteSSLUpdate.acmeAccountId"},
+		"apply": {t: "boolean", req: false, d: "request.WebsiteSSLUpdate.apply"},
+		"autoRenew": {t: "boolean", req: false, d: "request.WebsiteSSLUpdate.autoRenew"},
+		"description": {t: "string", req: false, d: "request.WebsiteSSLUpdate.description"},
+		"dir": {t: "string", req: false, d: "request.WebsiteSSLUpdate.dir"},
+		"disableCNAME": {t: "boolean", req: false, d: "request.WebsiteSSLUpdate.disableCNAME"},
+		"dnsAccountId": {t: "integer", req: false, d: "request.WebsiteSSLUpdate.dnsAccountId"},
+		"execShell": {t: "boolean", req: false, d: "request.WebsiteSSLUpdate.execShell"},
+		"id": {t: "integer", req: false, d: "request.WebsiteSSLUpdate.id（可由路径参数自动注入）"},
+		"keyType": {t: "string", req: false, d: "request.WebsiteSSLUpdate.keyType"},
+		"nameserver1": {t: "string", req: false, d: "request.WebsiteSSLUpdate.nameserver1"},
+		"nameserver2": {t: "string", req: false, d: "request.WebsiteSSLUpdate.nameserver2"},
+		"nodes": {t: "string", req: false, d: "request.WebsiteSSLUpdate.nodes"},
+		"otherDomains": {t: "string", req: false, d: "request.WebsiteSSLUpdate.otherDomains"},
+		"primaryDomain": {t: "string", req: true, d: "request.WebsiteSSLUpdate.primaryDomain"},
+		"provider": {t: "string", req: true, d: "request.WebsiteSSLUpdate.provider"},
+		"pushDir": {t: "boolean", req: false, d: "request.WebsiteSSLUpdate.pushDir"},
+		"pushNode": {t: "boolean", req: false, d: "request.WebsiteSSLUpdate.pushNode"},
+		"shell": {t: "string", req: false, d: "request.WebsiteSSLUpdate.shell"},
+		"skipDNS": {t: "boolean", req: false, d: "request.WebsiteSSLUpdate.skipDNS"},
+	})
+
+	routeRequestContracts["/api/onepanel/{serverId}/ssl/{id}/delete"] = obj([]string{"ids"}, map[string]prop{
+		"ids": {t: "array", req: true, d: "request.WebsiteBatchDelReq.ids"},
+	})
+
+	routeRequestContracts["/api/onepanel/{serverId}/ssl/upload"] = obj([]string{"type"}, map[string]prop{
+		"certificate": {t: "string", req: false, d: "request.WebsiteSSLUpload.certificate"},
+		"certificatePath": {t: "string", req: false, d: "request.WebsiteSSLUpload.certificatePath"},
+		"description": {t: "string", req: false, d: "request.WebsiteSSLUpload.description"},
+		"nodes": {t: "string", req: false, d: "request.WebsiteSSLUpload.nodes"},
+		"privateKey": {t: "string", req: false, d: "request.WebsiteSSLUpload.privateKey"},
+		"privateKeyPath": {t: "string", req: false, d: "request.WebsiteSSLUpload.privateKeyPath"},
+		"pushNode": {t: "boolean", req: false, d: "request.WebsiteSSLUpload.pushNode"},
+		"sslID": {t: "integer", req: false, d: "request.WebsiteSSLUpload.sslID"},
+		"type": {t: "string", req: true, e: []string{"paste", "local"}, d: "request.WebsiteSSLUpload.type"},
+	})
+
+	routeRequestContracts["/api/onepanel/{serverId}/ssl/download"] = obj([]string{"id"}, map[string]prop{
+		"id": {t: "integer", req: true, d: "request.WebsiteResourceReq.id"},
+	})
+
+	routeRequestContracts["/api/onepanel/{serverId}/ssl/push"] = obj([]string{"id", "taskID"}, map[string]prop{
+		"id": {t: "integer", req: true, d: "request.WebsiteSSLPush.id"},
+		"nodes": {t: "string", req: false, d: "request.WebsiteSSLPush.nodes"},
+		"pushNode": {t: "boolean", req: false, d: "request.WebsiteSSLPush.pushNode"},
+		"sync": {t: "boolean", req: false, d: "request.WebsiteSSLPush.sync"},
+		"taskID": {t: "string", req: true, d: "request.WebsiteSSLPush.taskID"},
+	})
+
+	routeRequestContracts["/api/onepanel/{serverId}/ssl/resolve"] = obj([]string{"acmeAccountId", "websiteSSLId"}, map[string]prop{
+		"acmeAccountId": {t: "integer", req: true, d: "request.WebsiteDNSReq.acmeAccountId"},
+		"websiteSSLId": {t: "integer", req: true, d: "request.WebsiteDNSReq.websiteSSLId"},
+	})
 }
 
 // onepanelDescriptions 是 onepanel 路由的中文描述，与 quick-routes.json 同步。
@@ -713,4 +1532,59 @@ var onepanelDescriptions = map[string]string{
 	"/api/onepanel/{serverId}/cronjobs": "列出或创建定时任务",
 	"/api/onepanel/{serverId}/proxy/catalog": "读取内置 1Panel 官方 API 目录",
 	"/api/onepanel/{serverId}/proxy": "通用代理：直接调用任意 1Panel API（method / path / body 由调用方指定）",
+	"/api/onepanel/{serverId}/reverse-proxy/domains": "汇总 1Panel 站点反代域名（上游端口 → 域名列表），供容器列表匹配打开",
+	"/api/onepanel/probe": "探测主机是否安装 1Panel（Agent 只读检查 1pctl / 目录 / 进程 / 8888 端口）",
+	"/api/onepanel/{serverId}/websites/search": "分页搜索网站（支持按名称/域名过滤）",
+	"/api/onepanel/{serverId}/websites/{id}/update": "更新网站基础信息（备注/分组/域名等）",
+	"/api/onepanel/{serverId}/websites/options": "列出网站名称选项（下拉用）",
+	"/api/onepanel/{serverId}/websites/check": "创建网站前的可用性检查",
+	"/api/onepanel/{serverId}/websites/batch/operate": "批量启停网站",
+	"/api/onepanel/{serverId}/websites/batch/ssl": "批量设置网站 HTTPS",
+	"/api/onepanel/{serverId}/websites/batch/group": "批量设置网站分组",
+	"/api/onepanel/{serverId}/websites/{id}/proxies": "读取网站反代配置",
+	"/api/onepanel/{serverId}/websites/{id}/proxies/delete": "删除网站反代配置",
+	"/api/onepanel/{serverId}/websites/{id}/proxies/status": "启用/停用网站反代配置",
+	"/api/onepanel/{serverId}/websites/{id}/rewrite": "读取网站伪静态配置",
+	"/api/onepanel/{serverId}/websites/{id}/rewrite/update": "更新网站伪静态配置",
+	"/api/onepanel/{serverId}/websites/rewrite/custom": "列出或维护自定义伪静态模板",
+	"/api/onepanel/{serverId}/websites/{id}/redirect": "读取网站重定向配置",
+	"/api/onepanel/{serverId}/websites/{id}/redirect/update": "更新网站重定向配置",
+	"/api/onepanel/{serverId}/websites/{id}/leech": "读取网站防盗链配置",
+	"/api/onepanel/{serverId}/websites/{id}/leech/update": "更新网站防盗链配置",
+	"/api/onepanel/{serverId}/websites/{id}/auths": "读取网站密码访问（AuthBasic）配置",
+	"/api/onepanel/{serverId}/websites/{id}/auths/update": "更新网站密码访问配置",
+	"/api/onepanel/{serverId}/websites/{id}/cors": "读取网站跨域（CORS）配置",
+	"/api/onepanel/{serverId}/websites/{id}/cors/update": "更新网站跨域配置",
+	"/api/onepanel/{serverId}/websites/{id}/dir": "读取网站目录配置",
+	"/api/onepanel/{serverId}/websites/{id}/dir/update": "更新网站目录配置",
+	"/api/onepanel/{serverId}/websites/{id}/dir/permission": "更新网站目录权限",
+	"/api/onepanel/{serverId}/websites/{id}/resource": "读取网站资源用量",
+	"/api/onepanel/{serverId}/websites/{id}/log": "查询网站日志",
+	"/api/onepanel/{serverId}/websites/{id}/log/operate": "操作网站日志（清理等）",
+	"/api/onepanel/{serverId}/websites/{id}/lbs": "读取网站上游节点列表",
+	"/api/onepanel/{serverId}/websites/{id}/lbs/create": "新增网站上游节点",
+	"/api/onepanel/{serverId}/websites/{id}/lbs/update": "更新网站上游节点",
+	"/api/onepanel/{serverId}/websites/{id}/lbs/delete": "删除网站上游节点",
+	"/api/onepanel/{serverId}/websites/{id}/proxy/config": "读取网站代理缓存配置",
+	"/api/onepanel/{serverId}/websites/{id}/proxy/config/update": "更新网站代理缓存配置",
+	"/api/onepanel/{serverId}/websites/{id}/proxy/clear": "清理网站代理缓存",
+	"/api/onepanel/{serverId}/websites/{id}/realip": "读取网站真实 IP 配置",
+	"/api/onepanel/{serverId}/websites/{id}/realip/update": "设置网站真实 IP 配置",
+	"/api/onepanel/{serverId}/websites/{id}/stream/update": "更新网站流媒体配置",
+	"/api/onepanel/{serverId}/websites/crosssite": "操作跨站访问设置",
+	"/api/onepanel/{serverId}/websites/databases": "读取网站可绑定的数据库列表",
+	"/api/onepanel/{serverId}/websites/{id}/database": "变更网站绑定数据库",
+	"/api/onepanel/{serverId}/websites/default/html/{type}": "读取默认站点页面内容",
+	"/api/onepanel/{serverId}/websites/default/html/update": "更新默认站点页面",
+	"/api/onepanel/{serverId}/websites/default/server": "设置默认站点",
+	"/api/onepanel/{serverId}/websites/{id}/composer": "在网站目录执行 Composer",
+	"/api/onepanel/{serverId}/ssl/search": "分页搜索证书",
+	"/api/onepanel/{serverId}/ssl/{id}": "按 ID 读取证书详情",
+	"/api/onepanel/{serverId}/ssl/{id}/update": "更新证书信息",
+	"/api/onepanel/{serverId}/ssl/{id}/delete": "删除证书",
+	"/api/onepanel/{serverId}/ssl/upload": "上传/导入证书（paste / local）",
+	"/api/onepanel/{serverId}/ssl/download": "下载证书文件",
+	"/api/onepanel/{serverId}/ssl/push": "下发证书到节点",
+	"/api/onepanel/{serverId}/ssl/resolve": "解析证书（证书链补全）",
+	"/api/onepanel/{serverId}/ssl/website/{websiteId}": "按网站 ID 查询其证书",
 }

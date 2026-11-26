@@ -325,7 +325,7 @@ const (
 
 func (s *Service) handleDockerOverview(w http.ResponseWriter, r *http.Request, db *sql.DB) {
 	serverID := r.URL.Query().Get("serverId")
-	query := "SELECT id, name, status, COALESCE(cached_info, '{}') FROM server_accounts"
+	query := "SELECT id, name, status, COALESCE(cached_info, '{}'), COALESCE(host, '') FROM server_accounts"
 	args := []interface{}{}
 	if serverID != "" {
 		query += " WHERE id = ?"
@@ -345,12 +345,13 @@ func (s *Service) handleDockerOverview(w http.ResponseWriter, r *http.Request, d
 		name       string
 		status     string
 		cachedInfo string
+		host       string
 	}
 
 	var rawServers []serverData
 	for rows.Next() {
 		var d serverData
-		if err := rows.Scan(&d.id, &d.name, &d.status, &d.cachedInfo); err == nil {
+		if err := rows.Scan(&d.id, &d.name, &d.status, &d.cachedInfo, &d.host); err == nil {
 			rawServers = append(rawServers, d)
 		}
 	}
@@ -508,6 +509,7 @@ func (s *Service) handleDockerOverview(w http.ResponseWriter, r *http.Request, d
 			servers[idx] = map[string]interface{}{
 				"id":     d.id,
 				"name":   d.name,
+				"host":   d.host,
 				"status": d.status,
 				"docker": map[string]interface{}{
 					"installed":  installed,

@@ -141,6 +141,12 @@ func (s *Service) RunCommandTaskAndWait(serverID string, command string, timeout
 	return s.runAgentTaskAndWait(serverID, 1, command, timeout)
 }
 
+// RunOnePanelProbe 探测主机是否安装 1Panel。脚本固定在 Agent 侧
+// （task_type 61），Callers 无法注入命令。
+func (s *Service) RunOnePanelProbe(serverID string, timeout time.Duration) (string, error) {
+	return s.runAgentTaskAndWait(serverID, 61, "", timeout)
+}
+
 // RunProxyRuntimeTaskAndWait exposes a structured, non-shell task seam for the
 // managed proxy module. Callers cannot vary the task type or timeout.
 func (s *Service) RunProxyRuntimeTaskAndWait(serverID, desiredState string) (string, error) {

@@ -859,6 +859,16 @@ func (s *Service) openapiCompactDocument(r *http.Request) map[string]interface{}
 		case "/api/auth/2fa", "/api/auth/webauthn/login", "/api/server/v2/docker", "/v1":
 			continue
 		}
+		// 1Panel 路由是外部面板的镜像，条目多且随 1Panel 版本变动。全量塞进
+		// 精简文档会挤占其它模块的上下文预算；这里只保留入口级别，细粒度
+		// 站点/证书接口按需用 list_apis（domain=onepanel）+ get_route 获取。
+		if strings.HasPrefix(route.Prefix, "/api/onepanel/") {
+			switch route.Prefix {
+			case "/api/onepanel/config", "/api/onepanel/config/{serverId}", "/api/onepanel/spec", "/api/onepanel/probe":
+			default:
+				continue
+			}
+		}
 		methods := route.Methods
 		if len(methods) == 0 {
 			methods = []string{"GET"}
@@ -1386,8 +1396,13 @@ func routeGroup(route manifest.Route) string {
 	case strings.HasPrefix(prefix, "/api/github"):
 		return "GitHub"
 	// 主机实例
-	case strings.HasPrefix(prefix, "/api/server"), strings.HasPrefix(prefix, "/api/onepanel"), strings.HasPrefix(prefix, "/ws/ssh"), strings.HasPrefix(prefix, "/ws/agent-terminal"), strings.HasPrefix(prefix, "/socket.io"):
+	case strings.HasPrefix(prefix, "/api/server"), strings.HasPrefix(prefix, "/ws/ssh"), strings.HasPrefix(prefix, "/ws/agent-terminal"), strings.HasPrefix(prefix, "/socket.io"):
 		return "主机实例"
+	// 1Panel：独立分组。随 Website/SSL 全量补齐后，与「主机实例」合并在
+	// route-index 里会超过单分组 32KB 的上下文预算，且 AI 按 group 检索时
+	// 也应当能单独命中。
+	case strings.HasPrefix(prefix, "/api/onepanel"):
+		return "1Panel"
 	// PaaS
 	case strings.HasPrefix(prefix, "/api/koyeb"), strings.HasPrefix(prefix, "/api/flyio"):
 		return "PaaS"

@@ -25,6 +25,9 @@ const panelDefaultBaseURL = "https://127.0.0.1:8888"
 
 type AgentRunner interface {
 	RunCommandTaskAndWait(serverID string, command string, timeout time.Duration) (string, error)
+	// RunOnePanelProbe 走专用 task_type（61），执行固定的只读探测脚本，
+	// 不接受调用方传入命令，避免把任意 shell 暴露成探测接口。
+	RunOnePanelProbe(serverID string, timeout time.Duration) (string, error)
 }
 
 type Service struct {
@@ -180,6 +183,10 @@ func (s *Service) serveQuickLocal(w http.ResponseWriter, r *http.Request, route 
 		s.reloadOpenResty(w, r, params["serverId"])
 	case "/api/onepanel/{serverId}/proxy":
 		s.proxyGeneric(w, r, params["serverId"])
+	case "/api/onepanel/{serverId}/reverse-proxy/domains":
+		s.reverseProxyDomains(w, r, params["serverId"])
+	case "/api/onepanel/probe":
+		s.onepanelProbe(w, r)
 	default:
 		response.Error(w, http.StatusNotFound, "onepanel local route not implemented: "+route.Prefix)
 	}

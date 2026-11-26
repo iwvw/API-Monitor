@@ -24,7 +24,10 @@ func TestOpenAPISummarySize(t *testing.T) {
 		t.Errorf("compact openapi should stay readable (<=64KB and <=1/6 of full), got %d bytes (%.1f%%)", compactBytes, 100.0*float64(compactBytes)/float64(fullBytes))
 	}
 
-	// 精简文档仍覆盖全部路径（路径数同源）
+	// 精简文档覆盖全部路径（路径数同源）。
+	// 例外：1Panel 路由是外部面板的镜像（随 1Panel 版本变动、条目多），
+	// 有意不纳入紧凑文档以免挤占其它模块的上下文预算；它通过
+	// list_apis(domain=onepanel) / get_route 按需检索。
 	var fullDoc, compactDoc struct {
 		Paths map[string]interface{} `json:"paths"`
 	}
@@ -34,8 +37,33 @@ func TestOpenAPISummarySize(t *testing.T) {
 	if err := json.Unmarshal(compact, &compactDoc); err != nil {
 		t.Fatal(err)
 	}
-	if len(compactDoc.Paths) != len(fullDoc.Paths) {
-		t.Fatalf("compact paths=%d full paths=%d", len(compactDoc.Paths), len(fullDoc.Paths))
+	// 计数：compact 里保留的 1Panel 入口路由仍算已覆盖，其余 1Panel 路由计数为排除。
+	excludedOnepanel := 0
+	for p := range fullDoc.Paths {
+		if strings.HasPrefix(p, "/api/onepanel/") {
+			if _, ok := compactDoc.Paths[p]; !ok {
+				excludedOnepanel++
+			}
+		}
+	}
+	if got, want := len(compactDoc.Paths)+excludedOnepanel, len(fullDoc.Paths); got != want {
+		t.Fatalf("compact paths=%d (+%d onepanel excluded) full paths=%d", len(compactDoc.Paths), excludedOnepanel, len(fullDoc.Paths))
+	}
+	// 除 1Panel 外的每条路径都必须出现在紧凑文档里。
+	for p := range fullDoc.Paths {
+		if strings.HasPrefix(p, "/api/onepanel/") {
+			continue
+		}
+		if _, ok := compactDoc.Paths[p]; !ok {
+			t.Fatalf("compact document missing path %s", p)
+		}
+	}
+
+	// 1Panel 入口路由必须保留，供 AI 先发现「有这个模块」。
+	for _, p := range []string{"/api/onepanel/config", "/api/onepanel/spec", "/api/onepanel/probe"} {
+		if _, ok := compactDoc.Paths[p]; !ok {
+			t.Fatalf("compact document should keep onepanel entry route %s", p)
+		}
 	}
 }
 
