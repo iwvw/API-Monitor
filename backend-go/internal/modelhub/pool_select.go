@@ -185,6 +185,11 @@ func (s *Service) clientForEndpoint(ctx context.Context, endpointID string, pool
 			}
 			s.logProxyPoolFrozen(endpointID, cleaned, now)
 			s.proxyMu.Unlock()
+			if forceProxy {
+				// 端点显式配置「禁止直连」:全池冻结/解冻被节流时也不能回退直连,
+				// 否则请求会从网关本机 IP 出网,绕过代理策略与出口隐私。
+				return nil, "", fmt.Errorf("端点配置为强制走代理,但代理池全部出口被限流或冻结")
+			}
 			return s.clientForProtocol(protocol), "", nil
 		}
 	case len(candidates) == 1:
