@@ -543,7 +543,9 @@ function VoidRoomPage() {
 
   useEffect(() => {
     let timer;
+    let disposed = false;
     const startPolling = () => {
+      if (disposed) return; // 初始化含多个 await:卸载清理后不得再新建 interval
       timer = window.setInterval(pollSignals, VOID_SIGNAL_POLL_MS);
       pollSignals();
     };
@@ -555,6 +557,7 @@ function VoidRoomPage() {
       }
       try {
         const roomRes = await axios.get(`/api/filebox/void/rooms/${encodeURIComponent(roomId)}`);
+        if (disposed) return;
         const roomData = roomRes.data?.data;
         setRoom(roomData);
         lastSignalIDRef.current = Number(roomData?.lastSignalId) || 0;
@@ -583,10 +586,12 @@ function VoidRoomPage() {
           participantRef.current = guest;
           setStatus('等待房主连接');
           await postSignal('owner', 'participant.ready', { name: guest.name, createdAt: Date.now() }).catch(() => {});
+          if (disposed) return;
           startPolling();
           return;
         }
         const joinRes = await axios.post(`/api/filebox/void/rooms/${encodeURIComponent(roomId)}/participants`, { name: deviceName(), clientId });
+        if (disposed) return;
         const joined = joinRes.data?.data;
         const guest = { id: joined.participantId, token: joined.participantToken, name: deviceName() };
         writeJSONStorage(guestKey, {
@@ -601,6 +606,7 @@ function VoidRoomPage() {
         lastSignalIDRef.current = Number(joined.room?.lastSignalId) || lastSignalIDRef.current;
         setStatus('等待房主连接');
         await postSignal('owner', 'participant.ready', { name: guest.name, createdAt: Date.now() }).catch(() => {});
+        if (disposed) return;
         startPolling();
       } catch (err) {
         setError(err.response?.data?.error || '进入房间失败');
@@ -609,6 +615,7 @@ function VoidRoomPage() {
     };
     init();
     return () => {
+      disposed = true;
       stoppedRef.current = true;
       if (timer) window.clearInterval(timer);
       for (const entry of peersRef.current.values()) {
