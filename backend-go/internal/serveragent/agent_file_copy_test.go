@@ -122,3 +122,26 @@ func TestCopyChunksConcurrentlyOverlapsWrites(t *testing.T) {
 		t.Fatalf("写回调没有真正并发,最大在途=%d", maxInFlight)
 	}
 }
+
+func TestAgentFileCopyConcurrencyValue(t *testing.T) {
+	t.Setenv("API_MONITOR_FILE_COPY_CONCURRENCY", "")
+	if got := agentFileCopyConcurrencyValue(); got != agentFileCopyConcurrency {
+		t.Fatalf("默认并发=%d, want %d", got, agentFileCopyConcurrency)
+	}
+	t.Setenv("API_MONITOR_FILE_COPY_CONCURRENCY", "1")
+	if got := agentFileCopyConcurrencyValue(); got != 1 {
+		t.Fatalf("env=1 -> %d", got)
+	}
+	t.Setenv("API_MONITOR_FILE_COPY_CONCURRENCY", "8")
+	if got := agentFileCopyConcurrencyValue(); got != 8 {
+		t.Fatalf("env=8 -> %d", got)
+	}
+	t.Setenv("API_MONITOR_FILE_COPY_CONCURRENCY", "99") // 越界回退默认
+	if got := agentFileCopyConcurrencyValue(); got != agentFileCopyConcurrency {
+		t.Fatalf("越界应回退默认, got %d", got)
+	}
+	t.Setenv("API_MONITOR_FILE_COPY_CONCURRENCY", "abc")
+	if got := agentFileCopyConcurrencyValue(); got != agentFileCopyConcurrency {
+		t.Fatalf("非法应回退默认, got %d", got)
+	}
+}

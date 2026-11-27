@@ -6,6 +6,8 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
+	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -31,6 +33,18 @@ func (s *Service) CopyAgentFile(
 // worker 一律 truncate=false,避免并发 truncate 竞态。
 const agentFileCopyConcurrency = 4
 
+// agentFileCopyConcurrencyValue 返回实际并发度:默认常量,可用环境变量
+// API_MONITOR_FILE_COPY_CONCURRENCY 覆盖(1..16),便于压测与按机器调优。
+func agentFileCopyConcurrencyValue() int {
+	n := agentFileCopyConcurrency
+	if raw := strings.TrimSpace(os.Getenv("API_MONITOR_FILE_COPY_CONCURRENCY")); raw != "" {
+		if v, err := strconv.Atoi(raw); err == nil && v >= 1 && v <= 16 {
+			n = v
+		}
+	}
+	return n
+}
+
 // copyAgentStream 流式把源文件写到目标路径(目标为最终路径),返回 (字节, sha256)。
 func (s *Service) copyAgentStream(
 	ctx context.Context,
@@ -53,7 +67,7 @@ func (s *Service) copyAgentStream(
 		return 0, "", fmt.Errorf("创建目标文件失败: %w", werr)
 	}
 
-	return copyChunksConcurrently(ctx, reader, agentFileStreamChunkSize, agentFileCopyConcurrency,
+	return copyChunksConcurrently(ctx, reader, agentFileStreamChunkSize, agentFileCopyConcurrencyValue(),
 		func(workerCtx context.Context, data []byte, offset int64) error {
 			_, werr := s.WriteAgentFileChunkMode(workerCtx, dstServerID, dstPath, data, offset, false, timeout, dstRealPath)
 			return werr
