@@ -734,9 +734,14 @@ impl FileManager {
             std::process::id()
         );
         let tmp_path = abs_path.with_file_name(tmp_name);
-        let mut file = tokio::fs::File::create(&tmp_path)
-            .await
-            .map_err(|e| format!("创建临时文件失败: {}", e))?;
+        // 用 1 MiB BufWriter 合并小块写:逐块 tokio::fs 写在 Windows 上会明显拖慢
+        // 读循环(实测高 RTT 下 agent_fetch_url 只有 ~0.2 MiB/s,而低 RTT 同代码 55 MiB/s)。
+        let mut file = tokio::io::BufWriter::with_capacity(
+            1024 * 1024,
+            tokio::fs::File::create(&tmp_path)
+                .await
+                .map_err(|e| format!("创建临时文件失败: {}", e))?,
+        );
 
         use futures_util::StreamExt;
         use tokio::io::AsyncWriteExt;
