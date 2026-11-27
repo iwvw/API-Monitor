@@ -87,7 +87,7 @@ function AtResourceMenu({ resources, tab, setTab, q, setQ, loading, error, onIns
         e.stopPropagation();
         setActiveIdx((i) => (i - 1 + list.length) % list.length);
       } else if (e.key === 'Enter') {
-        if (e.nativeEvent?.isComposing) return;
+        if (e.isComposing) return;
         e.preventDefault();
         e.stopPropagation();
         onInsert(list[activeIdx].item);
