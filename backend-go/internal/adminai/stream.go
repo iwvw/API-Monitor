@@ -35,8 +35,9 @@ func serveSSE(w http.ResponseWriter, r *http.Request, s *Service, runID string, 
 		seq := int64(0)
 		if v, ok := ev.Fields["__seq"].(int64); ok {
 			seq = v
-			delete(ev.Fields, "__seq")
 		}
+		// 不修改 ev.Fields:__seq 由 MarshalJSON 统一跳过,避免重放时把
+		// 共享/缓冲 map 改动成脏数据(并发 map 读写的根因之一)。
 		payload, err := json.Marshal(ev)
 		if err != nil {
 			return
@@ -53,7 +54,10 @@ func serveSSE(w http.ResponseWriter, r *http.Request, s *Service, runID string, 
 	// run 已结束则由 runInference 的 defer 统一 close/清理。
 	defer func() {
 		s.mu.Lock()
-		if !s.runDone[runID] {
+		// eventCh 为 nil 表示本连接没有领到通道(已被其它消费者领走或 run 已
+		// 结束),此时绝不能把 s.runs[runID] 写成 nil,否则会清空活跃 run 的
+		// 通道槽,后续正常订阅会拿到 nil 通道并立即断开。
+		if eventCh != nil && !s.runDone[runID] {
 			s.runs[runID] = eventCh
 		}
 		s.mu.Unlock()
