@@ -59,7 +59,7 @@ type Input struct {
 	Name      string   `json:"name"`
 	Kind      string   `json:"kind"`
 	Scopes    []string `json:"scopes"`
-	ExpiresAt string   `json:"expiresAt"`
+	ExpiresAt *string  `json:"expiresAt"`
 	Enabled   *bool    `json:"enabled,omitempty"`
 }
 
@@ -176,7 +176,11 @@ func (m *Manager) Create(ctx context.Context, input Input) (Key, error) {
 	if err != nil {
 		return Key{}, err
 	}
-	expiresAt, err := normalizeExpiry(input.ExpiresAt)
+	var expiryValue string
+	if input.ExpiresAt != nil {
+		expiryValue = *input.ExpiresAt
+	}
+	expiresAt, err := normalizeExpiry(expiryValue)
 	if err != nil {
 		return Key{}, err
 	}
@@ -206,9 +210,14 @@ func (m *Manager) Update(ctx context.Context, id string, input Input) error {
 	if err != nil {
 		return err
 	}
-	expiresAt, err := normalizeExpiry(input.ExpiresAt)
-	if err != nil {
-		return err
+	var expiresAt interface{}
+	// 省略 expiresAt(局部更新,只改 name/enabled)时保留原值;显式传空串才表示清除。
+	expiresAtSet := input.ExpiresAt != nil
+	if expiresAtSet {
+		expiresAt, err = normalizeExpiry(*input.ExpiresAt)
+		if err != nil {
+			return err
+		}
 	}
 	scopesJSON, _ := json.Marshal(input.Scopes)
 	var enabled interface{}
@@ -223,8 +232,8 @@ func (m *Manager) Update(ctx context.Context, id string, input Input) error {
 		return err
 	}
 	defer db.Close()
-	result, err := db.ExecContext(ctx, `UPDATE api_access_keys SET name=?,scopes_json=?,enabled=COALESCE(?,enabled),expires_at=?,updated_at=? WHERE id=?`,
-		input.Name, string(scopesJSON), enabled, expiresAt, time.Now().UTC().Format(time.RFC3339), id)
+	result, err := db.ExecContext(ctx, `UPDATE api_access_keys SET name=?,scopes_json=?,enabled=COALESCE(?,enabled),expires_at=CASE WHEN ? THEN ? ELSE expires_at END,updated_at=? WHERE id=?`,
+		input.Name, string(scopesJSON), enabled, expiresAtSet, expiresAt, time.Now().UTC().Format(time.RFC3339), id)
 	return mutationError(result, err)
 }
 
@@ -269,10 +278,11 @@ func (m *Manager) Revoke(ctx context.Context, id string) error {
 }
 
 func (m *Manager) CreatePluginPairing(ctx context.Context, name string) (Pairing, error) {
+	keyExpiresAt := time.Now().UTC().AddDate(0, 3, 0).Format(time.RFC3339)
 	key, err := m.Create(ctx, Input{
 		Name:      strings.TrimSpace(name),
 		Kind:      "plugin",
-		ExpiresAt: time.Now().UTC().AddDate(0, 3, 0).Format(time.RFC3339),
+		ExpiresAt: &keyExpiresAt,
 	})
 	if err != nil {
 		return Pairing{}, err

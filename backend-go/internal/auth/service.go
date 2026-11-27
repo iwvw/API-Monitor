@@ -556,7 +556,7 @@ func (s *Service) issuePluginToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	expiresAt := time.Now().UTC().AddDate(0, 3, 0).Format(time.RFC3339)
-	key, err := s.keys.Create(r.Context(), apikeys.Input{Name: "TOTP 浏览器插件", Kind: "plugin", ExpiresAt: expiresAt})
+	key, err := s.keys.Create(r.Context(), apikeys.Input{Name: "TOTP 浏览器插件", Kind: "plugin", ExpiresAt: &expiresAt})
 	if err != nil {
 		response.Error(w, http.StatusInternalServerError, "保存插件令牌失败")
 		return

@@ -16,7 +16,7 @@ func TestKeyLifecyclePermissionsExpiryAndUsage(t *testing.T) {
 	t.Setenv("ENCRYPTION_KEY", "test-only-api-key-encryption-secret")
 	manager := New(config.Config{DataDir: t.TempDir(), DBName: "data.db"})
 	expires := time.Now().UTC().Add(time.Hour).Format(time.RFC3339)
-	created, err := manager.Create(context.Background(), Input{Name: "Browser", Kind: "plugin", Scopes: []string{ScopeAPIWrite}, ExpiresAt: expires})
+	created, err := manager.Create(context.Background(), Input{Name: "Browser", Kind: "plugin", Scopes: []string{ScopeAPIWrite}, ExpiresAt: &expires})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -49,11 +49,12 @@ func TestKeyLifecyclePermissionsExpiryAndUsage(t *testing.T) {
 
 func TestExpiredKeyIsRejected(t *testing.T) {
 	manager := New(config.Config{DataDir: t.TempDir(), DBName: "data.db"})
+	expiredAt := time.Now().UTC().Add(-time.Minute).Format(time.RFC3339)
 	created, err := manager.Create(context.Background(), Input{
 		Name:      "Expired",
 		Kind:      "api",
 		Scopes:    []string{ScopeAPIRead},
-		ExpiresAt: time.Now().UTC().Add(-time.Minute).Format(time.RFC3339),
+		ExpiresAt: &expiredAt,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -84,6 +85,35 @@ func TestListDoesNotExposeRawKeyAndUpdatePreservesEnabledState(t *testing.T) {
 	}
 	if len(keys) != 1 || keys[0].APIKey != "" || keys[0].Enabled || keys[0].Name != "Renamed" {
 		t.Fatalf("unexpected listed key: %#v", keys)
+	}
+}
+
+func TestUpdateWithoutExpiresAtPreservesExpiry(t *testing.T) {
+	manager := New(config.Config{DataDir: t.TempDir(), DBName: "data.db"})
+	expires := time.Now().UTC().Add(time.Hour).Format(time.RFC3339)
+	created, err := manager.Create(context.Background(), Input{Name: "Limited", Kind: "api", Scopes: []string{ScopeAPIRead}, ExpiresAt: &expires})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// 只改 name(不传 expiresAt):过期时间必须保留,不能把限期 Key 变成永久 Key。
+	if err := manager.Update(context.Background(), created.ID, Input{Name: "Renamed", Kind: "api", Scopes: []string{ScopeAPIRead}}); err != nil {
+		t.Fatal(err)
+	}
+	keys, err := manager.List(context.Background())
+	if err != nil || len(keys) != 1 {
+		t.Fatalf("list keys: %#v err=%v", keys, err)
+	}
+	if keys[0].ExpiresAt == nil || *keys[0].ExpiresAt != expires {
+		t.Fatalf("expiry was cleared by partial update: got %v want %s", keys[0].ExpiresAt, expires)
+	}
+	// 显式传空串才表示清除。
+	empty := ""
+	if err := manager.Update(context.Background(), created.ID, Input{Name: "Renamed", Kind: "api", Scopes: []string{ScopeAPIRead}, ExpiresAt: &empty}); err != nil {
+		t.Fatal(err)
+	}
+	keys, err = manager.List(context.Background())
+	if err != nil || len(keys) != 1 || keys[0].ExpiresAt != nil {
+		t.Fatalf("explicit empty expiry should clear: %#v err=%v", keys, err)
 	}
 }
 
