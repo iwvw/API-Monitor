@@ -714,6 +714,17 @@ func (s *Service) runManagedTunnelUninstall(taskID, serverID string) {
 			continue
 		}
 		_, _ = db.ExecContext(ctx, `DELETE FROM subscription_runtime_reconcile WHERE node_id=?`, node.id)
+		// 级联卸载同样要清理订阅关联与流量账本,否则删掉的节点仍被套餐引用、
+		// 用量账本留下孤儿行(对齐 managed_proxy_node_apply 的单节点删除路径)。
+		for _, statement := range []string{
+			`DELETE FROM subscription_plan_nodes WHERE node_id=? AND source='internal'`,
+			`DELETE FROM subscription_usage_reports WHERE node_id=?`,
+			`DELETE FROM subscription_usage_report_keys WHERE node_id=?`,
+			`DELETE FROM subscription_usage_hourly WHERE node_id=?`,
+			`DELETE FROM server_proxy_traffic_reports WHERE node_id=?`,
+		} {
+			_, _ = db.ExecContext(ctx, statement, node.id)
+		}
 		_, _ = db.ExecContext(ctx, `DELETE FROM managed_proxy_nodes WHERE id=?`, node.id)
 	}
 	if len(failures) > 0 {
