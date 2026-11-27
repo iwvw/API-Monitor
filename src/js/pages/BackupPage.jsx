@@ -373,7 +373,8 @@ export function BackupPanel({ embedded = false } = {}) {
     document.body.appendChild(anchor);
     anchor.click();
     anchor.remove();
-    URL.revokeObjectURL(url);
+    // Safari/Firefox 在 click 后立即 revoke 会取消下载,延迟回收对象 URL。
+    setTimeout(() => URL.revokeObjectURL(url), 4000);
     toast.success('备份配置已导出（包含各渠道密钥，请注意保管）');
   };
 
@@ -445,26 +446,35 @@ export function BackupPanel({ embedded = false } = {}) {
 
   const remove = async record => {
     if (!confirmPress(`backup-record:${record.id}`, `删除备份「${record.file_name}」`)) return;
-    const res = await fetch(`/api/backup/records/${encodeURIComponent(record.id)}`, {
-      method: 'DELETE',
-      headers: authHeaders(),
-    });
-    const data = await res.json();
-    if (!data.success) return toast.error(data.error || '删除失败');
-    await load();
+    try {
+      const res = await fetch(`/api/backup/records/${encodeURIComponent(record.id)}`, {
+        method: 'DELETE',
+        headers: authHeaders(),
+      });
+      const data = await res.json();
+      if (!data.success) return toast.error(data.error || '删除失败');
+      await load();
+    } catch (error) {
+      toast.error(error.message || '删除失败');
+    }
   };
 
   const restore = async record => {
     if (!(await dialog.confirm(`确认从 ${record.file_name} 恢复？当前数据库和文件柜会被覆盖。`)))
       return;
-    const res = await fetch('/api/backup/restore', {
-      method: 'POST',
-      headers: authHeaders(),
-      body: JSON.stringify({ id: record.id, confirm: 'RESTORE' }),
-    });
-    const data = await res.json();
-    if (!data.success) return toast.error(data.error || '恢复失败');
-    toast.success('备份已恢复');
+    try {
+      const res = await fetch('/api/backup/restore', {
+        method: 'POST',
+        headers: authHeaders(),
+        body: JSON.stringify({ id: record.id, confirm: 'RESTORE' }),
+      });
+      const data = await res.json();
+      if (!data.success) return toast.error(data.error || '恢复失败');
+      toast.success('备份已恢复');
+      await load();
+    } catch (error) {
+      toast.error(error.message || '恢复失败');
+    }
   };
 
   return (
