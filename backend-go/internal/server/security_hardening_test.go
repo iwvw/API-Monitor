@@ -32,6 +32,42 @@ func TestAPIKeyRequiresSessionCoversDatabaseImportSubpaths(t *testing.T) {
 	}
 }
 
+func TestAPIKeyRequiresSessionCoversCredentialExports(t *testing.T) {
+	// 主机凭据/Agent 控制面和云厂商账号会解密返回明文密码、私钥、AK/SK,
+	// 只读 API key 不得访问。
+	for _, path := range []string{
+		"/api/server/accounts",
+		"/api/server/accounts/export",
+		"/api/server/accounts/42",
+		"/api/server/credentials",
+		"/api/server/credentials/42",
+		"/api/server/agent/command/42",
+		"/api/server/agent/install-script/42",
+		"/api/aliyun/accounts/export",
+		"/api/tencent/accounts",
+		"/api/oracle/accounts",
+		"/api/m365/accounts/export",
+		"/api/huawei/export/accounts",
+		"/api/gcp/accounts",
+		"/api/cloudflare/accounts/export",
+	} {
+		if !apiKeyRequiresSession(path) {
+			t.Fatalf("apiKeyRequiresSession(%q) = false, want true", path)
+		}
+	}
+	// 边界:同前缀但不同资源的路径不能被误伤。
+	for _, path := range []string{
+		"/api/server/accounts-export-preview",
+		"/api/server/credential-templates",
+		"/api/aliyun/dns",
+		"/api/tencent/dns",
+	} {
+		if apiKeyRequiresSession(path) {
+			t.Fatalf("apiKeyRequiresSession(%q) = true, want false", path)
+		}
+	}
+}
+
 func TestOriginCheckHostIgnoresInjectedForwardedHost(t *testing.T) {
 	server := &Server{cfg: config.Config{
 		Environment:       "production",
