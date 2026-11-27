@@ -277,8 +277,10 @@ function PublicGitHubPage({ domainOnly = false, onDomainNotFound }) {
     const normalizedRepoId = String(repoId || '');
     const normalizedRunId = String(runId || '');
     selectedRunsRef.current = { ...selectedRunsRef.current, [normalizedRepoId]: normalizedRunId };
-    refreshRepositoryDetail(slug, repoId, { markLoading: true, runId: normalizedRunId });
-  }, [refreshRepositoryDetail, slug]);
+    // 自定义域名场景下 URL 路径没有 slug(domainOnly),必须回退用 page.slug,
+    // 否则 refreshRepositoryDetail 因 pageSlug 为空直接 return,点击运行记录无反应。
+    refreshRepositoryDetail(page?.slug || slug, repoId, { markLoading: true, runId: normalizedRunId });
+  }, [refreshRepositoryDetail, page?.slug, slug]);
   const dataUpdatedAt = getPublicGithubDataUpdatedAt(page);
   const failureCount = repositories.filter((repo) => statusTone(repo?.latest_run?.conclusion || repo?.latest_run?.status || repo?.latest_action_conclusion || repo?.latest_action_status) === 'error').length;
   const warningCount = repositories.filter((repo) => statusTone(repo?.latest_run?.conclusion || repo?.latest_run?.status || repo?.latest_action_conclusion || repo?.latest_action_status) === 'warning').length;
