@@ -311,12 +311,12 @@ func (s *Store) UpdateEntry(ctx context.Context, id int64, req UpdateEntryReques
 	now := time.Now().UTC().Format(time.RFC3339)
 	_, err = db.ExecContext(ctx,
 		`UPDATE prompt_entries SET title = ?, collection_id = ?, tags_json = ?,
-		starred = CASE WHEN ? THEN 1 ELSE 0 END,
-		archived = CASE WHEN ? THEN 1 ELSE 0 END,
+		starred = CASE WHEN ? THEN (CASE WHEN ? THEN 1 ELSE 0 END) ELSE starred END,
+		archived = CASE WHEN ? THEN (CASE WHEN ? THEN 1 ELSE 0 END) ELSE archived END,
 		visibility = ?, updated_at = ? WHERE id = ?`,
 		req.Title, req.CollectionID, req.TagsJSON,
-		req.Starred != nil && *req.Starred,
-		req.Archived != nil && *req.Archived,
+		req.Starred != nil, req.Starred != nil && *req.Starred,
+		req.Archived != nil, req.Archived != nil && *req.Archived,
 		req.Visibility, now, id)
 	return err
 }
