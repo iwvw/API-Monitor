@@ -333,7 +333,7 @@ func (s *Service) runSSHTerminalSession(r *http.Request, conn *websocket.Conn, c
 	client, err := ssh.Dial("tcp", net.JoinHostPort(cfg.Host, strconv.Itoa(cfg.Port)), &ssh.ClientConfig{
 		User:            cfg.Username,
 		Auth:            authMethods,
-		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+		HostKeyCallback: s.sshHostKeyCallback(),
 		Timeout:         20 * time.Second,
 	})
 	if err != nil {

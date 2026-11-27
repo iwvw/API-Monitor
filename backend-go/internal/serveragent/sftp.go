@@ -1267,14 +1267,16 @@ func verifySSHHostKey(path, hostname string, remote net.Addr, key ssh.PublicKey)
 			return fmt.Errorf("HOST_KEY_MISMATCH: SSH 主机键与已记录不一致,可能存在中间人攻击(%s)", hostname)
 		}
 	} else if !os.IsNotExist(err) {
-		return nil
+		// knownhosts 记录存在但无法解析/读取:不能退化成「接受任意主机键」,
+		// 否则中间人可借文件损坏或权限问题绕过校验。按失败关闭处理。
+		return fmt.Errorf("KNOWN_HOSTS_ERROR: 读取 SSH 主机键记录失败(%s): %w", path, err)
 	}
 	return appendSSHHostKey(path, hostname, remote, key)
 }
 
 func appendSSHHostKey(path, hostname string, remote net.Addr, key ssh.PublicKey) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return nil
+		return fmt.Errorf("KNOWN_HOSTS_ERROR: 创建主机键目录失败: %w", err)
 	}
 	addresses := []string{hostname}
 	if remote != nil && strings.TrimSpace(remote.String()) != "" {
@@ -1283,11 +1285,11 @@ func appendSSHHostKey(path, hostname string, remote net.Addr, key ssh.PublicKey)
 	line := knownhosts.Line(addresses, key)
 	file, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
 	if err != nil {
-		return nil
+		return fmt.Errorf("KNOWN_HOSTS_ERROR: 打开主机键记录文件失败: %w", err)
 	}
 	defer file.Close()
 	if _, err := file.WriteString(line + "\n"); err != nil {
-		return nil
+		return fmt.Errorf("KNOWN_HOSTS_ERROR: 写入主机键失败: %w", err)
 	}
 	return nil
 }
