@@ -143,13 +143,31 @@ func (s *Service) checkForwardHealth(ctx context.Context) {
 		return
 	}
 	defer rows.Close()
+	type forwardHealthItem struct {
+		id, serverID, localHost, protocol, failoverCurrent string
+		failoverEnabled, healthEnabled                    int
+		localPort, healthInterval, healthTimeout          int
+		unhealthyThr, healthyThr                          int
+	}
+	// 先把结果集读完并释放连接。本库的逻辑句柄是 SetMaxOpenConns(1),
+	// 若在 rows 未读完时就对同一个 db 执行 UPDATE,Exec 会永久等待唯一连接。
+	items := make([]forwardHealthItem, 0, 16)
 	for rows.Next() {
-		var id, serverID, localHost, protocol, failoverCurrent string
-		var failoverEnabled, healthEnabled int
-		var localPort, healthInterval, healthTimeout, unhealthyThr, healthyThr int
-		if err := rows.Scan(&id, &serverID, &localHost, &localPort, &protocol, &failoverCurrent, &failoverEnabled, &healthEnabled, &healthInterval, &healthTimeout, &unhealthyThr, &healthyThr); err != nil {
+		var item forwardHealthItem
+		if err := rows.Scan(&item.id, &item.serverID, &item.localHost, &item.localPort, &item.protocol, &item.failoverCurrent, &item.failoverEnabled, &item.healthEnabled, &item.healthInterval, &item.healthTimeout, &item.unhealthyThr, &item.healthyThr); err != nil {
 			continue
 		}
+		items = append(items, item)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return
+	}
+
+	for _, item := range items {
+		id, serverID, localHost, failoverCurrent := item.id, item.serverID, item.localHost, item.failoverCurrent
+		failoverEnabled := item.failoverEnabled
+		localPort, healthInterval, healthTimeout := item.localPort, item.healthInterval, item.healthTimeout
 		targetServer := serverID
 		if failoverCurrent != "" {
 			targetServer = failoverCurrent
