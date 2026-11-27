@@ -99,7 +99,7 @@ func (s *Service) watchTimezone(ctx context.Context) {
 			s.schedMu.Lock()
 			cur := s.scheduler
 			s.schedMu.Unlock()
-			if cur == nil || loc == cur.location() {
+			if cur == nil || loc.String() == cur.location().String() {
 				continue
 			}
 			s.rebuildScheduler(ctx, loc)
