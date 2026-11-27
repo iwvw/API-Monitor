@@ -233,7 +233,8 @@ func (s *Service) isNodeLiveConnected(serverID, dbStatus string) bool {
 
 func (s *Service) resolveNodeLiveDetails(serverID, dbHost, cachedInfoStr string) (platform, host string, port int) {
 	port = DefaultStoragePort
-	host = dbHost
+
+	var livePublicIP, liveIP, cachedIP string
 
 	// 优先从实时会话中提取
 	if s.registry != nil {
@@ -248,9 +249,8 @@ func (s *Service) resolveNodeLiveDetails(serverID, dbHost, cachedInfoStr string)
 				if sp, ok := meta["storage_port"].(float64); ok && sp > 0 {
 					port = int(sp)
 				}
-				if liveIP := firstNonEmpty(getString(meta, "public_ip"), getString(meta, "ip")); liveIP != "" && IsHostPublic(liveIP) {
-					host = liveIP
-				}
+				livePublicIP = getString(meta, "public_ip")
+				liveIP = getString(meta, "ip")
 			}
 		}
 	}
@@ -264,13 +264,58 @@ func (s *Service) resolveNodeLiveDetails(serverID, dbHost, cachedInfoStr string)
 					platform = p
 				}
 			}
-			if !IsHostPublic(host) {
-				if pip, ok := info["ip"].(string); ok && IsHostPublic(pip) {
-					host = pip
-				}
-			}
+			cachedIP = getString(info, "ip")
 		}
 	}
 
+	// 会议地址选择:优先公网 IPv4(兼容性最好),其次域名/IPv6。
+	// 实测 ARM 节点 DB host 是公网 IPv4(64.181.246.5),但实时上报 ip 是 IPv6;
+	// 若直接采用 IPv6,存储直传会 dial 到 IPv6 的 61208 报 network unreachable。
+	host = preferPublicHost(livePublicIP, liveIP, cachedIP, dbHost)
 	return platform, host, port
+}
+
+// preferPublicHost 从若干候选地址里挑一个公网可达的 host:优先 IPv4(兼容性最好),
+// 其次域名/IPv6;同级按传入顺序。全部不可用时返回空串。
+func preferPublicHost(candidates ...string) string {
+	var fallback string
+	for _, raw := range candidates {
+		h := normalizeHostCandidate(raw)
+		if h == "" || !IsHostPublic(h) {
+			continue
+		}
+		if ip := net.ParseIP(strings.Trim(h, "[]")); ip != nil && ip.To4() != nil {
+			return h
+		}
+		if fallback == "" {
+			fallback = h
+		}
+	}
+	return fallback
+}
+
+// normalizeHostCandidate 去掉候选地址里的 scheme/路径/端口与方括号,返回裸 host。
+func normalizeHostCandidate(raw string) string {
+	h := strings.TrimSpace(raw)
+	if h == "" {
+		return ""
+	}
+	if i := strings.Index(h, "://"); i >= 0 {
+		h = h[i+3:]
+	}
+	if i := strings.IndexByte(h, '/'); i >= 0 {
+		h = h[:i]
+	}
+	if strings.HasPrefix(h, "[") {
+		if hostPart, _, err := net.SplitHostPort(h); err == nil {
+			h = strings.Trim(hostPart, "[]")
+		} else {
+			h = strings.Trim(h, "[]")
+		}
+	} else if strings.Count(h, ":") == 1 {
+		if hostPart, _, err := net.SplitHostPort(h); err == nil {
+			h = hostPart
+		}
+	}
+	return strings.Trim(h, "[]")
 }
