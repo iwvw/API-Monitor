@@ -283,12 +283,17 @@ export default function TilesBoard() {
 
   // 云端布局：读 /api/settings 的 tileLayout 字段（存于 data.db，跨设备）。
   // 兼容三种格式：旧数组（= 桌面 5 列）、旧断点桶（{ mobile, tablet, desktop, wide }）、新列数桶（{ '2'..'8' }）。
+  // 只有成功读取云端布局后才允许自动保存:否则一次瞬时读取失败会用默认布局
+  // 覆盖云端,造成用户布局丢失。
+  const layoutLoadOkRef = useRef(false);
   useEffect(() => {
     let stopped = false;
     (async () => {
       try {
         const res = await fetchWithTimeout('/api/settings');
         const json = await res.json().catch(() => null);
+        // 成功拿到 JSON 才视为「已读取云端状态」(含明确为空),允许后续自动保存。
+        if (!stopped && res.ok && json !== null) layoutLoadOkRef.current = true;
         const saved = json?.data?.tileLayout ?? json?.tileLayout ?? null;
         const valid = (arr) => (Array.isArray(arr)
           ? arr
@@ -522,7 +527,7 @@ export default function TilesBoard() {
   // 布局每次修改立即自动保存到云端（/api/settings PATCH，四断点对象 merge 进用户设置）；相同内容去重避免冗余写入
   const lastSavedLayoutRef = useRef(null);
   useEffect(() => {
-    if (!cloudReady) return;
+    if (!cloudReady || !layoutLoadOkRef.current) return;
     const json = JSON.stringify(layouts);
     if (lastSavedLayoutRef.current === json) return;
     lastSavedLayoutRef.current = json;
