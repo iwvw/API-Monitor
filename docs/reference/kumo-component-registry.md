@@ -302,7 +302,7 @@ Small status label for categorizing or highlighting content.
 
 **Colors (kumo tokens used):**
 
-`bg-kumo-badge-blue`, `bg-kumo-badge-green`, `bg-kumo-badge-inverted`, `bg-kumo-badge-neutral`, `bg-kumo-badge-orange`, `bg-kumo-badge-purple`, `bg-kumo-badge-red`, `bg-kumo-badge-teal`, `bg-kumo-badge-teal-subtle`, `bg-kumo-base`, `bg-kumo-danger-tint`, `bg-kumo-fill`, `bg-kumo-info-tint`, `bg-kumo-success`, `bg-kumo-success-tint`, `bg-kumo-warning-tint`, `border-kumo-brand`, `border-kumo-fill`, `ring-kumo-hairline`, `text-kumo-badge-inverted`, `text-kumo-badge-neutral-subtle`, `text-kumo-badge-teal-subtle`, `text-kumo-danger`, `text-kumo-default`, `text-kumo-info`, `text-kumo-link`, `text-kumo-success`, `text-kumo-warning`
+`bg-kumo-badge-blue`, `bg-kumo-badge-green`, `bg-kumo-badge-inverted`, `bg-kumo-badge-neutral`, `bg-kumo-badge-orange`, `bg-kumo-badge-purple`, `bg-kumo-badge-red`, `bg-kumo-badge-secondary`, `bg-kumo-badge-teal`, `bg-kumo-badge-teal-subtle`, `bg-kumo-base`, `bg-kumo-danger-tint`, `bg-kumo-info-tint`, `bg-kumo-success`, `bg-kumo-success-tint`, `bg-kumo-warning-tint`, `border-kumo-brand`, `border-kumo-fill`, `ring-kumo-hairline`, `text-kumo-badge-inverted`, `text-kumo-badge-neutral-subtle`, `text-kumo-badge-teal-subtle`, `text-kumo-danger`, `text-kumo-default`, `text-kumo-info`, `text-kumo-link`, `text-kumo-success`, `text-kumo-warning`
 
 **Examples:**
 
@@ -3686,7 +3686,7 @@ Close sub-component
             render={(props) => (
               <Button
                 {...props}
-                variant="secondary"
+                variant="ghost"
                 shape="square"
                 icon={<X />}
                 aria-label="Close"
@@ -3704,18 +3704,18 @@ Close sub-component
 
 ```tsx
 <Dialog.Root>
-      <Dialog.Trigger render={(p) => <Button {...p}>Delete</Button>} />
+      <Dialog.Trigger render={(p) => <Button {...p}>Save changes</Button>} />
       <Dialog className="p-8">
         <div className="mb-4 flex items-start justify-between gap-4">
           <Dialog.Title className="text-2xl font-semibold">
-            Modal Title
+            Save changes
           </Dialog.Title>
           <Dialog.Close
             aria-label="Close"
             render={(props) => (
               <Button
                 {...props}
-                variant="secondary"
+                variant="ghost"
                 shape="square"
                 icon={<X />}
                 aria-label="Close"
@@ -3737,8 +3737,8 @@ Close sub-component
           />
           <Dialog.Close
             render={(props) => (
-              <Button variant="destructive" {...props}>
-                Delete
+              <Button variant="primary" {...props}>
+                Save
               </Button>
             )}
           />
@@ -3762,7 +3762,7 @@ Close sub-component
             render={(props) => (
               <Button
                 {...props}
-                variant="secondary"
+                variant="ghost"
                 shape="square"
                 icon={<X />}
                 aria-label="Close"
@@ -3782,7 +3782,7 @@ Close sub-component
 ```
 
 ```tsx
-<Dialog.Root disablePointerDismissal>
+<Dialog.Root role="alertdialog">
       <Dialog.Trigger
         render={(p) => (
           <Button {...p} variant="destructive">
@@ -3878,7 +3878,7 @@ Close sub-component
             render={(props) => (
               <Button
                 {...props}
-                variant="secondary"
+                variant="ghost"
                 shape="square"
                 icon={<X />}
                 aria-label="Close"
@@ -3908,7 +3908,13 @@ Close sub-component
               </Button>
             )}
           />
-          <Button variant="primary">Create</Button>
+          <Dialog.Close
+            render={(props) => (
+              <Button variant="primary" {...props}>
+                Create
+              </Button>
+            )}
+          />
         </div>
       </Dialog>
     </Dialog.Root>
@@ -3927,7 +3933,7 @@ Close sub-component
             render={(props) => (
               <Button
                 {...props}
-                variant="secondary"
+                variant="ghost"
                 shape="square"
                 icon={<X />}
                 aria-label="Close"
@@ -3962,7 +3968,13 @@ Close sub-component
               </Button>
             )}
           />
-          <Button variant="primary">Create</Button>
+          <Dialog.Close
+            render={(props) => (
+              <Button variant="primary" {...props}>
+                Create
+              </Button>
+            )}
+          />
         </div>
       </Dialog>
     </Dialog.Root>
@@ -3989,7 +4001,7 @@ Close sub-component
                 render={(props) => (
                   <Button
                     {...props}
-                    variant="secondary"
+                    variant="ghost"
                     shape="square"
                     icon={<X />}
                     aria-label="Close"
@@ -8697,7 +8709,7 @@ Separator sub-component
 Props:
 - `defaultOpen`: boolean - Initial open state (uncontrolled).
 - `open`: boolean - Controlled open state.
-- `autoScrollOnOpen`: boolean - Scroll the expanded content into view after opening.
+- `autoScrollOnOpen`: boolean - After the section opens, scroll the sidebar vertically so its content is visible. Only the sidebar's own scroll area moves. Sections that are already open when they mount, or when the sidebar expands, don't scroll.
 
 #### Sidebar.Trigger
 
@@ -8706,7 +8718,7 @@ Trigger sub-component
 Props:
 - `defaultOpen`: boolean - Initial open state (uncontrolled).
 - `open`: boolean - Controlled open state.
-- `autoScrollOnOpen`: boolean - Scroll the expanded content into view after opening.
+- `autoScrollOnOpen`: boolean - After the section opens, scroll the sidebar vertically so its content is visible. Only the sidebar's own scroll area moves. Sections that are already open when they mount, or when the sidebar expands, don't scroll.
 
 #### Sidebar.Close
 
@@ -8715,7 +8727,7 @@ Close sub-component
 Props:
 - `defaultOpen`: boolean - Initial open state (uncontrolled).
 - `open`: boolean - Controlled open state.
-- `autoScrollOnOpen`: boolean - Scroll the expanded content into view after opening.
+- `autoScrollOnOpen`: boolean - After the section opens, scroll the sidebar vertically so its content is visible. Only the sidebar's own scroll area moves. Sections that are already open when they mount, or when the sidebar expands, don't scroll.
 
 #### Sidebar.Rail
 
@@ -8724,7 +8736,7 @@ Rail sub-component
 Props:
 - `defaultOpen`: boolean - Initial open state (uncontrolled).
 - `open`: boolean - Controlled open state.
-- `autoScrollOnOpen`: boolean - Scroll the expanded content into view after opening.
+- `autoScrollOnOpen`: boolean - After the section opens, scroll the sidebar vertically so its content is visible. Only the sidebar's own scroll area moves. Sections that are already open when they mount, or when the sidebar expands, don't scroll.
 
 #### Sidebar.ResizeHandle
 
@@ -8733,7 +8745,7 @@ ResizeHandle sub-component
 Props:
 - `defaultOpen`: boolean - Initial open state (uncontrolled).
 - `open`: boolean - Controlled open state.
-- `autoScrollOnOpen`: boolean - Scroll the expanded content into view after opening.
+- `autoScrollOnOpen`: boolean - After the section opens, scroll the sidebar vertically so its content is visible. Only the sidebar's own scroll area moves. Sections that are already open when they mount, or when the sidebar expands, don't scroll.
 
 #### Sidebar.MenuChevron
 
@@ -8749,7 +8761,7 @@ Collapsible sub-component
 Props:
 - `defaultOpen`: boolean - Initial open state (uncontrolled).
 - `open`: boolean - Controlled open state.
-- `autoScrollOnOpen`: boolean - Scroll the expanded content into view after opening.
+- `autoScrollOnOpen`: boolean - After the section opens, scroll the sidebar vertically so its content is visible. Only the sidebar's own scroll area moves. Sections that are already open when they mount, or when the sidebar expands, don't scroll.
 
 #### Sidebar.CollapsibleTrigger
 

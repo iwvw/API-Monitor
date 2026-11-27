@@ -55,7 +55,7 @@
     "android:test": "cd mobile-android && gradlew.bat :app:testDebugUnitTest"
   },
   "dependencies": {
-    "@cloudflare/kumo": "^2.19.0",
+    "@cloudflare/kumo": "^2.19.1",
     "@codemirror/lang-markdown": "^6.5.2",
     "@codemirror/language": "^6.12.4",
     "@codemirror/language-data": "^6.5.2",
