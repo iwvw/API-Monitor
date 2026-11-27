@@ -927,6 +927,11 @@ async fn run_client(
                             .to_string();
                         eprintln!("[Agent] ❌ 认证失败: {}", reason);
                         std::process::exit(1);
+                    } else if !*authenticated_clone.lock().await {
+                        // 未认证连接:除认证相关事件外,一律忽略任务/PTY/远程桌面/
+                        // 服务器动作等控制指令。否则在明文 ws:// 或中间人链路上,
+                        // 任何人都能直接下发 dashboard:task 执行任意命令(RCE)。
+                        eprintln!("[Agent] 忽略未认证连接下发的事件: {}", event);
                     } else if event == EVENT_DASHBOARD_REMOTE_DESKTOP_START {
                         if let Ok(payload) =
                             serde_json::from_value::<RemoteDesktopStartPayload>(data)
