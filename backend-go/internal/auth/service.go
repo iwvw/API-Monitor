@@ -708,6 +708,20 @@ func (s *Service) verifyPassword(w http.ResponseWriter, r *http.Request) {
 	}
 	defer db.Close()
 
+	// 与 /api/auth/login 共用同一套 IP 锁定:否则该公开接口可被用来不限速
+	// 猜测管理员密码。
+	clientIP := s.requestClientIP(r)
+	if lockStatus, err := s.loginLockStatus(r.Context(), db, clientIP); err != nil {
+		response.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	} else if lockStatus.Locked {
+		response.JSON(w, http.StatusTooManyRequests, map[string]interface{}{
+			"success": false,
+			"error":   "尝试过多,请稍后再试",
+		})
+		return
+	}
+
 	savedPassword, err := s.loadAdminPassword(r.Context(), db)
 	if err != nil {
 		response.Error(w, http.StatusInternalServerError, err.Error())
@@ -719,6 +733,22 @@ func (s *Service) verifyPassword(w http.ResponseWriter, r *http.Request) {
 	}
 	if verifyPassword(body.Password, savedPassword) {
 		response.JSON(w, http.StatusOK, map[string]bool{"success": true})
+		return
+	}
+	attempt, err := s.recordFailedAttempt(r.Context(), db, clientIP)
+	if err != nil {
+		response.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	_ = s.logOperation(r.Context(), db, "PASSWORD_VERIFY_FAILED", "auth", map[string]interface{}{
+		"ip":                clientIP,
+		"remainingAttempts": attempt.RemainingAttempts,
+	}, clientIP, r.UserAgent())
+	if attempt.Locked {
+		response.JSON(w, http.StatusTooManyRequests, map[string]interface{}{
+			"success": false,
+			"error":   "尝试过多,请稍后再试",
+		})
 		return
 	}
 	response.JSON(w, http.StatusUnauthorized, map[string]interface{}{"success": false, "error": "密码错误"})
@@ -747,6 +777,18 @@ func (s *Service) changePassword(w http.ResponseWriter, r *http.Request) {
 	}
 	defer db.Close()
 
+	// 与 /api/auth/login 共用同一套 IP 锁定:该公开接口同样可用旧密码爆破。
+	if lockStatus, err := s.loginLockStatus(r.Context(), db, clientIP); err != nil {
+		response.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	} else if lockStatus.Locked {
+		response.JSON(w, http.StatusTooManyRequests, map[string]interface{}{
+			"success": false,
+			"error":   "尝试过多,请稍后再试",
+		})
+		return
+	}
+
 	savedPassword, err := s.loadAdminPassword(r.Context(), db)
 	if err != nil {
 		response.Error(w, http.StatusInternalServerError, err.Error())
@@ -757,10 +799,23 @@ func (s *Service) changePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !verifyPassword(body.OldPassword, savedPassword) {
+		attempt, attemptErr := s.recordFailedAttempt(r.Context(), db, clientIP)
+		if attemptErr != nil {
+			response.Error(w, http.StatusInternalServerError, attemptErr.Error())
+			return
+		}
 		_ = s.logOperation(r.Context(), db, "PASSWORD_CHANGE_FAILED", "auth", map[string]interface{}{
-			"ip":     clientIP,
-			"reason": "wrong_old_password",
+			"ip":                clientIP,
+			"reason":            "wrong_old_password",
+			"remainingAttempts": attempt.RemainingAttempts,
 		}, clientIP, r.UserAgent())
+		if attempt.Locked {
+			response.JSON(w, http.StatusTooManyRequests, map[string]interface{}{
+				"success": false,
+				"error":   "尝试过多,请稍后再试",
+			})
+			return
+		}
 		response.JSON(w, http.StatusUnauthorized, map[string]interface{}{"success": false, "error": "原密码错误"})
 		return
 	}

@@ -572,6 +572,21 @@ func apiKeyRequiresSession(path string) bool {
 		"/api/cline/accounts/export",
 		"/api/cline/accounts/import",
 		"/api/antigravity/accounts/export",
+		// 主机账号/凭据/Agent 控制面会解密返回 SSH 密码、私钥、passphrase
+		// 与 Agent Key;只读 API key 拿不到这些明文,也不能借 Agent Key 冒充主机。
+		"/api/server/accounts",
+		"/api/server/credentials",
+		"/api/server/agent",
+		// 云厂商账号列表/导出会返回明文 AK/SK、私钥、client secret。
+		"/api/aliyun/accounts",
+		"/api/tencent/accounts",
+		"/api/oracle/accounts",
+		"/api/m365/accounts",
+		"/api/huawei/accounts",
+		"/api/huawei/export/accounts",
+		"/api/gcp/accounts",
+		"/api/cloudflare/accounts",
+		"/api/cloudflare/export/accounts",
 	}
 	for _, prefix := range protectedPrefixes {
 		if path == prefix || strings.HasPrefix(path, prefix+"/") {
