@@ -223,7 +223,7 @@ func (s *Service) uploadR2Object(w http.ResponseWriter, r *http.Request, account
 		contentType = "application/octet-stream"
 	}
 	path := "/accounts/" + url.PathEscape(cfAccountID) + "/r2/buckets/" + url.PathEscape(bucketName) + "/objects/" + url.PathEscape(objectKey)
-	_, _, err = s.cfRawRequest(r.Context(), http.MethodPut, path, auth, "application/json", contentType, r.Body)
+	_, _, err = s.cfRawRequestWithClient(r.Context(), s.streamClient, http.MethodPut, path, auth, "application/json", contentType, r.Body)
 	if err != nil {
 		response.JSON(w, http.StatusInternalServerError, map[string]interface{}{"error": err.Error()})
 		return

@@ -19,11 +19,12 @@ const (
 )
 
 type Service struct {
-	cfg     config.Config
-	store   *database.Store
-	schema  database.SchemaEnsurer
-	client  *http.Client
-	apiBase string
+	cfg          config.Config
+	store        *database.Store
+	schema       database.SchemaEnsurer
+	client       *http.Client
+	streamClient *http.Client
+	apiBase      string
 }
 
 type verificationResult struct {
@@ -39,11 +40,21 @@ type accountScanner interface {
 }
 
 func New(cfg config.Config) *Service {
+	// 流式上传/下载单独用无总超时的 client:http.Client.Timeout 会覆盖响应体读取,
+	// 20s 的总超时会把大对象传输拦腰截断。这里只限制首字节时间,传输时长交给
+	// 请求上下文(客户端断开即取消)。
+	streamClient := &http.Client{}
+	if base, ok := http.DefaultTransport.(*http.Transport); ok {
+		clone := base.Clone()
+		clone.ResponseHeaderTimeout = 60 * time.Second
+		streamClient.Transport = clone
+	}
 	service := &Service{
-		cfg:     cfg,
-		store:   database.New(cfg),
-		client:  &http.Client{Timeout: requestTimeout},
-		apiBase: envURL("CLOUDFLARE_API_BASE_URL", defaultAPIBase),
+		cfg:          cfg,
+		store:        database.New(cfg),
+		client:       &http.Client{Timeout: requestTimeout},
+		streamClient: streamClient,
+		apiBase:      envURL("CLOUDFLARE_API_BASE_URL", defaultAPIBase),
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()

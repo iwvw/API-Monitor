@@ -58,6 +58,12 @@ func (s *Service) cfRequest(ctx context.Context, method, path string, headers ma
 }
 
 func (s *Service) cfRawRequest(ctx context.Context, method, path string, headers map[string]string, accept, contentType string, body io.Reader) ([]byte, string, error) {
+	return s.cfRawRequestWithClient(ctx, s.client, method, path, headers, accept, contentType, body)
+}
+
+// cfRawRequestWithClient 允许调用方指定 client:流式上传(如 R2 大对象)必须用
+// 无总超时的 streamClient,否则 http.Client.Timeout 会在传输中途截断 body。
+func (s *Service) cfRawRequestWithClient(ctx context.Context, client *http.Client, method, path string, headers map[string]string, accept, contentType string, body io.Reader) ([]byte, string, error) {
 	target := s.apiBase + cloudflarePath(path)
 	req, err := http.NewRequestWithContext(ctx, method, target, body)
 	if err != nil {
@@ -75,7 +81,7 @@ func (s *Service) cfRawRequest(ctx context.Context, method, path string, headers
 		}
 		req.Header.Set(key, cleanHeader(value))
 	}
-	res, err := s.client.Do(req)
+	res, err := client.Do(req)
 	if err != nil {
 		return nil, "", err
 	}
@@ -118,7 +124,7 @@ func (s *Service) cfStreamRequest(ctx context.Context, method, path string, head
 		}
 		req.Header.Set(key, cleanHeader(value))
 	}
-	res, err := s.client.Do(req)
+	res, err := s.streamClient.Do(req)
 	if err != nil {
 		return nil, -1, "", err
 	}
