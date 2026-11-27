@@ -135,6 +135,12 @@ func (s *Service) updateProfile(w http.ResponseWriter, r *http.Request, db *sql.
 	cycleType := normalizeCycleType(input.CycleType)
 	refreshHours := intDefault(input.UpstreamRefreshHours, defaultRefreshHours)
 	limitPerMin := intDefault(input.RateLimitPerMinute, defaultLimitPerMin)
+	// 先校验节点存在性:本接口没有事务包裹,replacePlanNodeRelations 会先
+	// DELETE 再校验,若在这里之前不拦住失效节点,已有授权会被删且只部分回填。
+	if err := validatePlanNodeIDs(r.Context(), db, input.InternalNodeIDs); err != nil {
+		response.Error(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	if err := upsertProfile(r.Context(), db, id, subInput, templateID, trafficSource, cycleType, cycleDay, limitPerMin, input.SelectionMode, input.IncludeInternalNodes); err != nil {
 		response.Error(w, http.StatusInternalServerError, err.Error())
 		return
