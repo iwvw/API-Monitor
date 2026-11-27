@@ -1498,7 +1498,8 @@ func (s *Service) agentUploadChunk(ctx context.Context, args map[string]interfac
 	offset := int64(offsetFloat)
 	if offset > 0 {
 		// 续写前确认目标已有内容，避免块序错乱写进空文件。
-		stat, statErr := s.agentFileOps.AgentFileStat(ctx, serverID, path)
+		// 必须带上 realPath:首块按真实路径写时,这里若退回沙箱路径会误判「文件不存在」。
+		stat, statErr := s.agentFileOps.AgentFileStatMode(ctx, serverID, path, boolArg(args, "realPath"))
 		if statErr != nil {
 			return nil, fmt.Errorf("读取目标文件状态失败（续写需要文件已存在）: %w", statErr)
 		}

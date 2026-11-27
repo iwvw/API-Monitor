@@ -1039,6 +1039,13 @@ func (s *Service) AgentFileRoots(ctx context.Context, serverID string) (map[stri
 
 // AgentFileStat 返回目标主机上某个路径的信息（含真实路径）。
 func (s *Service) AgentFileStat(ctx context.Context, serverID, remotePath string) (map[string]interface{}, error) {
+	return s.AgentFileStatMode(ctx, serverID, remotePath, false)
+}
+
+// AgentFileStatMode 与 AgentFileStat 相同,但可指定 realPath:true 时按主机真实绝对路径查询。
+// 分块续写(offset>0)前的连续性校验必须用它,否则会落到沙箱路径,与首块按真实路径写入的
+// 位置不一致,导致「续写需要文件已存在」的误判。
+func (s *Service) AgentFileStatMode(ctx context.Context, serverID, remotePath string, realPath bool) (map[string]interface{}, error) {
 	serverID = strings.TrimSpace(serverID)
 	if serverID == "" {
 		return nil, fmt.Errorf("server id is required")
@@ -1046,9 +1053,13 @@ func (s *Service) AgentFileStat(ctx context.Context, serverID, remotePath string
 	if !s.hasAgentConnection(serverID) {
 		return nil, fmt.Errorf("agent offline")
 	}
-	raw, err := s.runAgentTransientFileTask(serverID, agentFileStatTask, map[string]interface{}{
+	payload := map[string]interface{}{
 		"path": normalizeRemotePath(remotePath),
-	}, agentFileTimeout)
+	}
+	if realPath {
+		payload["realPath"] = true
+	}
+	raw, err := s.runAgentTransientFileTask(serverID, agentFileStatTask, payload, agentFileTimeout)
 	if err != nil {
 		return nil, err
 	}

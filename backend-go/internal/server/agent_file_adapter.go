@@ -62,6 +62,10 @@ func (a agentFileOperatorAdapter) AgentFileStat(ctx context.Context, serverID, r
 	return a.svc.AgentFileStat(ctx, serverID, remotePath)
 }
 
+func (a agentFileOperatorAdapter) AgentFileStatMode(ctx context.Context, serverID, remotePath string, realPath bool) (map[string]interface{}, error) {
+	return a.svc.AgentFileStatMode(ctx, serverID, remotePath, realPath)
+}
+
 func (a agentFileOperatorAdapter) AgentFileChmod(ctx context.Context, serverID, remotePath string, mode uint32) (string, error) {
 	return a.svc.AgentFileChmod(ctx, serverID, remotePath, mode)
 }

@@ -1565,6 +1565,35 @@ func TestAgentUploadChunkRejectsDiscontinuousOffset(t *testing.T) {
 	}
 }
 
+// 续写(offset>0)前的连续性校验必须携带 realPath:首块按真实路径写、这里退回沙箱路径时,
+// 会误判「文件不存在」,真实路径下的分块上传永远续不上(实测 offset=262144 必失败)。
+func TestAgentUploadChunkContinuationPassesRealPath(t *testing.T) {
+	cfg := config.Config{DataDir: t.TempDir(), DBName: "data.db"}
+	service := New(cfg)
+	defer service.Shutdown()
+
+	var statRealPath bool
+	service.agentFileOps = fakeFileOperator{
+		statSize:     262144,
+		realPath:     "D:/x.bin",
+		statRealPath: &statRealPath,
+	}
+
+	_, err := service.agentUploadChunk(context.Background(), map[string]interface{}{
+		"serverId":       "srv-1",
+		"path":           "D:/x.bin",
+		"offset":         float64(262144),
+		"content_base64": base64.StdEncoding.EncodeToString([]byte("abc")),
+		"realPath":       true,
+	})
+	if err != nil {
+		t.Fatalf("agentUploadChunk 续写 err: %v", err)
+	}
+	if !statRealPath {
+		t.Fatal("续写前的 stat 必须带 realPath=true,否则真实路径下永远续不上")
+	}
+}
+
 // 分块上传首块（offset=0）不校验前序状态，并应回传 realPath。
 func TestAgentUploadChunkFirstBlockReturnsRealPath(t *testing.T) {
 	cfg := config.Config{DataDir: t.TempDir(), DBName: "data.db"}
@@ -1846,11 +1875,12 @@ func TestEnsureAIAccessSchemaRebuildsAfterPoolReset(t *testing.T) {
 
 // fakeFileOperator 是 AgentFileOperator 的测试替身。
 type fakeFileOperator struct {
-	statSize    int64
-	realPath    string
-	onChunk     func(offset int64, truncate bool)
-	gotRealPath *bool
-	onCopy      func(src, dst string)
+	statSize     int64
+	realPath     string
+	onChunk      func(offset int64, truncate bool)
+	gotRealPath  *bool
+	statRealPath *bool
+	onCopy       func(src, dst string)
 }
 
 func (f fakeFileOperator) CopyAgentFile(_ context.Context, srcID, srcPath string, _ bool, dstID, dstPath string, _ bool, _ time.Duration) (int64, error) {
@@ -1910,6 +1940,13 @@ func (f fakeFileOperator) AgentFileRoots(_ context.Context, _ string) (map[strin
 }
 
 func (f fakeFileOperator) AgentFileStat(_ context.Context, _, _ string) (map[string]interface{}, error) {
+	return f.AgentFileStatMode(context.Background(), "", "", false)
+}
+
+func (f fakeFileOperator) AgentFileStatMode(_ context.Context, _, _ string, realPath bool) (map[string]interface{}, error) {
+	if f.statRealPath != nil {
+		*f.statRealPath = realPath
+	}
 	return map[string]interface{}{"size": float64(f.statSize), "realPath": f.realPath, "isFile": true}, nil
 }
 

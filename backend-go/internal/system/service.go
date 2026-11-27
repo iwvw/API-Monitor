@@ -61,6 +61,7 @@ type AgentFileOperator interface {
 	WriteAgentFileBytesDetailedMode(ctx context.Context, serverID, remotePath string, data []byte, timeout time.Duration, realPath bool) (AgentFileWriteResult, error)
 	AgentFileRoots(ctx context.Context, serverID string) (map[string]interface{}, error)
 	AgentFileStat(ctx context.Context, serverID, remotePath string) (map[string]interface{}, error)
+	AgentFileStatMode(ctx context.Context, serverID, remotePath string, realPath bool) (map[string]interface{}, error)
 	AgentFileChmod(ctx context.Context, serverID, remotePath string, mode uint32) (string, error)
 	CopyAgentFile(ctx context.Context, srcServerID, srcPath string, srcRealPath bool, dstServerID, dstPath string, dstRealPath bool, timeout time.Duration) (int64, error)
 	CopyAgentPath(ctx context.Context, srcServerID, srcPath string, srcRealPath bool, dstServerID, dstPath string, dstRealPath bool, timeout time.Duration) (int64, int64, error)

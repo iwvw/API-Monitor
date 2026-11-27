@@ -5,7 +5,9 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"net"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -33,7 +35,10 @@ func BuildSignedURL(method, host string, port int, code, filename string, maxSiz
 	expires := time.Now().Add(ttl).Unix()
 	sig := ComputeSignature(method, code, filename, expires, maxSize, secret)
 
-	baseURL := fmt.Sprintf("http://%s:%d/storage/%s/%s", host, port, url.PathEscape(code), url.PathEscape(filename))
+	// net.JoinHostPort 会在 IPv6 字面量两侧补方括号(如 [2603::5]:61208),
+	// 直接 fmt "%s:%d" 会拼出 http://2603::5:61208 这种非法 URL(端口被误解析)。
+	hostPort := net.JoinHostPort(strings.TrimSpace(host), strconv.Itoa(port))
+	baseURL := fmt.Sprintf("http://%s/storage/%s/%s", hostPort, url.PathEscape(code), url.PathEscape(filename))
 	parsed, err := url.Parse(baseURL)
 	if err != nil {
 		return "", err
