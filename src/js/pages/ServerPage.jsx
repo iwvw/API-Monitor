@@ -926,6 +926,16 @@ function ServerPage() {
 
       Object.keys(sshSessionRefs.current).forEach(id => {
         const session = sshSessionRefs.current[id];
+        // 先标记关闭并清掉重连定时器:否则 ws.close() 触发的 onclose 会走
+        // scheduleReconnect,在组件卸载后继续建立新连接(并对已 dispose 的
+        // terminal 调 writeln)。删除 refs 条目也让 scheduleReconnect/onopen
+        // 的实例校验直接失败。
+        session.closing = true;
+        if (session.reconnectTimer) {
+          clearTimeout(session.reconnectTimer);
+          session.reconnectTimer = null;
+        }
+        delete sshSessionRefs.current[id];
         if (session.heartbeatInterval) clearInterval(session.heartbeatInterval);
         if (session.inputDisposable) session.inputDisposable.dispose();
         if (session.ws) session.ws.close();
