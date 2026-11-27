@@ -826,6 +826,13 @@ func (s *EngineIOServer) handleSocketIOMessage(session *EngineIOSession, payload
 				if len(targets) > 0 {
 					payload["network_targets"] = targets
 				}
+				// 文件访问根随认证握手实时下发(`*` 表示全开):改面板配置后重启面板,
+				// Agent 重连即生效,免去重装 Agent 才能改 env 的麻烦。
+				if s.service != nil {
+					if roots := s.service.agentFileRootsEnvValue(strings.EqualFold(authData.Platform, "Windows")); roots != "" {
+						payload["fileRoots"] = roots
+					}
+				}
 
 				s.sendEvent(session, "dashboard:auth_ok", payload)
 

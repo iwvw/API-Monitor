@@ -742,6 +742,11 @@ async fn run_client(
                             }
                         }
 
+                        // 运行时下发的文件访问根(`*` 表示全开),改面板配置重启即可,免重装 Agent。
+                        if let Some(roots_val) = data.get("fileRoots").and_then(|v| v.as_str()) {
+                            crate::file_manager::set_file_roots(roots_val);
+                        }
+
                         // Start loops for reports
                         let auth_tx = auth_ok_tx.clone();
                         let collector_loop = collector_clone.clone();
