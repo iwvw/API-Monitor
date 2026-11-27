@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -21,6 +22,14 @@ func (s *Service) CopyAgentFile(
 	written, _, err := s.copyAgentStream(ctx, srcServerID, srcPath, srcRealPath, dstServerID, dstPath, dstRealPath, timeout)
 	return written, err
 }
+
+// agentFileCopyConcurrency 是主机↔主机复制时同时在途的目标写入数。
+//
+// 每块写入是一次跨公网的 Agent 任务往返;串行时吞吐被往返延迟限制(实测 1 MiB 块约
+// 0.75s,90% 是延迟)。目标写入按显式 offset 落位,Agent 侧每次 open+seek+write 用独立
+// 句柄,乱序写不同 offset 互不覆盖,因此可以并发。首块截断由调用方建文件时完成,
+// worker 一律 truncate=false,避免并发 truncate 竞态。
+const agentFileCopyConcurrency = 4
 
 // copyAgentStream 流式把源文件写到目标路径(目标为最终路径),返回 (字节, sha256)。
 func (s *Service) copyAgentStream(
@@ -38,29 +47,98 @@ func (s *Service) copyAgentStream(
 	}
 	defer reader.Close()
 
+	// 先建/截断目标(offset=0 的 nil 写入),之后所有分块写入均 truncate=false。
+	// 这一步同时覆盖 0 字节文件与「避免并发 worker 各自截断」的竞态。
+	if _, werr := s.WriteAgentFileChunkMode(ctx, dstServerID, dstPath, nil, 0, true, timeout, dstRealPath); werr != nil {
+		return 0, "", fmt.Errorf("创建目标文件失败: %w", werr)
+	}
+
+	return copyChunksConcurrently(ctx, reader, agentFileStreamChunkSize, agentFileCopyConcurrency,
+		func(workerCtx context.Context, data []byte, offset int64) error {
+			_, werr := s.WriteAgentFileChunkMode(workerCtx, dstServerID, dstPath, data, offset, false, timeout, dstRealPath)
+			return werr
+		})
+}
+
+// copyChunksConcurrently 从 r 顺序读块(顺序计算 sha256),交给并发的 write 回调按显式
+// offset 落位;返回 (字节数, 源 sha256)。write 必须按 offset 无截断写入(调用方已建好文件),
+// 且必须并发安全。任一 write 失败即取消其余在途任务并返回该错误。
+func copyChunksConcurrently(
+	ctx context.Context,
+	r io.Reader,
+	chunkSize, concurrency int,
+	write func(ctx context.Context, data []byte, offset int64) error,
+) (int64, string, error) {
+	if chunkSize <= 0 {
+		chunkSize = agentFileStreamChunkSize
+	}
+	if concurrency < 1 {
+		concurrency = 1
+	}
+
 	hasher := sha256.New()
-	buf := make([]byte, agentFileStreamChunkSize)
+	workerCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	type job struct {
+		offset int64
+		data   []byte
+	}
+	jobs := make(chan job, concurrency)
+	errCh := make(chan error, 1)
+
+	var wg sync.WaitGroup
+	for i := 0; i < concurrency; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := range jobs {
+				if err := write(workerCtx, j.data, j.offset); err != nil {
+					select {
+					case errCh <- err:
+					default:
+					}
+					cancel()
+					return
+				}
+			}
+		}()
+	}
+
 	var offset int64
+	var readErr error
+readLoop:
 	for {
-		n, readErr := io.ReadFull(reader, buf)
+		buf := make([]byte, chunkSize)
+		n, err := io.ReadFull(r, buf)
 		if n > 0 {
 			hasher.Write(buf[:n])
-			if _, werr := s.WriteAgentFileChunkMode(ctx, dstServerID, dstPath, buf[:n], offset, offset == 0, timeout, dstRealPath); werr != nil {
-				return offset, "", fmt.Errorf("写入目标文件失败(已写 %d 字节): %w", offset, werr)
+			select {
+			case jobs <- job{offset: offset, data: buf[:n]}:
+				offset += int64(n)
+			case werr := <-errCh:
+				readErr = werr
+				break readLoop
 			}
-			offset += int64(n)
 		}
-		if readErr == io.EOF || readErr == io.ErrUnexpectedEOF {
+		if err == io.EOF || err == io.ErrUnexpectedEOF {
 			break
 		}
-		if readErr != nil {
-			return offset, "", fmt.Errorf("读取源文件失败(已写 %d 字节): %w", offset, readErr)
+		if err != nil {
+			readErr = err
+			break
 		}
 	}
-	if offset == 0 {
-		if _, werr := s.WriteAgentFileChunkMode(ctx, dstServerID, dstPath, nil, 0, true, timeout, dstRealPath); werr != nil {
-			return 0, "", fmt.Errorf("创建目标文件失败: %w", werr)
-		}
+	close(jobs)
+	wg.Wait()
+
+	if readErr != nil {
+		return offset, "", fmt.Errorf("读取源文件失败(已写 %d 字节): %w", offset, readErr)
+	}
+	select {
+	case werr := <-errCh:
+		return offset, "", fmt.Errorf("写入目标文件失败(已读 %d 字节): %w", offset, werr)
+	default:
 	}
 	return offset, hex.EncodeToString(hasher.Sum(nil)), nil
 }
