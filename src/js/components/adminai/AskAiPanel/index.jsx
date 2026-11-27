@@ -511,9 +511,10 @@ import {
         // 只允许「自己所属的活跃流」收尾时 stopStream：上一轮收尾瞬间新一轮已开流
         // （openStream 已替换 eventSource.current）时，旧流残留的 done/error 事件
         // 不得误杀新流，否则新一轮 WebSocket 事件全部丢失、消息像被吞掉。
+        const wasReconnected = reconnectedRef.current;
         if (es === eventSource.current) stopStream();
         // 本轮发生过断线重连：增量内容可能缺失，拉取服务端完整历史替换占位消息
-        if (reconnectedRef.current) loadMessages(activeSessionIdRef.current);
+        if (wasReconnected) loadMessages(activeSessionIdRef.current);
       }
     };
 
