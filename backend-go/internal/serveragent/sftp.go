@@ -673,7 +673,10 @@ func (s *Service) handleSFTPChmod(w http.ResponseWriter, r *http.Request, db *sq
 }
 
 func (s *Service) handleSFTPUpload(w http.ResponseWriter, r *http.Request, db *sql.DB) {
-	if err := r.ParseMultipartForm(64 << 20); err != nil {
+	// 上限与 Agent 二进制直传一致,避免单请求耗尽磁盘;multipart 解析只保留约
+	// 1MiB 在内存,其余落临时文件,配合下面的分块/流式写入不再把整文件读入 []byte。
+	r.Body = http.MaxBytesReader(w, r.Body, agentUploadMaxBytes)
+	if err := r.ParseMultipartForm(agentFileChunkSize); err != nil {
 		response.Error(w, http.StatusBadRequest, "invalid multipart form")
 		return
 	}
@@ -701,12 +704,7 @@ func (s *Service) handleSFTPUpload(w http.ResponseWriter, r *http.Request, db *s
 		// 必须走分块 base64 写入，不能把字节塞进 string：Go string 里的非法
 		// UTF-8 序列在 json.Marshal 时会被替换成 U+FFFD，二进制文件（zip/图片/
 		// 可执行文件）会静默损坏。同时分块也避开单帧体积上限。
-		var buf bytes.Buffer
-		if _, err := io.Copy(&buf, file); err != nil {
-			writeSFTPError(w, err)
-			return
-		}
-		written, werr := s.WriteAgentFileBytesDetailedMode(r.Context(), serverID, target, buf.Bytes(), 5*time.Minute, true)
+		written, werr := s.streamAgentFileUpload(r.Context(), serverID, target, file, 5*time.Minute, true)
 		if werr != nil {
 			writeSFTPError(w, werr)
 			return
@@ -735,12 +733,7 @@ func (s *Service) handleSFTPUpload(w http.ResponseWriter, r *http.Request, db *s
 		writeSFTPError(w, err)
 		return
 	}
-	var buf bytes.Buffer
-	if _, err := io.Copy(&buf, file); err != nil {
-		writeSFTPError(w, err)
-		return
-	}
-	if err := writeRemoteFile(client, target, buf.Bytes()); err != nil {
+	if err := writeRemoteFileFromReader(client, target, file); err != nil {
 		writeSFTPError(w, err)
 		return
 	}
@@ -983,6 +976,54 @@ func (s *Service) WriteAgentFileBytesDetailedMode(ctx context.Context, serverID,
 // WriteAgentFileChunk 写入单个分块（按 offset 续写），供 AI 侧大文件分块上传。
 // 客户端自己读文件切片、自己算 sha256，模型只传 offset/长度这类元数据，
 // 因此不受模型输出长度限制。
+// streamAgentFileUpload 以固定大小分块把 reader 流式写入 Agent 主机文件,返回
+// 最后一次写入结果。全程只在内存保留一个 agentFileChunkSize 分块,避免把整个
+// 上传文件读入 []byte 造成内存放大。空输入也会写一次截断块以创建/清空目标。
+func (s *Service) streamAgentFileUpload(ctx context.Context, serverID, remotePath string, reader io.Reader, timeout time.Duration, realPath bool) (AgentFileWriteResult, error) {
+	serverID = strings.TrimSpace(serverID)
+	if serverID == "" {
+		return AgentFileWriteResult{}, fmt.Errorf("server id is required")
+	}
+	if !s.hasAgentConnection(serverID) {
+		return AgentFileWriteResult{}, fmt.Errorf("agent offline")
+	}
+	if timeout <= 0 {
+		timeout = 10 * time.Minute
+	}
+	var result AgentFileWriteResult
+	var offset int64
+	buf := make([]byte, agentFileChunkSize)
+	for {
+		n, readErr := io.ReadFull(reader, buf)
+		if n > 0 {
+			encoded := base64.StdEncoding.EncodeToString(buf[:n])
+			raw, err := s.writeAgentFileBase64RawMode(ctx, serverID, remotePath, encoded, offset, offset == 0, timeout, realPath)
+			if err != nil {
+				return result, err
+			}
+			result = parseAgentFileWriteResult(raw)
+			offset += int64(n)
+		}
+		if readErr == io.EOF || readErr == io.ErrUnexpectedEOF {
+			break
+		}
+		if readErr != nil {
+			return result, readErr
+		}
+	}
+	if offset == 0 {
+		raw, err := s.writeAgentFileBase64RawMode(ctx, serverID, remotePath, "", 0, true, timeout, realPath)
+		if err != nil {
+			return result, err
+		}
+		result = parseAgentFileWriteResult(raw)
+	}
+	if result.Size <= 0 {
+		result.Size = offset
+	}
+	return result, nil
+}
+
 func (s *Service) WriteAgentFileChunk(ctx context.Context, serverID, remotePath string, data []byte, offset int64, truncate bool, timeout time.Duration) (AgentFileWriteResult, error) {
 	return s.WriteAgentFileChunkMode(ctx, serverID, remotePath, data, offset, truncate, timeout, false)
 }
@@ -1392,13 +1433,20 @@ func readRemoteFile(client *sftp.Client, remotePath string, maxSize int64) (stri
 }
 
 func writeRemoteFile(client *sftp.Client, remotePath string, data []byte) error {
+	return writeRemoteFileFromReader(client, remotePath, bytes.NewReader(data))
+}
+
+// writeRemoteFileFromReader 从 reader 流式写入远端文件,全程不把内容整块读入内存。
+func writeRemoteFileFromReader(client *sftp.Client, remotePath string, reader io.Reader) error {
 	file, err := client.Create(remotePath)
 	if err != nil {
 		return err
 	}
-	defer file.Close()
-	_, err = file.Write(data)
-	return err
+	if _, err := io.Copy(file, reader); err != nil {
+		_ = file.Close()
+		return err
+	}
+	return file.Close()
 }
 
 func removeRemoteDirRecursive(client *sftp.Client, remotePath string) error {
