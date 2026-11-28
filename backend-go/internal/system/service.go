@@ -1429,9 +1429,6 @@ func routeGroup(route manifest.Route) string {
 	// 文件柜
 	case strings.HasPrefix(prefix, "/api/filebox"):
 		return "文件柜"
-	// 图编辑器
-	case strings.HasPrefix(prefix, "/api/drawio"):
-		return "图编辑器"
 	// 提示词库
 	case strings.HasPrefix(prefix, "/api/prompts"):
 		return "提示词库"

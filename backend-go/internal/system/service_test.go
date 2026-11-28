@@ -585,7 +585,6 @@ func TestRouteGroupsFollowSidebarModules(t *testing.T) {
 		{"/api/cron/tasks", "定时任务"},
 		{"/api/uptime/monitors", "可用性监测"},
 		{"/api/filebox/files", "文件柜"},
-		{"/api/drawio/documents", "图编辑器"},
 		{"/api/prompts/entries", "提示词库"},
 		{"/api/totp/accounts", "双因子认证"},
 		{"/api/assets", "资产管理"},

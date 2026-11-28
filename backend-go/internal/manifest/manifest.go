@@ -336,22 +336,6 @@ func buildRoutes() []Route {
 		{Prefix: "/api/github", Module: "github", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "GitHub repository observability and Actions operations"},
 		{Prefix: "/api/dockerhub", Module: "dockerhub", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Docker Hub accounts and image repository browsing"},
 
-		// Draw.io diagram editor
-		{Prefix: "/api/drawio/documents/{id}/versions/{versionId}/restore", Module: "drawio-versions", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Restore drawio version to draft", MatchMode: MatchPattern},
-		{Prefix: "/api/drawio/documents/{id}/versions/{versionId}", Module: "drawio-versions", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Get drawio version detail", MatchMode: MatchPattern},
-		{Prefix: "/api/drawio/documents/{id}/versions", Module: "drawio-versions", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "List/save drawio versions", MatchMode: MatchPattern},
-		{Prefix: "/api/drawio/documents/{id}/thumbnails/rebuild", Module: "drawio-thumbnails", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Rebuild drawio thumbnail", MatchMode: MatchPattern},
-		{Prefix: "/api/drawio/documents/{id}/export", Module: "drawio-export", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Export drawio document", MatchMode: MatchPattern},
-		{Prefix: "/api/drawio/documents/{id}/draft", Module: "drawio-drafts", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Get/save drawio draft", MatchMode: MatchPattern},
-		{Prefix: "/api/drawio/documents/{id}/clone", Module: "drawio-documents", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Clone drawio document", MatchMode: MatchPattern},
-		{Prefix: "/api/drawio/documents/{id}", Module: "drawio-documents", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Get/update/delete drawio document", MatchMode: MatchPattern},
-		{Prefix: "/api/drawio/documents", Module: "drawio-documents", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "List/create drawio documents", MatchMode: MatchExact},
-		{Prefix: "/api/drawio/import", Module: "drawio-import", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Import drawio file", MatchMode: MatchExact},
-		{Prefix: "/api/drawio/thumbnails/rebuild", Module: "drawio-thumbnails", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Rebuild all drawio thumbnails", MatchMode: MatchExact},
-		{Prefix: "/api/drawio/render-jobs", Module: "drawio-render", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "List drawio render jobs", MatchMode: MatchExact},
-		{Prefix: "/api/drawio/settings", Module: "drawio-settings", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Get/update drawio settings", MatchMode: MatchExact},
-		{Prefix: "/api/drawio", Module: "drawio", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Draw.io diagram editor API"},
-
 		// Prompt library
 		{Prefix: "/api/prompts/d/{publicId}/versions/{versionNo}", Module: "prompts-public", Owner: OwnerGo, Auth: AuthPublic, ResponseMode: ResponseStream, Description: "Prompt version-specific direct link", MatchMode: MatchPattern},
 		{Prefix: "/api/prompts/d/{publicId}", Module: "prompts-public", Owner: OwnerGo, Auth: AuthPublic, ResponseMode: ResponseStream, Description: "Prompt direct link", MatchMode: MatchPattern},

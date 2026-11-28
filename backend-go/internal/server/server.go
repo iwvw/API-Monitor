@@ -30,7 +30,6 @@ import (
 	"github.com/iwvw/api-monitor/backend-go/internal/cronjobs"
 	"github.com/iwvw/api-monitor/backend-go/internal/database"
 	dockerhubmodule "github.com/iwvw/api-monitor/backend-go/internal/dockerhub"
-	drawiomodule "github.com/iwvw/api-monitor/backend-go/internal/drawio"
 	"github.com/iwvw/api-monitor/backend-go/internal/emailcode"
 	"github.com/iwvw/api-monitor/backend-go/internal/filebox"
 	"github.com/iwvw/api-monitor/backend-go/internal/flyio"
@@ -96,7 +95,6 @@ type Server struct {
 	backup      *backup.Service
 	logs        *systemlogs.Service
 	sub         *subscription.Service
-	drawio      *drawiomodule.Service
 	prompts     *promptsmodule.Service
 	bookmarks   *bookmarksmodule.Service
 	adminai     *adminai.Service
@@ -187,7 +185,6 @@ func newServer(cfg config.Config) (*Server, error) {
 	uptimeService.SetHeartbeatBroadcaster(serverAgentService.BroadcastUptimeHeartbeat)
 	githubService := githubmodule.New(cfg)
 	githubService.SetNotifier(notifyService)
-	drawioService := drawiomodule.New(cfg)
 	promptsService := promptsmodule.New(cfg)
 	bookmarksService := bookmarksmodule.New(cfg)
 	systemService := systemmetrics.New(cfg)
@@ -254,7 +251,6 @@ func newServer(cfg config.Config) (*Server, error) {
 		backup:      backupService,
 		logs:        systemlogs.New(cfg),
 		sub:         subscriptionService,
-		drawio:      drawioService,
 		prompts:     promptsService,
 		bookmarks:   bookmarksService,
 		adminai:     adminaiService,
@@ -374,9 +370,6 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	}
 	if s.github != nil {
 		s.github.Stop()
-	}
-	if s.drawio != nil {
-		s.drawio.Stop()
 	}
 	if s.adminai != nil {
 		// 停止审批清理 goroutine 与频道轮询（runs 通道由 RunLoop 结束时的 defer 清理）
@@ -711,7 +704,6 @@ var internalCronReadonlyPrefixes = []string{
 	"/api/flyio",
 	"/api/koyeb",
 	"/api/github",
-	"/api/drawio",
 	"/api/prompts",
 	"/api/server",
 }
@@ -1034,11 +1026,7 @@ const allowHeadersAgent = "Content-Type,Authorization,X-API-Key,X-Agent-Key,X-Se
 
 func (s *Server) applySecurityHeaders(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("X-Content-Type-Options", "nosniff")
-	if strings.HasPrefix(r.URL.Path, "/vendor/drawio/") {
-		w.Header().Set("Content-Security-Policy", "frame-ancestors 'self'")
-	} else {
-		w.Header().Set("X-Frame-Options", "DENY")
-	}
+	w.Header().Set("X-Frame-Options", "DENY")
 	w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
 	w.Header().Set("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
 	if s.cfg.IsProduction() || s.requestIsHTTPS(r) {

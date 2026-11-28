@@ -264,10 +264,10 @@ func TestAcceptedEncodingsParsing(t *testing.T) {
 
 func TestPrecompressedDirectoryIndex(t *testing.T) {
 	distDir := t.TempDir()
-	writePrecompressedAsset(t, distDir, "vendor/drawio/index.html", "<title>Draw.io</title>")
+	writePrecompressedAsset(t, distDir, "vendor/example/index.html", "<title>Sub App</title>")
 	handler := newStaticTestServer(t, distDir)
 
-	res := doStaticRequest(t, handler, "/vendor/drawio/", "br")
+	res := doStaticRequest(t, handler, "/vendor/example/", "br")
 
 	if res.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200", res.Code)

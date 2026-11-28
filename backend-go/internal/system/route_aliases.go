@@ -145,9 +145,6 @@ var routeAliases = map[string][]string{
 	"/api/notification":          {"通知中心", "告警通知", "消息通知"},
 	"/api/notification/channels": {"通知渠道", "推送渠道"},
 
-	"/api/drawio":           {"图编辑器", "drawio", "绘图", "流程图"},
-	"/api/drawio/documents": {"图文档", "图表"},
-
 	"/api/prompts":         {"提示词库", "prompt", "提示词"},
 	"/api/prompts/entries": {"提示词条目", "提示词列表"},
 

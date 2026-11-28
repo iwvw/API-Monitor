@@ -377,14 +377,14 @@ func TestStaticRouteServesPublicAssets(t *testing.T) {
 
 func TestStaticRouteServesDirectoryIndex(t *testing.T) {
 	distDir := t.TempDir()
-	drawioDir := filepath.Join(distDir, "vendor", "drawio")
-	if err := os.MkdirAll(drawioDir, 0o755); err != nil {
+	subDir := filepath.Join(distDir, "vendor", "example")
+	if err := os.MkdirAll(subDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(distDir, "index.html"), []byte("<title>API Monitor</title>"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(drawioDir, "index.html"), []byte("<title>Draw.io</title>"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(subDir, "index.html"), []byte("<title>Sub App</title>"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -396,7 +396,7 @@ func TestStaticRouteServesDirectoryIndex(t *testing.T) {
 		DataDir: t.TempDir(),
 		DBName:  "data.db",
 	})
-	req := httptest.NewRequest(http.MethodGet, "/vendor/drawio/?embed=1&proto=json", nil)
+	req := httptest.NewRequest(http.MethodGet, "/vendor/example/", nil)
 	res := httptest.NewRecorder()
 
 	handler.ServeHTTP(res, req)
@@ -404,7 +404,7 @@ func TestStaticRouteServesDirectoryIndex(t *testing.T) {
 	if res.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d; body=%s", res.Code, http.StatusOK, res.Body.String())
 	}
-	if !strings.Contains(res.Body.String(), "<title>Draw.io</title>") {
+	if !strings.Contains(res.Body.String(), "<title>Sub App</title>") {
 		t.Fatalf("expected directory index body, got %q", res.Body.String())
 	}
 }
@@ -1591,7 +1591,6 @@ func TestInternalCronReadonlyWhitelist(t *testing.T) {
 		"/api/cloudflare/zones",
 		"/api/modelhub/analytics/summary",
 		"/api/notification/channels",
-		"/api/drawio/documents",
 		"/api/prompts/entries",
 		"/api/aliyun/accounts",
 		"/api/koyeb/data",

@@ -16,7 +16,7 @@ import (
 	"github.com/iwvw/api-monitor/backend-go/internal/response"
 )
 
-// maxPromptDraftBytes 是草稿正文的最大字节数,与 drawio 默认 5MB 对齐;
+// maxPromptDraftBytes 是草稿正文的最大字节数(5MB);
 // 解码前先用 MaxBytesReader 卡住请求体,避免超大体完整进内存。
 const maxPromptDraftBytes = 5 << 20
 

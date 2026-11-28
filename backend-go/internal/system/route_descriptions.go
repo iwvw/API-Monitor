@@ -423,22 +423,6 @@ var routeDescriptions = map[string]string{
 	"/api/dockerhub/repositories/{namespace}/{name}":      "Docker Hub 仓库详情",
 	"/api/dockerhub/repositories/{namespace}/{name}/tags": "Docker Hub 仓库标签列表",
 
-	// ===== 图编辑器 =====
-	"/api/drawio":                                             "Draw.io 图编辑器文档管理总入口",
-	"/api/drawio/documents":                                   "列出或新建图文档",
-	"/api/drawio/documents/{id}":                              "更新或删除图文档",
-	"/api/drawio/documents/{id}/draft":                        "读取或保存图文档草稿",
-	"/api/drawio/documents/{id}/clone":                        "克隆图文档",
-	"/api/drawio/documents/{id}/export":                       "导出图文档",
-	"/api/drawio/documents/{id}/versions":                     "列出或保存历史版本",
-	"/api/drawio/documents/{id}/versions/{versionId}":         "读取指定版本详情",
-	"/api/drawio/documents/{id}/versions/{versionId}/restore": "将历史版本恢复为草稿",
-	"/api/drawio/documents/{id}/thumbnails/rebuild":           "重建单个文档缩略图",
-	"/api/drawio/import":                                      "导入图文件",
-	"/api/drawio/thumbnails/rebuild":                          "批量重建全部文档缩略图",
-	"/api/drawio/render-jobs":                                 "列出渲染任务",
-	"/api/drawio/settings":                                    "读取或更新图编辑器设置",
-
 	// ===== 提示词库 =====
 	"/api/prompts":                                           "提示词库管理总入口",
 	"/api/prompts/entries":                                   "列出或新增提示词条目",

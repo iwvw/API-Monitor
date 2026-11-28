@@ -875,38 +875,6 @@ func init() {
 	routeRequestContracts["/api/bookmarks/public/all/{sort}"] = noBody
 	routeRequestContracts["/api/bookmarks/public/page-by-domain"] = noBody
 
-	// ===== 图编辑器 drawio =====
-	routeRequestContracts["/api/drawio/documents"] = obj([]string{"title"}, map[string]prop{
-		"title":    {t: "string", req: true},
-		"content":  {t: "string", d: "drawio XML 内容"},
-		"tagsJson": {t: "string"},
-	})
-	routeRequestContracts["/api/drawio/documents/{id}"] = obj(nil, map[string]prop{
-		"title":   {t: "string"},
-		"content": {t: "string"},
-		"tags":    {t: "array"},
-	})
-	routeRequestContracts["/api/drawio/documents/{id}/draft"] = obj(nil, map[string]prop{
-		"content":       {t: "string"},
-		"title":         {t: "string"},
-		"thumbnailPath": {t: "string"},
-	})
-	routeRequestContracts["/api/drawio/documents/{id}/clone"] = noBody
-	routeRequestContracts["/api/drawio/documents/{id}/thumbnails/rebuild"] = noBody
-	routeRequestContracts["/api/drawio/documents/{id}/versions/{versionId}/restore"] = noBody
-	routeRequestContracts["/api/drawio/documents/{id}/versions/{versionId}"] = noBody
-	routeRequestContracts["/api/drawio/import"] = obj([]string{"title", "content"}, map[string]prop{
-		"title":   {t: "string", req: true},
-		"content": {t: "string", req: true, d: "drawio/.xml/.excalidraw 内容"},
-	})
-	routeRequestContracts["/api/drawio/thumbnails/rebuild"] = obj([]string{"ids"}, map[string]prop{
-		"ids": {t: "array", req: true, d: "文档 ID 列表"},
-	})
-	routeRequestContracts["/api/drawio/settings"] = obj(nil, map[string]prop{
-		"autoSave":  {t: "boolean"},
-		"thumbnail": {t: "boolean"},
-	})
-
 	// ===== 文件柜 filebox =====
 	routeRequestContracts["/api/filebox/share"] = obj([]string{"fileId"}, map[string]prop{
 		"fileId":           {t: "string", req: true},
@@ -1496,12 +1464,6 @@ func init() {
 	// ---- 全模块契约补齐（2026-08-19 第二批）----
 	routeRequestContracts["/api/cloudflare/accounts/{accountId}/tunnels/{tunnelId}"] = obj(nil, map[string]prop{
 		"name": {t: "string", d: "隧道新名称（PATCH 改名）"},
-	})
-	routeRequestContracts["/api/drawio/documents/{id}/versions"] = obj(nil, map[string]prop{
-		"note": {t: "string", d: "版本说明"},
-	})
-	routeRequestContracts["/api/drawio/documents/{id}/thumbnail"] = obj(nil, map[string]prop{
-		"data": {t: "string", d: "缩略图 base64 数据"},
 	})
 	routeRequestContracts["/api/aliyun/accounts/import"] = obj([]string{"accounts"}, map[string]prop{
 		"accounts": {t: "array", req: true, d: "账号数组（name/token 等）"},

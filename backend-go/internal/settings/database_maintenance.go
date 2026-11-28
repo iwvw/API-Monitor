@@ -58,6 +58,7 @@ var deprecatedTableRules = []deprecatedTableRule{
 	{Exact: "nextchat_messages", Category: "legacy_chat", Reason: "Legacy NextChat tables are no longer used by the current OpenAI chat UI"},
 	{Prefix: "ai_chat_", Category: "legacy_ai", Reason: "Legacy AI chat tables are no longer used by the current UI"},
 	{Prefix: "ai_draw_", Category: "legacy_ai", Reason: "Legacy AI drawing tables are no longer used by the current UI"},
+	{Prefix: "drawio_", Category: "retired_module", Reason: "Draw.io 图编辑器模块已下线"},
 	{Prefix: "lobsterai_", Category: "retired_module", Reason: "LobsterAI plugin is removed"},
 	{Prefix: "zcode_", Category: "retired_module", Reason: "ZCode plugin is removed"},
 	{Prefix: "autoclaw_", Category: "retired_module", Reason: "AutoClaw plugin is removed"},

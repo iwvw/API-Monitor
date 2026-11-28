@@ -1129,22 +1129,6 @@ var apiDocSeeds = []apiDocSeed{
 	{Route: manifest.Route{Prefix: "/api/subscription/settings", Module: "subscription", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "Subscription settings read/update", MatchMode: manifest.MatchExact},
 		Docs: apiRouteDocs{Methods: []string{"GET", "PUT"}}},
 
-	// ---- Drawio 修正与补缺 ----
-	{Route: manifest.Route{Prefix: "/api/drawio/documents/{id}/clone", Module: "drawio", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "Drawio document clone", MatchMode: manifest.MatchPattern},
-		Docs: apiRouteDocs{Methods: []string{"POST"}}},
-	{Route: manifest.Route{Prefix: "/api/drawio/documents/{id}/draft", Module: "drawio", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "Drawio document draft save", MatchMode: manifest.MatchPattern},
-		Docs: apiRouteDocs{Methods: []string{"PUT"}}},
-	{Route: manifest.Route{Prefix: "/api/drawio/documents/{id}/thumbnail", Module: "drawio", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "Drawio document thumbnail save", MatchMode: manifest.MatchPattern},
-		Docs: apiRouteDocs{Methods: []string{"PUT"}}},
-	{Route: manifest.Route{Prefix: "/api/drawio/documents/{id}/thumbnails/rebuild", Module: "drawio", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "Drawio thumbnails rebuild", MatchMode: manifest.MatchPattern},
-		Docs: apiRouteDocs{Methods: []string{"POST"}}},
-	{Route: manifest.Route{Prefix: "/api/drawio/thumbnails/rebuild", Module: "drawio", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "Drawio all thumbnails rebuild", MatchMode: manifest.MatchExact},
-		Docs: apiRouteDocs{Methods: []string{"POST"}}},
-	{Route: manifest.Route{Prefix: "/api/drawio/documents/{id}/versions", Module: "drawio", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "Drawio document version create", MatchMode: manifest.MatchPattern},
-		Docs: apiRouteDocs{Methods: []string{"POST"}}},
-	{Route: manifest.Route{Prefix: "/api/drawio/settings", Module: "drawio", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "Drawio settings read/update", MatchMode: manifest.MatchExact},
-		Docs: apiRouteDocs{Methods: []string{"GET", "PUT"}}},
-
 	// ---- Filebox 全模块 ----
 	{Route: manifest.Route{Prefix: "/api/filebox/rooms", Module: "filebox", Owner: manifest.OwnerGo, Auth: manifest.AuthSession, ResponseMode: manifest.ResponseJSON, Description: "Filebox rooms list/create", MatchMode: manifest.MatchExact},
 		Docs: apiRouteDocs{Methods: []string{"GET", "POST"}}},

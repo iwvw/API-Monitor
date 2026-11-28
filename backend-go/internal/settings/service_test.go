@@ -235,6 +235,8 @@ func TestDeprecatedTableReasonRecognizesRetiredTables(t *testing.T) {
 		{table: "ds_settings", wantOK: true, category: "legacy_ai_gateway"},
 		{table: "zeabur_accounts", wantOK: true, category: "retired_integration"},
 		{table: "nezha_config", wantOK: true, category: "retired_integration"},
+		{table: "drawio_documents", wantOK: true, category: "retired_module"},
+		{table: "drawio_settings", wantOK: true, category: "retired_module"},
 		{table: "uptime_monitors", wantOK: false},
 		{table: "server_accounts", wantOK: false},
 	}
