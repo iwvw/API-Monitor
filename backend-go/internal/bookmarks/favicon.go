@@ -210,7 +210,8 @@ func portOf(address string) string {
 }
 
 // resolveFaviconCandidates 返回按优先级排序的全部候选图标地址（绝对 URL）。
-// 页面上没有可用 <link rel="icon"> 时回退到 /favicon.ico。
+// 优先用页面声明的 <link rel="icon">;没有(或全部失效)时回退到站点根的
+// 常见图标路径(/favicon.ico、/favicon.png、/apple-touch-icon.png、/favicon.svg)。
 // 候选已按「位图优先、SVG 最后」排好序，调用方逐个尝试即可
 // （见 downloadFaviconFromCandidates）。
 func resolveFaviconCandidates(pageURL string) ([]string, error) {
@@ -258,13 +259,47 @@ func resolveFaviconCandidates(pageURL string) ([]string, error) {
 		out = append(out, resolved.String())
 	}
 
-	// 页面上没有任何可用图标时回退到站点根 favicon.ico
-	fallback := *base
-	fallback.Path = "/favicon.ico"
-	if fb := fallback.String(); len(out) == 0 || out[len(out)-1] != fb {
-		out = append(out, fb)
-	}
+	// 页面上没有可用图标时回退到站点根的常见图标路径(位图优先、SVG 最后)。
+	out = appendFallbackCandidates(out, base)
 	return out, nil
+}
+
+// commonFaviconPaths 是页面未声明图标时探测的站点根常见图标路径。
+// 顺序保持「位图优先、SVG 最后」,与 iconPreference 一致。
+var commonFaviconPaths = []string{
+	"/favicon.ico",
+	"/favicon.png",
+	"/apple-touch-icon.png",
+	"/favicon.svg",
+}
+
+// appendFallbackCandidates 把站点根的常见图标路径追加到 out,
+// 去掉继承自页面 URL 的 query/fragment,并按完整地址去重。
+//
+// 这些候选只会在前面的候选都失败时才真正被下载(下载按顺序短路),
+// 因此正常声明了图标的站点不会因为这里多出几条而多发请求。
+func appendFallbackCandidates(out []string, base *url.URL) []string {
+	if base == nil {
+		return out
+	}
+	seen := make(map[string]bool, len(out)+len(commonFaviconPaths))
+	for _, c := range out {
+		seen[c] = true
+	}
+	for _, p := range commonFaviconPaths {
+		u := *base
+		u.Path = p
+		u.RawPath = ""
+		u.RawQuery = ""
+		u.Fragment = ""
+		s := u.String()
+		if seen[s] {
+			continue
+		}
+		seen[s] = true
+		out = append(out, s)
+	}
+	return out
 }
 
 // iconHref 是一个候选图标的地址与声明的类型（type 属性，可能为空）。
