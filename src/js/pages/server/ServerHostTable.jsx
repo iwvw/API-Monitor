@@ -33,9 +33,9 @@ import { canOpenTerminal, hasSshEndpoint, resolveTerminalProtocol } from '../../
 import { formatDateTime, parseSpeed } from '../../modules/utils.js';
 import { summarizeDockerContainers } from '../../modules/dockerSummary.js';
 import { TOOL_TABS_PROPS } from '../../modules/kumoTabs.js';
-import { buildNetworkQualitySeries, formatUptimeDaysOnly, getGpuModelText, getHostAddress, getPrimaryLoadValue, getServerCycleParts, getServerLifecycle, getServerMetricDisplay, getServerMonitorModeLabel, getTrafficQuota, isNetworkQualityUnsupportedError, isServerOnline } from './serverHelpers.js';
+import { buildNetworkQualitySeries, formatUptimeDaysOnly, getGpuModelText, getHostAddress, getLoadTone, getPrimaryLoadValue, getServerCycleParts, getServerLifecycle, getServerMetricDisplay, getServerMonitorModeLabel, getTrafficQuota, isNetworkQualityUnsupportedError, isServerOnline } from './serverHelpers.js';
 import { clampPercent, formatBytesSpeed, formatCompactBytesSpeed, formatMetricTooltipValue, getCpuTemp, getExpandedCardSpanClassName, getExpandedInfoGridClassName, getExpandedTrendGridClassName, getFlagCountry, getGpuTemp, getLatestMetricValue, getOSIconClass, getServerCardRowHeight, getServerLocationText, getServerLocationTitle, getServerTagBadgeVariant, toNumber } from './utils.js';
-import { COMPACT_ACTION_BUTTON_CLASS, COMPACT_INLINE_BOX_CLASS, HOST_COMPACT_ADAPTIVE_COLUMNS, HOST_COMPACT_HEADER_BOX_CLASS, SERVER_CHART_RENDER_DEFER_MS, SERVER_FAST_CHART_UPDATE_BEHAVIOR, SERVER_SECONDARY_TABS_GROUP_CLASS } from './constants.js';
+import { COMPACT_ACTION_BUTTON_CLASS, COMPACT_INLINE_BOX_CLASS, HOST_COMPACT_ADAPTIVE_COLUMNS, HOST_COMPACT_HEADER_BOX_CLASS, LOAD_TONE_BG_CLASS, SERVER_CHART_RENDER_DEFER_MS, SERVER_FAST_CHART_UPDATE_BEHAVIOR, SERVER_SECONDARY_TABS_GROUP_CLASS } from './constants.js';
 
 export default function ServerHostTable(props) {
   const {
@@ -392,6 +392,9 @@ export default function ServerHostTable(props) {
                             ));
                         const metricsHealth = resolveServerMetricsHealth(server);
                         const rowMuted = !isServerOnline(server);
+                        const loadTone = rowMuted
+                          ? 'neutral'
+                          : getLoadTone(server.info?.cpu?.Load, server.info?.cpu);
 
                         return (
                           <React.Fragment key={server.id}>
@@ -488,7 +491,7 @@ export default function ServerHostTable(props) {
                                     {isCompactColumnVisible('load') && (
                                       <Table.Cell className="!px-[2px] !py-1.5 text-center whitespace-nowrap">
                                         <code
-                                          className={`rounded-md bg-kumo-recessed/50 px-2 py-1 font-mono text-xs font-semibold ${rowMuted ? 'text-kumo-subtle' : 'text-kumo-strong'} ${COMPACT_INLINE_BOX_CLASS}`}
+                                          className={`rounded-md px-2 py-1 font-mono text-xs font-semibold ${LOAD_TONE_BG_CLASS[loadTone]} ${rowMuted ? 'text-kumo-subtle' : 'text-kumo-strong'} ${COMPACT_INLINE_BOX_CLASS}`}
                                         >
                                           {getPrimaryLoadValue(server.info?.cpu?.Load)}
                                         </code>

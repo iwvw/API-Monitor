@@ -41,6 +41,13 @@ export const HOST_COMPACT_COLUMN_WIDTHS = {
   actions: 40,
 };
 export const HOST_COMPACT_ADAPTIVE_COLUMNS = new Set(['cpu', 'memory', 'disk', 'remaining', 'quotaRemaining']);
+// 负载标签按档位着色(只用 Kumo 语义色 token,不硬编码):绿色=低、黄色=接近饱和、红色=过载。
+export const LOAD_TONE_BG_CLASS = {
+  neutral: 'bg-kumo-recessed/50',
+  success: 'bg-kumo-success/15',
+  warning: 'bg-kumo-warning/15',
+  danger: 'bg-kumo-danger/15',
+};
 export const HOST_COMPACT_HEADER_BOX_CLASS = {
   status: 'w-[16px] justify-center',
   name: 'w-full justify-center',

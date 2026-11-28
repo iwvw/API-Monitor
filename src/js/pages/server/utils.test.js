@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { SERVER_CARD_ROW_HEIGHT_REM, SERVER_CARD_WIDE_MIN_REM } from './constants.js';
 import { getRootFontSizePx, getServerCardRowHeight } from './utils.js';
-import { getContainerAutoUpdateBadge, matchContainerAutoUpdateLabel } from './serverHelpers.js';
+import { getContainerAutoUpdateBadge, getLoadTone, matchContainerAutoUpdateLabel } from './serverHelpers.js';
 
 const ROOT_FONT_SIZE = 16;
 const NARROW_ROW_HEIGHT = Math.round(SERVER_CARD_ROW_HEIGHT_REM.narrow * ROOT_FONT_SIZE);
@@ -57,5 +57,25 @@ describe('getContainerAutoUpdateBadge', () => {
     expect(getContainerAutoUpdateBadge({ status: 'failed' }).variant).toBe('error');
     expect(getContainerAutoUpdateBadge({ status: 'up-to-date' }).label).toBe('自动·已最新');
     expect(getContainerAutoUpdateBadge({ status: 'skipped' }).label).toBe('自动·跳过');
+  });
+});
+
+describe('getLoadTone', () => {
+  it('有核数时按每核负载分档', () => {
+    expect(getLoadTone('0.2 0.3 0.4', { Cores: 4 })).toBe('success');
+    expect(getLoadTone('3.2 3.0 2.8', { Cores: 4 })).toBe('warning');
+    expect(getLoadTone('4.5 4.2 4.0', { Cores: 4 })).toBe('danger');
+  });
+
+  it('无核数时退回绝对阈值', () => {
+    expect(getLoadTone('0.5', {})).toBe('success');
+    expect(getLoadTone('1.5', {})).toBe('warning');
+    expect(getLoadTone('2.5', {})).toBe('danger');
+  });
+
+  it('负载缺失返回 neutral', () => {
+    expect(getLoadTone('-', { Cores: 4 })).toBe('neutral');
+    expect(getLoadTone('', {})).toBe('neutral');
+    expect(getLoadTone(null, { Cores: 4 })).toBe('neutral');
   });
 });

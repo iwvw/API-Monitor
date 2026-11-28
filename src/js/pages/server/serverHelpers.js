@@ -596,6 +596,25 @@ export const getPrimaryLoadValue = load => {
   return match ? match[0] : '-';
 };
 
+// 负载档位:用于给负载标签上色。
+// 有 CPU 核数时按「每核负载」判定(32 核机器负载 4 其实很闲),没有核数时
+// 退回绝对阈值。返回 'neutral' | 'success' | 'warning' | 'danger'。
+export const getLoadTone = (load, cpu) => {
+  const value = Number(getPrimaryLoadValue(load));
+  if (!Number.isFinite(value) || value < 0) return 'neutral';
+  const cores =
+    Number(cpu?.LogicalCores) || Number(cpu?.Cores) || Number(cpu?.PhysicalCores) || 0;
+  if (cores > 0) {
+    const ratio = value / cores;
+    if (ratio >= 1) return 'danger';
+    if (ratio >= 0.7) return 'warning';
+    return 'success';
+  }
+  if (value >= 2) return 'danger';
+  if (value >= 1) return 'warning';
+  return 'success';
+};
+
 export const formatUptimeDaysOnly = uptime => {
   const formatted = formatUptime(uptime);
   if (!formatted || formatted === '-') return '-';
