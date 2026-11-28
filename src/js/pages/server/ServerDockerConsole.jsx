@@ -583,6 +583,15 @@ export default function ServerDockerConsole(props) {
                                                 }}
                                               />
                                             ))}
+                                            {autoUpdateBadge && (
+                                              <Badge
+                                                variant={autoUpdateBadge.variant}
+                                                className="shrink-0 text-[10px]"
+                                                title={autoUpdateBadge.title}
+                                              >
+                                                {autoUpdateBadge.label}
+                                              </Badge>
+                                            )}
                                           </div>
                                           <div
                                             className="truncate font-mono leading-5 text-kumo-subtle"
@@ -590,15 +599,6 @@ export default function ServerDockerConsole(props) {
                                           >
                                             {containerImage}
                                           </div>
-                                          {autoUpdateBadge && (
-                                            <Badge
-                                              variant={autoUpdateBadge.variant}
-                                              className="mt-1 text-[10px]"
-                                              title={autoUpdateBadge.title}
-                                            >
-                                              {autoUpdateBadge.label}
-                                            </Badge>
-                                          )}
                                         </div>
                                       </Table.Cell>
                                       <Table.Cell className="!px-2 !py-1.5 text-center">
