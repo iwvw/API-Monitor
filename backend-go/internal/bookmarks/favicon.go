@@ -367,6 +367,24 @@ func (s *Service) downloadFaviconFromCandidates(candidates []string, force bool)
 		}
 		lastErr = err
 	}
+
+	// 所有候选都失败时的补充路径:有些静态服务器把图标放在 /favicon.ico/
+	// 目录里(直接请求 /favicon.ico 会 301 到目录页),或 SPA 对 /favicon.ico
+	// 回退成 index.html —— 两种情况拿到的都是 HTML 而不是图片。此时解析该
+	// HTML 里指向图片的链接再试一次。只在失败路径触发,成功时不会多发请求。
+	for _, candidate := range candidates {
+		name := strings.TrimSuffix(candidate, "/")
+		if !strings.HasSuffix(name, "/favicon.ico") {
+			continue
+		}
+		for _, discovered := range discoverImageLinks(candidate) {
+			localPath, err := s.downloadFavicon(discovered, force)
+			if err == nil {
+				return localPath, nil
+			}
+			lastErr = err
+		}
+	}
 	return "", lastErr
 }
 
@@ -683,4 +701,114 @@ func (s *Service) referencedFaviconNames(ctx context.Context, db *sql.DB) (map[s
 		}
 	}
 	return out, rows.Err()
+}
+
+// maxIconDiscovery 是一次 HTML 发现最多采纳的图片链接数,避免把导航图当图标。
+const maxIconDiscovery = 3
+
+// discoverImageLinks 请求 rawURL;不是 HTML(或请求失败)时返回 nil。
+// 若是 HTML(目录页/SPA 回退页),解析其中指向图片的 <a>/<link> 链接,
+// 按重定向后的最终地址解析成绝对 URL,并逐个过 SSRF 校验。
+func discoverImageLinks(rawURL string) []string {
+	base, err := validateFetchURL(rawURL)
+	if err != nil {
+		return nil
+	}
+	client := safeHTTPClient(8 * time.Second)
+	req, err := http.NewRequest(http.MethodGet, base.String(), nil)
+	if err != nil {
+		return nil
+	}
+	req.Header.Set("User-Agent", faviconUA)
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil
+	}
+	if !strings.Contains(strings.ToLower(resp.Header.Get("Content-Type")), "html") {
+		return nil
+	}
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 512*1024))
+	if err != nil {
+		return nil
+	}
+	doc, err := html.Parse(strings.NewReader(string(body)))
+	if err != nil {
+		return nil
+	}
+	raw := imageLinksFromHTML(doc, resp.Request.URL)
+	out := make([]string, 0, len(raw))
+	for _, link := range raw {
+		if _, verr := validateFetchURL(link); verr != nil {
+			continue
+		}
+		out = append(out, link)
+	}
+	return out
+}
+
+// imageLinksFromHTML 收集文档里指向图片资源的 href,并基于 base 解析为绝对地址。
+// 纯函数(不发请求、不做 SSRF 校验),便于单测;校验由调用方完成。
+func imageLinksFromHTML(doc *html.Node, base *url.URL) []string {
+	if doc == nil || base == nil {
+		return nil
+	}
+	out := make([]string, 0, maxIconDiscovery)
+	seen := map[string]bool{}
+	var walk func(*html.Node)
+	walk = func(n *html.Node) {
+		if len(out) >= maxIconDiscovery {
+			return
+		}
+		if n.Type == html.ElementNode && (n.Data == "a" || n.Data == "link") {
+			for _, attr := range n.Attr {
+				if attr.Key != "href" {
+					continue
+				}
+				href := strings.TrimSpace(attr.Val)
+				if !isImageHref(href) {
+					continue
+				}
+				ref, perr := url.Parse(href)
+				if perr != nil {
+					continue
+				}
+				resolved := base.ResolveReference(ref)
+				if resolved == nil {
+					continue
+				}
+				s := resolved.String()
+				if seen[s] {
+					continue
+				}
+				seen[s] = true
+				out = append(out, s)
+				break
+			}
+		}
+		for c := n.FirstChild; c != nil; c = c.NextSibling {
+			walk(c)
+		}
+	}
+	walk(doc)
+	return out
+}
+
+// isImageHref 判断 href 去掉 query/fragment 后是否以图片扩展名结尾。
+func isImageHref(href string) bool {
+	if href == "" || strings.HasPrefix(strings.ToLower(href), "javascript:") {
+		return false
+	}
+	u, err := url.Parse(href)
+	if err != nil {
+		return false
+	}
+	switch strings.ToLower(path.Ext(u.Path)) {
+	case ".png", ".jpg", ".jpeg", ".gif", ".webp", ".ico", ".svg":
+		return true
+	}
+	return false
 }
