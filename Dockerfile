@@ -54,7 +54,7 @@ ENV PATH=/app/node_modules/.bin:$PATH \
 RUN if [ "$USE_PREBUILT_FRONTEND" = "true" ]; then \
         mkdir -p /app/dist && cp -r /app/frontend-dist/. /app/dist/; \
     else \
-        npm run drawio:install && npm run build; \
+        npm run build; \
     fi && \
     test -f /app/dist/index.html && test -d /app/dist/assets
 

@@ -307,7 +307,7 @@ function scanFile(rel) {
     // 传 <Select.Option> 子节点时选项能弹出、但触发器只显示原始 value
     // （例如显示 "2" 而不是「网站图标」），是静默的显示缺陷。
     //
-    // 历史代码里还有多处同类写法（drawio/prompts/openai 等），迁移未完成，
+    // 历史代码里还有多处同类写法（prompts/openai 等），迁移未完成，
     // 因此当前只在「网址导航」范围内判失败，其余记为告警，避免把既有
     // 技术债变成红灯；迁移完成后可移除 selectOptionScope 收口。
     if (/<Select\.Option\b/.test(line)) {

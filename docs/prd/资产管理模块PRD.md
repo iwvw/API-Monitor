@@ -315,7 +315,7 @@ backend-go/internal/assets/
 
 ### 5. 数据库约定
 
-- 表名带 `asset_` 前缀，避免与现有表冲突（注意避开无关的 `drawio_assets`）。
+- 表名带 `asset_` 前缀，避免与现有表冲突。
 - 使用 `CREATE TABLE IF NOT EXISTS` + `CREATE INDEX IF NOT EXISTS` 幂等建表，加列前先用 `PRAGMA table_info` 判断。
 - SQLite 周期 WAL 维护只做 PASSIVE，禁止在自动路径使用 TRUNCATE/RESTART。
 - 新表必须能被 `npm run db:audit`（`cmd/schema-audit`）识别。

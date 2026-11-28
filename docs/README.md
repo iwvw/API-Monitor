@@ -67,7 +67,7 @@
 
 ## 参考资料
 
-- [PRD 目录](./prd/)，含[转发中心 PRD](./prd/转发中心PRD.md)、[Oracle OCI 主机管理模块](./prd/OracleOCI主机管理模块.md)、[GCP 云资源管理模块](./prd/GCP云资源管理模块PRD.md)、[HuaweiCloud 模块](./prd/HuaweiCloud模块PRD.md)、[资产管理模块](./prd/资产管理模块PRD.md)（已实现）、[提示词库模块](./prd/提示词库模块.md)、[文档编辑器重构](./prd/文档编辑器重构.md)、[Draw.io 图编辑工具模块](./prd/Drawio图编辑工具模块.md)、[AI Agent 管理模块](./prd/AIAgent管理模块PRD.md) 等
+- [PRD 目录](./prd/)，含[转发中心 PRD](./prd/转发中心PRD.md)、[Oracle OCI 主机管理模块](./prd/OracleOCI主机管理模块.md)、[GCP 云资源管理模块](./prd/GCP云资源管理模块PRD.md)、[HuaweiCloud 模块](./prd/HuaweiCloud模块PRD.md)、[资产管理模块](./prd/资产管理模块PRD.md)（已实现）、[提示词库模块](./prd/提示词库模块.md)、[文档编辑器重构](./prd/文档编辑器重构.md)、[AI Agent 管理模块](./prd/AIAgent管理模块PRD.md) 等
 - [Kumo 参考资料](./reference/)（含组件注册表与 Dialog 说明）
 - [插件登记清单](./plugins/registry.json)
 - [GCP API 契约](./gcp-api-contracts/)
@@ -89,7 +89,7 @@
 `prd/` 下已实现上线的历史需求文档（按需回溯原始需求）：
 
 - [管理AI核心引擎与数据层](./prd/管理AI核心引擎与数据层.md) / [管理AIWeb侧栏前端](./prd/管理AIWeb侧栏前端.md) / [管理AI频道接入与Telegram](./prd/管理AI频道接入与Telegram.md) / [管理AI安全审批与审计](./prd/管理AI安全审批与审计.md) / [管理AI共通实现约定](./prd/管理AI共通实现约定.md)
-- [定时任务与工作流调度](./prd/定时任务与工作流调度.md) / [提示词库模块](./prd/提示词库模块.md) / [文档编辑器重构](./prd/文档编辑器重构.md) / [Drawio图编辑工具模块](./prd/Drawio图编辑工具模块.md)
+- [定时任务与工作流调度](./prd/定时任务与工作流调度.md) / [提示词库模块](./prd/提示词库模块.md) / [文档编辑器重构](./prd/文档编辑器重构.md)
 - [DevOpsGitHub仓库观察模块](./prd/DevOpsGitHub仓库观察模块.md) / [开发者运维看板功能扩展](./prd/开发者运维看板功能扩展.md) / [语义化表格布局与移动端适配](./prd/语义化表格布局与移动端适配.md)
 
 活跃开发工作改由 GitHub Issues + `backlog`/`in-progress`/`done` 标签跟踪，见 [待办任务闭环流程](./guides/待办任务闭环流程.md) 与 `CONTEXT.md` 协作约定。

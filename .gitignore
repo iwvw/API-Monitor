@@ -97,7 +97,6 @@ coverage/
 backend-go/cover
 stats.html
 /public/
-/src/pwa-public/vendor/drawio/
 backend-go/api-monitor
 backend-go/api-monitor.exe
 # ====================

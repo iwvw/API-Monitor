@@ -96,9 +96,6 @@ jobs:
           # 才能判断「agent 二进制输入变了但版本没 bump」。fetch-depth: 0 已保证可达。
           AGENT_VERSION_BASE: ${{ github.event.before || github.event.pull_request.base.sha }}
 
-      - name: Install drawio assets
-        run: npm run drawio:install
-
       - name: Resolve frontend version
         id: fe-version
         run: echo "version=dev-${GITHUB_SHA:0:7}" >> "$GITHUB_OUTPUT"
@@ -113,9 +110,8 @@ jobs:
         run: |
           ls -la dist/
           test -f dist/index.html
-          test -d dist/vendor/drawio
 
-      # 供 build-docker 复用，避免两个平台各自重跑 npm ci / drawio / vite build
+      # 供 build-docker 复用，避免两个平台各自重跑 npm ci / vite build
       - name: Upload frontend dist artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -271,7 +267,6 @@ jobs:
         run: |
           ls -lh frontend-dist/ | head -20
           test -f frontend-dist/index.html
-          test -d frontend-dist/vendor/drawio
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
