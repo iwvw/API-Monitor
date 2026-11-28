@@ -117,7 +117,7 @@ jobs:
           CURRENT_TAG: ${{ steps.version.outputs.tag }}
           REPO_OWNER: ${{ github.repository_owner }}
         run: |
-          PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+          PREV_TAG=$(git describe --tags --abbrev=0 --match 'v[0-9]*' HEAD^ 2>/dev/null || echo "")
 
           echo "## 🚀 $CURRENT_TAG 更新内容" > release_notes.md
           echo "" >> release_notes.md
@@ -152,13 +152,13 @@ jobs:
 
           echo "" >> release_notes.md
           echo "### 🖥️ Agent 下载" >> release_notes.md
+          echo "Linux / Windows Agent 由独立产物仓库提供(含 .sha256):https://github.com/${REPO_OWNER}/API-Monitor/releases" >> release_notes.md
+          echo "" >> release_notes.md
+          echo "本 Release 附带 macOS 下载产物:" >> release_notes.md
           echo "| 平台 | 架构 | 文件 |" >> release_notes.md
-          echo "|------|------|------|" >> release_notes.md
-          echo "| Linux | amd64 | agent-linux-amd64 |" >> release_notes.md
-          echo "| Linux | arm64 | agent-linux-arm64 |" >> release_notes.md
-          echo "| Windows | amd64 | agent-windows-amd64.exe |" >> release_notes.md
           echo "| macOS | amd64 | agent-darwin-amd64 |" >> release_notes.md
           echo "| macOS | arm64 | agent-darwin-arm64 |" >> release_notes.md
+          echo "|------|------|------|" >> release_notes.md
 
           cat release_notes.md
 
@@ -220,6 +220,12 @@ jobs:
       - name: Install dependencies
         run: npm ci --legacy-peer-deps
 
+      # 同 ci-cd.yml：字体子集化需要 fontTools，缺失时构建会直接失败。
+      - name: Install font subset tooling
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends python3-fonttools python3-brotli
+
       - name: Run ESLint
         run: npm run lint
 
@@ -233,94 +239,16 @@ jobs:
         run: npm run build
         env:
           VITE_USE_CDN: false
-
   # ==========================================
-  # Phase 3: 编译运行时 Rust Agent（Linux / Windows）
+  # Phase 3: 发布运行时 Rust Agent(Linux / Windows)
+  # Agent 不再打进面板镜像:由 agent-release.yml 构建并发布到本仓库 release,
+  # 镜像只注入该 release 的下载直链(AGENT_DOWNLOAD_URL)。
   # ==========================================
-  build-agent-runtime:
-    if: github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/main'
-    runs-on: ${{ matrix.os }}
-
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - target: x86_64-unknown-linux-musl
-            os: ubuntu-latest
-            output_name: agent-linux-amd64
-            use_cross: false
-          - target: aarch64-unknown-linux-musl
-            os: ubuntu-latest
-            output_name: agent-linux-arm64
-            use_cross: true
-          - target: x86_64-pc-windows-msvc
-            os: windows-latest
-            output_name: agent-windows-amd64.exe
-            use_cross: false
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.0.0
-
-      - name: Set up Rust
-        uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
-        with:
-          target: ${{ matrix.target }}
-          cache: true
-          cache-workspaces: agent-rust
-
-      - name: Install musl-tools (Linux amd64)
-        if: matrix.target == 'x86_64-unknown-linux-musl'
-        run: |
-          sudo find /etc/apt/sources.list.d -maxdepth 1 -type f \( -iname '*microsoft*' -o -iname '*azure*' \) -delete
-          sudo sed -i.bak '/packages\.microsoft\.com/d' /etc/apt/sources.list /etc/apt/sources.list.d/* 2>/dev/null || true
-          sudo apt-get update
-          sudo apt-get install -y musl-tools
-
-      - name: Install cross (ARM64 Linux)
-        if: matrix.use_cross
-        shell: bash
-        run: |
-          curl -L --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/cargo-bins/cargo-binstall/main/install-from-binstall-release.sh | bash
-          cargo binstall --no-confirm --force cross
-
-      - name: Remove cargo mirror config in CI
-        shell: bash
-        run: rm -f agent-rust/.cargo/config.toml
-
-      - name: Build Agent
-        working-directory: agent-rust
-        shell: bash
-        run: |
-          if [ "${{ matrix.use_cross }}" = "true" ]; then
-            cross build --target ${{ matrix.target }} --release
-          else
-            cargo build --target ${{ matrix.target }} --release
-          fi
-
-      - name: Copy & Rename Binary
-        shell: bash
-        run: |
-          mkdir -p dist
-          if [[ "${{ matrix.target }}" == *"windows"* ]]; then
-            cp agent-rust/target/${{ matrix.target }}/release/api-monitor-agent.exe dist/${{ matrix.output_name }}
-          else
-            cp agent-rust/target/${{ matrix.target }}/release/api-monitor-agent dist/${{ matrix.output_name }}
-          fi
-          if command -v sha256sum >/dev/null 2>&1; then
-            (cd dist && sha256sum "${{ matrix.output_name }}" | awk '{print $1}' > "${{ matrix.output_name }}.sha256")
-          else
-            (cd dist && shasum -a 256 "${{ matrix.output_name }}" | awk '{print $1}' > "${{ matrix.output_name }}.sha256")
-          fi
-          ls -lh dist/
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: ${{ matrix.output_name }}
-          path: |
-            dist/${{ matrix.output_name }}
-            dist/${{ matrix.output_name }}.sha256
-          retention-days: 7
+  agent-release:
+    uses: ./.github/workflows/agent-release.yml
+    with:
+      versioned: true
+    secrets: inherit
 
   # ==========================================
   # Phase 3b: 编译 macOS 下载 Agent
@@ -378,8 +306,12 @@ jobs:
           retention-days: 7
 
   # ==========================================
-  # build-go-assets: 交叉编译 Go 命令行资产（relay / stun）三平台并生成 sha256
-  # 新增 Go 命令行资产（如 auth-proxy）时，只需在 matrix 加一行
+  # build-go-assets: 交叉编译 Go 命令行资产（stun / auth-proxy）三平台并生成 sha256
+  # 新增 Go 命令行资产时，只需在 matrix 加一行。
+  # 注意：build 步骤的 working-directory 是 backend-go，产物落在
+  # backend-go/dist/；upload-artifact 的 path 相对 workspace 根，必须带
+  # backend-go/ 前缀，否则永远找不到文件（曾导致 relay/stun 连续多个版本
+  # 没被上传，面板只能回退到 v0.6.1 的老资产哈希）。
   # ==========================================
   build-go-assets:
     if: github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/main'
@@ -388,12 +320,12 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - {binary: relay, goos: linux,   goarch: amd64, output_name: api-monitor-relay-linux-amd64}
-          - {binary: relay, goos: linux,   goarch: arm64, output_name: api-monitor-relay-linux-arm64}
-          - {binary: relay, goos: windows, goarch: amd64, output_name: api-monitor-relay-windows-amd64.exe}
-          - {binary: stun,  goos: linux,   goarch: amd64, output_name: api-monitor-stun-linux-amd64}
-          - {binary: stun,  goos: linux,   goarch: arm64, output_name: api-monitor-stun-linux-arm64}
-          - {binary: stun,  goos: windows, goarch: amd64, output_name: api-monitor-stun-windows-amd64.exe}
+          - {binary: stun,       goos: linux,   goarch: amd64, output_name: api-monitor-stun-linux-amd64}
+          - {binary: stun,       goos: linux,   goarch: arm64, output_name: api-monitor-stun-linux-arm64}
+          - {binary: stun,       goos: windows, goarch: amd64, output_name: api-monitor-stun-windows-amd64.exe}
+          - {binary: auth-proxy, goos: linux,   goarch: amd64, output_name: api-monitor-auth-proxy-linux-amd64}
+          - {binary: auth-proxy, goos: linux,   goarch: arm64, output_name: api-monitor-auth-proxy-linux-arm64}
+          - {binary: auth-proxy, goos: windows, goarch: amd64, output_name: api-monitor-auth-proxy-windows-amd64.exe}
     steps:
       - name: Checkout repository
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.0.0
@@ -418,13 +350,13 @@ jobs:
         with:
           name: ${{ matrix.output_name }}
           path: |
-            dist/${{ matrix.output_name }}
-            dist/${{ matrix.output_name }}.sha256
+            backend-go/dist/${{ matrix.output_name }}
+            backend-go/dist/${{ matrix.output_name }}.sha256
           retention-days: 7
 
   # ==========================================
   upload-assets:
-    needs: [create-release, build-agent-runtime, build-agent-macos, build-go-assets]
+    needs: [create-release, build-agent-macos, build-go-assets]
     runs-on: ubuntu-latest
 
     steps:
@@ -443,7 +375,7 @@ jobs:
           for f in artifacts/*; do
             [ -f "$f" ] || continue
             case "$(basename "$f")" in
-              agent-*|api-monitor-relay-*|api-monitor-stun-*)
+              agent-*|api-monitor-stun-*|api-monitor-auth-proxy-*)
                 cp -f "$f" release-assets/ ;;
             esac
           done
@@ -466,7 +398,7 @@ jobs:
   # Phase 5: 构建多架构 Docker 镜像
   # ==========================================
   build-docker:
-    needs: [create-release, build-agent-runtime]
+    needs: [create-release]
     runs-on: ${{ matrix.runner }}
 
     strategy:
@@ -483,16 +415,6 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.0.0
-
-      - name: Download compiled agent binaries
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          path: agent-rust
-          pattern: agent-*
-          merge-multiple: true
-
-      - name: List downloaded agents
-        run: ls -lh agent-rust/
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
@@ -544,6 +466,16 @@ jobs:
             org.opencontainers.image.vendor=iwvw
             maintainer=iwvw
 
+      - name: Resolve agent release tag
+        id: agent-tag
+        shell: bash
+        run: |
+          # Agent 版本与面板版本互相独立(Cargo.toml vs package.json),
+          # Agent 版本与面板版本互相独立(Cargo.toml vs package.json),
+          # 镜像默认下载源指向 agent-release 发布的 agent-v<Agent 版本> release。
+          echo "tag=agent-v${V}" >> "$GITHUB_OUTPUT"
+          echo "agent release tag: v${V}"
+
       - name: Build and push by digest
         id: build
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
@@ -561,6 +493,8 @@ jobs:
           build-args: |
             NODE_ENV=production
             APP_VERSION=${{ steps.app-version.outputs.version }}
+            INCLUDE_AGENTS=false
+            AGENT_DOWNLOAD_URL=https://github.com/iwvw/API-Monitor/releases/download/${{ steps.agent-tag.outputs.tag }}
 
       - name: Export digest
         run: |

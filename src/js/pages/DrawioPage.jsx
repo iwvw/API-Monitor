@@ -64,7 +64,7 @@ function downloadBlob(blob, filename) {
   anchor.href = url;
   anchor.download = filename;
   anchor.click();
-  URL.revokeObjectURL(url);
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 function blobToDataUrl(blob) {
@@ -99,10 +99,12 @@ export default function DrawioPage() {
   const libraryCopyFrameRef = useRef(null);
   const thumbnailRenderFrameRef = useRef(null);
   const thumbnailRenderPromiseRef = useRef(null);
-  const thumbnailRefreshQueueRef = useRef(null);
+  const thumbnailRefreshQueueRef = useRef([]);
   const thumbnailRefreshRunningRef = useRef(false);
   const fileRef = useRef(null);
   const xmlSyncTimerRef = useRef(null);
+  const dirtyRef = useRef(false);
+  const saveDraftRef = useRef(null);
 
   const loadDocuments = useCallback(async () => {
     try {
@@ -239,11 +241,10 @@ export default function DrawioPage() {
 
   const drainThumbnailRefreshQueue = useCallback(async () => {
     if (thumbnailRefreshRunningRef.current) return;
-    const next = thumbnailRefreshQueueRef.current;
+    const next = thumbnailRefreshQueueRef.current.shift();
     if (!next) return;
 
     thumbnailRefreshRunningRef.current = true;
-    thumbnailRefreshQueueRef.current = null;
     try {
       const thumbnailPath = await generateThumbnail(next.documentId, next.xml);
       applyThumbnailState(next.documentId, {
@@ -259,7 +260,7 @@ export default function DrawioPage() {
       }
     } finally {
       thumbnailRefreshRunningRef.current = false;
-      if (thumbnailRefreshQueueRef.current) {
+      if (thumbnailRefreshQueueRef.current.length) {
         void drainThumbnailRefreshQueue();
       }
     }
@@ -267,11 +268,11 @@ export default function DrawioPage() {
 
   const queueThumbnailRefresh = useCallback(
     (documentId, xml, options = {}) => {
-      thumbnailRefreshQueueRef.current = {
+      thumbnailRefreshQueueRef.current.push({
         documentId,
         xml,
         silent: options.silent !== false,
-      };
+      });
       applyThumbnailState(documentId, {
         thumbnail_path: '',
         thumbnail_status: 'pending',
@@ -312,6 +313,35 @@ export default function DrawioPage() {
   );
 
   useEffect(() => {
+    dirtyRef.current = dirty;
+  }, [dirty]);
+
+  useEffect(() => {
+    saveDraftRef.current = saveDraft;
+  }, [saveDraft]);
+
+  const flushCurrentDraft = useCallback(async () => {
+    if (!dirtyRef.current) return;
+    await saveDraftRef.current?.();
+  }, []);
+
+  useEffect(() => {
+    const flush = () => {
+      if (dirtyRef.current) void saveDraftRef.current?.();
+    };
+    const onVisibility = () => {
+      if (document.visibilityState === 'hidden') flush();
+    };
+    window.addEventListener('beforeunload', flush);
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      window.removeEventListener('beforeunload', flush);
+      document.removeEventListener('visibilitychange', onVisibility);
+      flush();
+    };
+  }, []);
+
+  useEffect(() => {
     if (!dirty || !settings?.autosave_enabled) return;
     const timer = window.setTimeout(() => saveDraft(), settings.autosave_debounce_ms || 2000);
     return () => window.clearTimeout(timer);
@@ -329,6 +359,7 @@ export default function DrawioPage() {
       method: 'POST',
       body: JSON.stringify({ title: title.trim(), tags_json: '[]' }),
     });
+    await flushCurrentDraft();
     await loadDocuments();
     setSelectedId(data.document.id);
     setActiveTab('editor');
@@ -340,6 +371,7 @@ export default function DrawioPage() {
     form.append('file', file);
     try {
       const data = await apiFetch('/import', { method: 'POST', body: form, headers: {} });
+      await flushCurrentDraft();
       await loadDocuments();
       setSelectedId(data.document.id);
       setActiveTab('editor');
@@ -401,7 +433,14 @@ export default function DrawioPage() {
   };
 
   const saveVersion = async () => {
-    const versionRevision = dirty ? await saveDraft() : draftRev;
+    let versionRevision = draftRev;
+    if (dirty) {
+      versionRevision = await saveDraft();
+      if (versionRevision == null) {
+        toast.error('草稿未保存成功，已取消保存版本');
+        return;
+      }
+    }
     const summary = await dialog.prompt({
       title: '保存版本',
       message: '填写本次版本备注（可留空）',
@@ -411,7 +450,7 @@ export default function DrawioPage() {
     try {
       await apiFetch(`/documents/${selectedId}/versions`, {
         method: 'POST',
-        body: JSON.stringify({ summary, expected_draft_rev: versionRevision || draftRev }),
+        body: JSON.stringify({ summary, expected_draft_rev: versionRevision }),
       });
       await loadDocument(selectedId);
       toast.success('版本已保存');
@@ -575,7 +614,8 @@ export default function DrawioPage() {
     </div>
   );
 
-  const openDocument = id => {
+  const openDocument = async id => {
+    await flushCurrentDraft();
     setSelectedId(id);
     setActiveTab('editor');
   };

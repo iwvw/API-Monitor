@@ -219,12 +219,20 @@ func TestDailyCheckinSuccessAndIdempotent(t *testing.T) {
 	}
 }
 
-// TestDailyCheckinSkipsIntl 验证国际版账号不发起上游请求。
+// TestDailyCheckinSkipsIntl 验证国际版走「活动探测」链路：
+// 探测接口返回活动未开启时，结果为 skipped（中性），且**不会**去调 daily-checkin。
 func TestDailyCheckinSkipsIntl(t *testing.T) {
-	var hits atomic.Int32
+	var claimHits atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		hits.Add(1)
-		_, _ = w.Write([]byte(`{"code":0}`))
+		switch r.URL.Path {
+		case "/v2/billing/meter/checkin-activity-status":
+			_, _ = w.Write([]byte(`{"code":0,"data":{"active":false,"today_checked_in":false,"daily_credit":100}}`))
+		case "/v2/billing/meter/daily-checkin":
+			claimHits.Add(1)
+			_, _ = w.Write([]byte(`{"code":10001,"msg":"签到活动未开启或已过期"}`))
+		default:
+			_, _ = w.Write([]byte(`{"code":0,"data":{}}`))
+		}
 	}))
 	defer srv.Close()
 	withMockUpstream(t, srv)
@@ -235,10 +243,88 @@ func TestDailyCheckinSkipsIntl(t *testing.T) {
 		t.Fatal(err)
 	}
 	if result.Status != "skipped" {
-		t.Errorf("国际版状态 = %q, want skipped", result.Status)
+		t.Errorf("活动未开启时状态 = %q, want skipped", result.Status)
 	}
-	if hits.Load() != 0 {
-		t.Errorf("国际版不应打上游，实际 %d 次", hits.Load())
+	if claimHits.Load() != 0 {
+		t.Errorf("活动未开启时不应调领取接口，实际 %d 次", claimHits.Load())
+	}
+}
+
+// TestDailyCheckinIntlClaimsWhenActive 验证活动开启且当日未领时会真的领取。
+func TestDailyCheckinIntlClaimsWhenActive(t *testing.T) {
+	var claimed atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v2/billing/meter/checkin-activity-status":
+			_, _ = w.Write([]byte(`{"code":0,"data":{"active":true,"today_checked_in":false,"daily_credit":100,"streak_days":3}}`))
+		case "/v2/billing/meter/daily-checkin":
+			claimed.Add(1)
+			_, _ = w.Write([]byte(`{"code":0,"data":{"credit":100,"streak_days":4}}`))
+		default:
+			_, _ = w.Write([]byte(`{"code":0,"data":{}}`))
+		}
+	}))
+	defer srv.Close()
+	withMockUpstream(t, srv)
+
+	s := newCheckinTestService()
+	result, err := s.dailyCheckin(context.Background(), Account{ID: "intl-u", Region: regionIntl, AccessToken: "tok"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != "success" {
+		t.Fatalf("活动开启时状态 = %q, want success", result.Status)
+	}
+	if result.Gained != 100 {
+		t.Errorf("到账积分 = %d, want 100", result.Gained)
+	}
+	if claimed.Load() != 1 {
+		t.Errorf("应领取 1 次，实际 %d 次", claimed.Load())
+	}
+}
+
+// TestDailyCheckinIntlAlreadyDone 验证「今日已领」返回 already 且不重复领取。
+func TestDailyCheckinIntlAlreadyDone(t *testing.T) {
+	var claimed atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v2/billing/meter/checkin-activity-status":
+			_, _ = w.Write([]byte(`{"code":0,"data":{"active":true,"today_checked_in":true,"daily_credit":100,"streak_days":5}}`))
+		case "/v2/billing/meter/daily-checkin":
+			claimed.Add(1)
+			_, _ = w.Write([]byte(`{"code":0,"data":{}}`))
+		default:
+			_, _ = w.Write([]byte(`{"code":0,"data":{}}`))
+		}
+	}))
+	defer srv.Close()
+	withMockUpstream(t, srv)
+
+	s := newCheckinTestService()
+	result, err := s.dailyCheckin(context.Background(), Account{ID: "intl-u", Region: regionIntl, AccessToken: "tok"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != "already" {
+		t.Errorf("今日已领时状态 = %q, want already", result.Status)
+	}
+	if claimed.Load() != 0 {
+		t.Errorf("今日已领不应再调领取接口，实际 %d 次", claimed.Load())
+	}
+}
+
+// TestSessionCookieOf 验证只取 session Cookie，忽略上游其它 Set-Cookie。
+func TestSessionCookieOf(t *testing.T) {
+	cases := []struct{ in, want string }{
+		{"session=abc123; Path=/; HttpOnly; Max-Age=604800", "session=abc123"},
+		{"tgw_l7_route=xyz; Path=/", ""},
+		{"session=; Path=/", ""},
+		{"other=session=x", ""},
+	}
+	for _, c := range cases {
+		if got := sessionCookieOf(c.in); got != c.want {
+			t.Errorf("sessionCookieOf(%q) = %q, want %q", c.in, got, c.want)
+		}
 	}
 }
 

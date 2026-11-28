@@ -144,6 +144,9 @@ function allowedColorReason(rel, line, value, lines, index) {
   if (rel === 'src/js/pages/ServerPage.jsx' && line.includes('--app-terminal-')) {
     return 'terminal fallback color';
   }
+  if (rel === 'src/js/pages/server/serverHelpers.js' && line.includes('--app-terminal-')) {
+    return 'SSH 终端 xterm 兜底颜色（terminal fallback）';
+  }
   if (rel === 'src/js/pages/huawei/SSHTerminalDialog.jsx' && value.startsWith('#')) {
     return 'SSH 终端 xterm 兜底颜色（docs/standards/重构验证与例外清单.md 登记）';
   }

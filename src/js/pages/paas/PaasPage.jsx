@@ -186,7 +186,7 @@ function PaasPage() {
         return {
           id: log.id || Date.now() + Math.random().toString(36).substring(2, 9),
           timestamp: log.timestamp || Date.now(),
-          level: log.level || 'INFO',
+          level: String(log.level || 'INFO').toUpperCase(),
           message: String(messageStr),
         };
       }
@@ -203,7 +203,17 @@ function PaasPage() {
     });
   }, []);
 
+  const stopLogTail = useCallback(() => {
+    logTailAbortRef.current?.abort();
+    logTailAbortRef.current = null;
+    setLogTailActive(false);
+    setLogTailConnected(false);
+  }, []);
+
+  useEffect(() => () => stopLogTail(), [stopLogTail]);
+
   const openLogViewer = useCallback(async ({ title, subtitle, fetcher }) => {
+    stopLogTail();
     setLogTitle(title || '日志查看器');
     setLogSubtitle(subtitle || '');
     setLogs([]);
@@ -226,14 +236,7 @@ function PaasPage() {
     } finally {
       setLogLoading(false);
     }
-  }, [appendLogs]);
-
-  const stopLogTail = useCallback(() => {
-    logTailAbortRef.current?.abort();
-    logTailAbortRef.current = null;
-    setLogTailActive(false);
-    setLogTailConnected(false);
-  }, []);
+  }, [appendLogs, stopLogTail]);
 
   const parseLogTailEvent = useCallback((eventText) => {
     const dataLines = eventText.split('\n').filter((l) => l.startsWith('data:')).map((l) => l.slice(5).trim());
@@ -457,7 +460,7 @@ function PaasPage() {
         toast.success(`服务 ${service.name} ${action}中...`);
         // Update locally
         setKoyebAccounts(prev => prev.map(acc => {
-          if (acc.name !== account.name) return acc;
+          if (acc.id !== account.id) return acc;
           return {
             ...acc,
             projects: acc.projects.map(p => {
@@ -827,11 +830,16 @@ function PaasPage() {
   const koyebParseDefinition = (service) => {
     const def = service?.latestDeployment?.definition || {};
     const docker = def.docker || {};
-    const envText = (def.env || []).map((e) => {
+    const envEntries = Array.isArray(def.env) ? def.env : [];
+    const envText = envEntries.map((e) => {
       const key = e?.key ?? '';
       const val = e?.value ?? '';
       return val ? `${key}=${val}` : key;
     }).join('\n');
+    const envSecretKeys = envEntries
+      .filter((e) => e && (e.value === undefined || e.value === null || e.value === ''))
+      .map((e) => String(e.key ?? '').trim())
+      .filter(Boolean);
     const portsText = (def.ports || []).map((p) => `${p.port}${p.protocol ? ':' + p.protocol : ''}`).join(',');
     const regionsText = (def.regions || []).join(',');
     const instanceType = (def.instance_types || [])[0]?.type || '';
@@ -840,6 +848,7 @@ function PaasPage() {
       command: docker.command || '',
       args: (docker.args || []).join(','),
       env: envText,
+      envSecretKeys,
       ports: portsText,
       regions: regionsText,
       instanceType,
@@ -847,7 +856,8 @@ function PaasPage() {
   };
 
   const openKoyebConfig = (account, service) => {
-    setKoyebConfigForm({ ...koyebParseDefinition(service), skipBuild: false });
+    const parsed = koyebParseDefinition(service);
+    setKoyebConfigForm({ ...parsed, envOriginal: parsed.env, skipBuild: false });
     setKoyebConfigError('');
     setKoyebConfigTarget({ account, service });
   };
@@ -855,11 +865,27 @@ function PaasPage() {
   const saveKoyebConfig = async () => {
     const { account, service } = koyebConfigTarget;
     const env = koyebConfigForm.env.split('\n').map((l) => l.trim()).filter(Boolean);
-    const ports = koyebConfigForm.ports.split(',').map((s) => s.trim()).filter(Boolean).map((s) => {
+    const envChanged = koyebConfigForm.env !== koyebConfigForm.envOriginal;
+    const envSecretKeys = koyebConfigForm.envSecretKeys || [];
+    if (envChanged && envSecretKeys.length > 0) {
+      const proceeded = await dialog.confirm(
+        `该服务有 ${envSecretKeys.length} 个密钥绑定的环境变量(${envSecretKeys.join('、')}),保存修改后的环境变量会把它们重置为空值。建议改用 Koyeb 控制台维护密钥绑定,是否继续?`
+      );
+      if (!proceeded) return;
+    }
+    const portTokens = koyebConfigForm.ports.split(',').map((s) => s.trim()).filter(Boolean);
+    const invalidPorts = portTokens.filter((s) => {
+      const port = Number(s.split(':')[0]);
+      return !Number.isInteger(port) || port <= 0 || port > 65535;
+    });
+    if (invalidPorts.length > 0) {
+      setKoyebConfigError(`端口格式无效:${invalidPorts.join('、')}(应为 port 或 port:protocol,端口范围 1-65535)`);
+      return;
+    }
+    const ports = portTokens.map((s) => {
       const [port, protocol] = s.split(':');
-      const p = Number(port);
-      return p ? { port: p, protocol: protocol || 'http' } : null;
-    }).filter(Boolean);
+      return { port: Number(port), protocol: protocol || 'http' };
+    });
     const regions = koyebConfigForm.regions.split(',').map((s) => s.trim()).filter(Boolean);
     const args = koyebConfigForm.args.split(',').map((s) => s.trim()).filter(Boolean);
     setKoyebConfigSaving(true);
@@ -873,7 +899,7 @@ function PaasPage() {
           image: koyebConfigForm.image.trim(),
           command: koyebConfigForm.command,
           args,
-          env,
+          ...(envChanged ? { env } : {}),
           ports,
           regions,
           instanceType: koyebConfigForm.instanceType,
@@ -1623,7 +1649,12 @@ function PaasPage() {
   };
 
   const createFlyMachine = async (account, app) => {
-    const currentImage = app.machines?.[0]?.config?.image || '';
+    let machines = app.machines;
+    if (!machines?.[0]?.config?.image) {
+      const fetched = await refreshFlyMachines(account, app);
+      if (Array.isArray(fetched)) machines = fetched;
+    }
+    const currentImage = machines?.[0]?.config?.image || '';
     const image = await dialog.prompt({
       message: '请输入新机器使用的完整镜像地址：',
       defaultValue: normalizeFlyImageForInput(currentImage),
@@ -1631,7 +1662,7 @@ function PaasPage() {
     if (image === null || image.trim() === '') return;
     const region = await dialog.prompt({
       message: '请输入部署区域代码，例如 hkg、nrt、sin。留空则由 Fly.io 决定：',
-      defaultValue: app.machines?.[0]?.region || '',
+      defaultValue: machines?.[0]?.region || '',
     });
     if (region === null) return;
     try {
@@ -2100,6 +2131,12 @@ function PaasPage() {
         toast.warning('没有可导出的账号');
         return;
       }
+      if (
+        !(await dialog.confirm(
+          '导出的文件包含 Fly.io / Koyeb 的明文 API 令牌,请妥善保管并避免分享。确认导出?'
+        ))
+      )
+        return;
 
       const exportData = {
         version: '2.0',
@@ -2313,21 +2350,21 @@ function PaasPage() {
           ) : (
             <div className="space-y-5">
               {koyebAccounts.map((account) => {
-                const expanded = isKoyebAccountExpanded(account.name);
+                const expanded = isKoyebAccountExpanded(account.id);
                 const balance = Number(account.data?.balance ?? account.balance ?? 0);
                 return (
-                  <section key={account.name} className="space-y-3">
+                  <section key={account.id} className="space-y-3">
                     <LayerCard className="self-start">
                       <LayerCard.Secondary
                         role="button"
                         tabIndex={0}
                         aria-expanded={expanded}
                         className="flex min-w-0 cursor-pointer flex-wrap items-center gap-3 cq-sm:justify-between"
-                        onClick={() => toggleKoyebAccount(account.name)}
+                        onClick={() => toggleKoyebAccount(account.id)}
                         onKeyDown={(e) => {
                           if (e.key === 'Enter' || e.key === ' ') {
                             e.preventDefault();
-                            toggleKoyebAccount(account.name);
+                            toggleKoyebAccount(account.id);
                           }
                         }}
                       >
@@ -2603,20 +2640,20 @@ function PaasPage() {
           ) : (
             <div className="space-y-5">
               {flyAccounts.map((account) => {
-                const expanded = isFlyAccountExpanded(account.name);
+                const expanded = isFlyAccountExpanded(account.id);
                 return (
-                  <section key={account.name} className="space-y-3">
+                  <section key={account.id} className="space-y-3">
                     <LayerCard className="self-start">
                       <LayerCard.Secondary
                         role="button"
                         tabIndex={0}
                         aria-expanded={expanded}
                         className="flex min-w-0 cursor-pointer flex-wrap items-center gap-3 cq-sm:justify-between"
-                        onClick={() => toggleFlyAccount(account.name)}
+                        onClick={() => toggleFlyAccount(account.id)}
                         onKeyDown={(e) => {
                           if (e.key === 'Enter' || e.key === ' ') {
                             e.preventDefault();
-                            toggleFlyAccount(account.name);
+                            toggleFlyAccount(account.id);
                           }
                         }}
                       >

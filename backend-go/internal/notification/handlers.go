@@ -78,6 +78,14 @@ func (s *Service) testChannel(w http.ResponseWriter, r *http.Request, id string)
 		response.Error(w, http.StatusNotFound, "channel not found")
 		return
 	}
+	if channel.Enabled == 0 {
+		response.Error(w, http.StatusBadRequest, "channel is disabled")
+		return
+	}
+	if allowed, _ := s.testLimiter.Allow(time.Now(), maxChannelTestsPerHour); !allowed {
+		response.Error(w, http.StatusTooManyRequests, "channel test rate limit exceeded")
+		return
+	}
 	config := decryptConfig(channel.ConfigRaw)
 	title := "🧪 通知渠道连通性测试"
 	loc, _ := s.systemLocation(r.Context())
@@ -166,14 +174,20 @@ func (s *Service) previewTemplate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	data := objectValue(payload["data"])
+	eventType := stringDefault(data["eventType"], "preview")
+	sourceModule := stringValue(data["sourceModule"])
+	if sourceModule == "" {
+		sourceModule = stringValue(payload["sourceModule"])
+	}
+	loc, _ := s.systemLocation(r.Context())
+	data = previewAvailabilityData(data, sourceModule, eventType, time.Now())
 	rule := Rule{
 		Name:            "Template Preview",
 		Severity:        stringDefault(data["severity"], "info"),
-		EventType:       stringDefault(data["eventType"], "preview"),
+		EventType:       eventType,
 		TitleTemplate:   stringValue(payload["title_template"]),
 		MessageTemplate: stringValue(payload["message_template"]),
 	}
-	loc, _ := s.systemLocation(r.Context())
 	templateData := notificationTemplateData(data, loc)
 	response.OK(w, map[string]interface{}{
 		"title":     formatTitle(rule, data),
@@ -197,6 +211,7 @@ func (s *Service) dryRunRule(w http.ResponseWriter, r *http.Request, id string) 
 		return
 	}
 	data := objectValue(payload["data"])
+	data = previewAvailabilityData(data, rule.SourceModule, rule.EventType, time.Now())
 	result, err := s.DryRun(r.Context(), rule, data)
 	if err != nil {
 		response.Error(w, http.StatusInternalServerError, err.Error())

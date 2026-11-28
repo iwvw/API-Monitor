@@ -241,9 +241,9 @@ func TestBuildWebSocketUpgradeRequest(t *testing.T) {
 		t.Fatalf("host must point to target, got %q:\n%s", got, blob)
 	}
 	wants := map[string]string{
-		"connection":          "Upgrade",
-		"upgrade":             "websocket",
-		"sec-websocket-key":   wsTestNonce(),
+		"connection":            "Upgrade",
+		"upgrade":               "websocket",
+		"sec-websocket-key":     wsTestNonce(),
 		"sec-websocket-version": "13",
 	}
 	for name, value := range wants {
@@ -322,3 +322,31 @@ func TestIsSSEPath(t *testing.T) {
 	}
 }
 
+// TestFilterRequestHeadersDropsBrowserCrossSiteHints 回归:经网关的浏览器请求
+// 必须剥掉 Origin / Sec-Fetch-*。
+//
+// 上游 opencode 的 request-site 中间件在「Origin + Sec-Fetch-Site: cross-site
+// 且 Origin 不在其允许列表」时一律 403("Cross-site requests to the API are
+// not allowed");Sec-Fetch-Mode: navigate 直接拒绝。浏览器从任意面板域发的
+// 跨源请求必然同时带这两个头,不剥就会让经网关的全部 /api/* 403。
+func TestFilterRequestHeadersDropsBrowserCrossSiteHints(t *testing.T) {
+	in := http.Header{}
+	in.Set("Origin", "https://occ.dmuk.org")
+	in.Set("Referer", "https://occ.dmuk.org/")
+	in.Set("Sec-Fetch-Site", "cross-site")
+	in.Set("Sec-Fetch-Mode", "cors")
+	in.Set("Sec-Fetch-Dest", "empty")
+	in.Set("Sec-Fetch-User", "?1")
+	in.Set("X-Custom", "keep")
+
+	out := filterRequestHeaders(in)
+
+	for _, header := range []string{"Origin", "Sec-Fetch-Site", "Sec-Fetch-Mode", "Sec-Fetch-Dest", "Sec-Fetch-User"} {
+		if value := out.Get(header); value != "" {
+			t.Fatalf("%s 必须被剥离,实际为 %q", header, value)
+		}
+	}
+	if out.Get("X-Custom") != "keep" {
+		t.Fatal("无关头不应被误删")
+	}
+}

@@ -124,8 +124,6 @@ go /api/drawio/import drawio-import
 go /api/drawio/render-jobs drawio-render
 go /api/drawio/settings drawio-settings
 go /api/drawio/thumbnails/rebuild drawio-thumbnails
-go /api/ds2api ds2api
-go /api/ds2api/v1 ds2api-compatible
 go /api/filebox filebox
 go /api/flyio flyio
 go /api/gcp gcp
@@ -159,8 +157,6 @@ go /api/gcp/accounts/{id}/projects/{projectId}/model-usage gcp
 go /api/gcp/accounts/{id}/projects/{projectId}/subnetworks gcp
 go /api/gcp/accounts/{id}/projects/{projectId}/zones gcp
 go /api/gcp/accounts/{id}/verify gcp
-go /api/geminicli geminicli
-go /api/geminicli/v1 geminicli-compatible
 go /api/github github
 go /api/github/events/stream github-events
 go /api/github/public-pages github-public-pages

@@ -5,7 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"strings"
-
+	"time"
 )
 
 func (s *Service) LoadHistory(ctx context.Context, status string, limit int) ([]History, error) {
@@ -57,6 +57,25 @@ func (s *Service) ClearHistory(ctx context.Context) error {
 		return fmt.Errorf("clear notification history: %w", err)
 	}
 	return nil
+}
+
+// PruneHistory 删除早于 retentionDays 天的通知历史,返回删除条数。
+// retentionDays<=0 时不删除,避免误清空。
+func (s *Service) PruneHistory(ctx context.Context, retentionDays int) (int64, error) {
+	if retentionDays <= 0 {
+		return 0, nil
+	}
+	db, err := s.open(ctx)
+	if err != nil {
+		return 0, err
+	}
+	defer db.Close()
+	cutoff := time.Now().UTC().Add(-time.Duration(retentionDays) * 24 * time.Hour).Format("2006-01-02 15:04:05")
+	res, err := db.ExecContext(ctx, `DELETE FROM notification_history WHERE created_at < ?`, cutoff)
+	if err != nil {
+		return 0, fmt.Errorf("prune notification history: %w", err)
+	}
+	return res.RowsAffected()
 }
 
 func (s *Service) LoadConfig(ctx context.Context) (GlobalConfig, error) {
@@ -118,13 +137,13 @@ func (s *Service) UpdateConfig(ctx context.Context, payload map[string]interface
 			updated_at = CURRENT_TIMESTAMP
 		WHERE id = 1
 	`,
-		intValue(payload["max_retry_times"], 3),
-		intValue(payload["retry_interval_seconds"], 60),
-		intValue(payload["history_retention_days"], 30),
+		clampInt(intValue(payload["max_retry_times"], 3), 0, 10),
+		clampInt(intValue(payload["retry_interval_seconds"], 60), 1, 3600),
+		clampInt(intValue(payload["history_retention_days"], 30), 1, 3650),
 		boolInt(boolValue(payload["enable_batch"], true)),
-		intValue(payload["batch_interval_seconds"], 30),
+		clampInt(intValue(payload["batch_interval_seconds"], 30), 1, 3600),
 		jsonString(stringList(payload["default_channels"])),
-		intValue(payload["global_rate_limit_per_hour"], 100),
+		clampInt(intValue(payload["global_rate_limit_per_hour"], 100), 0, 100000),
 		boolInt(boolValue(payload["enable_auto_escalation"], false)),
 		stringValue(payload["base_url"]),
 	)

@@ -89,10 +89,11 @@ type CreateDocumentRequest struct {
 
 // UpdateDocumentRequest 更新文档元数据
 type UpdateDocumentRequest struct {
-	Title       string `json:"title"`
-	Description string `json:"description"`
-	TagsJSON    string `json:"tags_json"`
-	Archived    *bool  `json:"archived"`
+	Title             string  `json:"title"`
+	Description       string  `json:"description"`
+	TagsJSON          string  `json:"tags_json"`
+	Archived          *bool   `json:"archived"`
+	ExpectedUpdatedAt *string `json:"expected_updated_at"`
 }
 
 // SaveDraftRequest 保存草稿

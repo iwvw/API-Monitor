@@ -186,12 +186,16 @@ func (s *Service) convergeAllInstances(ctx context.Context) {
 	// 而收敛本身是低频后台任务，顺序执行的延迟可以接受。
 	s.metrics.convergenceRounds.Add(1)
 	converged := 0
-	for _, instance := range instances {
-		if instance.DesiredState == "" || !instance.Enabled {
+	for _, snapshot := range instances {
+		if snapshot.DesiredState == "" || !snapshot.Enabled {
 			continue
 		}
 		if ctx.Err() != nil {
 			return
+		}
+		instance, ok := s.refreshInstance(ctx, snapshot.ID)
+		if !ok || instance.DesiredState == "" || !instance.Enabled {
+			continue
 		}
 		s.convergeInstance(ctx, instance)
 		converged++
@@ -211,6 +215,19 @@ func (s *Service) purgeAccessLogs(ctx context.Context, db *sql.DB, retention tim
 	cutoff := time.Now().UTC().Add(-retention).Format(time.RFC3339)
 	_, err := db.ExecContext(ctx, `DELETE FROM aiagent_access_logs WHERE created_at < ?`, cutoff)
 	return err
+}
+
+func (s *Service) refreshInstance(ctx context.Context, id string) (Instance, bool) {
+	db, err := s.open(ctx)
+	if err != nil {
+		return Instance{}, false
+	}
+	defer db.Close()
+	instance, err := s.getInstance(ctx, db, id)
+	if err != nil {
+		return Instance{}, false
+	}
+	return instance, true
 }
 
 // SetAuthService 注入面板鉴权服务，用于管理员面的 session 校验。
@@ -863,6 +880,10 @@ func (s *Service) handleCreateInstance(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusConflict, CodeConflict, "instance already exists for this host and provider")
 			return
 		}
+		if err == errPortInUse {
+			writeError(w, http.StatusConflict, CodeConflict, "port already in use on this host")
+			return
+		}
 		if err == errInvalidProvider {
 			writeError(w, http.StatusBadRequest, CodeInvalid, "unknown provider")
 			return
@@ -933,7 +954,14 @@ func (s *Service) handleUpdateInstance(w http.ResponseWriter, r *http.Request, i
 			writeError(w, http.StatusNotFound, CodeNotFound, "instance not found")
 			return
 		}
-		if reason := s.lifecycleCapabilityError(current); reason != "" {
+		target := current
+		if payload.ServerID != "" {
+			target.ServerID = payload.ServerID
+		}
+		if payload.Provider != "" {
+			target.Provider = payload.Provider
+		}
+		if reason := s.lifecycleCapabilityError(target); reason != "" {
 			writeError(w, http.StatusServiceUnavailable, CodeChannelError, reason)
 			return
 		}
@@ -951,6 +979,8 @@ func (s *Service) handleUpdateInstance(w http.ResponseWriter, r *http.Request, i
 			writeError(w, http.StatusNotFound, CodeNotFound, "instance not found")
 		case errDuplicate:
 			writeError(w, http.StatusConflict, CodeConflict, "instance already exists for this host and provider")
+		case errPortInUse:
+			writeError(w, http.StatusConflict, CodeConflict, "port already in use on this host")
 		case errInvalidProvider:
 			writeError(w, http.StatusBadRequest, CodeInvalid, "unknown provider")
 		case errInvalidPort:
@@ -986,13 +1016,40 @@ func (s *Service) handleUpdateInstance(w http.ResponseWriter, r *http.Request, i
 }
 
 func (s *Service) handleDeleteInstance(w http.ResponseWriter, r *http.Request, id string) {
-	if _, ok := s.requireAdmin(w, r); !ok {
+	auth, ok := s.requireAdmin(w, r)
+	if !ok {
 		return
 	}
 	db, err := s.open(r.Context())
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, CodeChannelError, "database unavailable")
 		return
+	}
+	instance, err := s.getInstance(r.Context(), db, id)
+	if err != nil {
+		db.Close()
+		writeError(w, http.StatusNotFound, CodeNotFound, "instance not found")
+		return
+	}
+	if instance.DesiredState != "" && s.lifecycleCapabilityError(instance) == "" {
+		db.Close()
+		stopCtx, stopCancel := context.WithTimeout(r.Context(), 20*time.Second)
+		_, stopErr := s.runtime.StopProcess(stopCtx, instance.ServerID, instance.ID)
+		stopCancel()
+		if stopErr != nil {
+			s.writeAccessLog(r.Context(), AccessLog{
+				UserID: auth.UserID, InstanceID: instance.ID, Action: "instance.delete",
+				Result: "error", Error: stopErr.Error(),
+				IP: s.clientIP(r), UserAgent: r.UserAgent(),
+			})
+			writeError(w, http.StatusBadGateway, CodeChannelError, "stop managed process before delete failed: "+stopErr.Error())
+			return
+		}
+		db, err = s.open(r.Context())
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, CodeChannelError, "database unavailable")
+			return
+		}
 	}
 	defer db.Close()
 	if err := s.deleteInstance(r.Context(), db, id); err != nil {
@@ -1003,6 +1060,10 @@ func (s *Service) handleDeleteInstance(w http.ResponseWriter, r *http.Request, i
 		writeError(w, http.StatusInternalServerError, CodeChannelError, err.Error())
 		return
 	}
+	s.writeAccessLog(r.Context(), AccessLog{
+		UserID: auth.UserID, InstanceID: instance.ID, Action: "instance.delete", Result: "ok",
+		IP: s.clientIP(r), UserAgent: r.UserAgent(),
+	})
 	writeOK(w, map[string]interface{}{"success": true})
 }
 
@@ -1168,10 +1229,19 @@ func (s *Service) handleBatchLifecycle(w http.ResponseWriter, r *http.Request) {
 		Error        string `json:"error,omitempty"`
 		DesiredState string `json:"desiredState,omitempty"`
 	}
-	results := make([]itemResult, 0, len(payload.InstanceIDs))
+	seen := make(map[string]struct{}, len(payload.InstanceIDs))
+	uniqueIDs := make([]string, 0, len(payload.InstanceIDs))
+	for _, instanceID := range payload.InstanceIDs {
+		if _, dup := seen[instanceID]; dup {
+			continue
+		}
+		seen[instanceID] = struct{}{}
+		uniqueIDs = append(uniqueIDs, instanceID)
+	}
+	results := make([]itemResult, 0, len(uniqueIDs))
 	succeeded := 0
 
-	for _, instanceID := range payload.InstanceIDs {
+	for _, instanceID := range uniqueIDs {
 		if r.Context().Err() != nil {
 			break
 		}
@@ -1190,8 +1260,8 @@ func (s *Service) handleBatchLifecycle(w http.ResponseWriter, r *http.Request) {
 
 	s.writeAccessLog(r.Context(), AccessLog{
 		UserID: auth.UserID, Action: "instance.batch." + verb,
-		Result: fmt.Sprintf("%d/%d", succeeded, len(payload.InstanceIDs)),
-		IP: s.clientIP(r), UserAgent: r.UserAgent(),
+		Result: fmt.Sprintf("%d/%d", succeeded, len(uniqueIDs)),
+		IP:     s.clientIP(r), UserAgent: r.UserAgent(),
 	})
 	writeOK(w, map[string]interface{}{
 		"succeeded": succeeded,
@@ -1894,6 +1964,12 @@ func (s *Service) buildInstanceViewWithHosts(
 			view.Status = s.probeInstance(ctx, instance)
 			view.HostOnline = view.Status.HostOnline
 		}
+	} else {
+		// 不探测的快速路径：status/lifecycle 保持零值表示「未探测」，但主机在线
+		// 状态必须填——它只是内存查 Agent 连接注册表，零成本。否则不带 probe 的
+		// 调用方（如 MCP）会把整份列表误读成主机离线。
+		view.HostOnline = s.agentOnline(instance.ServerID)
+		view.Status.HostOnline = view.HostOnline
 	}
 	return view
 }

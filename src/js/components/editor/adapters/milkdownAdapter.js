@@ -32,6 +32,8 @@ export function createMilkdownAdapter({ root, defaultValue = '', editorViewOptio
   let onSelectionChangeListener = null;
   let focusListener = null;
   let blurListener = null;
+  let focusHandler = null;
+  let blurHandler = null;
   let editable = true;
 
   editor = Editor.make()
@@ -67,6 +69,8 @@ export function createMilkdownAdapter({ root, defaultValue = '', editorViewOptio
       onSelectionChangeListener = null;
       focusListener = null;
       blurListener = null;
+      if (focusHandler) { root.removeEventListener('focusin', focusHandler); focusHandler = null; }
+      if (blurHandler) { root.removeEventListener('focusout', blurHandler); blurHandler = null; }
       return editor.destroy();
     },
 
@@ -146,13 +150,13 @@ export function createMilkdownAdapter({ root, defaultValue = '', editorViewOptio
     /** 注册聚焦回调 */
     onFocus(fn) {
       focusListener = fn;
-	  root.addEventListener('focusin', () => focusListener?.());
+	  if (!focusHandler) { focusHandler = () => focusListener?.(); root.addEventListener('focusin', focusHandler); }
     },
 
     /** 注册失焦回调 */
     onBlur(fn) {
       blurListener = fn;
-	  root.addEventListener('focusout', () => blurListener?.());
+	  if (!blurHandler) { blurHandler = () => blurListener?.(); root.addEventListener('focusout', blurHandler); }
     },
 
     /** 获取底层 Milkdown Editor（仅限内部使用） */

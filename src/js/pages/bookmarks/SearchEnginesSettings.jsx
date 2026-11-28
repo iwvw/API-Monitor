@@ -1,8 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Button } from '@cloudflare/kumo/components/button';
 import { Input } from '@cloudflare/kumo/components/input';
-import { cx } from '../../components/ui/AppPrimitives.jsx';
-import { Plus, RotateCw, Trash } from '../../components/Icons.jsx';
+import { cx } from '../../components/ui/CardPrimitives.jsx';
+import { Plus, RotateCw, Trash } from '../../components/PublicIcons.jsx';
 import {
   DEFAULT_SEARCH_ENGINES,
   SEARCH_ENGINE_MAX_COUNT,

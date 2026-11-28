@@ -24,12 +24,12 @@ export function useSettingsForm() {
     })();
   }, []);
 
-  // 模型下拉选项：只列对外 /v1 暴露的模型（/api/openai/models 与 /v1/models 同源，
+  // 模型下拉选项：只列对外 /v1 暴露的模型（/api/modelhub/models 与 /v1/models 同源，
   // 已过滤禁用模型并应用映射去前缀；经 /v1 调用自动多端点负载均衡）。
   useEffect(() => {
     (async () => {
       try {
-        const res = await fetch('/api/openai/models');
+        const res = await fetch('/api/modelhub/models');
         const data = await res.json();
         const list = Array.isArray(data) ? data : (data.data || []);
         const options = (list || [])
@@ -44,7 +44,7 @@ export function useSettingsForm() {
   }, []);
 
   // 配置多选模型仅在模型网关可用列表内收敛：端点列表删除模型后，
-  // /api/openai/models 不再返回该 id，这里自动剔除对应选中项并静默持久化，
+  // /api/modelhub/models 不再返回该 id，这里自动剔除对应选中项并静默持久化，
   // 避免已删模型仍被后端 summaryModel 引用；网关无可用模型时不清空配置。
   const prunedRef = useRef(false);
   useEffect(() => {

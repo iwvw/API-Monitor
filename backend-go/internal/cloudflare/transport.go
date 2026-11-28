@@ -58,6 +58,12 @@ func (s *Service) cfRequest(ctx context.Context, method, path string, headers ma
 }
 
 func (s *Service) cfRawRequest(ctx context.Context, method, path string, headers map[string]string, accept, contentType string, body io.Reader) ([]byte, string, error) {
+	return s.cfRawRequestWithClient(ctx, s.client, method, path, headers, accept, contentType, body)
+}
+
+// cfRawRequestWithClient 允许调用方指定 client:流式上传(如 R2 大对象)必须用
+// 无总超时的 streamClient,否则 http.Client.Timeout 会在传输中途截断 body。
+func (s *Service) cfRawRequestWithClient(ctx context.Context, client *http.Client, method, path string, headers map[string]string, accept, contentType string, body io.Reader) ([]byte, string, error) {
 	target := s.apiBase + cloudflarePath(path)
 	req, err := http.NewRequestWithContext(ctx, method, target, body)
 	if err != nil {
@@ -75,7 +81,7 @@ func (s *Service) cfRawRequest(ctx context.Context, method, path string, headers
 		}
 		req.Header.Set(key, cleanHeader(value))
 	}
-	res, err := s.client.Do(req)
+	res, err := client.Do(req)
 	if err != nil {
 		return nil, "", err
 	}
@@ -98,6 +104,40 @@ func (s *Service) cfRawRequest(ctx context.Context, method, path string, headers
 		return nil, "", fmt.Errorf("HTTP %d: %s", res.StatusCode, string(raw))
 	}
 	return raw, res.Header.Get("Content-Type"), nil
+}
+
+func (s *Service) cfStreamRequest(ctx context.Context, method, path string, headers map[string]string, accept, contentType string, body io.Reader) (io.ReadCloser, int64, string, error) {
+	target := s.apiBase + cloudflarePath(path)
+	req, err := http.NewRequestWithContext(ctx, method, target, body)
+	if err != nil {
+		return nil, -1, "", err
+	}
+	if accept != "" {
+		req.Header.Set("Accept", accept)
+	}
+	if contentType != "" {
+		req.Header.Set("Content-Type", contentType)
+	}
+	for key, value := range headers {
+		if strings.HasPrefix(key, "__") {
+			continue
+		}
+		req.Header.Set(key, cleanHeader(value))
+	}
+	res, err := s.streamClient.Do(req)
+	if err != nil {
+		return nil, -1, "", err
+	}
+	if res.StatusCode < 200 || res.StatusCode >= 300 {
+		defer res.Body.Close()
+		raw, _ := io.ReadAll(io.LimitReader(res.Body, 8<<20))
+		var payload map[string]interface{}
+		if json.Unmarshal(raw, &payload) == nil {
+			return nil, -1, "", cloudflareError(res.StatusCode, payload, raw)
+		}
+		return nil, -1, "", fmt.Errorf("HTTP %d: %s", res.StatusCode, string(raw))
+	}
+	return res.Body, res.ContentLength, res.Header.Get("Content-Type"), nil
 }
 
 func cloudflareError(status int, payload map[string]interface{}, raw []byte) error {

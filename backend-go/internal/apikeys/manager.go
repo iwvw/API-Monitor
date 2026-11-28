@@ -22,11 +22,11 @@ import (
 )
 
 const (
-	ScopeTOTPRead      = "totp:read"
-	ScopeAIMCP         = "ai:mcp"
-	ScopeOpenAIGateway = "openai:gateway"
-	ScopeAPIRead       = "api:read"
-	ScopeAPIWrite      = "api:write"
+	ScopeTOTPRead        = "totp:read"
+	ScopeAIMCP           = "ai:mcp"
+	ScopeModelHubGateway = "modelhub:gateway"
+	ScopeAPIRead         = "api:read"
+	ScopeAPIWrite        = "api:write"
 )
 
 var (
@@ -59,7 +59,7 @@ type Input struct {
 	Name      string   `json:"name"`
 	Kind      string   `json:"kind"`
 	Scopes    []string `json:"scopes"`
-	ExpiresAt string   `json:"expiresAt"`
+	ExpiresAt *string  `json:"expiresAt"`
 	Enabled   *bool    `json:"enabled,omitempty"`
 }
 
@@ -124,7 +124,20 @@ func ensureSchema(ctx context.Context, db *sql.DB) error {
 		expires_at TEXT NOT NULL,
 		claimed_at TEXT
 	)`)
-	return err
+	if err != nil {
+		return err
+	}
+	// 模块改名兼容：历史 API Key 的 kind='openai' 与 scope 'openai:gateway' 迁移到
+	// modelhub，否则存量网关 Key 因 scope 不匹配而失效。
+	if _, err := db.ExecContext(ctx,
+		`UPDATE api_access_keys SET kind='modelhub' WHERE kind='openai'`); err != nil {
+		return err
+	}
+	if _, err := db.ExecContext(ctx,
+		`UPDATE api_access_keys SET scopes_json=REPLACE(scopes_json, '"openai:gateway"', '"modelhub:gateway"') WHERE scopes_json LIKE '%"openai:gateway"%'`); err != nil {
+		return err
+	}
+	return nil
 }
 
 func (m *Manager) List(ctx context.Context) ([]Key, error) {
@@ -163,7 +176,11 @@ func (m *Manager) Create(ctx context.Context, input Input) (Key, error) {
 	if err != nil {
 		return Key{}, err
 	}
-	expiresAt, err := normalizeExpiry(input.ExpiresAt)
+	var expiryValue string
+	if input.ExpiresAt != nil {
+		expiryValue = *input.ExpiresAt
+	}
+	expiresAt, err := normalizeExpiry(expiryValue)
 	if err != nil {
 		return Key{}, err
 	}
@@ -193,9 +210,14 @@ func (m *Manager) Update(ctx context.Context, id string, input Input) error {
 	if err != nil {
 		return err
 	}
-	expiresAt, err := normalizeExpiry(input.ExpiresAt)
-	if err != nil {
-		return err
+	var expiresAt interface{}
+	// 省略 expiresAt(局部更新,只改 name/enabled)时保留原值;显式传空串才表示清除。
+	expiresAtSet := input.ExpiresAt != nil
+	if expiresAtSet {
+		expiresAt, err = normalizeExpiry(*input.ExpiresAt)
+		if err != nil {
+			return err
+		}
 	}
 	scopesJSON, _ := json.Marshal(input.Scopes)
 	var enabled interface{}
@@ -210,8 +232,8 @@ func (m *Manager) Update(ctx context.Context, id string, input Input) error {
 		return err
 	}
 	defer db.Close()
-	result, err := db.ExecContext(ctx, `UPDATE api_access_keys SET name=?,scopes_json=?,enabled=COALESCE(?,enabled),expires_at=?,updated_at=? WHERE id=?`,
-		input.Name, string(scopesJSON), enabled, expiresAt, time.Now().UTC().Format(time.RFC3339), id)
+	result, err := db.ExecContext(ctx, `UPDATE api_access_keys SET name=?,scopes_json=?,enabled=COALESCE(?,enabled),expires_at=CASE WHEN ? THEN ? ELSE expires_at END,updated_at=? WHERE id=?`,
+		input.Name, string(scopesJSON), enabled, expiresAtSet, expiresAt, time.Now().UTC().Format(time.RFC3339), id)
 	return mutationError(result, err)
 }
 
@@ -256,10 +278,11 @@ func (m *Manager) Revoke(ctx context.Context, id string) error {
 }
 
 func (m *Manager) CreatePluginPairing(ctx context.Context, name string) (Pairing, error) {
+	keyExpiresAt := time.Now().UTC().AddDate(0, 3, 0).Format(time.RFC3339)
 	key, err := m.Create(ctx, Input{
 		Name:      strings.TrimSpace(name),
 		Kind:      "plugin",
-		ExpiresAt: time.Now().UTC().AddDate(0, 3, 0).Format(time.RFC3339),
+		ExpiresAt: &keyExpiresAt,
 	})
 	if err != nil {
 		return Pairing{}, err
@@ -359,7 +382,8 @@ func (m *Manager) Authorize(ctx context.Context, r *http.Request, scope string) 
 		return Key{}, ErrDisabled
 	}
 	if key.ExpiresAt != nil {
-		if expires, err := time.Parse(time.RFC3339, *key.ExpiresAt); err == nil && !expires.After(time.Now()) {
+		expires, err := time.Parse(time.RFC3339, *key.ExpiresAt)
+		if err != nil || !expires.After(time.Now()) {
 			return Key{}, ErrExpired
 		}
 	}
@@ -387,8 +411,8 @@ func normalizeInput(input Input) (Input, error) {
 		input.Scopes = []string{ScopeTOTPRead}
 	case "ai":
 		input.Scopes = []string{ScopeAIMCP}
-	case "openai":
-		input.Scopes = []string{ScopeOpenAIGateway}
+	case "modelhub":
+		input.Scopes = []string{ScopeModelHubGateway}
 	case "api":
 		allowed := map[string]bool{ScopeAPIRead: true, ScopeAPIWrite: true}
 		clean := []string{}
@@ -425,7 +449,7 @@ func generateKey(kind string) (string, error) {
 	if _, err := rand.Read(buf); err != nil {
 		return "", err
 	}
-	prefix := map[string]string{"plugin": "akp_", "ai": "aka_", "openai": "ako_", "api": "ak_"}[kind]
+	prefix := map[string]string{"plugin": "akp_", "ai": "aka_", "modelhub": "akh_", "api": "ak_"}[kind]
 	return prefix + base64.RawURLEncoding.EncodeToString(buf), nil
 }
 

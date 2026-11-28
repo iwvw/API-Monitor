@@ -1,0 +1,116 @@
+import { memo, useEffect, useMemo, useRef } from 'react';
+import { Chart } from '@cloudflare/kumo';
+import * as echarts from 'echarts/core';
+import { BarChart } from 'echarts/charts';
+import {
+  AriaComponent,
+  AxisPointerComponent,
+  GridComponent,
+  TooltipComponent,
+} from 'echarts/components';
+import { CanvasRenderer } from 'echarts/renderers';
+import { createSiteFontEcharts, hideOtherChartTips } from '../../chartFont.js';
+import { kumoHex, resolveAxisTicks } from './utils.js';
+
+echarts.use([
+  BarChart,
+  AxisPointerComponent,
+  GridComponent,
+  TooltipComponent,
+  AriaComponent,
+  CanvasRenderer,
+]);
+const siteFontEcharts = createSiteFontEcharts(echarts);
+
+// 纵轴每次都整体替换:刻度由 resolveAxisTicks 现算,算不出时不能沿用上一轮的
+// min/max/interval(ECharts 默认是合并式 setOption,缺省键会保留旧值)。
+const Y_AXIS_UPDATE_BEHAVIOR = { replaceMerge: ['yAxis'] };
+
+  // 时间序列（小时/天/周粒度）：为每根柱提供独立可对齐的类目轴。
+// 后端每个桶返回 day(bucket label) + count/tokens/avgLatency/errors，仅用于柱状展示。
+export const TrendBarChart = memo(function TrendBarChart({
+  labels,
+  values,
+  color,
+  isDarkMode,
+  loading = false,
+  formatValue = value => (Number.isFinite(Number(value)) ? String(Number(value)) : String(value)),
+  formatAxis = formatValue,
+}) {
+  const chartRef = useRef(null);
+  const options = useMemo(() => {
+    if (!labels || labels.length === 0) return null;
+    const axisColor = kumoHex('--color-kumo-contrast');
+    const gridColor = kumoHex('--color-kumo-line');
+    // 自己给纵轴定刻度,避免自动分割产生「两格同一个标签」(详见 utils.resolveAxisTicks)。
+    const yTicks = resolveAxisTicks(values, formatAxis);
+    return {
+      grid: { left: 8, right: 12, top: 10, bottom: 0, containLabel: true },
+      tooltip: {
+        trigger: 'axis',
+        axisPointer: { type: 'shadow' },
+        confine: true,
+        appendTo: 'body',
+        backgroundColor: kumoHex('--color-kumo-base'),
+        textStyle: { color: axisColor, fontSize: 11 },
+        valueFormatter: formatValue,
+      },
+      xAxis: {
+        type: 'category',
+        data: labels,
+        boundaryGap: false,
+        axisLine: { lineStyle: { color: gridColor } },
+        axisTick: { show: false },
+        axisLabel: { color: axisColor, fontSize: 10, hideOverlap: true },
+      },
+      yAxis: {
+        id: 'y',
+        type: 'value',
+        ...(yTicks || {}),
+        splitLine: { lineStyle: { color: gridColor } },
+        axisLabel: { color: axisColor, fontSize: 10, formatter: formatAxis },
+      },
+      series: [
+        {
+          type: 'bar',
+          data: values,
+          barMaxWidth: 26,
+          itemStyle: { color, borderRadius: [2, 2, 0, 0] },
+        },
+      ],
+    };
+  }, [labels, values, color, isDarkMode, formatValue, formatAxis]);
+
+  useEffect(() => {
+    const chart = chartRef.current;
+    if (!chart) return;
+    if (loading) {
+      chart.showLoading({
+        text: '',
+        color: kumoHex('--color-brand'),
+        maskColor: 'rgba(0,0,0,0)',
+      });
+    } else {
+      chart.hideLoading();
+    }
+  }, [loading]);
+
+  // 进入本图表时隐藏其它图表的 tooltip，避免多个 tooltip 并存（详见 chartFont.js）
+  useEffect(() => {
+    const chart = chartRef.current;
+    if (!chart) return;
+    const zr = chart.getZr();
+    const hideOthers = () => hideOtherChartTips(chart);
+    zr.on('mousemove', hideOthers);
+    zr.on('mousedown', hideOthers);
+    return () => {
+      zr.off('mousemove', hideOthers);
+      zr.off('mousedown', hideOthers);
+    };
+  }, [labels]);
+
+  const hasData = !!(labels && labels.length > 0);
+  if (!hasData && !loading) return null;
+
+  return <Chart ref={chartRef} echarts={siteFontEcharts} isDarkMode={isDarkMode} options={hasData ? options : {}} height={168} optionUpdateBehavior={Y_AXIS_UPDATE_BEHAVIOR} />;
+});

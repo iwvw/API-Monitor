@@ -17,6 +17,14 @@ import (
 	"github.com/iwvw/api-monitor/backend-go/internal/response"
 )
 
+// 请求体上限:元数据类请求体很小,缩略图可能是 data URL,故放宽;
+// 草稿正文上限由 drawio_settings.document_size_limit_bytes 决定。
+const (
+	maxMetadataBodyBytes  = 1 << 20
+	maxThumbnailBodyBytes = 8 << 20
+	maxDraftBodyOverhead  = 1 << 20
+)
+
 type Service struct {
 	cfg      config.Config
 	store    *Store
@@ -174,6 +182,7 @@ func (s *Service) getDocument(ctx context.Context, w http.ResponseWriter, docID 
 }
 
 func (s *Service) createDocument(ctx context.Context, w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, maxMetadataBodyBytes)
 	var req CreateDocumentRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		response.Error(w, http.StatusBadRequest, "Invalid request body")
@@ -199,6 +208,7 @@ func (s *Service) createDocument(ctx context.Context, w http.ResponseWriter, r *
 }
 
 func (s *Service) updateDocument(ctx context.Context, w http.ResponseWriter, r *http.Request, docID int64) {
+	r.Body = http.MaxBytesReader(w, r.Body, maxMetadataBodyBytes)
 	var req UpdateDocumentRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		response.Error(w, http.StatusBadRequest, "Invalid request body")
@@ -207,6 +217,10 @@ func (s *Service) updateDocument(ctx context.Context, w http.ResponseWriter, r *
 
 	doc, err := s.store.UpdateDocument(ctx, docID, req)
 	if err != nil {
+		if errors.Is(err, errDocumentConflict) {
+			response.Error(w, http.StatusConflict, "Document has been modified by another session")
+			return
+		}
 		log.Printf("[drawio] update document %d: %v", docID, err)
 		response.Error(w, http.StatusInternalServerError, "Failed to update document")
 		return
@@ -297,18 +311,20 @@ func (s *Service) getDraft(ctx context.Context, w http.ResponseWriter, docID int
 }
 
 func (s *Service) saveDraft(ctx context.Context, w http.ResponseWriter, r *http.Request, docID int64) {
+	// 大小限制在解码前先用 MaxBytesReader 卡住请求体,避免超大体完整进内存。
+	settings, _ := s.store.GetSettings(ctx)
+	maxSize := int64(5 << 20) // default 5MB
+	if settings != nil && settings.DocumentSizeLimitBytes > 0 {
+		maxSize = settings.DocumentSizeLimitBytes
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, maxSize+maxDraftBodyOverhead)
+
 	var req SaveDraftRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		response.Error(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
 
-	// 大小限制检查
-	settings, _ := s.store.GetSettings(ctx)
-	maxSize := int64(5 << 20) // default 5MB
-	if settings != nil && settings.DocumentSizeLimitBytes > 0 {
-		maxSize = settings.DocumentSizeLimitBytes
-	}
 	if int64(len(req.XMLContent)) > maxSize {
 		response.Error(w, http.StatusRequestEntityTooLarge, fmt.Sprintf("XML content exceeds size limit (%d bytes)", maxSize))
 		return
@@ -337,6 +353,7 @@ func (s *Service) saveDraft(ctx context.Context, w http.ResponseWriter, r *http.
 }
 
 func (s *Service) saveThumbnail(ctx context.Context, w http.ResponseWriter, r *http.Request, docID int64) {
+	r.Body = http.MaxBytesReader(w, r.Body, maxThumbnailBodyBytes)
 	var req UpdateThumbnailRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		response.Error(w, http.StatusBadRequest, "Invalid request body")
@@ -399,6 +416,7 @@ func (s *Service) getVersion(ctx context.Context, w http.ResponseWriter, docID, 
 }
 
 func (s *Service) saveVersion(ctx context.Context, w http.ResponseWriter, r *http.Request, docID int64) {
+	r.Body = http.MaxBytesReader(w, r.Body, maxMetadataBodyBytes)
 	var req SaveVersionRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		response.Error(w, http.StatusBadRequest, "Invalid request body")
@@ -570,6 +588,7 @@ func (s *Service) getSettings(ctx context.Context, w http.ResponseWriter) {
 }
 
 func (s *Service) updateSettings(ctx context.Context, w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, maxMetadataBodyBytes)
 	var settings SettingsPayload
 	if err := json.NewDecoder(r.Body).Decode(&settings); err != nil {
 		response.Error(w, http.StatusBadRequest, "Invalid request body")

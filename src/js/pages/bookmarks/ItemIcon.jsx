@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { cx } from '../../components/ui/AppPrimitives.jsx';
-import { Bookmark } from '../../components/Icons.jsx';
+import { cx } from '../../components/ui/CardPrimitives.jsx';
+import { Bookmark } from '../../components/PublicIcons.jsx';
 import { firstGrapheme } from '../../modules/sunpanelImport.js';
 
 // 网址条目的图标渲染。

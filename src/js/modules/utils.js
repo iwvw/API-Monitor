@@ -54,7 +54,7 @@ export function formatDateTime(date, options = null) {
   let d;
   if (typeof date === 'string') {
     // 如果是 SQLite 的 YYYY-MM-DD HH:mm:ss 格式且没有时区，补全 Z 使其按 UTC 解析
-    if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(date)) {
+    if (/^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}(\.\d+)?$/.test(date)) {
       d = new Date(date.replace(' ', 'T') + 'Z');
     } else if (!date.includes('Z') && !date.includes('+') && !date.includes('-')) {
       // 其他没有时区信息的字符串，假设是 UTC

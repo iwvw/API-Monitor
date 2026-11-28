@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/url"
+	"strconv"
 
 	"github.com/iwvw/api-monitor/backend-go/internal/response"
 )
@@ -15,19 +16,31 @@ func (s *Service) tunnels(w http.ResponseWriter, r *http.Request, accountID stri
 	if !ok {
 		return
 	}
-	cfAccountID, err := s.cloudflareAccountID(r.Context(), auth)
+	cfAccountID, err := s.cloudflareAccountIDForWrite(r.Context(), auth, r.Method)
 	if err != nil {
 		response.JSON(w, http.StatusInternalServerError, map[string]interface{}{"error": err.Error()})
 		return
 	}
 	if r.Method == http.MethodGet {
-		path := "/accounts/" + url.PathEscape(cfAccountID) + "/cfd_tunnel?is_deleted=false&per_page=100"
-		payload, err := s.cfRequest(r.Context(), http.MethodGet, path, auth, nil)
+		basePath := "/accounts/" + url.PathEscape(cfAccountID) + "/cfd_tunnel?is_deleted=false&per_page=100"
+		payload, err := s.cfRequest(r.Context(), http.MethodGet, basePath, auth, nil)
 		if err != nil {
 			response.JSON(w, http.StatusInternalServerError, map[string]interface{}{"error": err.Error()})
 			return
 		}
 		tunnelsList := arrayValue(payload["result"])
+		totalPages := intValue(objectValue(payload["result_info"])["total_pages"], 1)
+		for page := 2; page <= totalPages; page++ {
+			pagePayload, perr := s.cfRequest(r.Context(), http.MethodGet, basePath+"&page="+strconv.Itoa(page), auth, nil)
+			if perr != nil {
+				break
+			}
+			before := len(tunnelsList)
+			tunnelsList = append(tunnelsList, arrayValue(pagePayload["result"])...)
+			if len(tunnelsList) == before {
+				break
+			}
+		}
 		mapped := []map[string]interface{}{}
 		for _, item := range tunnelsList {
 			t := objectValue(item)
@@ -102,7 +115,7 @@ func (s *Service) tunnelMutation(w http.ResponseWriter, r *http.Request, account
 	if !ok {
 		return
 	}
-	cfAccountID, err := s.cloudflareAccountID(r.Context(), auth)
+	cfAccountID, err := s.cloudflareAccountIDForWrite(r.Context(), auth, r.Method)
 	if err != nil {
 		response.JSON(w, http.StatusInternalServerError, map[string]interface{}{"error": err.Error()})
 		return
@@ -174,7 +187,7 @@ func (s *Service) tunnelConfiguration(w http.ResponseWriter, r *http.Request, ac
 	if !ok {
 		return
 	}
-	cfAccountID, err := s.cloudflareAccountID(r.Context(), auth)
+	cfAccountID, err := s.cloudflareAccountIDForWrite(r.Context(), auth, r.Method)
 	if err != nil {
 		response.JSON(w, http.StatusInternalServerError, map[string]interface{}{"error": err.Error()})
 		return

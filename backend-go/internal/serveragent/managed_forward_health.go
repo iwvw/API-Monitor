@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/iwvw/api-monitor/backend-go/internal/applog"
@@ -72,7 +73,7 @@ func (s *Service) removeForwardTarget(w http.ResponseWriter, r *http.Request, db
 }
 
 func (s *Service) startForwardHealthLoop(ctx context.Context) {
-	ticker := time.NewTicker(30 * time.Second)
+	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
 	for {
 		select {
@@ -83,6 +84,8 @@ func (s *Service) startForwardHealthLoop(ctx context.Context) {
 		}
 	}
 }
+
+var forwardHealthLastRun sync.Map
 
 // startForwardConnectorSyncLoop 周期同步 tcp_relay 活跃连接数（连接数来自源主机 Agent 的 status）。
 func (s *Service) startForwardConnectorSyncLoop(ctx context.Context) {
@@ -140,17 +143,46 @@ func (s *Service) checkForwardHealth(ctx context.Context) {
 		return
 	}
 	defer rows.Close()
+	type forwardHealthItem struct {
+		id, serverID, localHost, protocol, failoverCurrent string
+		failoverEnabled, healthEnabled                    int
+		localPort, healthInterval, healthTimeout          int
+		unhealthyThr, healthyThr                          int
+	}
+	// 先把结果集读完并释放连接。本库的逻辑句柄是 SetMaxOpenConns(1),
+	// 若在 rows 未读完时就对同一个 db 执行 UPDATE,Exec 会永久等待唯一连接。
+	items := make([]forwardHealthItem, 0, 16)
 	for rows.Next() {
-		var id, serverID, localHost, protocol, failoverCurrent string
-		var failoverEnabled, healthEnabled int
-		var localPort, healthInterval, healthTimeout, unhealthyThr, healthyThr int
-		if err := rows.Scan(&id, &serverID, &localHost, &localPort, &protocol, &failoverCurrent, &failoverEnabled, &healthEnabled, &healthInterval, &healthTimeout, &unhealthyThr, &healthyThr); err != nil {
+		var item forwardHealthItem
+		if err := rows.Scan(&item.id, &item.serverID, &item.localHost, &item.localPort, &item.protocol, &item.failoverCurrent, &item.failoverEnabled, &item.healthEnabled, &item.healthInterval, &item.healthTimeout, &item.unhealthyThr, &item.healthyThr); err != nil {
 			continue
 		}
+		items = append(items, item)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return
+	}
+
+	for _, item := range items {
+		id, serverID, localHost, failoverCurrent := item.id, item.serverID, item.localHost, item.failoverCurrent
+		failoverEnabled := item.failoverEnabled
+		localPort, healthInterval, healthTimeout := item.localPort, item.healthInterval, item.healthTimeout
 		targetServer := serverID
 		if failoverCurrent != "" {
 			targetServer = failoverCurrent
 		}
+		interval := time.Duration(healthInterval) * time.Second
+		if interval <= 0 {
+			interval = 30 * time.Second
+		}
+		now := time.Now()
+		if last, ok := forwardHealthLastRun.Load(id); ok {
+			if lastAt, ok := last.(time.Time); ok && now.Sub(lastAt) < interval {
+				continue
+			}
+		}
+		forwardHealthLastRun.Store(id, now)
 		healthy := s.probeTargetHealth(targetServer, localHost, localPort, healthTimeout)
 		s.updateForwardHealth(db, id, targetServer, healthy)
 		if !healthy && failoverEnabled != 0 {

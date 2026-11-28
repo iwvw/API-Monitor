@@ -1,6 +1,6 @@
 # Go 后端启动指南
 
-最后更新：2026-09-08
+最后更新：2026-11-17
 
 当前默认运行架构是 Go 后端。路由清单由 `backend-go/internal/manifest/manifest.go` 管理，当前 route inventory 为 369 条 Go-owned 路由。旧 Node sidecar 资料仅作为迁移历史，不作为日常启动路径。
 
@@ -20,14 +20,16 @@ npm run dev
 npm run backend-go:dev
 ```
 
-或：
+该命令走 `tools/dev-backend.mjs`,Windows / macOS / Linux 通用:启动前按 `.env` → `.env.local` 顺序注入尚未设置的变量,再在 `backend-go/` 下执行 `go run`,因此把 `PORT` 写进 `.env.local` 即可改端口(Vite 开发代理同样读取 `.env.local` 的 `PORT`)。
+
+也可以手动启动,但这样不会读 `.env.local`(Go 自身只加载 `.env`):
 
 ```bash
 cd backend-go
 go run ./cmd/api-monitor
 ```
 
-默认监听：
+默认监听(可被 `PORT` / `GO_PORT` 覆盖):
 
 ```text
 http://localhost:3000
@@ -103,7 +105,7 @@ API_MONITOR_BASE_URL=http://127.0.0.1:3000 npm run backend-go:smoke
 - TOTP、Cron、Scheduler、Filebox、Notification、Uptime。
 - Cloudflare DNS、Workers、Pages、R2、Tunnels。
 - 阿里云、腾讯云、Koyeb、Fly.io、M365、GitHub、Docker Hub。
-- OpenAI-compatible 网关与插件（代理池、Antigravity、DS2API）。
+- OpenAI-compatible 网关与插件（代理池、Antigravity、WorkBuddy、LobsterAI 等）。
 - Oracle OCI、GCP、华为云云厂商模块（账号/实例/网络/存储/费用）。
 - Server 账号、凭据、代码片段、Agent 安装、实时指标、Docker、终端、SFTP、转发中心。
 - 管理 AI、提示词库、Draw.io、备份、订阅分发。

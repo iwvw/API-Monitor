@@ -6,6 +6,7 @@ import { Empty } from '@cloudflare/kumo/components/empty';
 import { AppTable, SectionCard } from '../../components/ui/AppPrimitives.jsx';
 import { Activity, Eye, RefreshCw, Trash, X } from '../../components/Icons.jsx';
 import { IconButton } from './shared.jsx';
+import { toast } from '../../modules/toast.js';
 import { formatTimestamp, statusBadgeVariant, statusLabel } from './utils.js';
 
 const SCHEDULER_RUN_COLUMNS = [
@@ -45,9 +46,14 @@ export function RunsTab({ runs, isArmed, clearOldRuns, clearAllRuns, authHeaders
                   <Table.Cell className="text-xs text-kumo-subtle">{formatTimestamp(run.start_time || run.created_at)}</Table.Cell>
                   <Table.Cell className="font-mono text-xs text-kumo-default">{run.duration ?? 0}s</Table.Cell>
                   <Table.Cell><div className="flex items-center justify-center gap-1"><IconButton label="查看详情" onClick={async () => {
-                    const res = await fetch(`/api/scheduler/runs/${run.id}`, { headers: authHeaders() });
-                    const data = await res.json();
-                    if (data.success) setSelectedRun(data.data);
+                    try {
+                      const res = await fetch(`/api/scheduler/runs/${run.id}`, { headers: authHeaders() });
+                      const data = await res.json();
+                      if (!res.ok || !data.success) throw new Error(data.error || '加载运行详情失败');
+                      setSelectedRun(data.data);
+                    } catch (error) {
+                      toast.error(error.message || '加载运行详情失败');
+                    }
                   }} icon={<Eye className="h-3.5 w-3.5" />} />{run.status === 'failed' && <IconButton label="重试运行" onClick={() => retryRun(run)} icon={<RefreshCw className="h-3.5 w-3.5" />} />}{run.status === 'running' && <IconButton label="取消运行" variant="secondary-destructive" onClick={() => cancelRun(run)} icon={<X className="h-3.5 w-3.5" />} />}</div></Table.Cell>
                 </Table.Row>
               ))}

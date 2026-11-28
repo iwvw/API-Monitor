@@ -50,7 +50,12 @@ export function MemoriesCard() {
   }, [load]);
 
   // 搜索防抖：停止输入 250ms 后触发检索，避免每击键一次请求
+  const firstSearchRef = useRef(true);
   useEffect(() => {
+    if (firstSearchRef.current) {
+      firstSearchRef.current = false;
+      return undefined;
+    }
     const t = window.setTimeout(() => load(q.trim()), 250);
     return () => window.clearTimeout(t);
   }, [q, load]);

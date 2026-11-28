@@ -8,9 +8,10 @@ func eventCatalog() []map[string]interface{} {
 		{"module": "filebox", "events": []string{"resource.created", "resource.deleted", "cleanup"}},
 		{"module": "github", "events": []string{"action_failed", "action_recovered", "release_published", "star_spike", "issue_opened", "pull_request_opened", "repository_unreachable", "token_invalid", "rate_limit_low", "webhook_delivery_failed", "webhook_ping"}, "dynamic_events": []string{"action_failed", "action_recovered"}},
 		{"module": "totp", "events": []string{"resource.created", "resource.updated", "resource.deleted", "security.revealed", "backup.imported", "backup.exported"}},
-		{"module": "openai", "events": []string{"gateway_error_high", "gateway_error_normal"}, "dynamic_events": []string{"gateway_error_high", "gateway_error_normal"}},
+		{"module": "modelhub", "events": []string{"gateway_error_high", "gateway_error_normal"}, "dynamic_events": []string{"gateway_error_high", "gateway_error_normal"}},
 		{"module": "antigravity", "events": []string{"quota_window_refreshed"}},
 		{"module": "cron", "events": []string{"task.completed", "task.failed", "workflow.completed", "workflow.failed"}, "dynamic_events": []string{}},
 		{"module": "assets", "events": []string{"asset_expiry"}},
+		{"module": "docker", "events": []string{"container.update.failed"}},
 	}
 }

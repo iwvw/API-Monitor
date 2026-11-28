@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"math"
 	"net"
 	"net/http"
 	"regexp"
@@ -92,14 +93,14 @@ func (s *Service) handlePublicStatusPageRoutes(w http.ResponseWriter, r *http.Re
 	response.OK(w, page)
 }
 
-// handlePublicGlobeNodes 供登录页地球标记使用：只暴露可公开的主机名称与坐标，
+// handlePublicGlobeNodes 供登录页地球标记使用：只暴露主机的匿名标记与粗粒度坐标，
 // 不含主机地址、凭据等敏感字段。无端地址用 0,0 过滤，避免地图中心出现假点。
 func (s *Service) handlePublicGlobeNodes(w http.ResponseWriter, r *http.Request, db *sql.DB) {
 	if r.Method != http.MethodGet {
 		response.Error(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
-	rows, err := db.QueryContext(r.Context(), `SELECT id, name, COALESCE(cached_info, '{}') FROM server_accounts ORDER BY order_index ASC, name ASC`)
+	rows, err := db.QueryContext(r.Context(), `SELECT id, COALESCE(cached_info, '{}') FROM server_accounts ORDER BY order_index ASC, name ASC`)
 	if err != nil {
 		response.Error(w, http.StatusInternalServerError, err.Error())
 		return
@@ -107,8 +108,8 @@ func (s *Service) handlePublicGlobeNodes(w http.ResponseWriter, r *http.Request,
 	defer rows.Close()
 	nodes := []map[string]interface{}{}
 	for rows.Next() {
-		var id, name, cachedInfo string
-		if err := rows.Scan(&id, &name, &cachedInfo); err != nil {
+		var id, cachedInfo string
+		if err := rows.Scan(&id, &cachedInfo); err != nil {
 			continue
 		}
 		cached := map[string]interface{}{}
@@ -132,15 +133,21 @@ func (s *Service) handlePublicGlobeNodes(w http.ResponseWriter, r *http.Request,
 		}
 		nodes = append(nodes, map[string]interface{}{
 			"id":        id,
-			"name":      name,
-			"latitude":  lat,
-			"longitude": lon,
+			"latitude":  roundPublicGlobeCoordinate(lat),
+			"longitude": roundPublicGlobeCoordinate(lon),
 			"online":    online,
 			"status":    status,
 		})
 	}
 	w.Header().Set("Cache-Control", "no-store")
 	response.OK(w, map[string]interface{}{"nodes": nodes})
+}
+
+// roundPublicGlobeCoordinate 把公开坐标降到 0.1 度(约 11km)粒度。
+// 登录页地球只需要城市级位置,精确到米级坐标会暴露个人物理位置。
+func roundPublicGlobeCoordinate(value float64) float64 {
+	const scale = 10 // 1 位小数
+	return math.Round(value*scale) / scale
 }
 
 func (s *Service) listServerStatusPages(w http.ResponseWriter, r *http.Request, db *sql.DB) {
@@ -393,10 +400,10 @@ func (s *Service) getPublicServerStatusItems(ctx context.Context, db *sql.DB, id
 			"updatedAt":        firstNonEmpty(lastHeartbeat, getString(cached, "metrics_last_seen"), updatedAt),
 		}
 		if hasLat && hasUsableCoordinates(lat, lon) {
-			item["latitude"] = lat
+			item["latitude"] = roundPublicGlobeCoordinate(lat)
 		}
 		if hasLon && hasUsableCoordinates(lat, lon) {
-			item["longitude"] = lon
+			item["longitude"] = roundPublicGlobeCoordinate(lon)
 		}
 		if !hideHosts {
 			item["host"] = host

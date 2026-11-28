@@ -7,7 +7,7 @@
 // 信息 AES 加密 + RSA 包裹 + MD5 签名，POST 到 api3.qoder.sh 的
 // agent_chat_generation 流式端点，响应为 {body: <openai chunk>} 信封。
 //
-// 目录结构、表命名、link 语义与同类插件（lobsterai/workbuddy/geminicli）保持一致。
+// 目录结构、表命名、link 语义与同类插件（lobsterai/workbuddy）保持一致。
 package qoder
 
 import (
@@ -47,9 +47,24 @@ type Settings struct {
 	ProxyPoolID string `json:"proxyPoolId,omitempty"`
 	// DisabledModels 被停用的模型（对外名，含前缀）。
 	DisabledModels []string `json:"disabledModels"`
-	// AutoCheckin 每日自动签到（站点时区 9 点与 21 点各一次，领取每日 100 Credits）。
+	// AutoCheckin 每日自动签到（按 AutoCheckinTimes 执行，领取每日 100 Credits）。
 	// 指针语义：nil 视为开启（缺省开启），显式 false 才关闭。
 	AutoCheckin *bool `json:"autoCheckin,omitempty"`
+	// AutoCheckinTimes 每日自动签到时刻（站点时区，HH:MM 列表）。
+	// 留空表示默认 10:00；支持多时段（如 ["09:15","17:00"]）。
+	AutoCheckinTimes []string `json:"autoCheckinTimes,omitempty"`
+	// AutoRefreshToken 后台 token 续期开关；nil 视为开启（缺省开启），显式 false 才关闭。
+	AutoRefreshToken *bool `json:"autoRefreshToken,omitempty"`
+	// 签到防风控参数（热更新）。账号间强制间隔 + 随机抖动 + 按账号稳定错峰，
+	// 避免多账号在同一秒批量签到（明显的自动化特征，会导致活动被服务端隐藏）。
+	CheckinGapMS    int   `json:"checkinGapMs,omitempty"`
+	CheckinJitterMS int   `json:"checkinJitterMs,omitempty"`
+	CheckinStaggerS int   `json:"checkinStaggerSec,omitempty"`
+	CheckinStagger  *bool `json:"checkinStagger,omitempty"`
+	// CheckinFullDeviceHeaders 签到时是否携带完整机器头集合。
+	// 缺省 true（国际版按真实设备身份下发活动，缺机器头拿不到 CLAIM_BENEFIT）；
+	// 个别场景带全量头反而被判非官方客户端时可显式设 false 回退。
+	CheckinFullDeviceHeaders *bool `json:"checkinFullDeviceHeaders,omitempty"`
 	// AccountStrategy 是多账号选号策略：first（默认）/ round-robin。
 	AccountStrategy string `json:"accountStrategy"`
 	// Accounts 设备登录产生的账号凭据。含 token，仅服务端可见，
@@ -74,6 +89,68 @@ func (s *Settings) autoCheckinEnabled() bool {
 		return true
 	}
 	return *s.AutoCheckin
+}
+
+// autoRefreshEnabled 判定后台 token 续期是否开启（缺省视为开启）。
+func (s *Settings) autoRefreshEnabled() bool {
+	if s.AutoRefreshToken == nil {
+		return true
+	}
+	return *s.AutoRefreshToken
+}
+
+// checkinStaggerEnabled 判定签到错峰是否开启（缺省视为开启）。
+func (s *Settings) checkinStaggerEnabled() bool {
+	if s.CheckinStagger == nil {
+		return true
+	}
+	return *s.CheckinStagger
+}
+
+// checkinFullDeviceHeaders 判定签到时是否带完整机器头集合（缺省 true）。
+//
+// 默认开启的理由：国际版活动按真实设备身份下发，实测缺 cosy-machinetoken /
+// cosy-machinetype 时服务端不下发 CLAIM_BENEFIT（no_campaign）。做成可配是为了
+// 某些活动场景带全量头反而被判非官方客户端时能回退（显式 false）。
+func (s *Settings) checkinFullDeviceHeaders() bool {
+	if s.CheckinFullDeviceHeaders == nil {
+		return true
+	}
+	return *s.CheckinFullDeviceHeaders
+}
+
+// checkinGap 返回账号间强制间隔（默认 1s）。
+func (s *Settings) checkinGap() time.Duration {
+	if s.CheckinGapMS > 0 {
+		return time.Duration(s.CheckinGapMS) * time.Millisecond
+	}
+	return time.Second
+}
+
+// checkinJitter 返回账号间隔的随机抖动上限（默认 500ms）。
+func (s *Settings) checkinJitter() time.Duration {
+	if s.CheckinJitterMS > 0 {
+		return time.Duration(s.CheckinJitterMS) * time.Millisecond
+	}
+	return 500 * time.Millisecond
+}
+
+// checkinStaggerWindow 返回错峰窗口（默认 60s）。
+func (s *Settings) checkinStaggerWindow() time.Duration {
+	if s.CheckinStaggerS > 0 {
+		return time.Duration(s.CheckinStaggerS) * time.Second
+	}
+	return 60 * time.Second
+}
+
+// checkinTimes 返回生效的自动签到时刻列表（规范化后的 HH:MM，升序去重）。
+// 未配置或全部非法时退化为 ["10:00"]。
+func (s *Settings) checkinTimes() []string {
+	out := normalizeCheckinTimes(s.AutoCheckinTimes)
+	if len(out) == 0 {
+		return []string{"10:00"}
+	}
+	return out
 }
 
 // Service 是 Qoder 插件后端。
@@ -144,6 +221,13 @@ type Service struct {
 	schedStart sync.Once
 	schedMu    sync.Mutex
 	scheduler  *cronRuntime
+	// 当日已完成签到的时段（date + HH:MM），纯内存态。
+	slotMu    sync.Mutex
+	doneSlots map[doneSlot]bool
+	// runningSlots 防止 cron 触发与每分钟补跑同时跑同一时段（重复领取）。
+	runningSlots map[doneSlot]bool
+	// slotFinished 记录「时段 → 已完成账号」，补跑时跳过已成功的账号。
+	slotFinished map[doneSlot]map[string]bool
 
 	externalPool ProxyPoolSelector
 }
@@ -171,6 +255,9 @@ func New(cfg config.Config) *Service {
 		modelCacheByRegion: map[string][]ModelInfo{},
 		modelCacheAt:       map[string]time.Time{},
 		modelFetchFailAt:   map[string]time.Time{},
+		doneSlots:          map[doneSlot]bool{},
+		runningSlots:       map[doneSlot]bool{},
+		slotFinished:       map[doneSlot]map[string]bool{},
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -215,6 +302,10 @@ func (s *Service) open(ctx context.Context) (*sql.DB, error) {
 		db.Close()
 		return nil, fmt.Errorf("qoder ensure usage schema: %w", err)
 	}
+	if err := ensureCheckinHistorySchema(ctx, db); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("qoder ensure checkin history schema: %w", err)
+	}
 	return db, nil
 }
 
@@ -244,6 +335,7 @@ func (s *Service) loadSettings(ctx context.Context, db *sql.DB) {
 	// 会与新目录对不上，导致用户已停用的模型「复活」。这里按官方名归一化。
 	cfg.DisabledModels = migrateDisabledModels(cfg.DisabledModels, cfg.ModelPrefix)
 	cfg.AccountStrategy = normalizeStrategy(cfg.AccountStrategy)
+	cfg.AutoCheckinTimes = normalizeCheckinTimes(cfg.AutoCheckinTimes)
 	s.mu.Lock()
 	s.settings = cfg
 	s.mu.Unlock()
@@ -280,6 +372,7 @@ func (s *Service) SaveSettings(ctx context.Context, next Settings) error {
 		next.Accounts = []Account{}
 	}
 	next.AccountStrategy = normalizeStrategy(next.AccountStrategy)
+	next.AutoCheckinTimes = normalizeCheckinTimes(next.AutoCheckinTimes)
 	s.mu.RLock()
 	oldPrefix := s.settings.ModelPrefix
 	s.mu.RUnlock()
@@ -531,6 +624,8 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.handleToggleModel(w, r, strings.TrimPrefix(path, "/api/qoder/models/toggle/"))
 	case path == "/api/qoder/checkin":
 		s.handleCheckinAll(w, r)
+	case path == "/api/qoder/refresh":
+		s.handleRefreshAll(w, r)
 	case path == "/api/qoder/login/start":
 		s.handleLoginStart(w, r)
 	case path == "/api/qoder/login/poll":
@@ -552,10 +647,22 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			s.handleCheckinAccount(w, r, strings.TrimSuffix(rest, "/checkin"))
 		case strings.HasSuffix(rest, "/quota"):
 			s.handleAccountQuota(w, r, strings.TrimSuffix(rest, "/quota"))
+		case strings.HasSuffix(rest, "/checkin-history"):
+			s.handleAccountCheckinHistory(w, r, strings.TrimSuffix(rest, "/checkin-history"))
+		case strings.HasSuffix(rest, "/refresh"):
+			s.handleAccountRefresh(w, r, strings.TrimSuffix(rest, "/refresh"))
 		case r.Method == http.MethodPut:
 			s.handleUpdateAccount(w, r, rest)
-		default:
+		case r.Method == http.MethodDelete:
 			s.handleDeleteAccount(w, r, rest)
+		default:
+			// 未匹配的子动作/方法必须明确报 404，不能落到删除分支：
+			// 那样会返回「405 method not allowed」，把「路由不存在」误导成「方法不对」，
+			// 例如旧版后端缺少 /refresh 时，前端只会看到一句无从下手的 405。
+			responseJSON(w, http.StatusNotFound, map[string]interface{}{
+				"success": false,
+				"error":   "账号子接口不存在: " + rest + "（" + r.Method + "）",
+			})
 		}
 	case path == "/api/qoder/link":
 		s.handleLink(w, r)
@@ -572,7 +679,7 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 func (s *Service) handleSettings(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
-		responseJSON(w, map[string]interface{}{"success": true, "settings": s.publicSettings()})
+		responseJSON(w, map[string]interface{}{"success": true, "settings": s.publicSettings(r.Context())})
 	case http.MethodPut, http.MethodPost:
 		var body Settings
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
@@ -580,6 +687,8 @@ func (s *Service) handleSettings(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		// Accounts 含 token 不下发，回传会抹掉凭据；DisabledModels 由专用启停接口持有。
+		s.accountsMu.Lock()
+		defer s.accountsMu.Unlock()
 		current := s.Settings()
 		body.Accounts = current.Accounts
 		body.DisabledModels = current.DisabledModels
@@ -590,27 +699,31 @@ func (s *Service) handleSettings(w http.ResponseWriter, r *http.Request) {
 		if !body.Enabled {
 			s.unlinkIfDisabled(r.Context())
 		}
-		responseJSON(w, map[string]interface{}{"success": true, "settings": s.publicSettings()})
+		responseJSON(w, map[string]interface{}{"success": true, "settings": s.publicSettings(r.Context())})
 	default:
 		responseJSON(w, http.StatusMethodNotAllowed, map[string]interface{}{"success": false, "error": "method not allowed"})
 	}
 }
 
 // publicSettings 返回可下发前端的设置（账号已脱敏）。
-func (s *Service) publicSettings() map[string]interface{} {
+func (s *Service) publicSettings(ctx context.Context) map[string]interface{} {
 	st := s.Settings()
-	views := make([]AccountView, 0, len(st.Accounts))
-	for _, a := range st.Accounts {
-		views = append(views, s.toAccountView(a))
-	}
+	views := s.accountViews(ctx, st.Accounts)
 	return map[string]interface{}{
-		"enabled":         st.Enabled,
-		"modelPrefix":     st.ModelPrefix,
-		"proxyPoolId":     st.ProxyPoolID,
-		"disabledModels":  st.DisabledModels,
-		"autoCheckin":     st.autoCheckinEnabled(),
-		"accountStrategy": normalizeStrategy(st.AccountStrategy),
-		"accounts":        views,
+		"enabled":                  st.Enabled,
+		"modelPrefix":              st.ModelPrefix,
+		"proxyPoolId":              st.ProxyPoolID,
+		"disabledModels":           st.DisabledModels,
+		"autoCheckin":              st.autoCheckinEnabled(),
+		"autoCheckinTimes":         st.checkinTimes(),
+		"autoRefreshToken":         st.autoRefreshEnabled(),
+		"checkinGapMs":             st.checkinGap().Milliseconds(),
+		"checkinJitterMs":          st.checkinJitter().Milliseconds(),
+		"checkinStaggerSec":        int(st.checkinStaggerWindow().Seconds()),
+		"checkinStagger":           st.checkinStaggerEnabled(),
+		"checkinFullDeviceHeaders": st.checkinFullDeviceHeaders(),
+		"accountStrategy":          normalizeStrategy(st.AccountStrategy),
+		"accounts":                 views,
 	}
 }
 

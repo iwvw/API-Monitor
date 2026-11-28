@@ -186,6 +186,8 @@ func fakeTencentAPI(t *testing.T) *httptest.Server {
 				return
 			}
 			writeJSON(w, http.StatusOK, map[string]interface{}{"Response": map[string]interface{}{"RequestId": "req-cvm", "InstanceSet": []map[string]interface{}{{"InstanceId": "ins-smoke", "InstanceName": "cvm", "InstanceState": "RUNNING", "Placement": map[string]interface{}{"Zone": "ap-guangzhou-3"}, "PublicIpAddresses": []string{"203.0.113.1"}, "CPU": 2, "Memory": 4, "OsName": "Linux"}}}})
+		case "DescribeRegions":
+			writeJSON(w, http.StatusOK, map[string]interface{}{"Response": map[string]interface{}{"RequestId": "req-regions", "RegionSet": []map[string]interface{}{{"RegionName": "ap-guangzhou"}}}})
 		case "StartInstances", "StopInstances", "RebootInstances":
 			writeJSON(w, http.StatusOK, map[string]interface{}{"Response": map[string]interface{}{"RequestId": "req-action"}})
 		default:

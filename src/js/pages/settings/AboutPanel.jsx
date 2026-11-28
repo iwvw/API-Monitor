@@ -2,8 +2,9 @@ import React from 'react';
 import { SectionCard } from '../../components/ui/AppPrimitives.jsx';
 import { Activity, Clock, Columns, Database, GitHubBrand, Globe, HardDrive, LayoutDashboard, Terminal } from '../../components/Icons.jsx';
 import { APP_BUILD_TIME, APP_VERSION, FRAMEWORK_VERSIONS } from '../../modules/appVersion.js';
+import { formatDateTime } from '../../modules/utils.js';
 
-export function AboutPanel({ currentOrigin, healthInfo }) {
+export function AboutPanel({ currentOrigin, healthError, healthInfo }) {
   return (
         <div className="grid items-start gap-4 overflow-auto cq-lg:grid-cols-1">
           <SectionCard
@@ -28,7 +29,7 @@ export function AboutPanel({ currentOrigin, healthInfo }) {
                   <span className="text-xs font-medium text-kumo-subtle">构建时间</span>
                 </div>
                 <span className="truncate font-mono text-sm leading-6 text-kumo-strong">
-                  {APP_BUILD_TIME ? new Date(APP_BUILD_TIME).toLocaleString() : '未知'}
+                  {APP_BUILD_TIME ? formatDateTime(APP_BUILD_TIME) : '未知'}
                 </span>
               </div>
             </div>
@@ -39,7 +40,7 @@ export function AboutPanel({ currentOrigin, healthInfo }) {
                 { label: 'Tailwind CSS', value: FRAMEWORK_VERSIONS.tailwind, icon: <Columns className="h-3.5 w-3.5" /> },
                 { label: 'Kumo', value: FRAMEWORK_VERSIONS.kumo, icon: <LayoutDashboard className="h-3.5 w-3.5" /> },
                 { label: 'Zustand', value: FRAMEWORK_VERSIONS.zustand, icon: <Database className="h-3.5 w-3.5" /> },
-                { label: 'Go 后端', value: healthInfo?.goVersion || '…', icon: <Globe className="h-3.5 w-3.5" /> },
+                { label: 'Go 后端', value: healthInfo?.goVersion || healthError || '…', icon: <Globe className="h-3.5 w-3.5" /> },
               ].map((item) => (
                 <div key={item.label} className="flex flex-col gap-2.5 rounded-lg border border-kumo-line bg-kumo-base/60 p-4 hover:border-brand/50">
                   <div className="flex items-center gap-2">

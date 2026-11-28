@@ -79,6 +79,7 @@ type githubOAuthStateFlow struct {
 type github2FAFlow struct {
 	GitHubLogin string `json:"githubLogin"`
 	BaseURL     string `json:"baseUrl"`
+	Require2FA  bool   `json:"require2FA"`
 }
 
 type webAuthnRegistrationRequest struct {
@@ -404,6 +405,7 @@ func (s *Service) finishGitHubLogin(w http.ResponseWriter, r *http.Request) {
 		flowID, err := s.createAuthFlow(r.Context(), db, flowTypeGitHub2FA, github2FAFlow{
 			GitHubLogin: profile.Login,
 			BaseURL:     state.BaseURL,
+			Require2FA:  true,
 		}, githubPending2FAFlowTTL)
 		if err != nil {
 			response.Error(w, http.StatusInternalServerError, err.Error())
@@ -449,12 +451,7 @@ func (s *Service) completeGitHub2FA(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	twoFAEnabled, err := s.is2FAEnabled(r.Context(), db)
-	if err != nil {
-		response.Error(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	if twoFAEnabled {
+	if flow.Require2FA {
 		if strings.TrimSpace(body.TOTPToken) == "" {
 			response.JSON(w, http.StatusBadRequest, map[string]interface{}{"success": false, "error": "请输入 6 位动态验证码"})
 			return
@@ -465,6 +462,11 @@ func (s *Service) completeGitHub2FA(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if !valid {
+			clientIP := s.requestClientIP(r)
+			if _, err := s.recordFailedAttempt(r.Context(), db, clientIP); err != nil {
+				response.Error(w, http.StatusInternalServerError, err.Error())
+				return
+			}
 			response.JSON(w, http.StatusUnauthorized, map[string]interface{}{"success": false, "error": "双因素验证码错误"})
 			return
 		}
@@ -472,7 +474,7 @@ func (s *Service) completeGitHub2FA(w http.ResponseWriter, r *http.Request) {
 
 	if err := s.issueAuthenticatedSession(w, r, db, "github", map[string]interface{}{
 		"githubLogin": flow.GitHubLogin,
-		"with2FA":     twoFAEnabled,
+		"with2FA":     flow.Require2FA,
 	}); err != nil {
 		response.Error(w, http.StatusInternalServerError, err.Error())
 		return
@@ -994,7 +996,7 @@ func (s *Service) resolveBrowserBaseURL(ctx context.Context, db *sql.DB, r *http
 		return configured, nil
 	}
 
-	requestHost := requestHostname(r)
+	requestHost := s.requestHostname(r)
 	for _, candidate := range []string{
 		strings.TrimSpace(r.Header.Get("Origin")),
 		refererOrigin(r),
@@ -1368,10 +1370,12 @@ func containsString(items []string, candidate string) bool {
 	return false
 }
 
-func requestHostname(r *http.Request) string {
+func (s *Service) requestHostname(r *http.Request) string {
 	host := r.Host
-	if forwarded := strings.TrimSpace(r.Header.Get("X-Forwarded-Host")); forwarded != "" {
-		host = strings.TrimSpace(strings.Split(forwarded, ",")[0])
+	if s.forwardedHostTrusted(r) {
+		if forwarded := strings.TrimSpace(r.Header.Get("X-Forwarded-Host")); forwarded != "" {
+			host = strings.TrimSpace(strings.Split(forwarded, ",")[0])
+		}
 	}
 	if parsed := strings.TrimSpace(host); parsed != "" {
 		if value, err := url.Parse("http://" + parsed); err == nil {

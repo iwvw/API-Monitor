@@ -373,15 +373,22 @@ func (s *Service) StartAutoRefresh(ctx context.Context) {
 	}()
 }
 
-// RefreshStaleAccounts 刷新所有「参与转发或参与签到、有 refresh token、剩余寿命低于提前量」
-// 的账号。转发停用但签到仍启用的账号也要刷新，否则其 token 过期会导致签到中断。
-// 单个账号失败不影响其它账号，失败原因写回 LastError 便于前端排障。
+// RefreshStaleAccounts 刷新两类账号：
+//  1. 临期/已过期（tokenState 非 valid）——保证转发与签到不中断；
+//  2. 距上次刷新超过 keepAliveRefreshInterval 的——防止国内版 offline session
+//     因长期 idle 被上游回收（详见 auth.go 的 keepAliveRefreshInterval 说明）。
+//
+// 「参与转发或参与签到、有 refresh token」是两类共同的前提。单个账号失败不影响
+// 其它账号，失败原因写回 LastError 便于前端排障。
 func (s *Service) RefreshStaleAccounts(ctx context.Context) {
+	now := time.Now()
 	for _, a := range s.Settings().Accounts {
 		if (a.Disabled && !checkinEligible(a)) || a.RefreshToken == "" {
 			continue
 		}
-		if state := tokenState(a); state == "valid" {
+		expiring := tokenState(a) != "valid"
+		keepAlive := shouldKeepAlive(a, now)
+		if !expiring && !keepAlive {
 			continue
 		}
 		acc := a

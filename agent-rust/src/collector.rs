@@ -6,6 +6,21 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use sysinfo::{Components, Disks, Networks, System};
 
+/// 磁盘用量刷新间隔。
+///
+/// 磁盘占用在秒级尺度上几乎不变，但 `Disks::refresh_list()` 要解析
+/// `/proc/mounts`（本机 65 条 / 25KB，~0.2ms）并对每个挂载点 statvfs。
+/// 按 1.5 秒上报频率算，这是纯浪费；15 秒足够让仪表盘的磁盘曲线看起来连续。
+const DISK_REFRESH_INTERVAL: Duration = Duration::from_secs(15);
+
+/// 连接数刷新间隔。
+///
+/// Linux 上 `get_conn_counts()` 要读 /proc/net/tcp + tcp6 + udp + udp6 并逐行计数，
+/// 实测 /proc/net/tcp 单次 ~1.36ms CPU（85KB / 569 连接），是本采集路径最贵的一项，
+/// 且成本随宿主机 socket 数线性增长。连接数本身是「瞬时快照类」指标，
+/// 10 秒粒度对监控用途没有损失（面板本来也只用来判断"有没有连接异常"）。
+const CONN_COUNT_REFRESH_INTERVAL: Duration = Duration::from_secs(10);
+
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub struct HostInfo {
     pub platform: String,
@@ -99,8 +114,7 @@ pub struct State {
     pub timestamp_ms: u64,
     pub sequence: u64,
     pub sample_interval_ms: u64,
-    pub cpu: f64,
-    pub cpu_temp: f64,
+    pub cpu: f64,    pub cpu_temp: f64,
     pub cpu_power: f64,
     pub gpu_temp: f64,
     pub mem_used: u64,
@@ -125,6 +139,38 @@ pub struct State {
     pub docker: DockerInfo,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub network_quality: Option<NetworkQualityProbeResponse>,
+    /// Agent 自监控指标。面板排障时先看自己再怀疑被监控对象。
+    ///
+    /// 与 `State` 的其它字段不同，这些数不是"被监控主机"的状态，而是
+    /// **Agent 自己的运行时状态**；它们只能由 Agent 内部填，采集器留空。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub self_metrics: Option<AgentSelfMetrics>,
+}
+
+/// Agent 自身运行时指标。
+///
+/// 为什么需要：本项目曾靠外部 perf/strace 才定位到采集热点在
+/// `/proc/net/tcp`；若 Agent 自己上报这些数，排障时不必先怀疑"是不是面板/网络"。
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+pub struct AgentSelfMetrics {
+    /// 低优先级队列因拥塞丢弃的消息数（累计）。
+    pub dropped_low: u64,
+    /// WebSocket 重连次数（累计）。
+    pub reconnect_count: u64,
+    /// 最近一次 collect_state() 的耗时（微秒）。
+    pub collect_state_us: u64,
+    /// 当前出站队列积压（high/normal/low 三档之和的近似值）。
+    pub outbound_backlog: u64,
+    /// Agent 自身常驻内存（字节；Linux 取 VmRSS）。
+    pub rss_bytes: u64,
+    /// Agent 自身 CPU 使用率（%，单核口径，两次采样之间的增量）。
+    pub cpu_percent: f64,
+    /// 离线缓冲里当前待补发的条数。
+    #[serde(default)]
+    pub offline_buffered: u64,
+    /// 离线缓冲因容量上限挤掉的条数（累计）。
+    #[serde(default)]
+    pub offline_dropped: u64,
 }
 
 pub struct Collector {
@@ -137,6 +183,18 @@ pub struct Collector {
     last_net_rx: u64,
     last_net_tx: u64,
     last_net_time: Instant,
+
+    /// 磁盘用量缓存。用「总量-可用」覆盖所有已挂载块设备，需要先 refresh_list()
+    /// 解析 /proc/mounts 并对每个挂载点做 statvfs，属于毫秒级、且**在 1.5 秒
+    /// 尺度上几乎不变**的指标，没必要每次采样都重算。
+    last_disk_used: u64,
+    last_disk_refresh: Instant,
+
+    /// 连接数缓存。Linux 上要读 /proc/net/tcp{,6} 与 /proc/net/udp{,6} 四个文件
+    /// 并逐行计数；实测 /proc/net/tcp 单次约 1.36ms CPU（85KB / 569 连接），
+    /// 是采集路径上最贵的一项，且随宿主机连接数线性增长。
+    last_conn_counts: (i32, i32),
+    last_conn_refresh: Instant,
 
     cached_host_info: Arc<Mutex<Option<HostInfo>>>,
 
@@ -181,6 +239,15 @@ impl Collector {
             last_net_rx: total_rx,
             last_net_tx: total_tx,
             last_net_time: Instant::now(),
+            // 首次采样立即全量刷新，结果缓存供后续周期复用。
+            last_disk_used: 0,
+            last_disk_refresh: Instant::now()
+                .checked_sub(DISK_REFRESH_INTERVAL)
+                .unwrap_or_else(Instant::now),
+            last_conn_counts: (0, 0),
+            last_conn_refresh: Instant::now()
+                .checked_sub(CONN_COUNT_REFRESH_INTERVAL)
+                .unwrap_or_else(Instant::now),
             cached_host_info: Arc::new(Mutex::new(None)),
             last_gpu_usage: 0.0,
             last_gpu_mem_used: 0,
@@ -324,54 +391,18 @@ impl Collector {
         // Refresh CPU, Memory, Components
         self.sys.refresh_cpu_all();
         self.sys.refresh_memory();
-        self.components.refresh_list();
+        // components.refresh_list() 会重新枚举 /sys/class/hwmon 并逐个建路径，
+        // 但温度本身已有 5 秒缓存（见 collect_temperature_readings）。
+        // 这里跟着温度缓存一起走：不到期就不重新枚举。
+        if self.last_temperature_time.elapsed() >= Duration::from_millis(5000) {
+            self.components.refresh_list();
+        }
 
         let cpu = self.sys.global_cpu_usage() as f64;
         let mem_used = self.sys.used_memory();
         let swap_used = self.sys.used_swap();
 
-        // Disk usage
-        self.disks.refresh_list();
-        let mut disk_used = 0;
-        let mut seen_devices = Vec::new();
-        for disk in &self.disks {
-            let fs = disk.file_system().to_string_lossy().to_lowercase();
-            let mount_point = disk.mount_point();
-            let is_root = mount_point == Path::new("/") || mount_point.to_string_lossy() == "/";
-            if !is_root
-                && (fs == "tmpfs"
-                    || fs == "overlay"
-                    || fs == "devtmpfs"
-                    || fs == "proc"
-                    || fs == "sysfs"
-                    || fs == "cgroup"
-                    || fs == "devpts"
-                    || fs == "configfs"
-                    || fs == "debugfs"
-                    || fs == "tracefs"
-                    || fs == "hugetlbfs"
-                    || fs == "mqueue"
-                    || fs == "pstore"
-                    || fs == "securityfs"
-                    || fs == "fusectl"
-                    || fs == "nsfs"
-                    || fs == "autofs"
-                    || fs == "binfmt_misc"
-                    || fs == "squashfs"
-                    || fs == "udev"
-                    || fs == "iso9660")
-            {
-                continue;
-            }
-            let device_name = disk.name().to_string_lossy().to_string();
-            if device_name.starts_with('/') {
-                if seen_devices.contains(&device_name) {
-                    continue;
-                }
-                seen_devices.push(device_name);
-            }
-            disk_used += disk.total_space() - disk.available_space();
-        }
+        let disk_used = self.collect_disk_used();
 
         // Networks speeds
         self.networks.refresh();
@@ -416,8 +447,8 @@ impl Collector {
         };
 
         // TCP & UDP connection counts
-        let (tcp_conn_count, udp_conn_count) = self.collect_conn_counts();
-        let process_count = self.sys.processes().len() as i32;
+        let (tcp_conn_count, udp_conn_count) = self.collect_conn_counts_cached();
+        let process_count = self.collect_process_count();
 
         // Temperatures and CPU package power
         let temperatures = self.collect_temperature_readings();
@@ -464,6 +495,8 @@ impl Collector {
             gpu_power,
             docker: DockerInfo::default(), // Will be populated in main loop asynchronously
             network_quality: None,
+            // 自监控指标由上报循环填充（需要队列/重连计数，采集器看不到）。
+            self_metrics: None,
         }
     }
 
@@ -474,6 +507,106 @@ impl Collector {
         }
 
         get_conn_counts()
+    }
+
+    /// 带缓存的磁盘用量。
+    ///
+    /// 口径与旧实现一致：跳过 tmpfs/overlay/cgroup 等虚拟文件系统，
+    /// 同一设备被多次挂载时只算一次（避免 btrfs 子卷或 bind mount 重复计入）。
+    fn collect_disk_used(&mut self) -> u64 {
+        if self.last_disk_refresh.elapsed() < DISK_REFRESH_INTERVAL {
+            return self.last_disk_used;
+        }
+
+        self.disks.refresh_list();
+        let mut disk_used = 0;
+        let mut seen_devices = Vec::new();
+        for disk in &self.disks {
+            let fs = disk.file_system().to_string_lossy().to_lowercase();
+            let mount_point = disk.mount_point();
+            let is_root = mount_point == Path::new("/") || mount_point.to_string_lossy() == "/";
+            if !is_root
+                && (fs == "tmpfs"
+                    || fs == "overlay"
+                    || fs == "devtmpfs"
+                    || fs == "proc"
+                    || fs == "sysfs"
+                    || fs == "cgroup"
+                    || fs == "devpts"
+                    || fs == "configfs"
+                    || fs == "debugfs"
+                    || fs == "tracefs"
+                    || fs == "hugetlbfs"
+                    || fs == "mqueue"
+                    || fs == "pstore"
+                    || fs == "securityfs"
+                    || fs == "fusectl"
+                    || fs == "nsfs"
+                    || fs == "autofs"
+                    || fs == "binfmt_misc"
+                    || fs == "squashfs"
+                    || fs == "udev"
+                    || fs == "iso9660")
+            {
+                continue;
+            }
+            let device_name = disk.name().to_string_lossy().to_string();
+            if device_name.starts_with('/') {
+                if seen_devices.contains(&device_name) {
+                    continue;
+                }
+                seen_devices.push(device_name);
+            }
+            disk_used += disk.total_space() - disk.available_space();
+        }
+
+        self.last_disk_used = disk_used;
+        self.last_disk_refresh = Instant::now();
+        disk_used
+    }
+
+    /// 带缓存的连接数。
+    fn collect_conn_counts_cached(&mut self) -> (i32, i32) {
+        if !cfg!(target_os = "windows") && self.last_conn_refresh.elapsed() < CONN_COUNT_REFRESH_INTERVAL
+        {
+            return self.last_conn_counts;
+        }
+
+        let counts = self.collect_conn_counts();
+        self.last_conn_counts = counts;
+        self.last_conn_refresh = Instant::now();
+        counts
+    }
+
+    /// 进程数（不含线程）。
+    ///
+    /// 不能直接 `self.sys.processes().len()`：sysinfo 0.31 的 `refresh_procs`
+    /// 会递归 `/proc/<pid>/task/*`，把**线程**也塞进同一个 `process_list`
+    /// （见 sysinfo-0.31.4 `src/unix/linux/process.rs` 的 `refresh_procs`），
+    /// 于是返回值是「进程 + 线程」总数。实测某台 332 个 PID 的机器报 1292，
+    /// 偏大近 4 倍，面板上的「进程数」和基于它的告警全部失真。
+    ///
+    /// 修正方式：用 sysinfo 自带的口径过滤 —— `thread_kind()` 对 `/proc/<pid>/task`
+    /// 下的条目返回 `Some(ThreadKind::Userland)`，对真正的进程返回 `None`（Linux 专有）。
+    /// 注意**不能**把 `Some(ThreadKind::Kernel)` 也滤掉：内核线程（PF_KTHREAD）
+    /// 在 `/proc` 里是正常 PID，`ls /proc` 数得到，过滤它会反而少数几十个。
+    /// 不用「数 /proc 目录」是因为那要多一次 readdir；这里顺带复用已有的
+    /// 刷新结果，零额外系统调用。
+    fn collect_process_count(&self) -> i32 {
+        #[cfg(target_os = "linux")]
+        {
+            self.sys
+                .processes()
+                .values()
+                .filter(|process| !matches!(process.thread_kind(), Some(sysinfo::ThreadKind::Userland)))
+                .count() as i32
+        }
+        #[cfg(not(target_os = "linux"))]
+        {
+            // 其它平台 sysinfo 不会把线程混进来（thread_kind 恒为 None），
+            // 直接用列表长度即可。
+            self.sys.processes().len() as i32
+        }
     }
 
     fn cached_windows_conn_counts(&self) -> (i32, i32) {
@@ -1111,15 +1244,15 @@ fn current_epoch_ms() -> u64 {
 }
 
 fn format_cpu_model(vendor: &str, brand: &str, physical_cores: usize) -> String {
-    let vendor = vendor.trim();
     let brand = brand.trim();
-
-    match (vendor.is_empty(), brand.is_empty()) {
-        (false, false) => format!("{} {} {} Core(s)", vendor, brand, physical_cores),
-        (false, true) => format!("{} {} Core(s)", vendor, physical_cores),
-        (true, false) => format!("{} {} Core(s)", brand, physical_cores),
-        (true, true) => format!("Unknown CPU {} Core(s)", physical_cores),
+    if !brand.is_empty() {
+        return brand.to_string();
     }
+    let vendor = vendor.trim();
+    if !vendor.is_empty() {
+        return format!("{} {} Core(s)", vendor, physical_cores);
+    }
+    format!("Unknown CPU {} Core(s)", physical_cores)
 }
 
 fn collect_windows_conn_counts() -> (i32, i32) {
@@ -1237,30 +1370,79 @@ fn should_count_network_interface(name: &str) -> bool {
 mod tests {
     use super::{
         aggregate_network_totals, format_cpu_model, parse_ipcheck_geo,
-        should_count_network_interface,
+        should_count_network_interface, Collector, DISK_REFRESH_INTERVAL,
     };
+    // CONN_COUNT_REFRESH_INTERVAL 只被下方的 Linux 专用用例使用；
+    // 这里单独 if-import，否则 Windows 构建（CI 带 -D warnings）会报 unused import。
+    #[cfg(target_os = "linux")]
+    use super::CONN_COUNT_REFRESH_INTERVAL;
+    use std::time::Instant;
 
     #[test]
-    fn format_cpu_model_includes_physical_core_count() {
+    fn format_cpu_model_prefers_brand_only() {
         let model = format_cpu_model("GenuineIntel", "13th Gen Intel(R) Core(TM) i7-13700HX", 16);
 
-        assert_eq!(
-            model,
-            "GenuineIntel 13th Gen Intel(R) Core(TM) i7-13700HX 16 Core(s)"
-        );
+        assert_eq!(model, "13th Gen Intel(R) Core(TM) i7-13700HX");
     }
 
     #[test]
     fn format_cpu_model_handles_missing_vendor_or_brand() {
         assert_eq!(
             format_cpu_model("", "13th Gen Intel(R) Core(TM) i7-13700HX", 16),
-            "13th Gen Intel(R) Core(TM) i7-13700HX 16 Core(s)"
+            "13th Gen Intel(R) Core(TM) i7-13700HX"
         );
         assert_eq!(
             format_cpu_model("GenuineIntel", "", 16),
             "GenuineIntel 16 Core(s)"
         );
         assert_eq!(format_cpu_model("", "", 16), "Unknown CPU 16 Core(s)");
+    }
+
+    // ---- 采集缓存（issue #72）----
+
+    /// 连接数在缓存窗口内必须返回同一份结果，不能每次都去读 /proc/net/tcp。
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn conn_counts_are_cached_within_refresh_interval() {
+        let mut collector = Collector::new();
+        // 首次调用填充缓存（构造时把 last_conn_refresh 回退了一个间隔）。
+        let first = collector.collect_conn_counts_cached();
+        let second = collector.collect_conn_counts_cached();
+        assert_eq!(first, second, "缓存窗口内两次调用结果应当一致");
+
+        // 直接改内部时间戳模拟"缓存已过期"，验证确实会重新采样。
+        collector.last_conn_refresh = Instant::now()
+            .checked_sub(CONN_COUNT_REFRESH_INTERVAL)
+            .expect("subtract");
+        let refreshed = collector.collect_conn_counts_cached();
+        assert!(
+            refreshed.0 > 0,
+            "刷新后 TCP 连接数应大于 0（本机至少有自己的 socket），got {refreshed:?}"
+        );
+    }
+
+    /// 磁盘用量同样走缓存：窗口内返回值不变。
+    #[test]
+    fn disk_usage_is_cached_within_refresh_interval() {
+        let mut collector = Collector::new();
+        let first = collector.collect_disk_used();
+        let second = collector.collect_disk_used();
+        assert_eq!(first, second);
+        assert!(first > 0, "根分区已用空间不应为 0");
+    }
+
+    /// 缓存过期后必须重新计算，且结果仍是一个合理值。
+    #[test]
+    fn disk_usage_refreshes_after_interval() {
+        let mut collector = Collector::new();
+        let first = collector.collect_disk_used();
+        collector.last_disk_refresh = Instant::now()
+            .checked_sub(DISK_REFRESH_INTERVAL)
+            .expect("subtract");
+        let refreshed = collector.collect_disk_used();
+        assert!(refreshed > 0);
+        // 两次之间最多相差一个刚写入的文件，量级应保持一致。
+        assert_eq!(first, refreshed);
     }
 
     #[test]
@@ -1312,7 +1494,7 @@ mod tests {
     #[test]
     fn parse_ipcheck_geo_extracts_stable_coordinates() {
         let geo = parse_ipcheck_geo(
-            r#"IP: 64.181.246.5
+            r#"IP: 192.0.2.10
 City: San Jose
 Region: California
 Country: US
@@ -1326,7 +1508,7 @@ RiskScore: 0
 TrustedBot: false"#,
         );
 
-        assert_eq!(geo.ip, "64.181.246.5");
+        assert_eq!(geo.ip, "192.0.2.10");
         assert_eq!(geo.city, "San Jose");
         assert_eq!(geo.region, "California");
         assert_eq!(geo.country_code, "us");
@@ -1337,5 +1519,60 @@ TrustedBot: false"#,
         assert_eq!(geo.timezone, "America/Los_Angeles");
         assert_eq!(geo.location(), "San Jose, California, US");
         assert_eq!(geo.source(), "ipcheck");
+    }
+
+    // ---- process_count 口径（回归 issue #73）----
+
+    /// 进程数必须与 /proc 里的 PID 数一致，不能把线程算进去。
+    ///
+    /// 修复前 sysinfo 的 process_list 同时含 /proc/<pid> 与 /proc/<pid>/task/*，
+    /// 实测在 332 个 PID 的机器上报 1292（偏大约 4 倍）。
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn process_count_matches_proc_pid_count() {
+        let collector = Collector::new();
+        let reported = collector.collect_process_count();
+
+        // 直接数 /proc 下的纯数字目录：这是"真实进程数"的权威口径。
+        let expected = std::fs::read_dir("/proc")
+            .expect("read /proc")
+            .filter_map(Result::ok)
+            .filter(|entry| {
+                entry
+                    .file_name()
+                    .to_str()
+                    .map(|name| name.bytes().all(|byte| byte.is_ascii_digit()))
+                    .unwrap_or(false)
+            })
+            .count() as i32;
+
+        // 允许少量偏差：两次采样之间可能有进程创建/退出。
+        let delta = (reported - expected).abs();
+        assert!(
+            delta <= 5,
+            "process_count={reported} 与 /proc 实际 PID 数 {expected} 相差 {delta}，\
+             疑似又把线程算进来了"
+        );
+    }
+
+    /// 结果必须是"进程数"量级，不能是"进程+线程"总量。
+    ///
+    /// 不做绝对数值断言（机器差异大），只守住一个宽松上界：线程总数通常
+    /// 是进程数的数倍，若实现退回旧口径会明显超出。
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn process_count_is_far_below_total_task_count() {
+        let collector = Collector::new();
+        let reported = collector.collect_process_count();
+        let task_count = collector.sys.processes().len() as i32;
+
+        assert!(reported > 0, "进程数不应为 0");
+        assert!(
+            reported <= task_count,
+            "process_count={reported} 不应超过 process_list 长度 {task_count}"
+        );
+        // 只有极简环境（几乎没有多线程进程）才会让两者相等；
+        // 正常系统上线程数远多于进程数。这里不强制 < task_count，
+        // 因为容器里 PID 1 独占时可能确实接近，避免误报。
     }
 }

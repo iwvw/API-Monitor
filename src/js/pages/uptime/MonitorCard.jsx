@@ -4,6 +4,7 @@ import { AnimatedCollapse } from '../../components/AnimatedCollapse.jsx';
 import { StatusBadge } from '../../components/ui/AppPrimitives.jsx';
 import { Shield } from '../../components/Icons.jsx';
 import UptimeMonitorDetails from './UptimeMonitorDetails.jsx';
+import { resolveUptimeStatus } from './utils.js';
 
 function MonitorCard({
   monitor,
@@ -25,6 +26,7 @@ function MonitorCard({
   onDelete,
 }) {
   const lastBeat = beats[0];
+  const resolvedStatus = resolveUptimeStatus(monitor, lastBeat);
 
   // 状态指示
   let statusClass = 'border-kumo-interact/75';
@@ -32,22 +34,30 @@ function MonitorCard({
   let statusText = '暂停/未激活';
 
   if (monitor.active) {
-    if (!lastBeat) {
-      statusClass = 'border-kumo-interact/75';
-      statusPillClass = 'bg-kumo-line/20 text-kumo-subtle';
-      statusText = '等待中';
-    } else if (lastBeat.status === 'up') {
+    if (resolvedStatus === 'up') {
       statusClass = 'border-kumo-interact/75';
       statusPillClass = 'bg-kumo-success/10 text-kumo-success border border-kumo-success/20';
       statusText = '正常';
-    } else if (lastBeat.status === 'down') {
+    } else if (resolvedStatus === 'down') {
       statusClass = 'border-kumo-interact/75';
       statusPillClass = 'bg-kumo-danger/10 text-kumo-danger border border-kumo-danger/20';
       statusText = '故障';
-    } else if (lastBeat.status === 'pending') {
+    } else if (resolvedStatus === 'pending') {
       statusClass = 'border-kumo-interact/75';
       statusPillClass = 'bg-kumo-warning/10 text-kumo-warning border border-kumo-warning/20';
       statusText = '检测中';
+    } else if (resolvedStatus === 'maintenance') {
+      statusClass = 'border-kumo-interact/75';
+      statusPillClass = 'bg-kumo-info/10 text-kumo-info border border-kumo-info/20';
+      statusText = '维护中';
+    } else if (resolvedStatus === 'paused') {
+      statusClass = 'border-kumo-interact/75';
+      statusPillClass = 'bg-kumo-line/20 text-kumo-subtle';
+      statusText = '暂停';
+    } else {
+      statusClass = 'border-kumo-interact/75';
+      statusPillClass = 'bg-kumo-line/20 text-kumo-subtle';
+      statusText = '等待中';
     }
   }
 
@@ -61,6 +71,11 @@ function MonitorCard({
       miniBeats.unshift({ status: 'empty' });
     }
   }
+
+  const formatRateLabel = (days) => {
+    const formatted = formatUptimeRateCompact(getUptimeRate(monitor.id, days));
+    return formatted === '--' ? '--' : `${formatted}%`;
+  };
 
   return (
     <div
@@ -138,7 +153,7 @@ function MonitorCard({
             <div className="flex flex-col">
               <span className="text-[9px] text-kumo-subtle select-none">可用率</span>
               <span className={`inline-block min-w-[6ch] text-right text-xs font-semibold tabular-nums ${getUptimeRateClass(getUptimeRate(monitor.id, 30))}`}>
-                {formatUptimeRateCompact(getUptimeRate(monitor.id, 30))}%
+                {formatRateLabel(30)}
               </span>
             </div>
           </div>
@@ -164,8 +179,8 @@ function MonitorCard({
           monitor={monitor}
           heartbeats={beats}
           loading={!!uptimeHeartbeatLoading[monitor.id]}
-          uptime24h={formatUptimeRateCompact(getUptimeRate(monitor.id, 1))}
-          uptime30d={formatUptimeRateCompact(getUptimeRate(monitor.id, 30))}
+          uptime24h={formatRateLabel(1)}
+          uptime30d={formatRateLabel(30)}
           isDarkMode={isDarkMode}
           onPauseResume={onPauseResume}
           onEdit={onEdit}

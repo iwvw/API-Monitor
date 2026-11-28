@@ -3,7 +3,7 @@ import { Button } from '@cloudflare/kumo/components/button';
 import { Badge } from '@cloudflare/kumo/components/badge';
 import { ChartPalette } from '@cloudflare/kumo';
 import SiteFontTimeseriesChart from '../components/SiteFontTimeseriesChart.jsx';
-import { ChartWarmupSkeleton } from '../components/ui/AppPrimitives.jsx';
+import { ChartWarmupSkeleton } from '../components/ui/CardPrimitives.jsx';
 import * as echarts from 'echarts/core';
 import { LineChart } from 'echarts/charts';
 import {
@@ -37,7 +37,7 @@ import {
   Home,
   LogIn,
   RefreshCw,
-} from '../components/Icons.jsx';
+} from '../components/PublicIcons.jsx';
 
 const STATE_META = {
   up: { label: '运行正常', tone: 'success' },

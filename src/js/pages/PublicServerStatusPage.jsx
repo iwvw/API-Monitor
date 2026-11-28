@@ -3,7 +3,7 @@ import io from 'socket.io-client';
 import { Meter, Tabs } from '@cloudflare/kumo';
 import { Button } from '@cloudflare/kumo/components/button';
 import { SkeletonLine } from '@cloudflare/kumo/components/loader';
-import { AlertTriangle, Globe, Home, LogIn, RefreshCw } from '../components/Icons.jsx';
+import { AlertTriangle, Globe, Home, LogIn, RefreshCw } from '../components/PublicIcons.jsx';
 import PublicPageIconPicker from '../components/public/PublicPageIconPicker.jsx';
 import useStore from '../store.js';
 import CountryFlag from '../components/CountryFlag.jsx';

@@ -238,6 +238,15 @@ func (s *Service) collectNetworkQualitySamples(w http.ResponseWriter, r *http.Re
 
 // persistMetrics 持久化指标到数据库
 func (s *Service) persistMetrics(ctx context.Context, db *sql.DB, serverID string, metrics map[string]interface{}) error {
+	return s.persistMetricsAt(ctx, db, serverID, metrics, "")
+}
+
+// persistMetricsAt 与 persistMetrics 相同，但允许指定 recorded_at。
+//
+// 为什么需要：Agent 断网期间的采样在重连后补发（offline backfill），
+// 若仍用 datetime('now')，整段历史会被压到「重连那一刻」，
+// 曲线出现一根尖刺而不是补回原本的时间段。传空串表示用当前时间。
+func (s *Service) persistMetricsAt(ctx context.Context, db *sql.DB, serverID string, metrics map[string]interface{}, recordedAt string) error {
 	query := `INSERT INTO server_metrics_history (
 		server_id, cpu_usage, cpu_load, cpu_cores, cpu_threads,
 		cpu_temp, cpu_power, mem_used, mem_total, mem_usage,
@@ -246,7 +255,7 @@ func (s *Service) persistMetrics(ctx context.Context, db *sql.DB, serverID strin
 		gpu_usage, gpu_mem_used, gpu_mem_total, gpu_temp, gpu_power,
 		platform, net_rx, net_tx,
 		recorded_at
-	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`
+	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ` + recordedAtExpr + `)`
 
 	cpuInfo := nestedMap(metrics, "cpu")
 	memInfo := nestedMap(metrics, "memory")
@@ -317,6 +326,7 @@ func (s *Service) persistMetrics(ctx context.Context, db *sql.DB, serverID strin
 		firstNonEmpty(getString(metrics, "platform"), stringFromMap(metrics, "platform")),
 		firstMetricBytes(metrics, []string{"net_rx", "network_rx"}, networkInfo, []string{"rx_speed", "down"}),
 		firstMetricBytes(metrics, []string{"net_tx", "network_tx"}, networkInfo, []string{"tx_speed", "up"}),
+		normalizeRecordedAt(recordedAt),
 	)
 
 	if err == nil && s.notifier != nil {
@@ -324,6 +334,44 @@ func (s *Service) persistMetrics(ctx context.Context, db *sql.DB, serverID strin
 	}
 
 	return err
+}
+
+// recordedAtExpr 生成 recorded_at 的 SQL 表达式。
+//
+// 历史补写必须带上原始采集时刻，否则整段离线数据会被压到重连那一刻。
+// 用 COALESCE(?, datetime('now')) 而不是拼接字符串：时间戳走参数绑定，
+// 不传（NULL）时自然退回当前时间，一处逻辑覆盖两种场景。
+const recordedAtExpr = "COALESCE(?, datetime('now'))"
+
+// historyTimestampLayout 是 server_metrics_history.recorded_at 的**唯一**存储格式。
+//
+// 为什么必须统一：实时路径由 `datetime('now')` 写入，格式是
+// "YYYY-MM-DD HH:MM:SS"（UTC，空格分隔）。历史查询、rollup 聚合、过期清理
+// 全部用**字符串比较**做时间范围过滤 —— 一旦同一列里混入 RFC3339
+// （"...T02:30:00+00:00"），比较就会失效：
+//   - `recorded_at < '2026-11-06 04:00:00'` 会把 RFC3339 行判为更大而排除
+//     （第 11 个字符 'T'(0x54) > ' '(0x20)），于是这些行永远不会被 rollup、
+//     也永远不会被保留策略删除；
+//   - `ORDER BY recorded_at ASC` 会把它们整体排到同一天所有空格格式行之后，
+//     曲线出现来回锯齿。
+//
+// 所以离线补发的时间戳必须**归一化到这个格式**再落库。
+const historyTimestampLayout = "2006-01-02 15:04:05"
+
+// normalizeRecordedAt 把 Agent 给的时间戳归一化到 recorded_at 的统一格式。
+//
+// 输入约定为 RFC3339（Agent 侧生成），统一转成 UTC 的
+// "YYYY-MM-DD HH:MM:SS"。非法/缺失返回 nil（走 datetime('now')）——
+// 绝不让未校验的字符串进入这一列。
+func normalizeRecordedAt(value string) interface{} {
+	if strings.TrimSpace(value) == "" {
+		return nil
+	}
+	parsed, err := time.Parse(time.RFC3339, value)
+	if err != nil {
+		return nil
+	}
+	return parsed.UTC().Format(historyTimestampLayout)
 }
 
 func scanMetricRows(rows *sql.Rows) []map[string]interface{} {
@@ -650,7 +698,6 @@ func getInt(m map[string]interface{}, key string) int {
 	}
 	return 0
 }
-
 
 // clearExpiredHistory 分批删除指定表过期行，避免大表单次 DELETE 持写锁过久。
 // 表名/列名为内部常量（非用户输入）；LIMIT 置于子查询（modernc 驱动不支持

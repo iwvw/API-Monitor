@@ -2,6 +2,7 @@ import React from 'react';
 import { Button } from '@cloudflare/kumo/components/button';
 import { LayerDialog } from '@cloudflare/kumo/components/layer-dialog';
 import { Input } from '@cloudflare/kumo/components/input';
+import { SensitiveInput } from '@cloudflare/kumo/components/sensitive-input';
 import CodeEditor from '../../components/ui/CodeEditor.jsx';
 import { Info, Upload } from '../../components/Icons.jsx';
 
@@ -73,17 +74,12 @@ key_file=<path to your private keyfile>`}
             onChange={(event) => setAccountForm({ ...accountForm, defaultCompartmentId: event.target.value })}
             placeholder="可选；留空用根租户"
           />
-          <Input
+          <SensitiveInput
             label="私钥 Passphrase"
             value={accountForm.passphrase}
-            onChange={(event) => setAccountForm({ ...accountForm, passphrase: event.target.value })}
+            onValueChange={(passphrase) => setAccountForm({ ...accountForm, passphrase })}
             placeholder="可选"
-            type="text"
             autoComplete="off"
-            data-1p-ignore
-            data-lpignore="true"
-            data-bwignore="true"
-            data-form-type="other"
             spellCheck={false}
           />
           <Input

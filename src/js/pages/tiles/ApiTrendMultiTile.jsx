@@ -8,7 +8,7 @@ import HalfTile from './HalfTile.jsx';
 import TileSkeleton from './TileSkeleton.jsx';
 import { widthTier } from './constants.js';
 import { fmtBytes, fmtCompact, shortDay } from './utils.js';
-import { formatTokensZh } from '../openai/utils.js';
+import { formatTokensZh } from '../modelhub/utils.js';
 
 export default function ApiTrendMultiTile({ data, loading, isDarkMode, density = 'full', w = 1 }) {
   const trend = useMemo(() => (Array.isArray(data?.trend) ? data.trend : []), [data]);

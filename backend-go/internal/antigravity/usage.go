@@ -3,7 +3,7 @@ package antigravity
 // 本文件实现 Antigravity 插件的实际用量统计：把上游 Claude/Gemini 响应里的
 // token 用量按「站点时区日期 × 账号 × 模型」聚合落库，供前端看"谁在用"。
 //
-// 设计取舍（与 geminicli/workbuddy/lobsterai 对齐）：
+// 设计取舍（与 workbuddy/lobsterai 对齐）：
 //   - 内存累加 + 定期落盘：与 antigravity_call_stats 同一节拍（每分钟一次），
 //     避免每个请求一次写库。
 //   - 日期归属一律走站点时区（CONTEXT.md 硬性规则）。
@@ -24,9 +24,9 @@ import (
 
 // usageKey 是「站点时区日期 + 账号 + 模型」的聚合键。
 type usageKey struct {
-	day    string
-	email  string
-	model  string
+	day   string
+	email string
+	model string
 }
 
 // usageDelta 是一次上报的用量增量（同键累加）。

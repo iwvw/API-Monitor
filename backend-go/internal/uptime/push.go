@@ -31,7 +31,9 @@ func (s *Service) recordPush(w http.ResponseWriter, r *http.Request, token strin
 	unlock := s.lockMonitor(int64Value(monitor["id"], 0))
 	defer unlock()
 	payload := map[string]interface{}{}
-	_ = json.NewDecoder(r.Body).Decode(&payload)
+	if r.Body != nil {
+		_ = json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10)).Decode(&payload)
+	}
 	beat := map[string]interface{}{
 		"id":         time.Now().UnixMilli(),
 		"status":     1,

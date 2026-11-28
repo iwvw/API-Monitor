@@ -4,13 +4,19 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/iwvw/api-monitor/backend-go/internal/config"
 )
 
 // 批量抓取 favicon 的「选条目」逻辑。
 // 真正的外网下载在下面用本地测试服务器覆盖。
+
+// withIconName 是种子里「已有图标」条目引用的文件名,多个测试共用。
+const withIconName = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.png"
 
 func seedItemsForFaviconBatch(t *testing.T, service *Service) (withIcon, withoutIcon, textIcon int64) {
 	t.Helper()
@@ -28,7 +34,15 @@ func seedItemsForFaviconBatch(t *testing.T, service *Service) (withIcon, without
 		return int64Value(item["id"])
 	}
 
-	withIcon = mk("has-icon", "/api/bookmarks/favicons/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.png", 2)
+	withIcon = mk("has-icon", faviconSrcPrefix+withIconName, 2)
+	// 「已有图标」必须真的在磁盘上有文件:否则会被视为「引用失效、
+	// 需要重新抓取」(见 faviconIconMissing),不再是被跳过的那一类。
+	if err := os.MkdirAll(service.faviconDir(), 0o755); err != nil {
+		t.Fatalf("prepare favicon dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(service.faviconDir(), withIconName), []byte("icon"), 0o644); err != nil {
+		t.Fatalf("write seed favicon: %v", err)
+	}
 	withoutIcon = mk("no-icon", "", 1)
 	textIcon = mk("text-icon", "", 1)
 	return withIcon, withoutIcon, textIcon
@@ -321,4 +335,98 @@ func TestFaviconBatchReportsPerItemFailure(t *testing.T) {
 		t.Errorf("failed=%v want 1", data["failed"])
 	}
 	t.Logf("per-item failure reported: %v", item["error"])
+}
+
+// 引用存在但文件已丢失(换实例导入后的典型状态):only_missing 也必须选中它,
+// 否则这类条目会被永久跳过,图标一直是 404。
+func TestFaviconBatchTreatsMissingLocalFileAsMissing(t *testing.T) {
+	service := newTestService(t)
+	_, gp := doJSON(service, http.MethodPost, "/api/bookmarks/groups", `{"title":"g"}`)
+	gid := int64Value(gp["group"].(map[string]interface{})["id"])
+
+	// 文件名合法,但磁盘上没有对应文件。
+	dangling := faviconSrcPrefix + "cccccccccccccccccccccccccccccccc.png"
+	rec, payload := doJSON(service, http.MethodPost, "/api/bookmarks/items",
+		fmt.Sprintf(`{"group_id":%d,"title":"dangling","url":"https://dangling.example","icon_type":2,"icon_src":%q}`, gid, dangling))
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("seed status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	id := int64Value(payload["item"].(map[string]interface{})["id"])
+
+	ctx := t.Context()
+	db, err := service.open(ctx)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	defer db.Close()
+
+	targets, err := service.selectFaviconTargets(ctx, db, nil, true, 50, nil)
+	if err != nil {
+		t.Fatalf("select: %v", err)
+	}
+	found := false
+	for _, target := range targets {
+		if target.ID == id {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("item whose local icon file is missing must be selected for fetching")
+	}
+}
+
+// 删除条目后,其独占的图标文件应被回收(此前只删数据库行,文件永久残留)。
+func TestDeleteItemRemovesOrphanFavicon(t *testing.T) {
+	service := newTestService(t)
+	withIcon, _, _ := seedItemsForFaviconBatch(t, service)
+
+	// 越过孤儿回收宽限期(faviconGCGrace),否则新文件会被保护。
+	old := time.Now().Add(-time.Hour)
+	if err := os.Chtimes(filepath.Join(service.faviconDir(), withIconName), old, old); err != nil {
+		t.Fatalf("chtimes: %v", err)
+	}
+
+	rec, _ := doJSON(service, http.MethodDelete, "/api/bookmarks/items/"+itoa(withIcon), "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("delete status=%d", rec.Code)
+	}
+	if _, err := os.Stat(filepath.Join(service.faviconDir(), withIconName)); !os.IsNotExist(err) {
+		t.Errorf("orphan favicon should be removed after deleting its bookmark, stat err=%v", err)
+	}
+}
+
+// 仍被其他条目引用的图标文件不能被误删。
+func TestDeleteItemKeepsReferencedFavicon(t *testing.T) {
+	service := newTestService(t)
+	_, gp := doJSON(service, http.MethodPost, "/api/bookmarks/groups", `{"title":"g"}`)
+	gid := int64Value(gp["group"].(map[string]interface{})["id"])
+
+	const name = "dddddddddddddddddddddddddddddddd.png"
+	if err := os.MkdirAll(service.faviconDir(), 0o755); err != nil {
+		t.Fatalf("prepare dir: %v", err)
+	}
+	iconPath := filepath.Join(service.faviconDir(), name)
+	if err := os.WriteFile(iconPath, []byte("shared"), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	old := time.Now().Add(-time.Hour)
+	if err := os.Chtimes(iconPath, old, old); err != nil {
+		t.Fatalf("chtimes: %v", err)
+	}
+
+	mkItem := func(title string) int64 {
+		_, payload := doJSON(service, http.MethodPost, "/api/bookmarks/items",
+			fmt.Sprintf(`{"group_id":%d,"title":%q,"url":"https://%s.example","icon_type":2,"icon_src":%q}`,
+				gid, title, title, faviconSrcPrefix+name))
+		return int64Value(payload["item"].(map[string]interface{})["id"])
+	}
+	first := mkItem("first")
+	mkItem("second")
+
+	if rec, _ := doJSON(service, http.MethodDelete, "/api/bookmarks/items/"+itoa(first), ""); rec.Code != http.StatusOK {
+		t.Fatalf("delete status=%d", rec.Code)
+	}
+	if _, err := os.Stat(iconPath); err != nil {
+		t.Errorf("favicon still referenced by another bookmark must be kept, stat err=%v", err)
+	}
 }

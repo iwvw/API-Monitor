@@ -15,7 +15,6 @@ const AccountsTab = ({
   totpSettings,
   totpCodes,
   platformCounts,
-  isArmed,
   handleCardMouseEnter,
   handleCardMouseLeave,
   copyCodeToClipboard,
@@ -159,22 +158,14 @@ const AccountsTab = ({
                     <Button
                       shape="square"
                       size="sm"
-                      variant={
-                        isArmed(`totp-account-${account.id}`)
-                          ? 'destructive'
-                          : 'secondary-destructive'
-                      }
+                      variant="secondary-destructive"
                       aria-label="删除账号"
                       onClick={e => {
                         e.stopPropagation();
                         handleDeleteAccount(account);
                       }}
                       className="!size-5 !p-0 cq-sm:!size-6"
-                      title={
-                        isArmed(`totp-account-${account.id}`)
-                          ? '再次点击确认删除'
-                          : '删除'
-                      }
+                      title="删除"
                     >
                       <Trash className="h-3 w-3" />
                     </Button>

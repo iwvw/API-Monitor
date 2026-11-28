@@ -117,9 +117,6 @@ func updateAccount(ctx context.Context, db *sql.DB, id int64, payload accountPay
 	if payload.Description == "" {
 		payload.Description = current.Description
 	}
-	if payload.DefaultProjectID == "" {
-		payload.DefaultProjectID = current.DefaultProjectID
-	}
 	if payload.ClientEmail == "" {
 		payload.ClientEmail = current.ClientEmail
 	}
@@ -137,6 +134,9 @@ func updateAccount(ctx context.Context, db *sql.DB, id int64, payload accountPay
 		if payload.DefaultProjectID == "" {
 			payload.DefaultProjectID = sa.ProjectID
 		}
+	}
+	if payload.DefaultProjectID == "" {
+		payload.DefaultProjectID = current.DefaultProjectID
 	}
 	result, err := db.ExecContext(ctx, `
 		UPDATE gcp_accounts

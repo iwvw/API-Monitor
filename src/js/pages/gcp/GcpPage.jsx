@@ -18,7 +18,7 @@ import { toast } from '../../modules/toast.js';
 import { dialog } from '../../modules/dialog.js';
 import { MODULE_TABS_PROPS } from '../../modules/kumoTabs.js';
 import { PageStack, stickyTabsBaseClass } from '../../components/ui/AppPrimitives.jsx';
-import { kumoHex, formatCompact } from '../openai/utils.js';
+import { kumoHex, formatCompact } from '../modelhub/utils.js';
 import useStore from '../../store.js';
 import { RefreshCw } from '../../components/Icons.jsx';
 import {
@@ -135,6 +135,34 @@ function GcpPage() {
   useEffect(() => {
     scopeRef.current = `${selectedAccountId}/${selectedProjectId}`;
   }, [selectedAccountId, selectedProjectId]);
+
+  const timersRef = useRef(new Set());
+  const scheduleRefresh = useCallback((fn, delay) => {
+    const id = setTimeout(() => {
+      timersRef.current.delete(id);
+      fn();
+    }, delay);
+    timersRef.current.add(id);
+  }, []);
+  useEffect(() => () => {
+    timersRef.current.forEach((id) => clearTimeout(id));
+    timersRef.current.clear();
+  }, []);
+
+  const resetScopeData = useCallback(() => {
+    setInstances([]);
+    setDisks([]);
+    setFirewalls([]);
+    setAddresses([]);
+    setBuckets([]);
+    setObjects([]);
+    setSelectedObjects(new Set());
+    setSelectedBucket('');
+    setBillingAccounts([]);
+    setBudgets([]);
+    setBillingInfo(null);
+    setModelUsage(null);
+  }, []);
 
   const selectedAccount = accounts.find((account) => String(account.id) === String(selectedAccountId));
   const scopeReady = Boolean(selectedAccountId && selectedProjectId);
@@ -401,16 +429,6 @@ function GcpPage() {
     try {
       const accountResult = await apiFetch(`/api/gcp/accounts/${selectedAccountId}/billing-accounts`);
       const accountsList = unwrap(accountResult).billingAccounts || [];
-      let budgetsList = [];
-      if (accountsList.length > 0) {
-        const billingId = accountsList[0].name;
-        try {
-          const budgetResult = await apiFetch(`/api/gcp/accounts/${selectedAccountId}/billing-accounts/${encodeURIComponent(billingId)}/budgets`);
-          budgetsList = unwrap(budgetResult).budgets || [];
-        } catch {
-          budgetsList = [];
-        }
-      }
       let billingInfoItem = null;
       if (selectedProjectId) {
         try {
@@ -418,6 +436,19 @@ function GcpPage() {
           billingInfoItem = unwrap(infoResult).billingInfo || null;
         } catch {
           billingInfoItem = null;
+        }
+      }
+      let budgetsList = [];
+      const projectBilling = billingInfoItem?.billingAccountName
+        ? accountsList.find((item) => item.name === billingInfoItem.billingAccountName)
+        : null;
+      const billingId = (projectBilling || accountsList[0])?.name;
+      if (billingId) {
+        try {
+          const budgetResult = await apiFetch(`/api/gcp/accounts/${selectedAccountId}/billing-accounts/${encodeURIComponent(billingId)}/budgets`);
+          budgetsList = unwrap(budgetResult).budgets || [];
+        } catch {
+          budgetsList = [];
         }
       }
       cacheRef.current.billing.set(cacheKey, {
@@ -614,7 +645,7 @@ function GcpPage() {
       const opName = op.name || op.operation?.name;
       toast.success(opName ? `指令已下发（Operation: ${opName}）` : '指令已下发');
       cacheRef.current.instances.delete(scopeCacheKey());
-      setTimeout(() => loadInstances({ force: true, silent: true }), 1500);
+      scheduleRefresh(() => loadInstances({ force: true, silent: true }), 1500);
     } catch (error) {
       toast.error(error.message || `实例操作 ${action} 失败`);
     }
@@ -684,7 +715,7 @@ function GcpPage() {
       toast.success('创建实例指令已下发');
       setCreateDialogOpen(false);
       cacheRef.current.instances.delete(scopeCacheKey());
-      setTimeout(() => loadInstances({ force: true, silent: true }), 1500);
+      scheduleRefresh(() => loadInstances({ force: true, silent: true }), 1500);
     } catch (error) {
       toast.error(error.message || '创建实例失败');
     } finally {
@@ -709,17 +740,17 @@ function GcpPage() {
       toast.success('磁盘扩容指令已下发');
       setResizeDialogOpen(false);
       cacheRef.current.disks.delete(scopeCacheKey());
-      setTimeout(() => loadDisks({ force: true, silent: true }), 1500);
+      scheduleRefresh(() => loadDisks({ force: true, silent: true }), 1500);
     } catch (error) {
       toast.error(error.message || '磁盘扩容失败');
     }
   };
 
   const snapshotDisk = async (disk) => {
-    const ok = await dialog.deleteResource({
+    const ok = await dialog.confirm({
       title: '创建磁盘快照',
       message: `确定为磁盘「${disk.name}」创建快照吗？`,
-      confirmLabel: '创建快照',
+      confirmText: '创建快照',
     });
     if (!ok) return;
     try {
@@ -747,7 +778,7 @@ function GcpPage() {
       );
       toast.success('磁盘删除指令已下发');
       cacheRef.current.disks.delete(scopeCacheKey());
-      setTimeout(() => loadDisks({ force: true, silent: true }), 1500);
+      scheduleRefresh(() => loadDisks({ force: true, silent: true }), 1500);
     } catch (error) {
       toast.error(error.message || '删除磁盘失败');
     }
@@ -842,7 +873,7 @@ function GcpPage() {
       }
       setFirewallDialogOpen(false);
       cacheRef.current.firewalls.delete(scopeCacheKey());
-      setTimeout(() => loadNetwork({ force: true }), 1500);
+      scheduleRefresh(() => loadNetwork({ force: true }), 1500);
     } catch (error) {
       toast.error(error.message || '保存防火墙规则失败');
     } finally {
@@ -861,7 +892,7 @@ function GcpPage() {
       await apiFetch(`/api/gcp/accounts/${selectedAccountId}/projects/${selectedProjectId}/firewalls/${encodeURIComponent(fw.name)}`, { method: 'DELETE' });
       toast.success('防火墙规则已删除');
       cacheRef.current.firewalls.delete(scopeCacheKey());
-      setTimeout(() => loadNetwork({ force: true }), 1500);
+      scheduleRefresh(() => loadNetwork({ force: true }), 1500);
     } catch (error) {
       toast.error(error.message || '删除防火墙规则失败');
     }
@@ -997,10 +1028,10 @@ function GcpPage() {
         <Tabs {...MODULE_TABS_PROPS} value={activeTab} onValueChange={setActiveTab} tabs={tabs} />
         {activeTab !== 'accounts' && (
           <div className="flex items-center gap-2">
-            <Select alignItemWithTrigger size="sm" aria-label="GCP 账号" value={selectedAccountId} onValueChange={(value) => { setSelectedAccountId(value); setSelectedProjectId(''); setSelectedBucket(''); setObjects([]); setSelectedObjects(new Set()); }} items={[
+            <Select alignItemWithTrigger size="sm" aria-label="GCP 账号" value={selectedAccountId} onValueChange={(value) => { setSelectedAccountId(value); setSelectedProjectId(''); setProjects([]); resetScopeData(); }} items={[
               ...accounts.map((account) => ({ value: String(account.id), label: account.name })),
             ]} placeholder="选择账号" />
-            <Select alignItemWithTrigger size="sm" aria-label="GCP 项目" value={selectedProjectId} onValueChange={(value) => setSelectedProjectId(value)} items={[
+            <Select alignItemWithTrigger size="sm" aria-label="GCP 项目" value={selectedProjectId} onValueChange={(value) => { setSelectedProjectId(value); resetScopeData(); }} items={[
               ...projects.map((project) => ({ value: project.projectId, label: project.name || project.projectId })),
             ]} placeholder="选择项目" />
             <Button type="button" size="sm" variant="secondary" onClick={() => { if (activeTab === 'instances') loadInstances({ force: true }); else if (activeTab === 'disks') loadDisks({ force: true }); else if (activeTab === 'network') loadNetwork({ force: true }); else if (activeTab === 'storage') loadBuckets({ force: true }); else if (activeTab === 'billing') loadBilling({ force: true }); }} title="刷新" aria-label="刷新">

@@ -15,6 +15,7 @@ import MessageList from './MessageList.jsx';
 import AdminConsole, { TAB_OPTIONS } from '../AdminConsole/index.jsx';
 import ApprovalCard from './ApprovalCard.jsx';
 import { useConfirmPress } from '../../../hooks/useConfirmPress.js';
+import { pushOverlayPortal } from '../../../modules/overlayPortal.js';
 import { parseAdminAiEvent } from '../../../modules/adminAiEvents.js';
 import { getDisplayTimeZone } from '../../../modules/utils.js';
 import {
@@ -423,6 +424,13 @@ import {
     return () => window.removeEventListener('keydown', onKey);
   }, [showAskAI, expanded, manageOpen, setShowAskAI, cancelBackendRun, stopStream]);
 
+  // 全屏层挂载时把它注册为当前最上层浮层容器,让 Tooltip/Popover/DropdownMenu
+  // 以及全局确认弹窗、Toast 都 portal 到全屏层内部,不被 z-[1150] 盖住;退出全屏时自动注销。
+  const setFullscreenRef = useCallback((node) => {
+    if (!node) return undefined;
+    return pushOverlayPortal(node);
+  }, []);
+
   /* 菜单外部点击关闭（@ / 会话） */
   useEffect(() => {
     if (!showAskAI) return undefined;
@@ -503,9 +511,10 @@ import {
         // 只允许「自己所属的活跃流」收尾时 stopStream：上一轮收尾瞬间新一轮已开流
         // （openStream 已替换 eventSource.current）时，旧流残留的 done/error 事件
         // 不得误杀新流，否则新一轮 WebSocket 事件全部丢失、消息像被吞掉。
+        const wasReconnected = reconnectedRef.current;
         if (es === eventSource.current) stopStream();
         // 本轮发生过断线重连：增量内容可能缺失，拉取服务端完整历史替换占位消息
-        if (reconnectedRef.current) loadMessages(activeSessionIdRef.current);
+        if (wasReconnected) loadMessages(activeSessionIdRef.current);
       }
     };
 
@@ -531,6 +540,7 @@ import {
     es.onerror = () => {
       // 连接层失败（网络断开/服务端退出）：先关闭当前 EventSource（避免浏览器
       // 对同 URL 无限自动重连、走后端 404 循环），再手动指数退避重连。
+      if (es !== eventSource.current) return;
       if (healthTimerRef.current) {
         clearTimeout(healthTimerRef.current);
         healthTimerRef.current = null;
@@ -703,13 +713,13 @@ import {
       else localStorage.removeItem('adminai-model');
     } catch { }
   };
-  // 模型选项来自对外暴露的模型列表（/api/openai/models 与 /v1/models 同源）。
+  // 模型选项来自对外暴露的模型列表（/api/modelhub/models 与 /v1/models 同源）。
   // 面板常驻挂载，首次打开时懒加载一次即可，失败静默降级为「不显示选择器」。
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const res = await fetch('/api/openai/models');
+        const res = await fetch('/api/modelhub/models');
         if (!res.ok) return;
         const data = await res.json();
         const list = Array.isArray(data) ? data : (data.data || []);
@@ -939,6 +949,19 @@ import {
     }
   };
 
+  const handleApprovalExpired = (approvalId) => {
+    setPendingApprovals((prev) => prev.filter((p) => p.approvalId !== approvalId));
+    setMessages((prev) => prev.map((m) => {
+      if (!m.parts || !m.parts.some((p) => p.type === 'approval' && p.approvalId === approvalId)) return m;
+      return {
+        ...m,
+        parts: m.parts.map((p) => (p.type === 'approval' && p.approvalId === approvalId && p.status === 'pending'
+          ? { ...p, status: 'error', errorMessage: '审批已过期' }
+          : p)),
+      };
+    }));
+  };
+
   /* 撤销当前会话的「允许此对话」写授权（后端写入即清 write_enabled 与有效期） */
   const handleRevokeSessionWrite = async (sessionId) => {
     if (!sessionId) return;
@@ -970,7 +993,7 @@ import {
     if (!current) return null;
     return (
       <div className={`askai-modal-in absolute z-40 ${positionClass}`}>
-        <ApprovalCard approval={approvalProps(current)} onResolve={handleResolveApproval} remaining={pendingApprovals.length} />
+        <ApprovalCard key={current.approvalId} approval={approvalProps(current)} onResolve={handleResolveApproval} onExpire={handleApprovalExpired} remaining={pendingApprovals.length} />
       </div>
     );
   };
@@ -1154,13 +1177,14 @@ import {
   /* ---- 全屏扩展模式 ---- */
   const renderFullscreen = () => (
     <div
+      ref={setFullscreenRef}
       className="askai-expand-in group/sidebar fixed inset-x-0 top-0 z-[1150] flex h-dvh flex-col p-2"
       data-state="expanded"
       style={{
         '--sidebar-active-bg': 'var(--color-kumo-tint)',
         '--sidebar-bg': 'var(--color-kumo-base)',
-        '--sidebar-animation-duration': '250ms',
-        '--sidebar-easing': 'cubic-bezier(0.77, 0, 0.175, 1)',
+        '--sidebar-animation-duration': 'var(--motion-duration-medium)',
+        '--sidebar-easing': 'var(--motion-ease-panel)',
       }}
     >
       <div className="relative flex h-full w-full flex-1 overflow-hidden rounded-2xl border-[3px] border-brand/80 bg-kumo-canvas">
@@ -1294,7 +1318,7 @@ import {
                       <EmptyState onPrompt={(p) => { setInput(p); textareaRef.current?.focus(); }} />
                     )
                   ) : (
-                    <MessageList messages={messages} mode={behavior} live={streaming ? null : liveRun} hasMoreOlder={hasMoreOlder} loadingOlder={loadingOlder} onLoadOlder={() => loadOlderMessages(activeSessionIdRef.current)} onResolveApproval={handleResolveApproval} onRetry={handleSend} onEditResend={handleEditResend} onRegenerate={handleRegenerate} />
+                    <MessageList messages={messages} mode={behavior} live={streaming ? null : liveRun} hasMoreOlder={hasMoreOlder} loadingOlder={loadingOlder} onLoadOlder={() => loadOlderMessages(activeSessionIdRef.current)} onResolveApproval={handleResolveApproval} onApprovalExpire={handleApprovalExpired} onRetry={handleSend} onEditResend={handleEditResend} onRegenerate={handleRegenerate} />
                   )}
                 </div>
                 {/* 全屏输入区（实底不透明，与消息区无缝衔接）；机器人会话只读不渲染输入框 */}
@@ -1457,7 +1481,7 @@ import {
               className="z-40 w-64 overflow-hidden p-0"
             >
               <div
-                style={{ '--sidebar-active-bg': 'var(--color-kumo-tint)', '--sidebar-animation-duration': '250ms' }}
+                style={{ '--sidebar-active-bg': 'var(--color-kumo-tint)', '--sidebar-animation-duration': 'var(--motion-duration-medium)' }}
               >
               <div className="border-b border-kumo-line p-1.5">
                 <Tabs
@@ -1572,7 +1596,7 @@ import {
                   <EmptyState onPrompt={(p) => { setInput(p); setTimeout(() => textareaRef.current?.focus(), 0); }} />
                 )
               ) : (
-                <MessageList messages={messages} mode={behavior} live={streaming ? null : liveRun} hasMoreOlder={hasMoreOlder} loadingOlder={loadingOlder} onLoadOlder={() => loadOlderMessages(activeSessionIdRef.current)} onResolveApproval={handleResolveApproval} onRetry={handleSend} onEditResend={handleEditResend} onRegenerate={handleRegenerate} />
+                <MessageList messages={messages} mode={behavior} live={streaming ? null : liveRun} hasMoreOlder={hasMoreOlder} loadingOlder={loadingOlder} onLoadOlder={() => loadOlderMessages(activeSessionIdRef.current)} onResolveApproval={handleResolveApproval} onApprovalExpire={handleApprovalExpired} onRetry={handleSend} onEditResend={handleEditResend} onRegenerate={handleRegenerate} />
               )}
             </div>
           </div>

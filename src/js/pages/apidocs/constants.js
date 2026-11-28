@@ -102,7 +102,7 @@ export const MODULE_LABELS = {
   'prompts-collections': '集合',
   'prompts-settings': '设置',
   prompts: '提示词库',
-  openai: 'OpenAI 网关',
+  modelhub: '模型网关',
   subscription: '订阅分发',
   'subscription-public': '公开订阅',
   'openai-compatible': 'OpenAI 兼容',
@@ -164,7 +164,7 @@ export const GROUP_ORDER = [
 // 后端 route.group 用的是模块展示名，先映射回模块 id 再查分区
 export const GROUP_NAME_TO_MODULE_ID = {
   仪表盘: 'dashboard',
-  模型网关: 'openai',
+  模型网关: 'modelhub',
   订阅分发: 'subscription',
   Cloudflare: 'dns',
   阿里云: 'aliyun',
@@ -189,7 +189,7 @@ export const GROUP_NAME_TO_MODULE_ID = {
   系统设置: 'settings',
 };
 
-// 顶层分区：按侧边栏 MODULE_GROUPS 推导（仪表盘 / 云服务 / 工具箱 / API 服务 / 系统）
+// 顶层分区:组名顺序直接取侧边栏 MODULE_GROUPS,末尾补充不属于任何模块组的兜底分区
 export const SECTION_OF_GROUP = {};
 MODULE_GROUPS.forEach(section => {
   (section.modules || []).forEach(moduleId => {
@@ -211,7 +211,13 @@ export const FALLBACK_SECTION = {
   基础: '基础',
 };
 
-export const SECTION_ORDER = ['仪表盘', '云服务', '工具箱', 'API 服务', '系统', '认证', '系统基础', '基础', '其他'];
+export const SECTION_ORDER = [
+  ...MODULE_GROUPS.map(section => section.name),
+  '认证',
+  '系统基础',
+  '基础',
+  '其他',
+];
 
 export const AI_ACCESS_BASE = '/api/ai-access';
 export const API_KEYS_BASE = '/api/api-keys';
@@ -225,14 +231,14 @@ export const fixedPanelClass = 'min-h-0';
 export const API_KEY_KINDS = [
   { value: 'plugin', label: '浏览器插件', prefix: 'akp_', scope: '读取 TOTP 验证码' },
   { value: 'ai', label: 'AI Agent', prefix: 'aka_', scope: '调用 AI / MCP 工具' },
-  { value: 'openai', label: 'OpenAI 网关', prefix: 'ako_', scope: '调用 OpenAI 兼容网关' },
+  { value: 'modelhub', label: '模型网关', prefix: 'akh_', scope: '调用模型网关' },
   { value: 'api', label: '通用 API', prefix: 'ak_', scope: '按所选权限访问后台 API' },
 ];
 
 export const API_SCOPE_LABELS = {
   'totp:read': 'TOTP 只读',
   'ai:mcp': 'AI / MCP',
-  'openai:gateway': 'OpenAI 网关',
+  'modelhub:gateway': '模型网关',
   'api:read': 'API 读取',
   'api:write': 'API 修改',
 };

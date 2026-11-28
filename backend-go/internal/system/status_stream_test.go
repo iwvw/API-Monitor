@@ -11,7 +11,10 @@ import (
 
 func TestStatusHubSubscribeBroadcast(t *testing.T) {
 	hub := newStatusHub()
-	ch, unsubscribe := hub.subscribe()
+	ch, unsubscribe, ok := hub.subscribe()
+	if !ok {
+		t.Fatal("subscribe should succeed under the cap")
+	}
 	defer unsubscribe()
 
 	hub.broadcast()

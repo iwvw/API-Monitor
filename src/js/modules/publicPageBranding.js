@@ -1,6 +1,6 @@
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { Activity, Bookmark, Server } from '../components/Icons.jsx';
+import { Activity, Bookmark, Server } from '../components/PublicIcons.jsx';
 
 export const PUBLIC_PAGE_ICON_CONFIG_KEY = 'publicIconId';
 

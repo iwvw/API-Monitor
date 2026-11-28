@@ -69,7 +69,7 @@ import kotlinx.coroutines.launch
 /**
  * 网关插件页：左侧（列表）插件注册表，点进去看该插件的状态、账号与模型。
  *
- * 与面板 `OpenAIPluginsPanel` 的注册表保持一致，顺序也相同。
+ * 与面板 `ModelHubPluginsPanel` 的注册表保持一致，顺序也相同。
  */
 @Composable
 fun GatewayPluginsScreen(onOpen: (GatewayPlugin) -> Unit) {

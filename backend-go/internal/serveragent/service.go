@@ -23,6 +23,7 @@ type Notifier interface {
 }
 
 type alertState struct {
+	mu          sync.Mutex
 	cpuHigh     bool
 	memoryHigh  bool
 	diskHigh    bool
@@ -65,6 +66,9 @@ type Service struct {
 	notifier                      Notifier
 	cloudflare                    cloudflare.ManagedTunnelAPI
 	alertStates                   sync.Map // serverID -> *alertState
+	publicServerIDsMu             sync.RWMutex
+	publicServerIDs               map[string]struct{}
+	publicServerIDsAt             time.Time
 	forwardReconcileMu            sync.Mutex
 	forwardReconcileAt            map[string]time.Time // serverID -> 最近一次转发对账时间（防风暴）
 	backgroundCtx                 context.Context
@@ -76,6 +80,8 @@ type Service struct {
 	stopOnce                      sync.Once
 	startupErr                    error
 	aiAgentValidator              func(r *http.Request) bool
+	autoUpdateHookMu              sync.Mutex
+	autoUpdateScheduleHook        func()
 }
 
 const defaultRealtimeMetricsPersistInterval = 30 * time.Second
@@ -120,6 +126,7 @@ func New(cfg config.Config) *Service {
 	engineIO.service = s
 	s.presence = newAgentPresenceManager(s)
 	s.forwardReconcileAt = map[string]time.Time{}
+	metricsHub.SetVisibilityFilter(s.isServerPubliclyVisible)
 
 	s.backgroundCtx, s.backgroundCancel = context.WithCancel(context.Background())
 
@@ -360,6 +367,52 @@ func New(cfg config.Config) *Service {
 						}()
 					}
 				}
+			case "agent:offline_state":
+				// 断线期间缓存、重连后补发的历史采样。
+				//
+				// 与 agent:state 的区别：payload 多带 recorded_at，落库要用**原始
+				// 采集时刻**，否则整段离线数据会被压到重连那一刻，曲线出现一根
+				// 尖刺而不是补回原本的时间段。也正因如此不能复用 agent:state
+				// —— 那条路径会把 state 当成"现在"来写 cached_info / 广播。
+				var offline struct {
+					Sequence   uint64                 `json:"sequence"`
+					RecordedAt string                 `json:"recorded_at"`
+					State      map[string]interface{} `json:"state"`
+				}
+				if err := json.Unmarshal(data, &offline); err != nil || len(offline.State) == 0 {
+					applog.Warn(s.backgroundCtx, "serveragent", "invalid offline state payload",
+						"server_id", serverID, "error", fmt.Sprint(err))
+					break
+				}
+				if serverID == "" {
+					break
+				}
+				stateCopy := offline.State
+				recordedAt := strings.TrimSpace(offline.RecordedAt)
+				// 与实时路径一致：带上主机静态信息（总内存/磁盘容量/核心数），
+				// 否则 buildCachedInfo 拿不到分母，算出来的百分比全是 0。
+				var hostInfo map[string]interface{}
+				if conn, exists := registry.Get(serverID); exists {
+					hostInfo = conn.GetMetadata()
+				}
+				go func() {
+					ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+					defer cancel()
+					db, err := s.open(ctx)
+					if err != nil {
+						applog.Warn(ctx, "serveragent", "open db for offline metrics failed",
+							"server_id", serverID, "error", err.Error())
+						return
+					}
+					defer db.Close()
+					// 转成与实时路径同构的 map，复用 buildCachedInfo 的字段归一化
+					// （否则离线数据会缺 cpu_usage/mem 之类的派生字段）。
+					cached := s.buildCachedInfo(stateCopy, hostInfo)
+					if err := s.persistMetricsAt(ctx, db, serverID, cached, recordedAt); err != nil {
+						applog.Warn(ctx, "serveragent", "persist offline metrics failed",
+							"server_id", serverID, "recorded_at", recordedAt, "error", err.Error())
+					}
+				}()
 			case "agent:upgrade_status":
 				// Agent 自更新结果上报（后台 updater 下载/替换成功或失败）。
 				// 写入连接元数据，供批量升级等流程中的重连检测提前判定成败，
@@ -528,7 +581,7 @@ func New(cfg config.Config) *Service {
 		s.presence.start()
 	}
 	backgroundCtx := s.backgroundCtx
-	s.backgroundWG.Add(7)
+	s.backgroundWG.Add(8)
 	go func() {
 		defer s.backgroundWG.Done()
 		StartReleaseAssetResolver(backgroundCtx)
@@ -536,6 +589,27 @@ func New(cfg config.Config) *Service {
 	go func() {
 		defer s.backgroundWG.Done()
 		s.startMetricsCollectorLoop(backgroundCtx)
+	}()
+	go func() {
+		defer s.backgroundWG.Done()
+		// 首次部署时把历史指标补进 rollup 表；已回填过则立即返回。
+		// 单独一个 goroutine（不在采集循环里）是因为它是一次性全量聚合，
+		// 实测可达 1 秒，不该拖慢第一轮采集。
+		select {
+		case <-backgroundCtx.Done():
+			return
+		case <-time.After(20 * time.Second):
+		}
+		ctx, cancel := context.WithTimeout(backgroundCtx, 2*time.Minute)
+		defer cancel()
+		db, err := s.open(ctx)
+		if err != nil {
+			return
+		}
+		defer db.Close()
+		if err := s.BackfillRollup(ctx, db); err != nil {
+			applog.Warn(ctx, "serveragent", "metrics rollup backfill failed", "error", err.Error())
+		}
 	}()
 	go func() {
 		defer s.backgroundWG.Done()
@@ -971,6 +1045,9 @@ func (s *Service) buildCachedInfo(state map[string]interface{}, hostInfo map[str
 	// Uptime
 	uptime := getFloatValue(state, "uptime")
 	cached["uptime"] = formatUptime(int64(uptime))
+	// 同时保留原始秒数：`uptime` 是给人看的格式化字符串（"5d 3h"），
+	// 任何需要参与计算的消费方（Prometheus exposition、告警阈值）都要能拿到数值。
+	cached["uptime_seconds"] = uptime
 
 	// Docker
 	if docker, ok := state["docker"].(map[string]interface{}); ok {
@@ -1039,8 +1116,26 @@ func (s *Service) checkMetricAlerts(ctx context.Context, db *sql.DB, serverID st
 	if s.notifier == nil {
 		return
 	}
+	// 本检查由 persistMetrics 的派生 goroutine 触发,调用方的 ctx 与被复用的
+	// db 句柄会在返回后立即取消/关闭;沿用它们会让 QueryRowContext 命中已取消
+	// 的 ctx 或已关闭的连接,告警静默失效。这里改用独立 ctx 并自持连接句柄。
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+	defer cancel()
+	checkDB := db
+	if s.store != nil {
+		if opened, err := s.open(ctx); err == nil {
+			checkDB = opened
+			defer opened.Close()
+		}
+	}
+	if checkDB == nil {
+		return
+	}
+
 	val, _ := s.alertStates.LoadOrStore(serverID, &alertState{})
 	state := val.(*alertState)
+	state.mu.Lock()
+	defer state.mu.Unlock()
 
 	var serverName, serverHost string
 	var trafficLimitBytes int64
@@ -1050,7 +1145,7 @@ func (s *Service) checkMetricAlerts(ctx context.Context, db *sql.DB, serverID st
 	var cachedInfo sql.NullString
 	var trafficCycleType string
 	var trafficCycleBaseline int64
-	_ = db.QueryRowContext(ctx, `SELECT name, host, traffic_limit_bytes, COALESCE(traffic_limit_mode, 'total'), traffic_alert_enabled, traffic_alert_percent, cached_info, COALESCE(traffic_cycle_type, 'none'), COALESCE(traffic_cycle_baseline, 0) FROM server_accounts WHERE id = ?`, serverID).Scan(&serverName, &serverHost, &trafficLimitBytes, &trafficLimitMode, &trafficAlertEnabled, &trafficAlertPercent, &cachedInfo, &trafficCycleType, &trafficCycleBaseline)
+	_ = checkDB.QueryRowContext(ctx, `SELECT name, host, traffic_limit_bytes, COALESCE(traffic_limit_mode, 'total'), traffic_alert_enabled, traffic_alert_percent, cached_info, COALESCE(traffic_cycle_type, 'none'), COALESCE(traffic_cycle_baseline, 0) FROM server_accounts WHERE id = ?`, serverID).Scan(&serverName, &serverHost, &trafficLimitBytes, &trafficLimitMode, &trafficAlertEnabled, &trafficAlertPercent, &cachedInfo, &trafficCycleType, &trafficCycleBaseline)
 	if serverName == "" {
 		serverName = serverID
 	}
@@ -1142,4 +1237,71 @@ func (s *Service) checkMetricAlerts(ctx context.Context, db *sql.DB, serverID st
 			}
 		}
 	}
+}
+
+// publicServerVisibilityTTL 是公开状态页可见主机集合的缓存时长。
+// /metrics 广播是高频路径,不能每台主机每次上报都查一次库。
+const publicServerVisibilityTTL = 30 * time.Second
+
+// isServerPubliclyVisible 判断某主机是否出现在任一「公开」状态页上。
+// 匿名 /metrics 命名空间只允许广播这些主机的实时指标。结果按 TTL 缓存;
+// 查询失败时沿用上一次快照(可能为空),不因为瞬时故障放开匿名广播。
+func (s *Service) isServerPubliclyVisible(serverID string) bool {
+	if serverID == "" {
+		return false
+	}
+	s.publicServerIDsMu.RLock()
+	if s.publicServerIDs != nil && time.Since(s.publicServerIDsAt) < publicServerVisibilityTTL {
+		_, ok := s.publicServerIDs[serverID]
+		s.publicServerIDsMu.RUnlock()
+		return ok
+	}
+	s.publicServerIDsMu.RUnlock()
+
+	ctx, cancel := context.WithTimeout(s.backgroundCtx, 3*time.Second)
+	defer cancel()
+	visible, err := s.loadPublicServerIDs(ctx)
+	if err != nil {
+		s.publicServerIDsMu.RLock()
+		defer s.publicServerIDsMu.RUnlock()
+		_, ok := s.publicServerIDs[serverID]
+		return ok
+	}
+	s.publicServerIDsMu.Lock()
+	s.publicServerIDs = visible
+	s.publicServerIDsAt = time.Now()
+	_, ok := visible[serverID]
+	s.publicServerIDsMu.Unlock()
+	return ok
+}
+
+// loadPublicServerIDs 汇总所有 public = 1 的状态页绑定的主机 id。
+func (s *Service) loadPublicServerIDs(ctx context.Context) (map[string]struct{}, error) {
+	db, err := s.open(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer db.Close()
+	rows, err := db.QueryContext(ctx, `SELECT COALESCE(server_ids_json, '[]') FROM server_status_pages WHERE public = 1`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	visible := make(map[string]struct{})
+	for rows.Next() {
+		var raw string
+		if err := rows.Scan(&raw); err != nil {
+			return nil, err
+		}
+		var ids []string
+		if err := json.Unmarshal([]byte(raw), &ids); err != nil {
+			continue
+		}
+		for _, id := range ids {
+			if id = strings.TrimSpace(id); id != "" {
+				visible[id] = struct{}{}
+			}
+		}
+	}
+	return visible, rows.Err()
 }

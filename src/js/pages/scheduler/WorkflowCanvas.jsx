@@ -220,8 +220,8 @@ export function WorkflowCanvas({ workflow, runs = [], tasks = [], selectedNodeId
         >
           <svg className="pointer-events-none absolute inset-0 z-0" width={layout.width} height={layout.height} aria-hidden="true">
             <g fill="none" strokeLinecap="round" strokeLinejoin="round">
-              {layout.edges.map((edge) => (
-                <g key={`${edge.from}-${edge.to}`}>
+              {layout.edges.map((edge, index) => (
+                <g key={edge.id || `${edge.from}-${edge.to}-${index}`}>
                   <path d={edge.path} stroke="var(--color-kumo-line)" strokeOpacity="0.9" strokeWidth="2" />
                   <path
                     d={edge.path}
@@ -284,8 +284,8 @@ export function WorkflowCanvas({ workflow, runs = [], tasks = [], selectedNodeId
           >
             <svg width={frameW - 16} height={frameH - 16} className="pointer-events-none absolute left-2 top-2">
               <g transform={`scale(${mmScale})`} fill="none">
-                {layout.edges.map((edge) => (
-                  <path key={`${edge.from}-${edge.to}`} d={edge.path} stroke="var(--color-kumo-line)" strokeOpacity="0.85" strokeWidth="2" />
+                {layout.edges.map((edge, index) => (
+                  <path key={edge.id || `${edge.from}-${edge.to}-${index}`} d={edge.path} stroke="var(--color-kumo-line)" strokeOpacity="0.85" strokeWidth="2" />
                 ))}
                 {layout.stages.flatMap((stage) => stage.map((node) => {
                   const rect = layout.rectById.get(node.id);

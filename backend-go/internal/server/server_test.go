@@ -557,6 +557,21 @@ func TestStaticRouteCachePolicy(t *testing.T) {
 	if got := indexRes.Header().Get("Cache-Control"); got != "no-cache" {
 		t.Fatalf("index Cache-Control=%q", got)
 	}
+
+	// sw.js 决定 PWA 缓存版本号，必须同样每次回源校验；被启发式缓存命中会让
+	// 新前端在客户端继续被旧 Service Worker 接管。
+	if err := os.WriteFile(filepath.Join(distDir, "sw.js"), []byte("self.addEventListener('fetch',()=>{})"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	swReq := httptest.NewRequest(http.MethodGet, "/sw.js", nil)
+	swRes := httptest.NewRecorder()
+	handler.ServeHTTP(swRes, swReq)
+	if swRes.Code != http.StatusOK {
+		t.Fatalf("sw.js status=%d", swRes.Code)
+	}
+	if got := swRes.Header().Get("Cache-Control"); got != "no-cache" {
+		t.Fatalf("sw.js Cache-Control=%q", got)
+	}
 }
 
 func TestStaticRouteFallsBackToHashedDistLogo(t *testing.T) {
@@ -784,7 +799,7 @@ func TestPluginCompatibleRelayRoutesAreInternalOnly(t *testing.T) {
 	handler := testServer(t)
 
 	// 外部来源（非 loopback）：插件 /v1 兼容中继应被 AuthInternal 拒绝。
-	for _, path := range []string{"/api/antigravity/v1/messages", "/api/ds2api/v1/chat/completions"} {
+	for _, path := range []string{"/api/antigravity/v1/messages", "/api/workbuddy/v1/chat/completions"} {
 		req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(`{}`))
 		req.RemoteAddr = "203.0.113.9:12345"
 		res := httptest.NewRecorder()
@@ -795,7 +810,7 @@ func TestPluginCompatibleRelayRoutesAreInternalOnly(t *testing.T) {
 	}
 
 	// 本机回环来源：放行到插件（鉴权通过，落点行为与插件内部一致）。
-	req := httptest.NewRequest(http.MethodPost, "/api/ds2api/v1/chat/completions", strings.NewReader(`{}`))
+	req := httptest.NewRequest(http.MethodPost, "/api/workbuddy/v1/chat/completions", strings.NewReader(`{}`))
 	req.RemoteAddr = "127.0.0.1:12345"
 	res := httptest.NewRecorder()
 	handler.ServeHTTP(res, req)
@@ -1562,6 +1577,7 @@ func TestInternalCronReadonlyWhitelist(t *testing.T) {
 	cronReq := func(method, path string) *httptest.ResponseRecorder {
 		req := httptest.NewRequest(method, path, nil)
 		req.Header.Set("X-Internal-Cron", "true")
+		req.Header.Set("X-Internal-Cron-Token", handler.internalCronToken)
 		req.RemoteAddr = "127.0.0.1:12345"
 		res := httptest.NewRecorder()
 		handler.ServeHTTP(res, req)
@@ -1573,8 +1589,7 @@ func TestInternalCronReadonlyWhitelist(t *testing.T) {
 		"/api/system/host-metrics",
 		"/api/server/s",
 		"/api/cloudflare/zones",
-		"/api/openai/analytics/summary",
-		"/api/totp/accounts",
+		"/api/modelhub/analytics/summary",
 		"/api/notification/channels",
 		"/api/drawio/documents",
 		"/api/prompts/entries",
@@ -1615,6 +1630,62 @@ func TestInternalCronReadonlyWhitelist(t *testing.T) {
 	handler.ServeHTTP(resFake, req)
 	if resFake.Code != http.StatusUnauthorized {
 		t.Fatalf("external addr with internal cron header status = %d (want 401) body=%s", resFake.Code, resFake.Body.String())
+	}
+
+	// /api/totp 已移出内部只读白名单:即使带合法 token + 回环也不放行
+	resTotp := cronReq(http.MethodGet, "/api/totp/accounts")
+	if resTotp.Code != http.StatusUnauthorized {
+		t.Fatalf("GET /api/totp/accounts via cron status = %d (want 401) body=%s", resTotp.Code, resTotp.Body.String())
+	}
+}
+
+func TestInternalCronLegacyFallbackByDefault(t *testing.T) {
+	handler := newTestServer(t, config.Config{
+		Version: "test",
+		Host:    "127.0.0.1",
+		Port:    0,
+		DataDir: t.TempDir(),
+		DBName:  "data.db",
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/system/host-metrics", nil)
+	req.Header.Set("X-Internal-Cron", "true")
+	req.RemoteAddr = "127.0.0.1:12345"
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+	if res.Code != http.StatusOK {
+		t.Fatalf("legacy loopback fallback status = %d (want 200) body=%s", res.Code, res.Body.String())
+	}
+}
+
+func TestInternalCronRequiresTokenInStrictMode(t *testing.T) {
+	t.Setenv(internalCronStrictEnv, "true")
+
+	handler := newTestServer(t, config.Config{
+		Version: "test",
+		Host:    "127.0.0.1",
+		Port:    0,
+		DataDir: t.TempDir(),
+		DBName:  "data.db",
+	})
+
+	legacy := httptest.NewRequest(http.MethodGet, "/api/system/host-metrics", nil)
+	legacy.Header.Set("X-Internal-Cron", "true")
+	legacy.RemoteAddr = "127.0.0.1:12345"
+	resLegacy := httptest.NewRecorder()
+	handler.ServeHTTP(resLegacy, legacy)
+	if resLegacy.Code != http.StatusUnauthorized {
+		t.Fatalf("strict mode loopback literal status = %d (want 401) body=%s", resLegacy.Code, resLegacy.Body.String())
+	}
+
+	withToken := httptest.NewRequest(http.MethodGet, "/api/system/host-metrics", nil)
+	withToken.Header.Set("X-Internal-Cron", "true")
+	withToken.Header.Set("X-Internal-Cron-Token", handler.internalCronToken)
+	withToken.RemoteAddr = "127.0.0.1:12345"
+	resToken := httptest.NewRecorder()
+	handler.ServeHTTP(resToken, withToken)
+	if resToken.Code != http.StatusOK {
+		t.Fatalf("strict mode with token status = %d (want 200) body=%s", resToken.Code, resToken.Body.String())
 	}
 }
 
@@ -1839,7 +1910,7 @@ func TestOpenAIServerRouting(t *testing.T) {
 	handler := testServer(t)
 
 	// 1. OpenAI endpoint CRUD requires session
-	req := httptest.NewRequest(http.MethodGet, "/api/openai/endpoints", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/modelhub/endpoints", nil)
 	res := httptest.NewRecorder()
 	handler.ServeHTTP(res, req)
 	if res.Code != http.StatusUnauthorized {
@@ -1847,7 +1918,7 @@ func TestOpenAIServerRouting(t *testing.T) {
 	}
 
 	cookie := loginServerForTest(t, handler)
-	req = httptest.NewRequest(http.MethodGet, "/api/openai/endpoints", nil)
+	req = httptest.NewRequest(http.MethodGet, "/api/modelhub/endpoints", nil)
 	req.AddCookie(cookie)
 	res = httptest.NewRecorder()
 	handler.ServeHTTP(res, req)
@@ -1863,7 +1934,7 @@ func TestOpenAIServerRouting(t *testing.T) {
 		t.Fatalf("v1 models without key status = %d body=%s", res.Code, res.Body.String())
 	}
 
-	req = httptest.NewRequest(http.MethodPost, "/api/openai/keys", strings.NewReader(`{"name":"test client"}`))
+	req = httptest.NewRequest(http.MethodPost, "/api/modelhub/keys", strings.NewReader(`{"name":"test client"}`))
 	req.AddCookie(cookie)
 	res = httptest.NewRecorder()
 	handler.ServeHTTP(res, req)
@@ -1877,7 +1948,7 @@ func TestOpenAIServerRouting(t *testing.T) {
 		t.Fatalf("decode gateway key: %v body=%s", err, res.Body.String())
 	}
 
-	req = httptest.NewRequest(http.MethodGet, "/api/openai/keys", nil)
+	req = httptest.NewRequest(http.MethodGet, "/api/modelhub/keys", nil)
 	req.AddCookie(cookie)
 	res = httptest.NewRecorder()
 	handler.ServeHTTP(res, req)
@@ -1885,10 +1956,16 @@ func TestOpenAIServerRouting(t *testing.T) {
 		t.Fatalf("list gateway keys status = %d body=%s", res.Code, res.Body.String())
 	}
 	var listedKeys []struct {
-		APIKey string `json:"apiKey"`
+		APIKey    string `json:"apiKey"`
+		MaskedKey string `json:"maskedKey"`
+		HasKey    bool   `json:"hasKey"`
 	}
-	if err := json.Unmarshal(res.Body.Bytes(), &listedKeys); err != nil || len(listedKeys) != 1 || listedKeys[0].APIKey != keyPayload.APIKey {
-		t.Fatalf("listed gateway key is not recoverable: %v body=%s", err, res.Body.String())
+	if err := json.Unmarshal(res.Body.Bytes(), &listedKeys); err != nil || len(listedKeys) != 1 {
+		t.Fatalf("list gateway keys decode: %v body=%s", err, res.Body.String())
+	}
+	listed := listedKeys[0]
+	if listed.APIKey != keyPayload.APIKey {
+		t.Fatalf("listed apiKey should match created plaintext key, got %q want %q", listed.APIKey, keyPayload.APIKey)
 	}
 
 	req = httptest.NewRequest(http.MethodGet, "/v1/models", nil)
@@ -1899,7 +1976,7 @@ func TestOpenAIServerRouting(t *testing.T) {
 		t.Fatalf("v1 models with key status = %d body=%s", res.Code, res.Body.String())
 	}
 
-	req = httptest.NewRequest(http.MethodGet, "/api/openai/analytics/logs?days=1&page=1&pageSize=20", nil)
+	req = httptest.NewRequest(http.MethodGet, "/api/modelhub/analytics/logs?days=1&page=1&pageSize=20", nil)
 	req.AddCookie(cookie)
 	res = httptest.NewRecorder()
 	handler.ServeHTTP(res, req)
@@ -1921,7 +1998,7 @@ func TestOpenAIServerRouting(t *testing.T) {
 	}
 
 	// 7. key-check 路由：端点 API Key 批量检测需要会话鉴权。
-	req = httptest.NewRequest(http.MethodPost, "/api/openai/endpoints", strings.NewReader(`{
+	req = httptest.NewRequest(http.MethodPost, "/api/modelhub/endpoints", strings.NewReader(`{
 		"name":"key-check-test","baseUrl":"https://example.com/v1","apiKey":"sk-test-main"
 	}`))
 	req.AddCookie(cookie)
@@ -1945,7 +2022,7 @@ func TestOpenAIServerRouting(t *testing.T) {
 		createdEndpoint.ID = createdEnvelope.Endpoint.ID
 	}
 
-	req = httptest.NewRequest(http.MethodPost, "/api/openai/endpoints/"+createdEndpoint.ID+"/key-check", strings.NewReader(`{"keys":["sk-test-main","sk-test-backup"],"timeout":3000}`))
+	req = httptest.NewRequest(http.MethodPost, "/api/modelhub/endpoints/"+createdEndpoint.ID+"/key-check", strings.NewReader(`{"keys":["sk-test-main","sk-test-backup"],"timeout":3000}`))
 	req.AddCookie(cookie)
 	res = httptest.NewRecorder()
 	handler.ServeHTTP(res, req)

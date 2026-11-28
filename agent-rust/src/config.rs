@@ -8,7 +8,7 @@ use std::path::PathBuf;
 #[command(author, version, about, long_about = None)]
 pub struct CliArgs {
     #[arg(
-        help = "Action to perform (upgrade, self-update, install, uninstall, svc-install, svc-uninstall, sample)"
+        help = "Action to perform (upgrade, self-update, install, uninstall, svc-install, svc-uninstall, sample, relay)"
     )]
     pub action: Option<String>,
 
@@ -40,6 +40,31 @@ pub struct CliArgs {
         help = "Run in background daemon mode (Windows)"
     )]
     pub daemon: bool,
+
+    #[arg(
+        long = "sha256",
+        help = "Expected SHA-256 of the agent binary (required for `upgrade`; the .sha256 sidecar next to the download carries it)"
+    )]
+    pub sha256: Option<String>,
+
+    // ---------- relay 子命令（`api-monitor-agent relay ...`）----------
+    // relay 已合并进本二进制，不再单独分发 api-monitor-relay。
+    //
+    // 兼容旧调用方：原 Go relay 用单横线 `-listen` / `-config`（flag 包风格），
+    // 已部署的 unit 与运维脚本里大量存在这种写法。clap 默认只认 `--listen`，
+    // 会把单横线当成短选项拼写而报 "unexpected argument '-l'"。用
+    // visible_alias 同时接受两种形式，避免升级后 relay 服务起不来。
+    #[arg(
+        long = "listen",
+        help = "relay: management API listen address (empty = forwarding only)"
+    )]
+    pub relay_listen: Option<String>,
+
+    #[arg(long = "config", help = "relay: config file path")]
+    pub relay_config: Option<String>,
+
+    #[arg(long = "mgmt-token", help = "relay: management API bearer token")]
+    pub relay_mgmt_token: Option<String>,
 }
 
 #[derive(Deserialize, Debug, Clone, Default)]

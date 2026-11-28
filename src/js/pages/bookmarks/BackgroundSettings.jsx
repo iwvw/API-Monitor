@@ -3,10 +3,10 @@ import { Button } from '@cloudflare/kumo/components/button';
 import { Input } from '@cloudflare/kumo/components/input';
 import { Select } from '@cloudflare/kumo/components/select';
 import { Switch } from '@cloudflare/kumo/components/switch';
-import { cx } from '../../components/ui/AppPrimitives.jsx';
+import { cx } from '../../components/ui/CardPrimitives.jsx';
 import { toast } from '../../modules/toast.js';
 import useStore from '../../store.js';
-import { Trash, Upload } from '../../components/Icons.jsx';
+import { Trash, Upload } from '../../components/PublicIcons.jsx';
 import {
   DEFAULT_BG_DIM,
   PAGE_WIDTH_OPTIONS,

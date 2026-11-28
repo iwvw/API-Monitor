@@ -155,11 +155,12 @@ import tencentCloudIcon from '../../assets/brand-icons/tencentcloud.svg';
 // peer 冲突，为此加依赖会连带重写 lockfile。
 import codeBuddyIcon from '../../assets/brand-icons/codebuddy.svg';
 import antigravityIcon from '../../assets/brand-icons/antigravity.svg';
-import deepSeekIcon from '../../assets/brand-icons/deepseek.svg';
-import postHogIcon from '../../assets/brand-icons/posthog.svg';
 // Qoder 官方图标（阿里 CDN 的黑色线条 PNG，透明底）。同样走 createAssetIcon 的
 // currentColor 遮罩路径：PNG 作为 mask 源，随主题黑白自适应。
 import qoderIcon from '../../assets/brand-icons/qoder.png';
+// 小浣熊（商汤 Raccoon）品牌图标：用 SenseNova（商汤模型品牌）单色 SVG，
+// 同样走 createAssetIcon 的 currentColor 遮罩路径，随主题黑白自适应。
+import raccoonIcon from '../../assets/brand-icons/raccoon.svg';
 
 const createAssetIcon = (asset, label) => {
   const AssetIcon = ({ className = '', style, ...props }) => (
@@ -287,10 +288,10 @@ export const TencentCloudBrand = createAssetIcon(tencentCloudIcon, 'TencentCloud
 // 模型网关插件中心用到的 AI 品牌图标。
 export const CodeBuddyBrand = createAssetIcon(codeBuddyIcon, 'CodeBuddy');
 export const AntigravityBrand = createAssetIcon(antigravityIcon, 'Antigravity');
-export const DeepSeekBrand = createAssetIcon(deepSeekIcon, 'DeepSeek');
-export const PostHogBrand = createAssetIcon(postHogIcon, 'PostHog');
 export const QoderBrand = createAssetIcon(qoderIcon, 'Qoder');
-export const OpenCodeBrand = createFontIcon('si si-opencode', 'OpenCode');
+export const RaccoonBrand = createAssetIcon(raccoonIcon, 'Raccoon');
+// Cline 有官方 simple-icons 图标；ZCode / AutoClaw 没有，用通用字体图标兜底。
+export const ClineBrand = createFontIcon('si si-cline', 'Cline');
 export const KoyebBrand = createFontIcon('si si-koyeb', 'Koyeb');
 export const FlyIoBrand = createFontIcon('si si-flydotio', 'Fly.io');
 
@@ -298,7 +299,7 @@ export const MODULE_ICON_MAP = {
   dashboard: LayoutDashboard,
   settings: Settings,
   assets: HardDrive,
-  openai: Sparkle,
+  modelhub: Sparkle,
   aiagent: Terminal,
   subscription: Plug,
   paas: Rocket,

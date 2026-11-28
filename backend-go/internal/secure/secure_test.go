@@ -1,7 +1,9 @@
 package secure
 
 import (
+	"log"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -198,5 +200,61 @@ func TestEncryptionKeyDerivation(t *testing.T) {
 	fallback := encryptionKey()
 	if len(fallback) != 32 {
 		t.Fatalf("encryptionKey len = %d, want 32 (sha256)", len(fallback))
+	}
+}
+
+func TestAllowInsecureDefaultKey(t *testing.T) {
+	t.Setenv("API_MONITOR_ALLOW_INSECURE_DEFAULT_KEY", "1")
+	if !AllowInsecureDefaultKey() {
+		t.Fatal("expected 1 to enable the insecure default key")
+	}
+	t.Setenv("API_MONITOR_ALLOW_INSECURE_DEFAULT_KEY", "true")
+	if !AllowInsecureDefaultKey() {
+		t.Fatal("expected true to enable the insecure default key")
+	}
+	t.Setenv("API_MONITOR_ALLOW_INSECURE_DEFAULT_KEY", "0")
+	if AllowInsecureDefaultKey() {
+		t.Fatal("expected 0 to disable the insecure default key")
+	}
+	t.Setenv("API_MONITOR_ALLOW_INSECURE_DEFAULT_KEY", "")
+	if AllowInsecureDefaultKey() {
+		t.Fatal("expected empty to disable the insecure default key")
+	}
+}
+
+func TestStrictEncryptionRequired(t *testing.T) {
+	t.Setenv("API_MONITOR_STRICT_ENCRYPTION", "1")
+	if !StrictEncryptionRequired() {
+		t.Fatal("expected 1 to require strict encryption")
+	}
+	t.Setenv("API_MONITOR_STRICT_ENCRYPTION", "true")
+	if !StrictEncryptionRequired() {
+		t.Fatal("expected true to require strict encryption")
+	}
+	t.Setenv("API_MONITOR_STRICT_ENCRYPTION", "")
+	if StrictEncryptionRequired() {
+		t.Fatal("expected empty to not require strict encryption")
+	}
+}
+
+func TestEncryptionKeyWarnsOnceForDefaultKey(t *testing.T) {
+	t.Setenv("ENCRYPTION_KEY", "")
+	t.Setenv("API_MONITOR_ALLOW_INSECURE_DEFAULT_KEY", "")
+
+	var buf strings.Builder
+	previous := log.Writer()
+	log.SetOutput(&buf)
+	t.Cleanup(func() { log.SetOutput(previous) })
+
+	// 告警由进程级 sync.Once 把关,同包其他测试可能已触发过;先重置以便独立断言「只打一次」。
+	defaultKeyWarnOnce = sync.Once{}
+
+	for i := 0; i < 3; i++ {
+		if key := encryptionKey(); len(key) != 32 {
+			t.Fatalf("encryptionKey len = %d, want 32", len(key))
+		}
+	}
+	if got := strings.Count(buf.String(), "SECURITY WARNING"); got != 1 {
+		t.Fatalf("expected exactly one warning for repeated default-key use, got %d: %q", got, buf.String())
 	}
 }

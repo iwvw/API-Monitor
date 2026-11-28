@@ -4,6 +4,12 @@ use serde::{Deserialize, Serialize};
 pub const EVENT_AGENT_CONNECT: &str = "agent:connect";
 pub const EVENT_AGENT_HOST_INFO: &str = "agent:host_info";
 pub const EVENT_AGENT_STATE: &str = "agent:state";
+/// 断线期间缓存、重连后补发的历史采样。
+///
+/// 用独立事件而不是复用 agent:state：补发的 payload 多带 `recorded_at`
+/// 与 `sequence`，服务端要按原始时间落库而不是「现在」，两者语义不同；
+/// 混在一个事件里会让服务端不得不靠字段存在性猜意图。
+pub const EVENT_AGENT_OFFLINE_STATE: &str = "agent:offline_state";
 pub const EVENT_AGENT_UPGRADE_STATUS: &str = "agent:upgrade_status";
 pub const EVENT_AGENT_TASK_RESULT: &str = "agent:task_result";
 pub const EVENT_DASHBOARD_AUTH_OK: &str = "dashboard:auth_ok";
@@ -147,6 +153,8 @@ pub struct DockerImageUpdateStatus {
     pub latest_digest: String,
     #[serde(rename = "has_update")]
     pub has_update: bool,
+    #[serde(default)]
+    pub skipped: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
 }
@@ -182,16 +190,21 @@ pub fn parse_socketio_message(raw: &str) -> SocketIOMessage {
     // '2' = Ping
     // '3' = Pong
     // '4' = Message
-    let eio_type = raw.chars().next().unwrap();
-    let body = &raw[1..];
+    let eio_type = match raw.chars().next() {
+        Some(c) => c,
+        None => return SocketIOMessage::Ignored,
+    };
+    let body = match raw.get(1..) {
+        Some(b) => b,
+        None => return SocketIOMessage::Ignored,
+    };
 
     match eio_type {
         '2' => SocketIOMessage::Ping,
         '3' => SocketIOMessage::Pong,
         '4' => {
             // Socket.IO 事件消息: "2["event_name", data]"
-            if body.starts_with('2') {
-                let json_part = &body[1..];
+            if let Some(json_part) = body.strip_prefix('2') {
                 if let Ok(serde_json::Value::Array(arr)) = serde_json::from_str(json_part) {
                     if arr.len() >= 1 {
                         if let Some(event_name) = arr[0].as_str() {
@@ -241,4 +254,38 @@ pub struct NetworkQualityProbeResult {
 pub struct NetworkQualityProbeResponse {
     pub checked_at: String,
     pub results: Vec<NetworkQualityProbeResult>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_multibyte_leading_char_does_not_panic() {
+        assert!(matches!(parse_socketio_message("中abc"), SocketIOMessage::Ignored));
+        assert!(matches!(parse_socketio_message("你好"), SocketIOMessage::Ignored));
+        assert!(matches!(parse_socketio_message("🎧"), SocketIOMessage::Ignored));
+    }
+
+    #[test]
+    fn parse_ascii_leading_char_still_works() {
+        assert!(matches!(parse_socketio_message("2"), SocketIOMessage::Ping));
+        assert!(matches!(parse_socketio_message("3"), SocketIOMessage::Pong));
+        assert!(matches!(parse_socketio_message(""), SocketIOMessage::Ignored));
+        assert!(matches!(parse_socketio_message("0{\"sid\":\"x\"}"), SocketIOMessage::Raw(_)));
+        assert!(matches!(parse_socketio_message("40{}"), SocketIOMessage::Raw(_)));
+        assert!(matches!(parse_socketio_message("4"), SocketIOMessage::Raw(_)));
+    }
+
+    #[test]
+    fn parse_event_message() {
+        match parse_socketio_message("42[\"dashboard:task\",{\"id\":\"1\"}]") {
+            SocketIOMessage::Event(name, data) => {
+                assert_eq!(name, "dashboard:task");
+                assert_eq!(data["id"], "1");
+            }
+            other => panic!("unexpected: {:?}", other),
+        }
+        assert!(matches!(parse_socketio_message("42[\"x\",\"中文🎧\"]"), SocketIOMessage::Event(_, _)));
+    }
 }

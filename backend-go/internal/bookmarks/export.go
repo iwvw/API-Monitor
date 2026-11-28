@@ -283,26 +283,40 @@ type NativeImportReport struct {
 	Warnings       []string `json:"warnings,omitempty"`
 }
 
+type existingGroupRef struct {
+	id    int64
+	title string
+}
+
 // importNative 执行导入。dry_run 时只统计不写库。
 func (s *Service) importNative(ctx context.Context, db *sql.DB, file exportFile, mode string, dryRun bool) (NativeImportReport, error) {
 	report := NativeImportReport{DryRun: dryRun, Mode: mode}
 
 	// 先摸清现有分组，用于 merge 模式的匹配与 skip 判定
-	existing := map[string]int64{} // 标题(小写) -> group_id
-	rows, err := db.QueryContext(ctx, `SELECT id, title FROM bookmark_groups`)
+	// 匹配键不能只用标题:同名分组合法存在,按标题匹配会把导出文件里的
+	// 同名分组合并进同一条,破坏无损往返。改为 slug+标题定位同一分组,
+	// 再退回标题匹配,并用 consumed 保证同名分组各自落到不同的既有分组。
+	existingBySlug := map[string]existingGroupRef{}
+	existingByTitle := map[string][]int64{}
+	rows, err := db.QueryContext(ctx, `SELECT id, title, slug FROM bookmark_groups`)
 	if err != nil {
 		return report, err
 	}
 	for rows.Next() {
 		var id int64
-		var title sql.NullString
-		if err := rows.Scan(&id, &title); err != nil {
+		var title, slug sql.NullString
+		if err := rows.Scan(&id, &title, &slug); err != nil {
 			rows.Close()
 			return report, err
 		}
-		existing[strings.ToLower(strings.TrimSpace(title.String))] = id
+		titleKey := strings.ToLower(strings.TrimSpace(title.String))
+		existingByTitle[titleKey] = append(existingByTitle[titleKey], id)
+		if slug.String != "" {
+			existingBySlug[slug.String] = existingGroupRef{id: id, title: titleKey}
+		}
 	}
 	rows.Close()
+	consumed := map[int64]bool{}
 
 	// 已存在的 (group_id, url) 组合：merge 模式下用它跳过重复网址
 	existingItems := map[string]bool{}
@@ -354,7 +368,9 @@ func (s *Service) importNative(ctx context.Context, db *sql.DB, file exportFile,
 		if _, err := tx.ExecContext(ctx, `DELETE FROM bookmark_groups`); err != nil {
 			return report, err
 		}
-		existing = map[string]int64{}
+		existingBySlug = map[string]existingGroupRef{}
+		existingByTitle = map[string][]int64{}
+		consumed = map[int64]bool{}
 		existingItems = map[string]bool{}
 	}
 
@@ -365,12 +381,27 @@ func (s *Service) importNative(ctx context.Context, db *sql.DB, file exportFile,
 			continue
 		}
 
-		key := strings.ToLower(title)
+		titleKey := strings.ToLower(title)
+		requestedSlug := strings.TrimSpace(group.Slug)
 		var groupID int64
 		merged := false
-		if id, ok := existing[key]; ok {
-			groupID = id
-			merged = true
+		if requestedSlug != "" {
+			if ref, ok := existingBySlug[requestedSlug]; ok && !consumed[ref.id] && ref.title == titleKey {
+				groupID = ref.id
+				merged = true
+			}
+		}
+		if !merged {
+			for _, id := range existingByTitle[titleKey] {
+				if !consumed[id] {
+					groupID = id
+					merged = true
+					break
+				}
+			}
+		}
+		if merged {
+			consumed[groupID] = true
 			report.GroupsMerged++
 			// merge 模式下，已存在的分组保留原有公开设置与外观，
 			// 只把它的网址补进来 —— 覆盖会让「导入」变成「改配置」
@@ -379,7 +410,7 @@ func (s *Service) importNative(ctx context.Context, db *sql.DB, file exportFile,
 			if cache <= 0 {
 				cache = 300
 			}
-			slug := strings.TrimSpace(group.Slug)
+			slug := requestedSlug
 			if slug != "" {
 				// slug 有唯一约束：导入时若与现有冲突，清空它而不是让整批导入失败
 				var exists int
@@ -412,7 +443,6 @@ func (s *Service) importNative(ctx context.Context, db *sql.DB, file exportFile,
 			if err != nil {
 				return report, fmt.Errorf("read inserted group id: %w", err)
 			}
-			existing[key] = groupID
 			report.GroupsCreated++
 		}
 
@@ -429,8 +459,8 @@ func (s *Service) importNative(ctx context.Context, db *sql.DB, file exportFile,
 
 		for ii, item := range group.Items {
 			itemTitle := strings.TrimSpace(item.Title)
-			itemURL := strings.TrimSpace(item.URL)
-			if itemTitle == "" || itemURL == "" {
+			itemURL, validURL := normalizeItemURL(item.URL)
+			if itemTitle == "" || !validURL {
 				report.ItemsSkipped++
 				continue
 			}
@@ -438,6 +468,14 @@ func (s *Service) importNative(ctx context.Context, db *sql.DB, file exportFile,
 				// 同一分组里已有相同网址：跳过，避免重复导入产生一堆重复卡片
 				report.ItemsSkipped++
 				continue
+			}
+			iconSrc := item.IconSrc
+			// 导出不含图标二进制(见文件头)。若引用的本地图标在本实例并不存在
+			// (换实例导入,或文件已被清理),保留引用只会让卡片 404;而且因为
+			// icon_src 非空,「抓取缺少图标」会把它当成已有图标跳过。清空引用,
+			// 让它回归「缺少图标」,由抓取流程补齐。
+			if s.faviconIconMissing(iconSrc) {
+				iconSrc = ""
 			}
 			iconType := item.IconType
 			if iconType != 1 && iconType != 2 && iconType != 3 {
@@ -451,7 +489,7 @@ func (s *Service) importNative(ctx context.Context, db *sql.DB, file exportFile,
 				`INSERT INTO bookmarks (group_id, title, url, description, icon_type, icon_src, icon_text, icon_bg_color, open_method, sort_order)
 				 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 				groupID, itemTitle, itemURL, item.Description,
-				iconType, item.IconSrc, item.IconText, item.IconBgColor, openMethod, baseSort+ii); err != nil {
+				iconType, iconSrc, item.IconText, item.IconBgColor, openMethod, baseSort+ii); err != nil {
 				return report, err
 			}
 			existingItems[itemKey(groupID, itemURL)] = true
@@ -481,6 +519,9 @@ func (s *Service) importNative(ctx context.Context, db *sql.DB, file exportFile,
 	if err := tx.Commit(); err != nil {
 		return report, err
 	}
+	// replace 模式会删掉旧条目,它们引用的图标随之变成孤儿;导入结束后统一回收一次。
+	// (merge 模式同样无害:只删不被引用的文件。)
+	s.gcFaviconFiles(ctx, db)
 	return report, nil
 }
 

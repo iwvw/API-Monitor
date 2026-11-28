@@ -179,9 +179,9 @@ func TestRefreshLinkedEndpointModelsKeepsModelsOnUpstreamFailure(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// 真实场景里 openai 模块创建完整表（含 model_mappings / disabled_models）；
-	// antigravity 的 ensureOpenAIEndpointsTable 只是最小化兜底，这里建全字段表。
-	_, err = db.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS openai_endpoints (
+	// 真实场景里 modelhub 模块创建完整表（含 model_mappings / disabled_models）；
+	// antigravity 的 ensureModelHubEndpointsTable 只是最小化兜底，这里建全字段表。
+	_, err = db.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS modelhub_endpoints (
 		id TEXT PRIMARY KEY,
 		name TEXT NOT NULL,
 		base_url TEXT NOT NULL,
@@ -199,7 +199,7 @@ func TestRefreshLinkedEndpointModelsKeepsModelsOnUpstreamFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 	// 旧前缀 agy-：库中已有 agy-model1/agy-model2。
-	_, err = db.ExecContext(ctx, `INSERT INTO openai_endpoints
+	_, err = db.ExecContext(ctx, `INSERT INTO modelhub_endpoints
 		(id, name, base_url, api_key, headers, disabled_models, proxy_pool, proxy_batches,
 		 auto_switch, proxy_enabled, force_proxy, rate_limit_retry_enabled,
 		 rate_limit_retry_wait_seconds, status, enabled, models, created_at, last_checked, sort_order, plugin_id)
@@ -231,7 +231,7 @@ func TestRefreshLinkedEndpointModelsKeepsModelsOnUpstreamFailure(t *testing.T) {
 	}
 	defer db.Close()
 	var modelsRaw string
-	if err := db.QueryRowContext(ctx, "SELECT models FROM openai_endpoints WHERE id = ?", linkedEndpointID).Scan(&modelsRaw); err != nil {
+	if err := db.QueryRowContext(ctx, "SELECT models FROM modelhub_endpoints WHERE id = ?", linkedEndpointID).Scan(&modelsRaw); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(modelsRaw, "new-model1") || !strings.Contains(modelsRaw, "new-model2") {

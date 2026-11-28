@@ -3,7 +3,7 @@ import { Button, DropdownMenu } from '@cloudflare/kumo';
 import { ChevronDown, Sliders } from '../../Icons.jsx';
 
 /* 模型选择器（composer 工具行）。
- * 选项来自 /api/openai/models；空选项时不渲染（降级为「用设置里的默认模型」）。
+ * 选项来自 /api/modelhub/models；空选项时不渲染（降级为「用设置里的默认模型」）。
  * 选择结果只影响随后发送的消息，通过 POST /api/admin-ai/messages 的 model 字段传递。
  *
  * container：菜单必须渲染在 [data-askai-menu] 子树内。面板有 mousedown 外部点击监听

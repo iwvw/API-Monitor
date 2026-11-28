@@ -43,10 +43,11 @@ export function SecurityPanel({
   settings,
   start2FASetup,
   twoFA,
+  twoFAStatusError,
 }) {
   return (
         <div className="grid min-w-0 items-start gap-4 cq-xl:grid-cols-[minmax(22rem,0.9fr)_minmax(0,1.1fr)]">
-          <div className="top-[calc(var(--app-header-height)+0.5rem)] z-20 flex min-w-0 flex-col gap-4 cq-xl:sticky">
+          <div className="top-[132px] z-20 flex min-w-0 flex-col gap-4 cq-xl:sticky">
           <SectionCard
             className={SECURITY_MASONRY_CARD_CLASS}
             title="管理员密码"
@@ -57,7 +58,7 @@ export function SecurityPanel({
               <div>
                 <Input size="sm"
                   label="当前密码"
-                  type="text"
+                  type="password"
                   value={passwordForm.oldPassword}
                   onChange={(e) => setPasswordForm((prev) => ({ ...prev, oldPassword: e.target.value }))}
                   disabled={isDemoMode}
@@ -73,7 +74,7 @@ export function SecurityPanel({
               <div className="grid grid-cols-1 gap-4 cq-sm:grid-cols-2">
                 <Input size="sm"
                   label="新密码"
-                  type="text"
+                  type="password"
                   value={passwordForm.newPassword}
                   onChange={(e) => setPasswordForm((prev) => ({ ...prev, newPassword: e.target.value }))}
                   disabled={isDemoMode}
@@ -87,7 +88,7 @@ export function SecurityPanel({
                 />
                 <Input size="sm"
                   label="确认新密码"
-                  type="text"
+                  type="password"
                   value={passwordForm.confirmPassword}
                   onChange={(e) => setPasswordForm((prev) => ({ ...prev, confirmPassword: e.target.value }))}
                   disabled={isDemoMode}
@@ -237,8 +238,8 @@ export function SecurityPanel({
             icon={<Shield className="h-4 w-4 text-brand" />}
             meta={(
               <div className="flex items-center gap-2">
-                <Badge variant={twoFA.enabled ? 'success' : 'warning'}>
-                  {twoFA.enabled ? 'TOTP 已启用' : 'TOTP 未启用'}
+                <Badge variant={twoFAStatusError ? 'secondary' : (twoFA.enabled ? 'success' : 'warning')}>
+                  {twoFAStatusError ? 'TOTP 状态未知' : (twoFA.enabled ? 'TOTP 已启用' : 'TOTP 未启用')}
                 </Badge>
                 <Badge variant={passkeys.length > 0 ? 'success' : 'secondary'}>
                   {passkeys.length > 0 ? `${passkeys.length} 个通行密钥` : '无通行密钥'}

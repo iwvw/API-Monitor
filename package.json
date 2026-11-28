@@ -9,7 +9,7 @@
     "dev": "concurrently \"npm run backend-go:dev\" \"vite\" --names \"backend,frontend\" --prefix-colors \"blue,green\"",
     "dev:simple": "vite",
     "drawio:install": "node tools/install-drawio.mjs",
-    "icons:generate": "node tools/generate-simple-icons-css.mjs",
+    "icons:generate": "node tools/generate-simple-icons-css.mjs && node tools/generate-iconify-subset.mjs",
     "build": "npm run icons:generate && vite build",
     "dist:precompress": "node tools/precompress-dist.mjs dist",
     "preview": "vite preview",
@@ -23,7 +23,7 @@
     "version:patch": "npm version patch --no-git-tag-version --ignore-scripts",
     "version:minor": "npm version minor --no-git-tag-version --ignore-scripts",
     "version:major": "npm version major --no-git-tag-version --ignore-scripts",
-    "backend-go:dev": "cd backend-go && powershell -NoProfile -Command \"$key = Get-Content ..\\.env | Where-Object { $_ -match '^ENCRYPTION_KEY=' } | Select-Object -First 1; if ($key -match '^ENCRYPTION_KEY=(.+)$') { $env:ENCRYPTION_KEY = $matches[1].Trim() }; go run ./cmd/api-monitor\"",
+    "backend-go:dev": "node tools/dev-backend.mjs",
     "backend-go:start": "cd backend-go && ./api-monitor.exe",
     "backend-go:test": "cd backend-go && go test ./...",
     "backend-go:build": "cd backend-go && go build -o api-monitor.exe ./cmd/api-monitor",
@@ -43,6 +43,7 @@
     "refactor:snapshot": "node tools/refactor-snapshot.mjs",
     "refactor:snapshot-diff": "node tools/refactor-snapshot-diff.mjs",
     "backend:perf-baseline": "node tools/backend-performance-baseline.mjs",
+    "perf:proc": "node tools/perf-baseline.mjs",
     "audit:fast": "npm run icons:generate && npm run governance:check && npm run ui:governance && npm run kumo:registry:check && npm run docs:check && npm run onepanel:check && npm run openapi:drift && npm run lint && npm test",
     "audit:full": "npm run audit:fast && npm run backend-go:test && node tools/backend-route-inventory.mjs && npm run backend-go:smoke",
     "clean:check": "node tools/workspace-cleanup.mjs --check",
@@ -54,7 +55,7 @@
     "android:test": "cd mobile-android && gradlew.bat :app:testDebugUnitTest"
   },
   "dependencies": {
-    "@cloudflare/kumo": "^2.16.0",
+    "@cloudflare/kumo": "^2.19.1",
     "@codemirror/lang-markdown": "^6.5.2",
     "@codemirror/language": "^6.12.4",
     "@codemirror/language-data": "^6.5.2",
@@ -113,6 +114,12 @@
     "vue": "^3.5.43",
     "katex": "^0.19.1",
     "zod": "^4.6.7",
-    "follow-redirects": "^1.16.2"
+    "follow-redirects": "^1.16.2",
+    "eslint": {
+      "minimatch": "^11.0.5"
+    },
+    "@eslint/config-array": {
+      "minimatch": "^11.0.5"
+    }
   }
 }

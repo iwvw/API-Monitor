@@ -56,6 +56,8 @@ pub struct FileListResponse {
 pub struct FileRootsResponse {
     pub sandbox_root: String,
     pub allowed_roots: Vec<String>,
+    /// 是否全开(realPath 不限制根目录)
+    pub allow_all: bool,
     /// 沙箱语义说明：默认沙箱下绝对路径会被锚定到沙箱根内。
     pub note: String,
 }
@@ -163,6 +165,9 @@ pub struct FileFetchUrlRequest {
     pub path: String,
     #[serde(default)]
     pub headers: Option<std::collections::HashMap<String, String>>,
+    /// 为 true 时要求按主机真实绝对路径写入(仅限 API_MONITOR_FILE_ROOTS 白名单根内)
+    #[serde(default)]
+    pub real_path: bool,
 }
 
 #[derive(Serialize)]
@@ -171,6 +176,8 @@ pub struct FileFetchUrlResponse {
     pub status: u16,
     pub size: i64,
     pub path: String,
+    /// 主机上的真实绝对路径(realPath 模式或沙箱锚定后的实际落盘位置)
+    pub real_path: String,
 }
 
 #[derive(Deserialize, Debug)]
@@ -188,6 +195,34 @@ pub struct FileWriteBase64Request {
     /// 为 true 时要求按主机真实绝对路径写入（仅限白名单根内）
     #[serde(default)]
     pub real_path: bool,
+}
+
+#[derive(Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct FileWalkRequest {
+    pub path: String,
+    #[serde(default)]
+    pub real_path: bool,
+    #[serde(default)]
+    pub max_depth: Option<usize>,
+}
+
+#[derive(Serialize)]
+pub struct FileWalkEntry {
+    pub name: String,
+    pub relative_path: String,
+    pub is_directory: bool,
+    pub is_file: bool,
+    pub is_symlink: bool,
+    pub size: i64,
+}
+
+#[derive(Serialize)]
+pub struct FileWalkResponse {
+    pub files: Vec<FileWalkEntry>,
+    pub count: usize,
+    pub truncated: bool,
+    pub real_root: String,
 }
 
 pub struct FileManager;
@@ -266,6 +301,74 @@ impl FileManager {
 
     /// 返回文件沙箱的真实根目录与白名单根，供调用方把「上传路径」和
     /// 「命令里该用的真实路径」对齐。
+    /// 递归遍历目录树(单次任务),返回带相对路径的条目列表。
+    /// 供面板一次性拿到目录结构,避免逐层 list 的往返。
+    pub fn handle_file_walk(data: &str) -> Result<String, String> {
+        let req: FileWalkRequest =
+            serde_json::from_str(data).map_err(|e| format!("解析请求失败: {}", e))?;
+        if req.path.is_empty() {
+            return Err("路径不能为空".to_string());
+        }
+        let abs_root = resolve_path_for(&req.path, req.real_path)?;
+        let max_depth = req.max_depth.filter(|d| *d > 0).unwrap_or(32);
+        const MAX_ENTRIES: usize = 100_000;
+
+        let mut out: Vec<FileWalkEntry> = Vec::new();
+        let mut truncated = false;
+        let mut queue: Vec<(PathBuf, usize)> = vec![(abs_root.clone(), 0)];
+        while let Some((dir, depth)) = queue.pop() {
+            let entries = match fs::read_dir(&dir) {
+                Ok(e) => e,
+                Err(_) => continue,
+            };
+            for entry_res in entries {
+                let entry = match entry_res {
+                    Ok(e) => e,
+                    Err(_) => continue,
+                };
+                // DirEntry::metadata 不跟随符号链接,避免遍历环。
+                let meta = match entry.metadata() {
+                    Ok(m) => m,
+                    Err(_) => continue,
+                };
+                let file_name = entry.file_name().to_string_lossy().to_string();
+                let full = entry.path();
+                let rel = full
+                    .strip_prefix(&abs_root)
+                    .map(|p| p.to_string_lossy().replace('\\', "/"))
+                    .unwrap_or_else(|_| file_name.clone());
+                let is_dir = meta.is_dir();
+                let is_symlink = meta.file_type().is_symlink();
+                out.push(FileWalkEntry {
+                    name: file_name,
+                    relative_path: rel,
+                    is_directory: is_dir,
+                    is_file: meta.is_file(),
+                    is_symlink,
+                    size: meta.len() as i64,
+                });
+                if out.len() >= MAX_ENTRIES {
+                    truncated = true;
+                    break;
+                }
+                if is_dir && !is_symlink && depth + 1 < max_depth {
+                    queue.push((full, depth + 1));
+                }
+            }
+            if truncated {
+                break;
+            }
+        }
+
+        let payload = FileWalkResponse {
+            count: out.len(),
+            files: out,
+            truncated,
+            real_root: abs_root.to_string_lossy().replace('\\', "/"),
+        };
+        serde_json::to_string(&payload).map_err(|e| e.to_string())
+    }
+
     pub fn handle_file_roots() -> Result<String, String> {
         let sandbox_root = canonical_files_root()?;
         let allowed: Vec<String> = allowed_roots()?
@@ -275,6 +378,7 @@ impl FileManager {
         let resp = FileRootsResponse {
             sandbox_root: sandbox_root.to_string_lossy().replace('\\', "/"),
             allowed_roots: allowed,
+            allow_all: file_roots_allow_all(),
             note: "默认沙箱下的绝对路径（如 /opt/a.sh）会被锚定到 sandbox_root 内，"
                 .to_string()
                 + "真实落盘路径见各文件工具的 realPath 字段；"
@@ -595,7 +699,7 @@ impl FileManager {
             return Err("目标路径不能为空".to_string());
         }
 
-        let abs_path = resolve_path(&req.path)?;
+        let abs_path = resolve_path_for(&req.path, req.real_path)?;
         if let Some(parent) = abs_path.parent() {
             fs::create_dir_all(parent).map_err(|e| format!("创建父目录失败: {}", e))?;
         }
@@ -630,9 +734,14 @@ impl FileManager {
             std::process::id()
         );
         let tmp_path = abs_path.with_file_name(tmp_name);
-        let mut file = tokio::fs::File::create(&tmp_path)
-            .await
-            .map_err(|e| format!("创建临时文件失败: {}", e))?;
+        // 用 1 MiB BufWriter 合并小块写:逐块 tokio::fs 写在 Windows 上会明显拖慢
+        // 读循环(实测高 RTT 下 agent_fetch_url 只有 ~0.2 MiB/s,而低 RTT 同代码 55 MiB/s)。
+        let mut file = tokio::io::BufWriter::with_capacity(
+            1024 * 1024,
+            tokio::fs::File::create(&tmp_path)
+                .await
+                .map_err(|e| format!("创建临时文件失败: {}", e))?,
+        );
 
         use futures_util::StreamExt;
         use tokio::io::AsyncWriteExt;
@@ -668,6 +777,7 @@ impl FileManager {
             status,
             size: written,
             path: virtual_path(&abs_path),
+            real_path: abs_path.to_string_lossy().replace('\\', "/"),
         };
         serde_json::to_string(&payload).map_err(|e| e.to_string())
     }
@@ -744,31 +854,62 @@ fn canonical_files_root() -> Result<PathBuf, String> {
         .clone()
 }
 
-/// 额外允许的文件根目录，来自环境变量 `API_MONITOR_FILE_ROOTS`
-/// （多路径使用平台分隔符：Windows 为 `;`，类 Unix 为 `:`）。
-/// 未设置时返回空列表，此时文件操作行为与历史版本完全一致，仅限默认沙箱。
-/// 用于显式放行脚本目录等受控路径，避免把整个文件系统暴露给面板。
-fn extra_roots() -> Vec<PathBuf> {
-    static EXTRA_ROOTS_CACHE: OnceLock<Vec<PathBuf>> = OnceLock::new();
-    EXTRA_ROOTS_CACHE
-        .get_or_init(|| {
-            let Ok(raw) = std::env::var("API_MONITOR_FILE_ROOTS") else {
-                return Vec::new();
-            };
-            let mut roots = Vec::new();
-            for p in std::env::split_paths(&raw) {
-                if p.as_os_str().is_empty() {
-                    continue;
-                }
-                if let Ok(canonical) = fs::canonicalize(&p) {
-                    if !roots.contains(&canonical) {
-                        roots.push(canonical);
-                    }
-                }
+/// 解析 `API_MONITOR_FILE_ROOTS` 值为 (是否全开, 根列表)。条目 `*` 表示全开。
+fn parse_roots(raw: &str) -> (bool, Vec<PathBuf>) {
+    let mut allow_all = false;
+    let mut roots = Vec::new();
+    for p in std::env::split_paths(raw) {
+        if p.to_string_lossy().trim() == "*" {
+            allow_all = true;
+            continue;
+        }
+        if p.as_os_str().is_empty() {
+            continue;
+        }
+        if let Ok(canonical) = fs::canonicalize(&p) {
+            if !roots.contains(&canonical) {
+                roots.push(canonical);
             }
-            roots
-        })
-        .clone()
+        }
+    }
+    (allow_all, roots)
+}
+
+fn roots_store() -> &'static std::sync::RwLock<Vec<PathBuf>> {
+    static STORE: std::sync::OnceLock<std::sync::RwLock<Vec<PathBuf>>> = std::sync::OnceLock::new();
+    STORE.get_or_init(|| {
+        let raw = std::env::var("API_MONITOR_FILE_ROOTS").unwrap_or_default();
+        std::sync::RwLock::new(parse_roots(&raw).1)
+    })
+}
+
+fn allow_all_store() -> &'static std::sync::RwLock<bool> {
+    static STORE: std::sync::OnceLock<std::sync::RwLock<bool>> = std::sync::OnceLock::new();
+    STORE.get_or_init(|| {
+        let raw = std::env::var("API_MONITOR_FILE_ROOTS").unwrap_or_default();
+        std::sync::RwLock::new(parse_roots(&raw).0)
+    })
+}
+
+/// 运行时更新文件访问根(认证握手下发,免重装 Agent)。`*` 表示全开。
+pub fn set_file_roots(raw: &str) {
+    let (allow_all, roots) = parse_roots(raw);
+    if let Ok(mut flag) = allow_all_store().write() {
+        *flag = allow_all;
+    }
+    if let Ok(mut list) = roots_store().write() {
+        *list = roots;
+    }
+}
+
+/// 是否处于「全开」模式(realPath 不限制根目录)。
+fn file_roots_allow_all() -> bool {
+    allow_all_store().read().map(|v| *v).unwrap_or(false)
+}
+
+/// 额外允许的文件根目录(运行时可变;初始化来自 `API_MONITOR_FILE_ROOTS`)。
+fn extra_roots() -> Vec<PathBuf> {
+    roots_store().read().map(|v| v.clone()).unwrap_or_default()
 }
 
 /// 返回全部允许的根目录（默认沙箱在前，额外根在后）。
@@ -853,48 +994,20 @@ fn resolve_path(input_path: &str) -> Result<PathBuf, String> {
     resolve_path_root(input_path).map(|(path, _)| path)
 }
 
-/// 按「主机真实绝对路径」解析：只接受落在白名单根（默认沙箱根或
-/// `API_MONITOR_FILE_ROOTS` 额外根）内的路径。
-///
-/// 与 `resolve_path` 的关键区别：**绝不**把未命中的绝对路径锚定到沙箱根。
-/// 面板的文件管理/Compose 配置编辑都要求「读到的就是主机上那份文件」，
-/// 一旦静默改写到 `<sandbox>/opt/x/y.yml`，界面显示保存成功但真实文件没变，
-/// 属于最危险的一类静默数据丢失。因此越界时直接报错。
+/// 按「主机真实绝对路径」解析:全开模式下不限根目录;否则只接受落在白名单根内的路径。
 fn resolve_real_path(input_path: &str) -> Result<PathBuf, String> {
+    if file_roots_allow_all() {
+        return resolve_absolute(input_path);
+    }
     resolve_real_path_with_roots(input_path, &allowed_roots()?)
 }
 
-/// `resolve_real_path` 的可测试内核：根目录由调用方显式传入。
+/// `resolve_real_path` 的可测试内核:根目录由调用方显式传入。
 fn resolve_real_path_with_roots(input_path: &str, roots: &[PathBuf]) -> Result<PathBuf, String> {
-    // 不把 `\` 换成 `/`：Windows 上 `C:/Users/x` 经 trim_start_matches('/')
-    // 会丢掉盘符后的分隔符，变成相对路径「C:Users\x」，被误判为越界。
-    // 直接用平台原生 Path 处理，Unix 下的 `\` 本来就属于文件名而非分隔符。
-    let trimmed = input_path.trim();
-
-    if trimmed.is_empty() || trimmed == "." {
-        return Err("路径不能为空".to_string());
-    }
-
-    let candidate = PathBuf::from(trimmed);
-    let absolute = if candidate.is_absolute() {
-        candidate
-    } else if cfg!(windows) {
-        // 形如 `C:relative`（盘符相对）也按绝对处理，避免落到进程 CWD。
-        let stripped = strip_drive_prefix(trimmed.trim_start_matches('/'));
-        PathBuf::from(format!("/{}", stripped))
-    } else {
-        PathBuf::from("/").join(candidate)
-    };
-
-    let resolved = if absolute.exists() {
-        fs::canonicalize(&absolute).map_err(|e| format!("无法访问路径: {}", e))?
-    } else {
-        canonicalize_missing_tail(&absolute, "无法访问父目录")?
-    };
-
+    let resolved = resolve_absolute(input_path)?;
     if matched_root(&resolved, roots).is_none() {
         return Err(format!(
-            "路径不在 Agent 文件白名单内: {}。允许的根目录: {}；请在面板配置 API_MONITOR_AGENT_FILE_ROOTS 并重装/重启 Agent 后重试。",
+            "路径不在 Agent 文件白名单内: {}。允许的根目录: {};可在面板配置 API_MONITOR_AGENT_FILE_ROOTS(* 表示全开)并重启面板后重试。",
             resolved.display(),
             roots
                 .iter()
@@ -903,8 +1016,28 @@ fn resolve_real_path_with_roots(input_path: &str, roots: &[PathBuf]) -> Result<P
                 .join(", ")
         ));
     }
-
     Ok(resolved)
+}
+
+/// 把输入解析为规范化的绝对路径(不做白名单校验)。
+fn resolve_absolute(input_path: &str) -> Result<PathBuf, String> {
+    let trimmed = input_path.trim();
+    if trimmed.is_empty() || trimmed == "." {
+        return Err("路径不能为空".to_string());
+    }
+    let candidate = PathBuf::from(trimmed);
+    let absolute = if candidate.is_absolute() {
+        candidate
+    } else if cfg!(windows) {
+        PathBuf::from(format!("/{}", strip_drive_prefix(trimmed.trim_start_matches('/'))))
+    } else {
+        PathBuf::from("/").join(candidate)
+    };
+    if absolute.exists() {
+        fs::canonicalize(&absolute).map_err(|e| format!("无法访问路径: {}", e))
+    } else {
+        canonicalize_missing_tail(&absolute, "无法访问父目录")
+    }
 }
 
 /// 按调用方要求解析路径：`real_path=true` 走白名单强校验，否则沿用历史

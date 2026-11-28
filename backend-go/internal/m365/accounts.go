@@ -37,7 +37,7 @@ func (s *Service) accounts(w http.ResponseWriter, r *http.Request) {
 			response.Error(w, http.StatusBadRequest, err.Error())
 			return
 		}
-		record, err := payloadToAccount(payload, accountRecord{})
+		record, err := payloadToAccount(payload, accountRecord{Enabled: true})
 		if err != nil {
 			response.Error(w, http.StatusBadRequest, err.Error())
 			return
@@ -151,7 +151,7 @@ func (s *Service) importAccounts(w http.ResponseWriter, r *http.Request) {
 	}
 
 	for _, item := range items {
-		record, err := payloadToAccount(objectValue(item), accountRecord{})
+		record, err := payloadToAccount(objectValue(item), accountRecord{Enabled: true})
 		if err != nil {
 			_ = tx.Rollback()
 			response.Error(w, http.StatusBadRequest, err.Error())
@@ -436,7 +436,9 @@ func payloadToAccount(payload map[string]interface{}, base accountRecord) (accou
 		record.DefaultDomain = record.VerifiedDomains[0]
 	}
 	record.Organization = strings.TrimSpace(stringValue(payload["organization"], stringValue(payload["organizationName"], record.Organization)))
-	record.Enabled = boolValue(payload["enabled"], true)
+	if value, ok := payload["enabled"]; ok {
+		record.Enabled = boolValue(value, record.Enabled)
+	}
 	if record.Name == "" || record.TenantID == "" || record.ClientID == "" || record.ClientSecret == "" {
 		return accountRecord{}, errors.New("name, tenantId, clientId and clientSecret are required")
 	}

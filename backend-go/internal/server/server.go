@@ -2,6 +2,9 @@ package server
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/subtle"
+	"encoding/hex"
 	"fmt"
 	"net"
 	"net/http"
@@ -16,39 +19,37 @@ import (
 	"github.com/iwvw/api-monitor/backend-go/internal/aiagent"
 	"github.com/iwvw/api-monitor/backend-go/internal/aliyun"
 	"github.com/iwvw/api-monitor/backend-go/internal/antigravity"
+	"github.com/iwvw/api-monitor/backend-go/internal/applog"
 	"github.com/iwvw/api-monitor/backend-go/internal/assets"
 	"github.com/iwvw/api-monitor/backend-go/internal/auth"
 	"github.com/iwvw/api-monitor/backend-go/internal/backup"
 	bookmarksmodule "github.com/iwvw/api-monitor/backend-go/internal/bookmarks"
+	"github.com/iwvw/api-monitor/backend-go/internal/cline"
 	"github.com/iwvw/api-monitor/backend-go/internal/cloudflare"
 	"github.com/iwvw/api-monitor/backend-go/internal/config"
 	"github.com/iwvw/api-monitor/backend-go/internal/cronjobs"
 	"github.com/iwvw/api-monitor/backend-go/internal/database"
 	dockerhubmodule "github.com/iwvw/api-monitor/backend-go/internal/dockerhub"
 	drawiomodule "github.com/iwvw/api-monitor/backend-go/internal/drawio"
-	"github.com/iwvw/api-monitor/backend-go/internal/ds2api"
 	"github.com/iwvw/api-monitor/backend-go/internal/emailcode"
 	"github.com/iwvw/api-monitor/backend-go/internal/filebox"
 	"github.com/iwvw/api-monitor/backend-go/internal/flyio"
 	"github.com/iwvw/api-monitor/backend-go/internal/gcp"
-	"github.com/iwvw/api-monitor/backend-go/internal/geminicli"
 	githubmodule "github.com/iwvw/api-monitor/backend-go/internal/github"
 	"github.com/iwvw/api-monitor/backend-go/internal/huawei"
 	"github.com/iwvw/api-monitor/backend-go/internal/koyeb"
-	"github.com/iwvw/api-monitor/backend-go/internal/lobsterai"
 	"github.com/iwvw/api-monitor/backend-go/internal/m365"
 	"github.com/iwvw/api-monitor/backend-go/internal/manifest"
+	"github.com/iwvw/api-monitor/backend-go/internal/modelhub"
 	"github.com/iwvw/api-monitor/backend-go/internal/notification"
 	"github.com/iwvw/api-monitor/backend-go/internal/onepanel"
-	"github.com/iwvw/api-monitor/backend-go/internal/openai"
-	"github.com/iwvw/api-monitor/backend-go/internal/opencode"
 	"github.com/iwvw/api-monitor/backend-go/internal/oracle"
 	originpkg "github.com/iwvw/api-monitor/backend-go/internal/origin"
-	"github.com/iwvw/api-monitor/backend-go/internal/posthogcode"
 	promptsmodule "github.com/iwvw/api-monitor/backend-go/internal/prompts"
 	"github.com/iwvw/api-monitor/backend-go/internal/proxypool"
 	"github.com/iwvw/api-monitor/backend-go/internal/publicpageicon"
 	"github.com/iwvw/api-monitor/backend-go/internal/qoder"
+	"github.com/iwvw/api-monitor/backend-go/internal/raccoon"
 	"github.com/iwvw/api-monitor/backend-go/internal/response"
 	"github.com/iwvw/api-monitor/backend-go/internal/serveragent"
 	"github.com/iwvw/api-monitor/backend-go/internal/settings"
@@ -83,16 +84,13 @@ type Server struct {
 	huawei      *huawei.Service
 	cf          *cloudflare.Service
 	m365        *m365.Service
-	openai      *openai.Service
+	modelhub    *modelhub.Service
 	antigravity *antigravity.Service
-	opencode    *opencode.Service
-	ds2api      *ds2api.Service
 	workbuddy   *workbuddy.Service
-	geminicli   *geminicli.Service
-	lobsterai   *lobsterai.Service
 	emailcode   *emailcode.Service
-	posthogcode *posthogcode.Service
 	qoder       *qoder.Service
+	raccoon     *raccoon.Service
+	cline       *cline.Service
 	proxypool   *proxypool.Service
 	server      *serveragent.Service
 	backup      *backup.Service
@@ -104,6 +102,8 @@ type Server struct {
 	adminai     *adminai.Service
 	aiagent     *aiagent.Service
 	assets      *assets.Service
+
+	internalCronToken string
 
 	// warmupCancel 在 Shutdown 时取消代理池预热 goroutine，避免后台任务
 	// 在 Gate 结束后继续访问数据目录（测试 teardown 也会受影响）。
@@ -158,6 +158,8 @@ func newServer(cfg config.Config) (*Server, error) {
 	}
 	authService := auth.New(cfg)
 	notifyService := notification.New(cfg)
+	// 告警聚合的后台汇总循环：窗口结束时把被合并的告警补发成一条汇总。
+	go notifyService.RunAggregationFlusher(context.Background())
 	serverAgentService := serveragent.New(cfg)
 	if err := serverAgentService.StartupError(); err != nil {
 		serverAgentService.Stop()
@@ -169,6 +171,18 @@ func newServer(cfg config.Config) (*Server, error) {
 	cronService := cronjobs.New(cfg)
 	cronService.SetAgentRunner(serverAgentService)
 	cronService.SetNotifier(notifyService)
+	// 容器自动更新的内置调度条目:开关与计划来自 serveragent 的策略,复用本调度器的站点时区。
+	cronService.RegisterBuiltins(cronjobs.BuiltinTask{
+		Name:     "docker-auto-update",
+		Enabled:  func() bool { return serverAgentService.DockerAutoUpdateEnabled(context.Background()) },
+		Schedule: func() string { return serverAgentService.DockerAutoUpdateSchedule(context.Background()) },
+		Run: func(ctx context.Context) {
+			_, _ = serverAgentService.RunDockerAutoUpdate(ctx, false)
+		},
+	})
+	serverAgentService.SetAutoUpdateScheduleHook(func() {
+		_ = cronService.ReloadBuiltins(context.Background())
+	})
 	uptimeService := uptime.New(cfg, authService, notifyService)
 	uptimeService.SetHeartbeatBroadcaster(serverAgentService.BroadcastUptimeHeartbeat)
 	githubService := githubmodule.New(cfg)
@@ -201,6 +215,11 @@ func newServer(cfg config.Config) (*Server, error) {
 		return nil, fmt.Errorf("initialize assets schema: %w", err)
 	}
 	assetsService.SetNotifier(notifyService)
+	internalCronToken, err := newInternalCronToken()
+	if err != nil {
+		return nil, fmt.Errorf("generate internal cron token: %w", err)
+	}
+	_ = os.Setenv(internalCronTokenEnv, internalCronToken)
 	server := &Server{
 		cfg:         cfg,
 		auth:        authService,
@@ -223,16 +242,13 @@ func newServer(cfg config.Config) (*Server, error) {
 		huawei:      huawei.New(cfg),
 		cf:          cloudflareService,
 		m365:        m365.New(cfg),
-		openai:      openai.New(cfg),
+		modelhub:    modelhub.New(cfg),
 		antigravity: antigravity.New(cfg),
-		opencode:    opencode.New(cfg),
-		ds2api:      ds2api.New(cfg),
 		workbuddy:   workbuddy.New(cfg),
-		geminicli:   geminicli.New(cfg),
-		lobsterai:   lobsterai.New(cfg),
 		emailcode:   emailcode.New(cfg),
-		posthogcode: posthogcode.New(cfg),
 		qoder:       qoder.New(cfg),
+		raccoon:     raccoon.New(cfg),
+		cline:       cline.New(cfg),
 		proxypool:   proxypool.New(cfg),
 		server:      serverAgentService,
 		backup:      backupService,
@@ -245,6 +261,7 @@ func newServer(cfg config.Config) (*Server, error) {
 		aiagent:     aiagentService,
 		assets:      assetsService,
 	}
+	server.internalCronToken = internalCronToken
 	server.onepanel.SetAgentRunner(serverAgentService)
 	server.filebox.SetNodeProvider(serverAgentService)
 	server.filebox.SetAgentFileSource(serverAgentService)
@@ -260,39 +277,30 @@ func newServer(cfg config.Config) (*Server, error) {
 	server.warmupCancel = warmupCancel
 	// 资产到期扫描：每日按站点时区扫描并触发 asset_expiry 通知。
 	server.assets.StartExpiryScheduler(warmupCtx)
-	server.openai.SetNotifier(notifyService)
-	server.posthogcode.SetInbox(server.emailcode)
+	server.modelhub.SetNotifier(notifyService)
 	// 收件箱的可用域名来自 Cloudflare 的收件箱部署记录。
 	server.emailcode.SetDomainProvider(server.cf)
 	// 收件箱 TTL 清理：临时邮箱语义下邮件必须过期消失。
-	server.emailcode.StartCleanup(warmupCtx, 0)
+	server.emailcode.StartCleanup(warmupCtx)
 	// 注入独立代理池选择器：端点配置 proxy_pool_id 时复用插件管理的池与健康数据。
-	server.openai.SetProxyPoolSelector(server.proxypool)
+	server.modelhub.SetProxyPoolSelector(server.proxypool)
 	// Antigravity 插件可引用独立代理池作为出网出口。
 	server.antigravity.SetProxyPoolSelector(server.proxypool)
-	// OpenCode 插件可引用独立代理池作为出网出口。
-	server.opencode.SetProxyPoolSelector(server.proxypool)
-	// OpenCode 插件后台自动发现免费模型并探测可用性（开关由前端控制，关闭时静默跳过）。
-	server.opencode.StartDiscovery(warmupCtx)
 	// Antigravity 插件配额刷新检测：上报事件走统一通知中心。
 	server.antigravity.SetNotifier(notifyService)
-	// DS2API 插件可引用独立代理池作为出网出口。
-	server.ds2api.SetProxyPoolSelector(server.proxypool)
 	// WorkBuddy 插件可引用独立代理池作为出网出口。
 	server.workbuddy.SetProxyPoolSelector(server.proxypool)
-	// Gemini CLI 插件可引用独立代理池作为出网出口。
-	server.geminicli.SetProxyPoolSelector(server.proxypool)
-	// LobsterAI 插件可引用独立代理池作为出网出口。
-	server.lobsterai.SetProxyPoolSelector(server.proxypool)
-	// PostHog Code 插件可引用独立代理池作为出网出口。
-	server.posthogcode.SetProxyPoolSelector(server.proxypool)
 	// Qoder 插件可引用独立代理池作为出网出口。
 	server.qoder.SetProxyPoolSelector(server.proxypool)
-	server.openai.StartWarmup(warmupCtx)
+	// 小浣熊插件可引用独立代理池作为出网出口。
+	server.raccoon.SetProxyPoolSelector(server.proxypool)
+	// Cline / ZCode / AutoClaw 同样可引用独立代理池作为出网出口。
+	server.cline.SetProxyPoolSelector(server.proxypool)
+	server.modelhub.StartWarmup(warmupCtx)
 	// 启动网关健康告警监测（错误率过高/恢复触发通知）。
-	server.openai.StartAlertMonitor(warmupCtx)
+	server.modelhub.StartAlertMonitor(warmupCtx)
 	// 启动上游模型列表每小时自动刷新（后台默认开启，无需前端展示）。
-	server.openai.StartModelAutoRefresh(warmupCtx)
+	server.modelhub.StartModelAutoRefresh(warmupCtx)
 	// 启动 Antigravity 配额刷新检测（开关由前端控制，关闭时后台静默跳过）。
 	server.antigravity.StartQuotaMonitor(warmupCtx)
 	// Antigravity 客户端版本发现：从官方 Hub auto-updater 拉最新版本刷新 UA。
@@ -301,16 +309,9 @@ func newServer(cfg config.Config) (*Server, error) {
 	// Antigravity 插件 access token 自动续期：Google refresh_token 换新 access_token，
 	// 避免过期后直到转发时才暴露 invalid_grant。
 	server.antigravity.StartAutoRefresh(warmupCtx)
-	// 启动两个插件的调用次数定期落盘（重启保留，ctx 取消时补最后一次落盘）。
-	server.ds2api.StartCallStatsFlush(warmupCtx)
+	// 启动插件的调用次数定期落盘（重启保留，ctx 取消时补最后一次落盘）。
 	server.antigravity.StartCallStatsFlush(warmupCtx)
 	server.workbuddy.StartCallStatsFlush(warmupCtx)
-	// Gemini CLI 插件调用次数与用量定期落盘。
-	server.geminicli.StartCallStatsFlush(warmupCtx)
-	// LobsterAI 插件调用次数与用量定期落盘。
-	server.lobsterai.StartCallStatsFlush(warmupCtx)
-	// LobsterAI 插件每日自动签到调度（站点时区 9/21 点，关闭开关时后台静默跳过）。
-	server.lobsterai.StartCheckinScheduler(warmupCtx)
 	// WorkBuddy 插件 access token 自动刷新：定期把即将过期/已过期的账号提前换新，
 	// 避免直到转发时才暴露 token 失效。
 	server.workbuddy.StartAutoRefresh(warmupCtx)
@@ -321,9 +322,6 @@ func newServer(cfg config.Config) (*Server, error) {
 	// WorkBuddy 插件每日自动签到与活跃上报调度（站点时区 9/21 点签到、10 点活跃上报；
 	// 仅国内版账号参与，关闭开关时后台静默跳过）。
 	server.workbuddy.StartCheckinScheduler(warmupCtx)
-	// PostHog Code 插件调用次数定期落盘与 access token 自动刷新。
-	server.posthogcode.StartCallStatsFlush(warmupCtx)
-	server.posthogcode.StartAutoRefresh(warmupCtx)
 	// Qoder 插件调用次数与用量定期落盘、access token 自动刷新、每日自动签到调度。
 	server.qoder.StartCallStatsFlush(warmupCtx)
 	server.qoder.StartAutoRefresh(warmupCtx)
@@ -334,6 +332,23 @@ func newServer(cfg config.Config) (*Server, error) {
 	// 启动时对账已接入端点的 models 列：旧行停在接入时的旧目录，需按当前
 	// 启用名单收敛，否则端点模型列表长期显示过期内容。
 	server.qoder.ReconcileLinkedEndpoint(warmupCtx)
+	// 小浣熊插件：调用次数与用量定期落盘、access token 自动刷新、模型目录动态发现、
+	// 启动时对账已接入端点的 models 列。
+	server.raccoon.StartCallStatsFlush(warmupCtx)
+	server.raccoon.StartAutoRefresh(warmupCtx)
+	server.raccoon.StartModelRefresh(warmupCtx)
+	server.raccoon.StartLoginSweep(warmupCtx)
+	server.raccoon.StartCheckinScheduler(warmupCtx)
+	server.raccoon.ReconcileLinkedEndpoint(warmupCtx)
+	// Cline / ZCode / AutoClaw：调用次数与用量落盘、token 续期、目录刷新、签到、端点对账。
+	server.cline.StartCallStatsFlush(warmupCtx)
+	server.cline.StartAutoRefresh(warmupCtx)
+	server.cline.StartModelRefresh(warmupCtx)
+	server.cline.StartLoginSweep(warmupCtx)
+	server.cline.ReconcileLinkedEndpoint(warmupCtx)
+	// 启动（系统更新/重启）后自动清理一次废弃表：只删规则匹配且不再被使用的表，
+	// 有候选时先备份再 DROP；活跃插件的表已被规则豁免，不会误删。
+	server.settings.StartupCleanupDeprecatedTables(warmupCtx)
 	return server, nil
 }
 
@@ -391,10 +406,6 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	if r.Method == http.MethodOptions {
 		w.WriteHeader(http.StatusNoContent)
-		return
-	}
-
-	if s.serveSystemControlRoute(w, r) {
 		return
 	}
 
@@ -456,57 +467,15 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	s.serveStatic(w, r)
 }
 
-func (s *Server) serveSystemControlRoute(w http.ResponseWriter, r *http.Request) bool {
-	path := r.URL.Path
-	isSessionSystemRoute := path == "/api/system/api-docs" ||
-		path == "/api/openapi.json" ||
-		path == "/api/system/openapi.json" ||
-		strings.HasPrefix(path, "/api/api-keys") ||
-		strings.HasPrefix(path, "/api/system/api-keys") ||
-		path == "/api/ai-access" ||
-		path == "/api/ai-access/key/rotate" ||
-		path == "/api/ai-access/policy" ||
-		path == "/api/ai-access/audit" ||
-		path == "/api/ai-access/audit/clear" ||
-		path == "/api/ai-access/mcp-servers" ||
-		path == "/api/ai-access/skills" ||
-		strings.HasPrefix(path, "/api/ai-access/mcp-servers/") ||
-		strings.HasPrefix(path, "/api/ai-access/skills/") ||
-		path == "/api/system/ai-access" ||
-		path == "/api/system/ai-access/key/rotate" ||
-		path == "/api/system/ai-access/policy" ||
-		path == "/api/system/ai-access/audit" ||
-		path == "/api/system/ai-access/audit/clear" ||
-		path == "/api/system/ai-access/mcp-servers" ||
-		path == "/api/system/ai-access/skills" ||
-		strings.HasPrefix(path, "/api/system/ai-access/mcp-servers/") ||
-		strings.HasPrefix(path, "/api/system/ai-access/skills/")
-	if isSessionSystemRoute {
-		route := manifest.Route{Prefix: path, Module: "system-control", Owner: manifest.OwnerGo, Auth: manifest.AuthSession}
-		if !s.authorizeGoRoute(w, r, route) {
-			return true
-		}
-		s.system.RecordAPICall(r.Method, r.URL.Path)
-		s.system.ServeHTTP(w, r)
-		return true
-	}
-	if path == "/api/ai/manifest" || path == "/api/ai/mcp" {
-		s.system.RecordAPICall(r.Method, r.URL.Path)
-		s.system.ServeHTTP(w, r)
-		return true
-	}
-	return false
-}
-
 func (s *Server) authorizeGoRoute(w http.ResponseWriter, r *http.Request, route manifest.Route) bool {
 	// 本机定时任务内部调用（cronjobs internal 任务）：仅放行登记的内部接口，
 	// 且来源必须是本机回环地址，防止外部伪造 X-Internal-Cron 头绕过会话鉴权。
 	// 方法级校验限制为只读动作（admin-ai cron 回调除外），杜绝无会话写操作。
-	if r.Header.Get("X-Internal-Cron") == "true" && isLoopbackRemoteAddr(r.RemoteAddr) && isInternalCronRoute(r.URL.Path) && s.internalCronAllowsMethod(r) {
+	if isLoopbackRemoteAddr(r.RemoteAddr) && isInternalCronRoute(r.URL.Path) && s.internalCronAllowsMethod(r) && s.internalCronAuthorized(r) {
 		return true
 	}
 	// 仅本机内部调用：网关转发等 loopback 来源免密钥放行，外部一律拒绝。
-	// 适用于插件兼容中继（antigravity/ds2api /v1），避免把独立兼容端点暴露到公网。
+	// 适用于插件兼容中继（antigravity /v1），避免把独立兼容端点暴露到公网。
 	if route.Auth == manifest.AuthInternal {
 		if isLoopbackRemoteAddr(r.RemoteAddr) {
 			return true
@@ -514,8 +483,8 @@ func (s *Server) authorizeGoRoute(w http.ResponseWriter, r *http.Request, route 
 		response.JSON(w, http.StatusForbidden, map[string]interface{}{"success": false, "error": "该接口仅限本机内部调用"})
 		return false
 	}
-	if route.Auth == manifest.AuthAPIKey && (route.Module == "openai-compatible" || route.Module == "anthropic-compatible" || route.Module == "antigravity-compatible" || route.Module == "ds2api-compatible" || route.Module == "workbuddy-compatible") {
-		authorizedRequest, err := s.openai.AuthorizeGatewayRequest(r)
+	if route.Auth == manifest.AuthAPIKey && (route.Module == "openai-compatible" || route.Module == "anthropic-compatible" || route.Module == "antigravity-compatible" || route.Module == "workbuddy-compatible") {
+		authorizedRequest, err := s.modelhub.AuthorizeGatewayRequest(r)
 		if err != nil {
 			response.JSON(w, http.StatusUnauthorized, map[string]interface{}{
 				"error": map[string]string{
@@ -542,7 +511,8 @@ func (s *Server) authorizeGoRoute(w http.ResponseWriter, r *http.Request, route 
 	if r.Method == http.MethodGet && r.URL.Path == "/api/totp/accounts" {
 		pluginAuthorized, err := s.auth.IsPluginToken(r.Context(), r)
 		if err != nil {
-			response.Error(w, http.StatusInternalServerError, err.Error())
+			applog.Error(r.Context(), "server-auth", "plugin token check failed", "error", err)
+			response.Error(w, http.StatusInternalServerError, "服务器内部错误")
 			return false
 		}
 		if pluginAuthorized {
@@ -553,7 +523,8 @@ func (s *Server) authorizeGoRoute(w http.ResponseWriter, r *http.Request, route 
 		write := r.Method != http.MethodGet && r.Method != http.MethodHead && r.Method != http.MethodOptions
 		keyAuthorized, err := s.auth.IsAPIKeyAuthorized(r.Context(), r, write)
 		if err != nil {
-			response.Error(w, http.StatusInternalServerError, err.Error())
+			applog.Error(r.Context(), "server-auth", "api key check failed", "error", err)
+			response.Error(w, http.StatusInternalServerError, "服务器内部错误")
 			return false
 		}
 		if keyAuthorized {
@@ -566,7 +537,8 @@ func (s *Server) authorizeGoRoute(w http.ResponseWriter, r *http.Request, route 
 	}
 	ok, err := s.auth.IsAuthenticated(r.Context(), r)
 	if err != nil {
-		response.Error(w, http.StatusInternalServerError, err.Error())
+		applog.Error(r.Context(), "server-auth", "session check failed", "error", err)
+		response.Error(w, http.StatusInternalServerError, "服务器内部错误")
 		return false
 	}
 	if !ok {
@@ -591,29 +563,47 @@ func apiKeyRequiresSession(path string) bool {
 		"/api/server/remote-desktop",
 		// 插件账号导入导出会明文返回上游 OAuth 凭据（含 refresh token），
 		// 必须强制真实会话，不能由只读 API key 下载。
-		"/api/posthogcode/accounts/export",
-		"/api/posthogcode/accounts/import",
-		"/api/geminicli/accounts/export",
-		"/api/geminicli/accounts/import",
 		"/api/workbuddy/accounts/export",
 		"/api/workbuddy/accounts/import",
-		"/api/lobsterai/accounts/export",
-		"/api/lobsterai/accounts/import",
 		"/api/qoder/accounts/export",
 		"/api/qoder/accounts/import",
+		"/api/raccoon/accounts/export",
+		"/api/raccoon/accounts/import",
+		"/api/cline/accounts/export",
+		"/api/cline/accounts/import",
 		"/api/antigravity/accounts/export",
+		// 主机账号/凭据/Agent 控制面会解密返回 SSH 密码、私钥、passphrase
+		// 与 Agent Key;只读 API key 拿不到这些明文,也不能借 Agent Key 冒充主机。
+		"/api/server/accounts",
+		"/api/server/credentials",
+		"/api/server/agent",
+		// 云厂商账号列表/导出会返回明文 AK/SK、私钥、client secret。
+		"/api/aliyun/accounts",
+		"/api/tencent/accounts",
+		"/api/oracle/accounts",
+		"/api/m365/accounts",
+		"/api/huawei/accounts",
+		"/api/huawei/export/accounts",
+		"/api/gcp/accounts",
+		"/api/cloudflare/accounts",
+		"/api/cloudflare/export/accounts",
 	}
 	for _, prefix := range protectedPrefixes {
 		if path == prefix || strings.HasPrefix(path, prefix+"/") {
 			return true
 		}
 	}
-	protectedSettings := map[string]bool{
-		"/api/settings/database/import":           true,
-		"/api/settings/export-database":           true,
-		"/api/settings/cleanup-deprecated-tables": true,
+	protectedSettings := []string{
+		"/api/settings/database/import",
+		"/api/settings/export-database",
+		"/api/settings/cleanup-deprecated-tables",
 	}
-	return protectedSettings[path]
+	for _, prefix := range protectedSettings {
+		if path == prefix || strings.HasPrefix(path, prefix+"/") {
+			return true
+		}
+	}
+	return false
 }
 
 // isLoopbackRemoteAddr 判断请求来源是否为本机回环地址。
@@ -625,6 +615,39 @@ func isLoopbackRemoteAddr(remoteAddr string) bool {
 	host = strings.Trim(host, "[]")
 	ip := net.ParseIP(host)
 	return ip != nil && ip.IsLoopback()
+}
+
+const (
+	internalCronHeader      = "X-Internal-Cron"
+	internalCronTokenHeader = "X-Internal-Cron-Token"
+	internalCronTokenEnv    = "API_MONITOR_INTERNAL_CRON_TOKEN"
+	internalCronStrictEnv   = "API_MONITOR_INTERNAL_CRON_STRICT"
+)
+
+func newInternalCronToken() (string, error) {
+	buf := make([]byte, 32)
+	if _, err := rand.Read(buf); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(buf), nil
+}
+
+// internalCronAuthorized 校验本机内部调用令牌:优先比对本进程启动时生成的随机
+// token(经 API_MONITOR_INTERNAL_CRON_TOKEN 下发给同进程/子进程调用方),固定
+// 字面量不再作为首选。对暂时无法共享 token 的本机调用方,保留回环地址 + 旧字面量
+// 校验作为兜底(残余风险:反代把外部请求变成回环来源时仍可伪造);把
+// API_MONITOR_INTERNAL_CRON_STRICT 设为 true 即可关闭该兜底,只认随机 token。
+func (s *Server) internalCronAuthorized(r *http.Request) bool {
+	if s.internalCronToken != "" {
+		provided := strings.TrimSpace(r.Header.Get(internalCronTokenHeader))
+		if subtle.ConstantTimeCompare([]byte(provided), []byte(s.internalCronToken)) == 1 {
+			return true
+		}
+	}
+	if strings.EqualFold(strings.TrimSpace(os.Getenv(internalCronStrictEnv)), "true") {
+		return false
+	}
+	return r.Header.Get(internalCronHeader) == "true"
 }
 
 // isInternalCronRoute 判断路径是否为登记的本机定时任务内部接口。
@@ -678,9 +701,8 @@ func (s *Server) internalCronAllowsMethod(r *http.Request) bool {
 var internalCronReadonlyPrefixes = []string{
 	"/api/system",
 	"/api/cloudflare/zones",
-	"/api/openai/analytics",
-	"/api/openai/endpoints",
-	"/api/totp",
+	"/api/modelhub/analytics",
+	"/api/modelhub/endpoints",
 	"/api/notification",
 	"/api/scheduler",
 	"/api/backup",
@@ -806,6 +828,9 @@ func (s *Server) servePublicPageFavicon(w http.ResponseWriter, r *http.Request) 
 		return false
 	}
 	if err != nil || !found {
+		if err != nil {
+			applog.Warn(r.Context(), "server-public-favicon", "resolve public page favicon failed", "error", err)
+		}
 		http.Redirect(w, r, "/logo-default.svg", http.StatusTemporaryRedirect)
 		return true
 	}
@@ -910,7 +935,10 @@ func setStaticCacheHeaders(w http.ResponseWriter, cleanPath string) {
 		// text/plain；浏览器要求 application/manifest+json 才会解析 PWA manifest。
 		w.Header().Set("Content-Type", "application/manifest+json")
 	}
-	if filepath.Base(cleanPath) == "index.html" {
+	// index.html 与 Service Worker 脚本都必须每次回源校验：前者决定引用哪个
+	// hash 资源包，后者决定缓存版本号。任一处被浏览器启发式缓存命中，都会
+	// 让新版本前端在客户端“看起来没生效”（旧 SW 继续分发旧 chunk）。
+	if base := filepath.Base(cleanPath); base == "index.html" || base == "sw.js" {
 		w.Header().Set("Cache-Control", "no-cache")
 		return
 	}
@@ -1013,7 +1041,7 @@ func (s *Server) applySecurityHeaders(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
 	w.Header().Set("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
-	if s.cfg.IsProduction() {
+	if s.cfg.IsProduction() || s.requestIsHTTPS(r) {
 		w.Header().Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
 	}
 	if isGatewayRoute(r.URL.Path) {
@@ -1049,15 +1077,12 @@ func (s *Server) applySecurityHeaders(w http.ResponseWriter, r *http.Request) {
 		w.Header().Add("Vary", "Origin")
 		return
 	}
-	for _, allowed := range s.cfg.CORSAllowedOrigins {
-		if origin != "" && origin == allowed {
-			w.Header().Set("Access-Control-Allow-Origin", origin)
-			w.Header().Set("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS")
-			w.Header().Set("Access-Control-Allow-Headers", allowHeadersAgent)
-			w.Header().Set("Access-Control-Max-Age", "7200")
-			w.Header().Add("Vary", "Origin")
-			break
-		}
+	if origin != "" && originpkg.AllowedByConfig(s.cfg.CORSAllowedOrigins, origin) {
+		w.Header().Set("Access-Control-Allow-Origin", origin)
+		w.Header().Set("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", allowHeadersAgent)
+		w.Header().Set("Access-Control-Max-Age", "7200")
+		w.Header().Add("Vary", "Origin")
 	}
 }
 
@@ -1115,12 +1140,48 @@ func (s *Server) originAllowedByConfig(origin string) bool {
 }
 
 func (s *Server) originCheckHost(r *http.Request) string {
-	if s.trustForwardedHost(r) {
+	if s.trustForwardedHost(r) && isInternalHostPort(r.Host) {
 		if forwarded := firstForwardedValue(r.Header.Get("X-Forwarded-Host")); forwarded != "" {
 			return forwarded
 		}
 	}
 	return r.Host
+}
+
+// isInternalHostPort 判断 Host 是否为回环/私有地址(带或不带端口)。
+// 仅当后端看到的 Host 本身就是内部地址(反向代理未回写公网 Host)时,
+// 才允许用 X-Forwarded-Host 参与同源判定;否则一律以 Host 为准,
+// 避免客户端注入 X-Forwarded-Host 绕过 CSRF 同源校验。
+func isInternalHostPort(hostPort string) bool {
+	host := strings.TrimSpace(hostPort)
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		host = h
+	}
+	host = strings.Trim(host, "[]")
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return false
+	}
+	return ip.IsLoopback() || ip.IsPrivate()
+}
+
+// requestIsHTTPS 判断请求是否来自 HTTPS(含受信反向代理注入的 X-Forwarded-Proto)。
+// HSTS 只应在 HTTPS 响应上下发;开发环境经 nginx/Cloudflare 终止 TLS 时同样需要,
+// 否则浏览器永远收不到 HSTS。明文直连因不带该头而不会误发。
+func (s *Server) requestIsHTTPS(r *http.Request) bool {
+	if r == nil {
+		return false
+	}
+	if r.TLS != nil {
+		return true
+	}
+	if s.trustForwardedHost(r) && strings.EqualFold(firstForwardedValue(r.Header.Get("X-Forwarded-Proto")), "https") {
+		return true
+	}
+	return false
 }
 
 func (s *Server) trustForwardedHost(r *http.Request) bool {
@@ -1209,37 +1270,38 @@ func (s *Server) serveV1Route(w http.ResponseWriter, r *http.Request) {
 
 	// 2. Completions endpoint
 	if method == http.MethodPost && path == "/v1/chat/completions" {
-		s.openai.ServeHTTP(w, r)
+		s.modelhub.ServeHTTP(w, r)
 		return
 	}
 
 	// 3. Responses endpoint（OpenAI Responses API，/v1/responses）
 	if method == http.MethodPost && path == "/v1/responses" {
-		s.openai.ServeHTTP(w, r)
+		s.modelhub.ServeHTTP(w, r)
 		return
 	}
 
 	// 4. Anthropic Messages endpoint（/v1/messages）
 	if method == http.MethodPost && path == "/v1/messages" {
-		s.openai.ServeHTTP(w, r)
+		s.modelhub.ServeHTTP(w, r)
 		return
 	}
 
 	response.Error(w, http.StatusNotFound, "v1 endpoint not found")
-	s.openai.RecordAnalytics(r.Context(), strings.TrimPrefix(path, "/v1/"), "", "", http.StatusNotFound, time.Since(startedAt).Milliseconds(), 0, 0, 0, 0, 0, 0, 0, clientIP, "")
+	s.modelhub.RecordAnalytics(r.Context(), strings.TrimPrefix(path, "/v1/"), "", "", http.StatusNotFound, time.Since(startedAt).Milliseconds(), 0, 0, 0, 0, 0, 0, 0, clientIP, "")
 }
 
 func (s *Server) serveV1Models(w http.ResponseWriter, r *http.Request) int {
 	ctx := r.Context()
 	var mergedModels []map[string]interface{}
 
-	if oaiModels, err := s.openai.GetModelsList(ctx, true); err == nil {
+	if oaiModels, err := s.modelhub.GetModelsList(ctx, true); err == nil {
 		mergedModels = append(mergedModels, oaiModels...)
 	} else {
-		response.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		applog.Error(ctx, "server-gateway", "list models failed", "error", err)
+		response.JSON(w, http.StatusInternalServerError, map[string]string{"error": "服务器内部错误"})
 		return http.StatusInternalServerError
 	}
-	mergedModels = s.openai.FilterModelsListByKey(ctx, mergedModels)
+	mergedModels = s.modelhub.FilterModelsListByKey(ctx, mergedModels)
 
 	sort.Slice(mergedModels, func(i, j int) bool {
 		idI, _ := mergedModels[i]["id"].(string)

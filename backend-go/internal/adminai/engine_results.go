@@ -18,13 +18,13 @@ func summarizeToolResult(v interface{}) string {
 		return ""
 	}
 	if s, ok := v.(string); ok {
-		return truncateContent(s)
+		return sanitizeExternalData(truncateContent(s))
 	}
 	text := toJSONText(v)
 	if len(text) > contentSizeLimit {
-		return trimToolJSON(v)
+		return sanitizeExternalData(trimToolJSON(v))
 	}
-	return text
+	return sanitizeExternalData(text)
 }
 
 // trimToolJSON 把超长 JSON 结果压到 contentSizeLimit×3/4 预算内（Anthropic 工具
@@ -95,6 +95,86 @@ func compactToolEntry(v interface{}) interface{} {
 		out["_truncated"] = "该条大量字段已省略"
 	}
 	return out
+}
+
+// sanitizeExternalData 清洗进入模型上下文的外部来源文本(工具结果/长期记忆/@ 引用快照):
+// 剥离不可见控制字符,避免外部系统或低权限用户写入的内容借控制符夹带指令
+// (提示注入)。可见文本与换行/制表符保持不变,不改动语义。
+func sanitizeExternalData(s string) string {
+	if s == "" {
+		return s
+	}
+	dirty := false
+	for _, r := range s {
+		if r != '\n' && r != '\t' && r < 0x20 {
+			dirty = true
+			break
+		}
+	}
+	if !dirty {
+		return s
+	}
+	var sb strings.Builder
+	sb.Grow(len(s))
+	for _, r := range s {
+		if r == '\n' || r == '\t' || r >= 0x20 {
+			sb.WriteRune(r)
+		}
+	}
+	return sb.String()
+}
+
+// sensitiveJSONKeys 是落库/回显前必须打码的敏感字段名(小写比较)。
+var sensitiveJSONKeys = map[string]bool{
+	"password": true, "passwd": true, "pwd": true,
+	"token": true, "access_token": true, "refresh_token": true,
+	"secret": true, "client_secret": true, "clientsecret": true,
+	"apikey": true, "api_key": true, "authorization": true, "cookie": true,
+	"private_key": true, "bottoken": true, "bot_token": true,
+	"agentkey": true, "agent_key": true,
+}
+
+// redactSensitiveJSON 对 JSON 文本中命中敏感键名的值打码(递归,保留结构);
+// 非法 JSON 原样返回。用于避免凭据/密钥以明文落入审计表并经查询接口回显。
+func redactSensitiveJSON(text string) string {
+	if strings.TrimSpace(text) == "" {
+		return text
+	}
+	var v interface{}
+	if err := json.Unmarshal([]byte(text), &v); err != nil {
+		return text
+	}
+	if !redactJSONValue(v) {
+		return text
+	}
+	if b, err := json.Marshal(v); err == nil {
+		return string(b)
+	}
+	return text
+}
+
+func redactJSONValue(v interface{}) bool {
+	changed := false
+	switch t := v.(type) {
+	case map[string]interface{}:
+		for k, val := range t {
+			if sensitiveJSONKeys[strings.ToLower(strings.TrimSpace(k))] {
+				t[k] = "****"
+				changed = true
+				continue
+			}
+			if redactJSONValue(val) {
+				changed = true
+			}
+		}
+	case []interface{}:
+		for i := range t {
+			if redactJSONValue(t[i]) {
+				changed = true
+			}
+		}
+	}
+	return changed
 }
 
 // toJSONText 尽力把任意值序列化为 JSON，失败时回退 fmt 文本。

@@ -8,7 +8,10 @@ import (
 	"time"
 )
 
-const statusHeartbeatInterval = 5 * time.Second
+const (
+	statusHeartbeatInterval = 5 * time.Second
+	maxStatusSubscribers    = 64
+)
 
 type statusHub struct {
 	mu          sync.Mutex
@@ -19,16 +22,19 @@ func newStatusHub() *statusHub {
 	return &statusHub{subscribers: make(map[chan struct{}]struct{})}
 }
 
-func (h *statusHub) subscribe() (chan struct{}, func()) {
-	ch := make(chan struct{}, 1)
+func (h *statusHub) subscribe() (chan struct{}, func(), bool) {
 	h.mu.Lock()
+	defer h.mu.Unlock()
+	if len(h.subscribers) >= maxStatusSubscribers {
+		return nil, func() {}, false
+	}
+	ch := make(chan struct{}, 1)
 	h.subscribers[ch] = struct{}{}
-	h.mu.Unlock()
 	return ch, func() {
 		h.mu.Lock()
 		delete(h.subscribers, ch)
 		h.mu.Unlock()
-	}
+	}, true
 }
 
 func (h *statusHub) broadcast() {
@@ -51,7 +57,7 @@ func (s *Service) runStatusBroadcastLoop() {
 	for {
 		select {
 		case <-ticker.C:
-			s.statusHub.broadcast()
+			s.guardBackground("status-broadcast", s.statusHub.broadcast)
 		case <-s.stopChan:
 			return
 		}
@@ -61,7 +67,11 @@ func (s *Service) runStatusBroadcastLoop() {
 // serveStatusStream 以 SSE 推送系统运行状态心跳。后端停止时连接断开，
 // 前端据此标记离线；后端恢复后浏览器自动重连并恢复在线。
 func (s *Service) serveStatusStream(w http.ResponseWriter, r *http.Request) {
-	ch, unsubscribe := s.statusHub.subscribe()
+	ch, unsubscribe, ok := s.statusHub.subscribe()
+	if !ok {
+		http.Error(w, "too many status subscribers", http.StatusServiceUnavailable)
+		return
+	}
 	defer unsubscribe()
 
 	flusher, ok := w.(http.Flusher)
@@ -73,33 +83,41 @@ func (s *Service) serveStatusStream(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no")
 
 	rc := http.NewResponseController(w)
 	renewDeadline := func() {
 		_ = rc.SetWriteDeadline(time.Now().Add(10 * time.Minute))
 	}
 
-	writeHeartbeat := func() {
+	writeHeartbeat := func() bool {
 		payload, err := json.Marshal(map[string]interface{}{
 			"status": "ok",
 			"ts":     time.Now().UnixMilli(),
 		})
 		if err != nil {
-			return
+			return false
 		}
-		_, _ = fmt.Fprintf(w, "event: heartbeat\ndata: %s\n\n", payload)
+		if _, err := fmt.Fprintf(w, "event: heartbeat\ndata: %s\n\n", payload); err != nil {
+			return false
+		}
 		renewDeadline()
 		flusher.Flush()
+		return true
 	}
 
-	writeHeartbeat()
+	if !writeHeartbeat() {
+		return
+	}
 
 	for {
 		select {
 		case <-r.Context().Done():
 			return
 		case <-ch:
-			writeHeartbeat()
+			if !writeHeartbeat() {
+				return
+			}
 		}
 	}
 }

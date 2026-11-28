@@ -14,8 +14,10 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
+	"github.com/iwvw/api-monitor/backend-go/internal/applog"
 	"github.com/iwvw/api-monitor/backend-go/internal/config"
 	"github.com/iwvw/api-monitor/backend-go/internal/database"
 	"github.com/iwvw/api-monitor/backend-go/internal/response"
@@ -256,6 +258,7 @@ func (s *Service) exportAccounts(w http.ResponseWriter, r *http.Request) {
 		response.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	applog.Warn(r.Context(), "koyeb", "account credentials exported in plaintext", "count", len(accounts), "remote", r.RemoteAddr)
 	response.JSON(w, http.StatusOK, map[string]interface{}{"success": true, "accounts": accounts})
 }
 
@@ -1060,10 +1063,19 @@ func (s *Service) fetchAccountData(ctx context.Context, token string) (map[strin
 	if len(profile) == 0 {
 		profile = map[string]interface{}{"id": "unknown", "name": "Koyeb User", "email": ""}
 	}
-	projects := make([]map[string]interface{}, 0, len(apps))
-	for _, app := range apps {
-		projects = append(projects, s.fetchAppProject(ctx, token, app))
+	projects := make([]map[string]interface{}, len(apps))
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, 4)
+	for i, app := range apps {
+		wg.Add(1)
+		go func(idx int, entry map[string]interface{}) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			projects[idx] = s.fetchAppProject(ctx, token, entry)
+		}(i, app)
 	}
+	wg.Wait()
 	return map[string]interface{}{
 		"user": map[string]interface{}{
 			"_id":      firstNonNil(profile["id"], organization["id"]),

@@ -27,15 +27,6 @@ const normalizeToast = (type, messageOrOptions, options = {}) => {
 };
 
 const addToast = (type, messageOrOptions, options) => {
-  if (type === 'info') {
-    const source =
-      typeof messageOrOptions === 'object' && messageOrOptions !== null
-        ? messageOrOptions
-        : options;
-
-    if (!source?.isManual) return null;
-  }
-
   return kumoToastManager.add(normalizeToast(type, messageOrOptions, options));
 };
 

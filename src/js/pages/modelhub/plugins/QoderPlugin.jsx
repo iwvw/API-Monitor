@@ -1,0 +1,1666 @@
+import { useEffect, useRef, useState } from 'react';
+import { Button, Switch, Loader, Dialog, Input, Textarea, Badge, Table, Toolbar, Select, Popover } from '@cloudflare/kumo';
+import { SectionCard, FieldRow, EmptyState, AppTable } from '../../../components/ui/AppPrimitives.jsx';
+import { Rocket, Users, Layers, TrendingUp, RefreshCw, Plus, Trash, Edit, Clock, Upload, Download, QoderBrand } from '../../../components/Icons.jsx';
+import { toast } from '../../../modules/toast.js';
+import { dialog } from '../../../modules/dialog.js';
+import { getAuthHeaders, formatCompact } from '../utils.js';
+
+const API = '/api/qoder';
+
+// readJSONOrThrow 读取接口响应。后端旧版本缺少某个子接口时会返回 404/405，
+// 直接抛 "method not allowed" 无从下手；这里补一句「请重启后端」，指向真实原因。
+const readJSONOrThrow = async (res, fallback) => {
+  let data = null;
+  try {
+    data = await res.json();
+  } catch {
+    /* 非 JSON 响应（如网关错误页） */
+  }
+  if (res.ok && data?.success) return data;
+  const raw = data?.error || data?.message || '';
+  if (res.status === 404 || res.status === 405) {
+    throw new Error(`${raw || fallback}（后端可能是旧版本，请重启后端服务后重试）`);
+  }
+  throw new Error(raw || fallback);
+};
+
+const POLL_INTERVAL_MS = 2000;
+
+const fmtLeft = seconds => {
+  const left = Number(seconds) || 0;
+  if (left <= 0) return '';
+  const h = Math.floor(left / 3600);
+  const m = Math.floor((left % 3600) / 60);
+  return h > 0 ? `${h}h${m}m` : `${Math.max(1, m)}m`;
+};
+
+// fmtCredits 积分可能为小数，按量级保留 0~1 位。
+const fmtCredits = value => {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return '—';
+  if (n >= 100) return n.toFixed(0);
+  if (n >= 1) return n.toFixed(1);
+  return n.toFixed(2);
+};
+
+const tokenStateMeta = state => {
+  switch (state) {
+    case 'valid':
+      return { variant: 'success', label: '正常' };
+    case 'expiring':
+      return { variant: 'warning', label: '即将过期' };
+    case 'expired':
+      return { variant: 'danger', label: '已过期' };
+    default:
+      return { variant: 'neutral', label: '未知' };
+  }
+};
+
+const fmtTokens = v => formatCompact(Number(v) || 0);
+const fmtRate = r => {
+  const n = Number(r);
+  if (!Number.isFinite(n) || n <= 0) return '—';
+  return `${(n * 100).toFixed(1)}%`;
+};
+
+const QODER_ACCOUNT_COLUMNS = [
+  { id: 'enabled', role: 'control' },
+  { id: 'region', role: 'type' },
+  { id: 'account', role: 'primary', grow: 1 },
+  { id: 'credits', role: 'meta', align: 'center' },
+  { id: 'checkin', role: 'meta', align: 'center' },
+  { id: 'streak', role: 'meta', align: 'center' },
+  { id: 'calls', role: 'count', align: 'center' },
+  { id: 'token', role: 'status' },
+  { id: 'actions', role: 'actions-lg' },
+];
+
+const QODER_USAGE_ACCOUNT_COLUMNS = [
+  { id: 'account', role: 'primary', grow: 1 },
+  { id: 'calls', role: 'count', align: 'center' },
+  { id: 'prompt', role: 'count', align: 'center' },
+  { id: 'completion', role: 'count', align: 'center' },
+  { id: 'cached', role: 'count', align: 'center' },
+];
+
+const QODER_USAGE_MODEL_COLUMNS = [
+  { id: 'model', role: 'primary', grow: 1 },
+  { id: 'calls', role: 'count', align: 'center' },
+  { id: 'prompt', role: 'count', align: 'center' },
+  { id: 'completion', role: 'count', align: 'center' },
+  { id: 'cached', role: 'count', align: 'center' },
+];
+
+const QODER_MODEL_COLUMNS = [
+  { id: 'enabled', role: 'control' },
+  { id: 'region', role: 'type' },
+  { id: 'model', role: 'primary', grow: 1 },
+  { id: 'context', role: 'meta', align: 'center' },
+  { id: 'thinking', role: 'meta', align: 'center' },
+  { id: 'multiplier', role: 'meta', align: 'center' },
+];
+
+// modelRegionMeta 依据后端下发的 regions 给出区域徽标。
+const modelRegionMeta = m => {
+  const regions = m?.regions || [];
+  const hasCN = regions.includes('cn');
+  const hasIntl = regions.includes('intl');
+  if (hasCN && hasIntl) return { variant: 'neutral', label: '通用', title: '国内版与国际版均提供' };
+  if (hasIntl) return { variant: 'purple', label: '国际', title: '仅国际版提供' };
+  return { variant: 'blue', label: '国内', title: '仅国内版提供' };
+};
+
+// fmtTokenWindow 把 token 数渲染成 200K / 1M。
+const fmtTokenWindow = n => {
+  const v = Number(n) || 0;
+  if (v <= 0) return '—';
+  if (v >= 1000000 && v % 1000000 === 0) return `${v / 1000000}M`;
+  if (v % 1000 === 0) return `${v / 1000}K`;
+  return String(v);
+};
+
+// contextMeta 生成上下文列：显示最大档位，悬浮列出全部可选档位。
+const contextMeta = m => {
+  const windows = m?.contextWindows || [];
+  if (!windows.length) return { label: '—', title: '上游未声明上下文档位' };
+  const max = windows[windows.length - 1];
+  const all = windows.map(fmtTokenWindow).join(' / ');
+  return { label: fmtTokenWindow(max), title: `可选上下文档位：${all}` };
+};
+
+// thinkingMeta 生成思考列：档位数量 + 是否可关闭，悬浮列出档位。
+const thinkingMeta = m => {
+  const t = m?.thinking;
+  if (!t) {
+    return m?.isReasoning
+      ? { label: '推理', title: '上游标记为推理模型，但未提供档位（只能开关）' }
+      : { label: '—', title: '该模型不支持思考' };
+  }
+  const efforts = t.efforts || [];
+  if (!efforts.length) {
+    return { label: '开关', title: t.canDisable ? '仅支持开关思考，无可调档位' : '思考恒开，无档位' };
+  }
+  const detail = `档位：${efforts.join(' / ')}（默认 ${t.defaultEffort || efforts[efforts.length - 1]}）`;
+  const toggle = t.canDisable ? '可关闭' : '不可关闭';
+  return { label: `${efforts.length} 档`, title: `${detail} · ${toggle}` };
+};
+
+// fmtMultiplier 格式化上游积分倍率（price_factor，Qoder 计费体系内的相对倍数）。
+// 优先显示当前生效倍率（后端已按上游 promotion 规则裁决）；折扣中额外标「低峰」。
+const fmtMultiplier = m => {
+  if (!m?.creditsParsed) return '—';
+  if (m.free) return '免费';
+  const v = m.offPeak ? m.effectiveMultiplier : m.creditsMultiplier;
+  return `x${Number(v).toFixed(2)}`;
+};
+
+// multiplierTitle 生成倍率列的悬浮说明：标准价 / 折后价 / 窗口 / 来源 / 原价。
+const multiplierTitle = m => {
+  if (!m?.creditsParsed) return '上游未提供倍率';
+  const parts = [];
+  const promo = m.promotion;
+  if (m.free) {
+    parts.push('上游标记为免费');
+    if (Number(m.originalMultiplier) > 0 && Number(m.originalMultiplier) !== Number(m.creditsMultiplier)) {
+      parts.push(`原价 x${Number(m.originalMultiplier).toFixed(2)}`);
+    }
+  } else if (promo && Number(promo.discount) > 0) {
+    const std = Number(promo.standard || m.creditsMultiplier).toFixed(2);
+    const off = (Number(promo.standard || m.creditsMultiplier) * Number(promo.discount)).toFixed(2);
+    parts.push(`标准 x${std}，${promo.badge || '错峰'} x${off}`);
+    const win = promo.windowStart && promo.windowEnd ? `${promo.windowStart}–${promo.windowEnd}` : '';
+    if (win) parts.push(`${win}${promo.timezone ? ` (${promo.timezone})` : ''} 自动折扣`);
+    if (m.offPeak) parts.push('当前生效中');
+  } else {
+    parts.push('上游 price_factor（相对倍数）');
+  }
+  parts.push(m.priceSource === 'live' ? '实时取自上游模型目录' : '内置兜底值（上游目录未拉取成功）');
+  return parts.join(' · ');
+};
+
+// QoderPlugin：模型网关「插件中心」卡片——Qoder 反代。
+// 通过设备登录授权后，插件把 Qoder 上游包装成 OpenAI 兼容端点，
+// 可一键接入网关端点列表；并支持每日自动签到（领取每日 100 Credits）与余额检测。
+export function QoderPlugin() {
+  const fileInputRef = useRef(null);
+  const [settings, setSettings] = useState(null);
+  const [status, setStatus] = useState(null);
+  const [accounts, setAccounts] = useState([]);
+  const [models, setModels] = useState([]);
+  const [modelsReady, setModelsReady] = useState(true);
+  const [linkState, setLinkState] = useState(null);
+  const [usage, setUsage] = useState(null);
+  const [usageDays, setUsageDays] = useState(7);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [prefixDraft, setPrefixDraft] = useState(null);
+  const [busyAccount, setBusyAccount] = useState('');
+  const [linkBusy, setLinkBusy] = useState(false);
+  const [checkinBusy, setCheckinBusy] = useState(false);
+  const [editAccount, setEditAccount] = useState(null);
+  const [editName, setEditName] = useState('');
+  const [editRegion, setEditRegion] = useState('cn');
+  const [editFingerprint, setEditFingerprint] = useState('');
+  const [editFingerprintErr, setEditFingerprintErr] = useState('');
+  const [clearFingerprint, setClearFingerprint] = useState(false);
+  const [timesDraft, setTimesDraft] = useState(null);
+  const [refreshBusy, setRefreshBusy] = useState(false);
+  const [quotaAccount, setQuotaAccount] = useState(null);
+  const quotaSeqRef = useRef(0);
+  const settingsSeqRef = useRef(0);
+  const [quotaData, setQuotaData] = useState(null);
+  const [quotaBusy, setQuotaBusy] = useState(false);
+  const [historyAccount, setHistoryAccount] = useState(null);
+  const historySeqRef = useRef(0);
+  const [historyData, setHistoryData] = useState(null);
+  const [historyBusy, setHistoryBusy] = useState(false);
+  const [loginOpen, setLoginOpen] = useState(false);
+  const [loginRegion, setLoginRegion] = useState('cn');
+  const [login, setLogin] = useState({ phase: 'idle', state: '', url: '', error: '' });
+
+  const load = async () => {
+    try {
+      const res = await fetch(`${API}/settings`, { headers: getAuthHeaders() });
+      const data = await res.json();
+      if (!res.ok || !data?.success) throw new Error(data?.error || '加载失败');
+      setSettings(data.settings);
+      setAccounts(data.settings?.accounts || []);
+    } catch (e) {
+      toast.error(`插件设置加载失败：${e.message}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const loadStatus = async () => {
+    try {
+      const res = await fetch(`${API}/status`, { headers: getAuthHeaders() });
+      const data = await res.json();
+      if (res.ok) setStatus(data);
+    } catch {
+      setStatus(null);
+    }
+  };
+
+  const loadAccounts = async () => {
+    try {
+      const res = await fetch(`${API}/accounts`, { headers: getAuthHeaders() });
+      const data = await res.json();
+      if (res.ok && data?.success) setAccounts(data.accounts || []);
+    } catch {
+      /* 保留上一次列表 */
+    }
+  };
+
+  const loadModels = async () => {
+    try {
+      const res = await fetch(`${API}/models`, { headers: getAuthHeaders() });
+      const data = await res.json();
+      if (res.ok && data?.success) {
+        setModels(data.models || []);
+        setModelsReady(!!data.upstreamReady);
+      }
+    } catch {
+      /* 保留上一次列表 */
+    }
+  };
+
+  const loadUsage = async () => {
+    try {
+      const res = await fetch(`${API}/usage?days=${usageDays}`, { headers: getAuthHeaders() });
+      const data = await res.json();
+      if (res.ok && data?.success) setUsage(data);
+    } catch {
+      /* 保留上一次数据 */
+    }
+  };
+
+  const loadLink = async () => {
+    try {
+      const res = await fetch(`${API}/link`, { headers: getAuthHeaders() });
+      const data = await res.json();
+      if (res.ok) setLinkState(data);
+    } catch {
+      setLinkState(null);
+    }
+  };
+
+  useEffect(() => {
+    load();
+    loadStatus();
+    loadModels();
+    loadLink();
+  }, []);
+
+  useEffect(() => {
+    loadUsage();
+  }, [usageDays]);
+
+  const refreshAll = async () => {
+    setRefreshing(true);
+    try {
+      await Promise.all([loadStatus(), loadAccounts(), loadModels(), loadLink(), loadUsage()]);
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!loginOpen || !login.state || login.phase === 'success') return undefined;
+    const controller = new AbortController();
+    const timer = setInterval(async () => {
+      try {
+        const res = await fetch(`${API}/login/poll`, {
+          method: 'POST',
+          headers: getAuthHeaders(),
+          body: JSON.stringify({ state: login.state }),
+          signal: controller.signal,
+        });
+        const data = await res.json();
+        if (!res.ok || !data?.success) throw new Error(data?.error || '轮询失败');
+        if (data.status === 'success') {
+          setLogin(prev => ({ ...prev, phase: 'success', error: '' }));
+          toast.success('Qoder 登录成功');
+          await Promise.all([loadAccounts(), loadStatus(), loadModels()]);
+          setLoginOpen(false);
+        }
+      } catch (e) {
+        if (e?.name === 'AbortError') return;
+        setLogin(prev => (prev.phase === 'success' ? prev : { ...prev, phase: 'error', error: e.message }));
+      }
+    }, POLL_INTERVAL_MS);
+    return () => {
+      clearInterval(timer);
+      controller.abort();
+    };
+  }, [loginOpen, login.state, login.phase]);
+
+  const startLogin = async (region = loginRegion) => {
+    setLogin({ phase: 'loading', state: '', url: '', error: '' });
+    try {
+      const res = await fetch(`${API}/login/start`, {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ region }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data?.success) throw new Error(data?.error || '发起登录失败');
+      setLogin({ phase: 'waiting', state: data.state, url: data.url, error: '' });
+      if (data.url) window.open(data.url, '_blank', 'noopener,noreferrer');
+    } catch (e) {
+      setLogin({ phase: 'error', state: '', url: '', error: e.message });
+    }
+  };
+
+  // openLogin 只打开弹窗，**不**立即发起授权：授权页会新开标签并跳转，
+  // 若在点「添加账号」时就跳，用户还没选区域就已经被带去默认区域的登录页。
+  // 真正发起授权放在「选择区域」这一步（也是用户手势，不会触发弹窗拦截）。
+  const openLogin = () => {
+    setLoginOpen(true);
+    setLogin({ phase: 'idle', state: '', url: '', error: '' });
+  };
+
+  const chooseLoginRegion = region => {
+    setLoginRegion(region);
+    if (login.phase === 'success' || login.phase === 'loading') return;
+    void startLogin(region);
+  };
+
+  const handleLoginOpenChange = next => {
+    setLoginOpen(next);
+    if (!next) setLogin({ phase: 'idle', state: '', url: '', error: '' });
+  };
+
+  const save = async (next, msg = '设置已保存', snapshot) => {
+    if (!next) {
+      toast.error('插件设置尚未加载,无法保存');
+      return false;
+    }
+    const seq = ++settingsSeqRef.current;
+    setSaving(true);
+    try {
+      const res = await fetch(`${API}/settings`, {
+        method: 'PUT',
+        headers: getAuthHeaders(),
+        body: JSON.stringify(next),
+      });
+      const data = await res.json();
+      if (!res.ok || !data?.success) throw new Error(data?.error || '保存失败');
+      if (seq === settingsSeqRef.current) setSettings(data.settings);
+      toast.success(msg);
+      return true;
+    } catch (e) {
+      if (seq === settingsSeqRef.current) {
+        if (snapshot !== undefined) setSettings(snapshot);
+        toast.error(`保存失败：${e.message}`);
+      }
+      return false;
+    } finally {
+      if (seq === settingsSeqRef.current) setSaving(false);
+    }
+  };
+
+  const update = (patch, silent = false) => {
+    if (!settings) {
+      toast.error('插件设置尚未加载,暂不能修改');
+      return;
+    }
+    const snapshot = settings;
+    const next = { ...settings, ...patch };
+    setSettings(next);
+    if (!silent) void save(next, '设置已保存', snapshot);
+  };
+
+  const commitModelPrefix = () => {
+    const v = String(prefixDraft ?? '').trim();
+    setPrefixDraft(null);
+    if (v !== (settings?.modelPrefix || '')) update({ modelPrefix: v });
+  };
+
+  // 启用开关:先落库设置,成功后再接入/移除网关端点。
+  const toggleEnabled = async enabled => {
+    if (!settings) {
+      toast.error('插件设置尚未加载,暂不能修改');
+      return;
+    }
+    const ok = await save({ ...settings, enabled }, '设置已保存', settings);
+    if (ok) await linkPlugin(enabled ? 'link' : 'unlink');
+  };
+
+  const toggleAccount = async (account, enabled) => {
+    setBusyAccount(account.id);
+    try {
+      const res = await fetch(`${API}/accounts/${encodeURIComponent(account.id)}/toggle`, {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ disabled: !enabled }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data?.success) throw new Error(data?.error || '操作失败');
+      toast.success(enabled ? '账号已启用' : '账号已停用');
+      await Promise.all([loadAccounts(), loadStatus()]);
+    } catch (e) {
+      toast.error(e.message);
+    } finally {
+      setBusyAccount('');
+    }
+  };
+
+  const deleteAccount = async account => {
+    if (!(await dialog.deleteResource({ message: `确定删除账号 ${account.id} 吗?该账号凭据将从本机移除。` }))) return;
+    try {
+      const res = await fetch(`${API}/accounts/${encodeURIComponent(account.id)}`, {
+        method: 'DELETE',
+        headers: getAuthHeaders(),
+      });
+      const data = await res.json();
+      if (!res.ok || !data?.success) throw new Error(data?.error || '删除失败');
+      toast.success('账号已删除');
+      await Promise.all([loadAccounts(), loadStatus()]);
+    } catch (e) {
+      toast.error(`删除失败：${e.message}`);
+    }
+  };
+
+  const checkinAccount = async account => {
+    setBusyAccount(account.id);
+    try {
+      const res = await fetch(`${API}/accounts/${encodeURIComponent(account.id)}/checkin`, {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: '{}',
+      });
+      const data = await res.json();
+      if (!res.ok || !data?.success) throw new Error(data?.error || '签到失败');
+      const result = data.result || {};
+      if (result.status === 'success' || result.status === 'already') {
+        toast.success(result.message || '签到成功');
+      } else if (result.status === 'need_fingerprint') {
+        toast.warning(result.message);
+      } else {
+        toast.warning(result.message || '本次没有可领取的签到');
+      }
+      await Promise.all([loadAccounts(), loadStatus()]);
+    } catch (e) {
+      toast.error(`签到失败：${e.message}`);
+    } finally {
+      setBusyAccount('');
+    }
+  };
+
+  const checkinAll = async () => {
+    setCheckinBusy(true);
+    try {
+      const res = await fetch(`${API}/checkin`, {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: '{}',
+      });
+      const data = await res.json();
+      if (!res.ok || !data?.success) throw new Error(data?.error || '签到失败');
+      const results = data.results || [];
+      const ok = results.filter(r => r.success).length;
+      toast.success(`已对 ${ok}/${results.length} 个账号执行签到`);
+      await Promise.all([loadAccounts(), loadStatus()]);
+    } catch (e) {
+      toast.error(`签到失败：${e.message}`);
+    } finally {
+      setCheckinBusy(false);
+    }
+  };
+
+  const openQuota = async account => {
+    setQuotaAccount(account);
+    setQuotaData(null);
+    setQuotaBusy(true);
+    const seq = ++quotaSeqRef.current;
+    try {
+      const res = await fetch(`${API}/accounts/${encodeURIComponent(account.id)}/quota`, {
+        headers: getAuthHeaders(),
+      });
+      const data = await res.json();
+      if (seq !== quotaSeqRef.current) return;
+      if (!res.ok || !data?.success) throw new Error(data?.error || '查询失败');
+      setQuotaData(data);
+    } catch (e) {
+      if (seq === quotaSeqRef.current) toast.error(`余额查询失败：${e.message}`);
+    } finally {
+      if (seq === quotaSeqRef.current) setQuotaBusy(false);
+    }
+  };
+
+  const openHistory = async account => {
+    setHistoryAccount(account);
+    setHistoryData(null);
+    setHistoryBusy(true);
+    const seq = ++historySeqRef.current;
+    try {
+      const res = await fetch(`${API}/accounts/${encodeURIComponent(account.id)}/checkin-history`, {
+        headers: getAuthHeaders(),
+      });
+      const data = await res.json();
+      if (seq !== historySeqRef.current) return;
+      if (!res.ok || !data?.success) throw new Error(data?.error || '查询失败');
+      setHistoryData(data);
+    } catch (e) {
+      if (seq === historySeqRef.current) toast.error(`签到历史加载失败：${e.message}`);
+    } finally {
+      if (seq === historySeqRef.current) setHistoryBusy(false);
+    }
+  };
+
+  const saveEditAccount = async () => {
+    if (!editAccount) return;
+    let fingerprint = null;
+    if (!clearFingerprint && editFingerprint.trim()) {
+      try {
+        fingerprint = JSON.parse(editFingerprint);
+      } catch {
+        setEditFingerprintErr('设备指纹不是合法 JSON');
+        return;
+      }
+      if (!fingerprint?.machine_token) {
+        setEditFingerprintErr('设备指纹至少需要 machine_token');
+        return;
+      }
+    }
+    setEditFingerprintErr('');
+    try {
+      const payload = { nickname: editName.trim(), region: editRegion };
+      if (clearFingerprint) payload.clearFingerprint = true;
+      else if (fingerprint) payload.checkinFingerprint = fingerprint;
+      const res = await fetch(`${API}/accounts/${encodeURIComponent(editAccount.id)}`, {
+        method: 'PUT',
+        headers: getAuthHeaders(),
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json();
+      if (!res.ok || !data?.success) throw new Error(data?.error || '保存失败');
+      toast.success('账号已更新');
+      setEditAccount(null);
+      await Promise.all([loadAccounts(), loadStatus(), loadModels()]);
+    } catch (e) {
+      toast.error(`保存失败：${e.message}`);
+    }
+  };
+
+  const openEditAccount = account => {
+    setEditName(account.nickname || '');
+    setEditRegion(account.region === 'intl' ? 'intl' : 'cn');
+    setEditFingerprint('');
+    setEditFingerprintErr('');
+    setClearFingerprint(false);
+    setEditAccount(account);
+  };
+
+  const refreshAccount = async account => {
+    setBusyAccount(account.id);
+    try {
+      const res = await fetch(`${API}/accounts/${encodeURIComponent(account.id)}/refresh`, {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: '{}',
+      });
+      await readJSONOrThrow(res, '续期失败');
+      toast.success('token 已续期');
+      await Promise.all([loadAccounts(), loadStatus()]);
+    } catch (e) {
+      toast.error(`续期失败：${e.message}`);
+    } finally {
+      setBusyAccount('');
+    }
+  };
+
+  const refreshAllAccounts = async () => {
+    setRefreshBusy(true);
+    try {
+      const res = await fetch(`${API}/refresh`, {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: '{}',
+      });
+      const data = await readJSONOrThrow(res, '续期失败');
+      const results = data.results || [];
+      const ok = results.filter(r => r.success).length;
+      toast.success(`已续期 ${ok}/${results.length} 个账号`);
+      await Promise.all([loadAccounts(), loadStatus()]);
+    } catch (e) {
+      toast.error(`续期失败：${e.message}`);
+    } finally {
+      setRefreshBusy(false);
+    }
+  };
+
+  const commitCheckinTimes = () => {
+    const raw = String(timesDraft ?? '').trim();
+    setTimesDraft(null);
+    const next = raw
+      .split(/[,，\s]+/)
+      .map(s => s.trim())
+      .filter(Boolean);
+    const current = (settings?.autoCheckinTimes || []).join(',');
+    if (next.join(',') !== current) update({ autoCheckinTimes: next }, true);
+  };
+
+  const applyModels = next => {
+    setModels(next);
+    setSettings(s => (s ? { ...s, disabledModels: next.filter(m => !m.enabled).map(m => m.id) } : s));
+  };
+
+  const toggleModel = async (model, enabled) => {
+    try {
+      const res = await fetch(`${API}/models/toggle/${encodeURIComponent(model.id)}`, {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ enabled }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data?.success) throw new Error(data?.error || '操作失败');
+      applyModels(models.map(m => (m.id === model.id ? { ...m, enabled } : m)));
+    } catch (e) {
+      toast.error(e.message);
+    }
+  };
+
+  const toggleAllModels = async enabled => {
+    try {
+      const res = await fetch(`${API}/models/toggle-batch`, {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ enabled, models: models.map(m => m.id) }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data?.success) throw new Error(data?.error || '操作失败');
+      applyModels(models.map(m => ({ ...m, enabled })));
+    } catch (e) {
+      toast.error(e.message);
+    }
+  };
+
+  const linkPlugin = async action => {
+    setLinkBusy(true);
+    try {
+      const res = await fetch(`${API}/link`, {
+        method: action === 'link' ? 'POST' : 'DELETE',
+        headers: getAuthHeaders(),
+        body: '{}',
+      });
+      const data = await res.json();
+      if (!res.ok || !data?.success) throw new Error(data?.error || (action === 'link' ? '接入失败' : '断开失败'));
+      setLinkState(data);
+      toast.success(action === 'link' ? '已接入模型网关端点列表' : '已从端点列表移除');
+      await loadModels();
+    } catch (e) {
+      toast.error(e.message);
+    } finally {
+      setLinkBusy(false);
+    }
+  };
+
+  const exportAccounts = () => window.open(`${API}/accounts/export`, '_blank');
+
+  const importFile = file => {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = async () => {
+      try {
+        const parsed = JSON.parse(String(reader.result || '{}'));
+        const payload = Array.isArray(parsed) ? { accounts: parsed } : parsed;
+        const res = await fetch(`${API}/accounts/import`, {
+          method: 'POST',
+          headers: getAuthHeaders(),
+          body: JSON.stringify(payload),
+        });
+        const data = await res.json();
+        if (!res.ok || !data?.success) throw new Error(data?.error || '导入失败');
+        toast.success(`已导入 ${data.added ?? 0} 个账号`);
+        await Promise.all([loadAccounts(), loadStatus()]);
+      } catch (e) {
+        toast.error(`导入失败：${e.message}`);
+      }
+    };
+    reader.readAsText(file);
+  };
+
+  if (loading) {
+    return (
+      <div className="flex h-full min-w-0 items-center justify-center">
+        <Loader size="lg" />
+      </div>
+    );
+  }
+
+  const allEnabled = models.length > 0 && models.every(m => m.enabled);
+  // modelsLive：本列倍率是否来自上游实时目录（任一模型有 live 来源即认为目录已回源成功）。
+  const modelsLive = models.some(m => m.priceSource === 'live');
+
+  return (
+    <div className="flex min-h-0 flex-1 flex-col gap-3 cq-sm:gap-4">
+      <div className="flex items-center justify-between gap-2">
+        {linkState?.linked && linkState?.baseUrl ? (
+          <div className="flex min-w-0 flex-wrap items-center gap-2 text-xs">
+            <Rocket className="h-3.5 w-3.5 text-brand" />
+            <span className="text-kumo-strong">已接入网关端点</span>
+            <span className="truncate font-mono text-kumo-subtle" title="本插件在网关端点列表中的 base_url">
+              {linkState.baseUrl}
+            </span>
+            <span className="text-kumo-subtle">· {linkState.models?.length || 0} 个模型</span>
+          </div>
+        ) : (
+          <span />
+        )}
+        <div className="flex items-center gap-2">
+          <Button size="sm" variant="outline" disabled={refreshing} onClick={refreshAll}>
+            <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? 'animate-spin' : ''}`} /> 刷新
+          </Button>
+          <Button size="sm" variant="primary" disabled={saving} onClick={() => save(settings)}>
+            {saving ? '保存中...' : '保存设置'}
+          </Button>
+        </div>
+      </div>
+
+      <div className="flex min-w-0 flex-col gap-4">
+        <SectionCard title="Qoder" icon={<QoderBrand className="h-4 w-4 text-brand" />} bodyPadding="none">
+          <FieldRow title={<span title="总开关：同时控制中继与模型网关接入。打开后启用中继并注册为网关端点；关闭后中继拒服并移除端点">启用中继</span>}>
+            <Switch
+              checked={!!settings?.enabled}
+              disabled={saving || linkBusy}
+              onCheckedChange={toggleEnabled}
+            />
+          </FieldRow>
+          <FieldRow title={<span title="站点时区自动为全部账号签到（领取每日 100 Credits），并刷新余额。关闭后仅可手动签到">每日自动签到</span>}>
+            <Switch checked={settings?.autoCheckin !== false} onCheckedChange={v => update({ autoCheckin: v })} />
+          </FieldRow>
+          <FieldRow
+            title={
+              <span title="自动签到的时刻，站点时区，HH:MM 逗号分隔（如 09:15,17:00），留空默认 10:00。支持多时段；每个账号在时刻点附近按固定偏移错峰，账号之间另有最小间隔，避免同秒批量签到被上游识别为自动化">
+                签到时刻
+              </span>
+            }
+          >
+            <Input
+              size="sm"
+              className="w-44"
+              placeholder="10:00"
+              aria-label="自动签到时刻"
+              value={timesDraft ?? (settings?.autoCheckinTimes || []).join(',')}
+              onChange={e => setTimesDraft(e.target.value)}
+              onBlur={commitCheckinTimes}
+              disabled={saving}
+            />
+          </FieldRow>
+          <FieldRow title={<span title="后台每 5 分钟检查一次，token 剩余寿命不足 3 天时用 refresh_token 主动续期，避免双 token 同时过期后账号静默失效">自动续期 token</span>}>
+            <Switch checked={settings?.autoRefreshToken !== false} onCheckedChange={v => update({ autoRefreshToken: v })} />
+          </FieldRow>
+          <FieldRow title={<span title="签到时携带完整机器头（cosy-machinetoken / machinetype / machinecode / machineos / machinehostname）。国际版按真实设备身份下发活动，缺少这些头会被服务端隐藏（no_campaign）；个别场景带全量头反而被判非官方客户端时可关闭">签到完整设备头</span>}>
+            <Switch
+              checked={settings?.checkinFullDeviceHeaders !== false}
+              onCheckedChange={v => update({ checkinFullDeviceHeaders: v })}
+            />
+          </FieldRow>
+          <FieldRow title={<span title="给本插件对外暴露的所有模型名统一加前缀（如 qoder-），便于在网关端点列表区分来源；请求转发时自动剥掉前缀还原到原模型，留空表示不加">模型前缀</span>}>
+            <Input
+              size="sm"
+              className="w-40"
+              placeholder="qoder-"
+              aria-label="模型前缀"
+              value={prefixDraft ?? settings?.modelPrefix ?? ''}
+              onChange={e => setPrefixDraft(e.target.value)}
+              onBlur={commitModelPrefix}
+              disabled={saving}
+            />
+          </FieldRow>
+          <FieldRow title={<span title="多账号时的选号策略。固定首个：始终用列表第一个可用账号，其余作主备，行为最可预期。轮询：依次轮流，请求均匀分摊。两种都自动跳过已停用、token 过期与失败冷却中的账号">选号策略</span>}>
+            <Select
+              alignItemWithTrigger
+              size="sm"
+              className="w-44"
+              value={settings?.accountStrategy || 'first'}
+              onValueChange={v => update({ accountStrategy: v })}
+              items={[
+                { value: 'first', label: '固定首个可用' },
+                { value: 'round-robin', label: '轮询' },
+              ]}
+              disabled={saving || accounts.length < 2}
+            />
+          </FieldRow>
+          <FieldRow title={<span title="可用账号/账号总数、处于失败冷却的账号数，以及模型目录条数">运行状态</span>}>
+            <div className="flex min-w-0 flex-wrap items-center gap-2">
+              <Badge
+                variant={status?.availableCount ? 'success' : 'warning'}
+                className="text-xs"
+                title="可参与转发的账号数（未停用且 token 未失效）"
+              >
+                可用账号 {status?.availableCount ?? 0}/{status?.accountCount ?? 0}
+              </Badge>
+              {status?.coolingCount ? (
+                <Badge variant="warning" className="text-xs" title="因上游 429/5xx 或额度用尽被临时冷却的账号数">
+                  冷却 {status.coolingCount}
+                </Badge>
+              ) : null}
+              {status?.poolLimited ? (
+                <Badge
+                  variant="danger"
+                  className="text-xs"
+                  title={[
+                    '上游把「每日调用次数用尽」（code=110 Billing daily count exceeded）按**账号池**判定：实测同一时刻三个账号全部被拒，换号无效。',
+                    status.poolLimitedMessage ? `上游原文：${status.poolLimitedMessage}` : '',
+                    status.poolLimitedInferred
+                      ? '上游「每日 10:00 (UTC+8) 重置」是推断规则，不是上游下发的字段（错误响应里没有任何时间字段）；因此本状态有最长锁定时长，到期后自动重新探测，避免推断偏差导致长时间不可用。'
+                      : '',
+                  ]
+                    .filter(Boolean)
+                    .join('\n')}
+                >
+                  池级限流 · 最迟 {status.poolLimitedUntilLocal} 重试
+                </Badge>
+              ) : null}
+              <span className="text-xs text-kumo-subtle" title="模型目录条数">
+                模型 {status?.modelCount ?? 0}
+              </span>
+              {status && !status.upstreamReady ? (
+                <Badge variant="warning" className="text-xs">上游协议层未就绪</Badge>
+              ) : null}
+            </div>
+          </FieldRow>
+          {status?.poolLimited ? (
+            <div className="mx-4 mb-3 rounded-md border border-kumo-warning/30 bg-kumo-warning/8 px-3 py-2 text-xs leading-5 text-kumo-strong">
+              <div className="font-medium">
+                账号池被上游限流：该模型的每日调用次数已用尽，换号无效。
+              </div>
+              <div className="mt-1 text-kumo-subtle">
+                上游每日 10:00 (UTC+8) 重置
+                {status.poolLimitedInferred ? '（由上游每日重置规则推断，非上游下发）' : ''}
+                ；为避免推断偏差导致长时间不可用，本状态最迟持续到 {status.poolLimitedUntilLocal} (UTC+8)
+                ，之后自动重新探测。此期间中继直接返回 429，不再逐个尝试账号以免放大延迟。
+              </div>
+              {status.poolLimitedMessage ? (
+                <div className="mt-1 font-mono text-[0.92em] text-kumo-subtle">上游原文：{status.poolLimitedMessage}</div>
+              ) : null}
+            </div>
+          ) : null}
+        </SectionCard>
+
+        <SectionCard
+          title="账号"
+          icon={<Users className="h-4 w-4 text-brand" />}
+          bodyPadding="none"
+          actions={
+            <div className="flex items-center gap-1.5">
+              <Toolbar size="sm" aria-label="账号导出导入" className="shrink-0">
+                <Toolbar.Button onClick={exportAccounts} icon={<Upload className="h-3.5 w-3.5" />}>
+                  <span className="hidden cq-sm:inline">导出</span>
+                </Toolbar.Button>
+                <Toolbar.Button onClick={() => fileInputRef.current?.click()} icon={<Download className="h-3.5 w-3.5" />}>
+                  <span className="hidden cq-sm:inline">导入</span>
+                </Toolbar.Button>
+              </Toolbar>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".json,application/json"
+                className="hidden"
+                onChange={e => {
+                  importFile(e.target.files?.[0]);
+                  e.target.value = '';
+                }}
+              />
+              <Button size="sm" variant="outline" disabled={checkinBusy} onClick={checkinAll}>
+                <Clock className="h-3.5 w-3.5" /> 全部签到
+              </Button>
+              <Button size="sm" variant="outline" disabled={refreshBusy} onClick={refreshAllAccounts}>
+                <RefreshCw className={`h-3.5 w-3.5 ${refreshBusy ? 'animate-spin' : ''}`} /> 续期 token
+              </Button>
+              <Button size="sm" variant="primary" onClick={openLogin}>
+                <Plus className="h-3.5 w-3.5" /> 添加账号
+              </Button>
+            </div>
+          }
+        >
+          {accounts.length ? (
+            <div className="overflow-x-auto">
+              <AppTable tableId="qoder-accounts" columns={QODER_ACCOUNT_COLUMNS} className="w-full min-w-[56rem] text-xs">
+                <Table.Header variant="compact">
+                  <Table.Row className="h-8">
+                    <Table.Head className="!px-2 !py-1.5 text-center">启用</Table.Head>
+                    <Table.Head className="!px-2 !py-1.5 text-center">区域</Table.Head>
+                    <Table.Head className="!px-2.5 !py-1.5">账号</Table.Head>
+                    <Table.Head className="!px-2 !py-1.5 text-center">积分</Table.Head>
+                    <Table.Head className="!px-2 !py-1.5 text-center">
+                      <span title="最近一次签到时刻；点击查看额度明细">签到</span>
+                    </Table.Head>
+                    <Table.Head className="!px-2 !py-1.5 text-center">
+                      <span title="本地记账的连续签到 / 累计签到天数与累计积分（按活动窗口日期计算）">连签</span>
+                    </Table.Head>
+                    <Table.Head className="!px-2 !py-1.5 text-center">调用</Table.Head>
+                    <Table.Head className="!px-2 !py-1.5 text-center">token</Table.Head>
+                    <Table.Head className="!px-2 !py-1.5 text-center">操作</Table.Head>
+                  </Table.Row>
+                </Table.Header>
+                <Table.Body>
+                  {accounts.map(a => {
+                    const meta = tokenStateMeta(a.tokenState);
+                    return (
+                      <Table.Row key={a.id} className="h-10">
+                        <Table.Cell className="!px-2 !py-1.5 text-center">
+                          <div className="flex justify-center">
+                            <Switch
+                              size="sm"
+                              checked={!a.disabled}
+                              disabled={busyAccount === a.id}
+                              onCheckedChange={v => toggleAccount(a, v)}
+                              aria-label={`${a.disabled ? '启用' : '停用'} ${a.id}`}
+                            />
+                          </div>
+                        </Table.Cell>
+                        <Table.Cell className="!px-2 !py-1.5 text-center">
+                          <Badge
+                            variant={a.region === 'intl' ? 'purple' : 'blue'}
+                            className="text-xs"
+                            title={a.region === 'intl' ? '国际版（qoder.com）' : '国内版（qoder.cn）'}
+                          >
+                            {a.region === 'intl' ? '国际' : '国内'}
+                          </Badge>
+                        </Table.Cell>
+                        <Table.Cell className="!px-2.5 !py-1.5">
+                          <div className="min-w-0">
+                            <div className="truncate text-sm font-medium text-kumo-strong" title={a.id}>
+                              {a.nickname || a.id}
+                            </div>
+                            <div className="truncate font-mono text-kumo-subtle">{a.id}</div>
+                          </div>
+                        </Table.Cell>
+                        <Table.Cell className="!px-2 !py-1.5 text-center">
+                          <div className="flex justify-center">
+                            <Popover
+                              open={quotaAccount?.id === a.id}
+                              onOpenChange={open => {
+                                if (open) {
+                                  openQuota(a);
+                                } else if (quotaAccount?.id === a.id) {
+                                  setQuotaAccount(null);
+                                }
+                              }}
+                            >
+                              <Popover.Trigger
+                                nativeButton={false}
+                                render={
+                                  <Button
+                                    type="button"
+                                    size="sm"
+                                    variant="ghost"
+                                    className="font-mono text-xs focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0"
+                                    title="点击查看积分额度明细"
+                                  >
+                                    {fmtCredits(a.credits)}
+                                  </Button>
+                                }
+                              />
+                              <Popover.Content
+                                side="bottom"
+                                align="center"
+                                className="w-72 shrink-0 px-3 pb-2 pt-2.5"
+                              >
+                                <div className="truncate text-xs font-semibold leading-normal text-kumo-strong">
+                                  {a.nickname || a.id}
+                                </div>
+                                {quotaBusy ? (
+                                  <div className="flex h-16 w-full items-center justify-center">
+                                    <Loader size="sm" />
+                                  </div>
+                                ) : quotaData?.quota ? (
+                                  <div className="mt-1.5">
+                                    <div className="flex items-center justify-between gap-3 py-1">
+                                      <span className="text-xs text-kumo-subtle">剩余</span>
+                                      <span className="font-mono text-xs text-kumo-strong">
+                                        {fmtCredits(quotaData.quota.remaining)} {quotaData.quota.unit || ''}
+                                      </span>
+                                    </div>
+                                    <div className="flex items-center justify-between gap-3 py-1">
+                                      <span className="text-xs text-kumo-subtle">已用</span>
+                                      <span className="font-mono text-xs text-kumo-subtle">
+                                        {fmtCredits(quotaData.quota.used)}
+                                      </span>
+                                    </div>
+                                    <div className="flex items-center justify-between gap-3 py-1">
+                                      <span className="text-xs text-kumo-subtle">总额</span>
+                                      <span className="font-mono text-xs text-kumo-subtle">
+                                        {fmtCredits(quotaData.quota.limit)}
+                                      </span>
+                                    </div>
+                                    {quotaData.quota.userType ? (
+                                      <div className="mt-1.5 border-t border-kumo-line pt-1.5">
+                                        <span className="text-[0.85em] text-kumo-subtle">{quotaData.quota.userType}</span>
+                                      </div>
+                                    ) : null}
+                                    {(quotaData.quota.packages || []).length ? (
+                                      <div className="mt-1.5 border-t border-kumo-line pt-1.5">
+                                        <div className="text-[0.85em] text-kumo-subtle">专属资源包（活动奖励，单独计额度）</div>
+                                        {quotaData.quota.packages.map(p => (
+                                          <div key={p.id || p.name} className="mt-1 flex items-center justify-between gap-3">
+                                            <span className="min-w-0 truncate text-xs text-kumo-strong" title={p.description || p.name}>
+                                              {p.name || p.id}
+                                            </span>
+                                            <span className="shrink-0 font-mono text-xs text-kumo-subtle">
+                                              {fmtCredits(p.remaining)}/{fmtCredits(p.total)}
+                                            </span>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    ) : null}
+                                  </div>
+                                ) : (
+                                  <div className="py-3 text-center text-xs text-kumo-subtle">暂无额度数据</div>
+                                )}
+                              </Popover.Content>
+                            </Popover>
+                          </div>
+                        </Table.Cell>
+                        <Table.Cell className="!px-2 !py-1.5 text-center">
+                          <span className="font-mono text-xs text-kumo-subtle" title="最近一次签到时刻">
+                            {a.lastCheckinAt ? a.lastCheckinAt.slice(5, 16).replace('T', ' ') : '未签到'}
+                          </span>
+                        </Table.Cell>
+                        <Table.Cell className="!px-2 !py-1.5 text-center">
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="ghost"
+                            className="mx-auto flex flex-col items-center gap-0 font-mono text-xs focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0"
+                            title="点击查看签到历史（连续天数 / 累计天数 / 累计积分）"
+                            onClick={() => openHistory(a)}
+                          >
+                            <span className="text-kumo-strong">{a.streakDays ? `${a.streakDays}天` : '—'}</span>
+                            {a.totalCheckinDays ? (
+                              <span className="text-[10px] font-normal text-kumo-subtle">累计 {a.totalCheckinDays} 天</span>
+                            ) : null}
+                          </Button>
+                        </Table.Cell>
+                        <Table.Cell className="!px-2 !py-1.5 text-center">
+                          <span className="font-mono text-xs text-kumo-strong" title="该账号累计转发次数">{a.callCount ?? 0}</span>
+                        </Table.Cell>
+                        <Table.Cell className="!px-2 !py-1.5 text-center">
+                          <div className="flex flex-col items-center gap-1">
+                            <Badge variant={meta.variant} className="text-xs" title={a.lastError || undefined}>
+                              {meta.label}
+                              {a.tokenState === 'expiring' && a.expiresInSeconds ? ` ${fmtLeft(a.expiresInSeconds)}` : ''}
+                            </Badge>
+                            {a.needsReauth ? (
+                              <Badge variant="danger" className="text-xs" title="凭据已失效且无可用 refresh token，需要重新授权">
+                                需重授权
+                              </Badge>
+                            ) : null}
+                            {a.fingerprint ? (
+                              <Badge
+                                variant="success"
+                                className="text-xs"
+                                title="已配置真实设备指纹：国际版签到可用，且走新版推理协议（含 Sonus / Cantus / Fast）"
+                              >
+                                指纹
+                              </Badge>
+                            ) : a.region === 'intl' ? (
+                              <Badge
+                                variant="warning"
+                                className="text-xs"
+                                title="国际版签到需真实设备指纹（官方客户端抓包）；缺指纹时上游不下发每日签到活动"
+                              >
+                                缺指纹
+                              </Badge>
+                            ) : null}
+                            {a.cooling ? (
+                              <Badge
+                                variant="warning"
+                                className="text-xs"
+                                title={
+                                  a.cooldownSeconds
+                                    ? `该账号被上游限流/额度用尽，冷却中，约 ${fmtLeft(a.cooldownSeconds)} 后重试`
+                                    : '上游返回 429/5xx 或额度用尽，暂时跳过该账号'
+                                }
+                              >
+                                冷却中{a.cooldownSeconds ? ` ${fmtLeft(a.cooldownSeconds)}` : ''}
+                              </Badge>
+                            ) : null}
+                          </div>
+                        </Table.Cell>
+                        <Table.Cell className="!px-2 !py-1.5 text-center">
+                          <div className="flex items-center justify-center gap-1">
+                            <Button
+                              size="sm"
+                              shape="square"
+                              variant="outline"
+                              aria-label={`签到 ${a.id}`}
+                              title="立即签到"
+                              disabled={busyAccount === a.id}
+                              onClick={() => checkinAccount(a)}
+                            >
+                              <Clock className="h-3 w-3" />
+                            </Button>
+                            <Button
+                              size="sm"
+                              shape="square"
+                              variant="outline"
+                              aria-label={`续期 token ${a.id}`}
+                              title="立即续期 token（用 refresh_token 换新 token）"
+                              disabled={busyAccount === a.id}
+                              onClick={() => refreshAccount(a)}
+                            >
+                              <RefreshCw className="h-3 w-3" />
+                            </Button>
+                            <Button
+                              size="sm"
+                              shape="square"
+                              variant="outline"
+                              aria-label={`编辑 ${a.id}`}
+                              title="编辑备注名 / 区域 / 设备指纹"
+                              onClick={() => openEditAccount(a)}
+                            >
+                              <Edit className="h-3 w-3" />
+                            </Button>
+                            <Button
+                              size="sm"
+                              shape="square"
+                              variant="secondary-destructive"
+                              aria-label={`删除 ${a.id}`}
+                              title={`删除 ${a.id}`}
+                              onClick={() => deleteAccount(a)}
+                            >
+                              <Trash className="h-3 w-3" />
+                            </Button>
+                          </div>
+                        </Table.Cell>
+                      </Table.Row>
+                    );
+                  })}
+                </Table.Body>
+              </AppTable>
+            </div>
+          ) : (
+            <div className="p-4">
+              <EmptyState
+                title="暂无账号"
+                description="点击「添加账号」，在新标签页完成 Qoder 设备授权后自动加入账号列表。"
+              />
+            </div>
+          )}
+        </SectionCard>
+
+        <SectionCard
+          title="用量"
+          icon={<TrendingUp className="h-4 w-4 text-brand" />}
+          bodyPadding="none"
+          actions={
+            <div className="flex items-center gap-2">
+              <Select
+                size="sm"
+                className="w-28"
+                value={String(usageDays)}
+                onValueChange={v => setUsageDays(Number(v))}
+                items={[
+                  { value: '1', label: '今天' },
+                  { value: '7', label: '近 7 天' },
+                  { value: '30', label: '近 30 天' },
+                  { value: '90', label: '近 90 天' },
+                ]}
+              />
+              <Button size="sm" variant="outline" onClick={loadUsage}>
+                刷新
+              </Button>
+            </div>
+          }
+        >
+          {usage?.totals?.requests ? (
+            <>
+              <div className="grid grid-cols-2 gap-2 p-3 cq-sm:grid-cols-4">
+                <div className="rounded border border-kumo-line px-2 py-1.5 text-center">
+                  <div className="text-base font-semibold text-kumo-strong">{usage.totals.requests}</div>
+                  <div className="text-[10px] text-kumo-subtle">调用次数</div>
+                </div>
+                <div className="rounded border border-kumo-line px-2 py-1.5 text-center">
+                  <div className="text-base font-semibold text-kumo-strong">{fmtTokens(usage.totals.promptTokens)}</div>
+                  <div className="text-[10px] text-kumo-subtle">
+                    输入词元（缓存 {fmtTokens(usage.totals.cachedTokens)}）
+                  </div>
+                </div>
+                <div className="rounded border border-kumo-line px-2 py-1.5 text-center">
+                  <div className="text-base font-semibold text-kumo-strong">{fmtTokens(usage.totals.completionTokens)}</div>
+                  <div className="text-[10px] text-kumo-subtle">输出词元</div>
+                </div>
+                <div className="rounded border border-kumo-line px-2 py-1.5 text-center">
+                  <div className="text-base font-semibold text-kumo-strong">{fmtRate(usage.totals.cacheHitRate)}</div>
+                  <div className="text-[10px] text-kumo-subtle">缓存命中率</div>
+                </div>
+              </div>
+
+              <div className="overflow-x-auto border-t border-kumo-line">
+                <AppTable tableId="qoder-usage-accounts" columns={QODER_USAGE_ACCOUNT_COLUMNS} className="w-full min-w-[40rem] text-xs">
+                  <Table.Header variant="compact">
+                    <Table.Row className="h-8">
+                      <Table.Head className="!px-2.5 !py-1.5">账号</Table.Head>
+                      <Table.Head className="!px-2 !py-1.5 text-center">调用</Table.Head>
+                      <Table.Head className="!px-2 !py-1.5 text-center">输入</Table.Head>
+                      <Table.Head className="!px-2 !py-1.5 text-center">输出</Table.Head>
+                      <Table.Head className="!px-2 !py-1.5 text-center">缓存命中</Table.Head>
+                    </Table.Row>
+                  </Table.Header>
+                  <Table.Body>
+                    {usage.byAccount.map(row => (
+                      <Table.Row key={row.accountId} className="h-9">
+                        <Table.Cell className="!px-2.5 !py-1.5">
+                          <div className="truncate text-kumo-strong" title={row.accountId}>
+                            {row.accountName || row.accountId}
+                          </div>
+                        </Table.Cell>
+                        <Table.Cell className="!px-2 !py-1.5 text-center font-mono text-kumo-strong">
+                          {row.requests}
+                        </Table.Cell>
+                        <Table.Cell className="!px-2 !py-1.5 text-center font-mono text-kumo-subtle">
+                          {fmtTokens(row.promptTokens)}
+                        </Table.Cell>
+                        <Table.Cell className="!px-2 !py-1.5 text-center font-mono text-kumo-subtle">
+                          {fmtTokens(row.completionTokens)}
+                        </Table.Cell>
+                        <Table.Cell className="!px-2 !py-1.5 text-center font-mono text-kumo-subtle">
+                          {fmtTokens(row.cachedTokens)}
+                        </Table.Cell>
+                      </Table.Row>
+                    ))}
+                  </Table.Body>
+                </AppTable>
+              </div>
+
+              <div className="overflow-x-auto border-t border-kumo-line">
+                <AppTable tableId="qoder-usage-models" columns={QODER_USAGE_MODEL_COLUMNS} className="w-full min-w-[40rem] text-xs">
+                  <Table.Header variant="compact">
+                    <Table.Row className="h-8">
+                      <Table.Head className="!px-2.5 !py-1.5">模型</Table.Head>
+                      <Table.Head className="!px-2 !py-1.5 text-center">调用</Table.Head>
+                      <Table.Head className="!px-2 !py-1.5 text-center">输入</Table.Head>
+                      <Table.Head className="!px-2 !py-1.5 text-center">输出</Table.Head>
+                      <Table.Head className="!px-2 !py-1.5 text-center">缓存命中</Table.Head>
+                    </Table.Row>
+                  </Table.Header>
+                  <Table.Body>
+                    {usage.byModel.map(row => (
+                      <Table.Row key={row.model} className="h-9">
+                        <Table.Cell className="!px-2.5 !py-1.5">
+                          <div className="truncate font-mono text-kumo-strong" title={row.model}>
+                            {row.model}
+                          </div>
+                        </Table.Cell>
+                        <Table.Cell className="!px-2 !py-1.5 text-center font-mono text-kumo-strong">
+                          {row.requests}
+                        </Table.Cell>
+                        <Table.Cell className="!px-2 !py-1.5 text-center font-mono text-kumo-subtle">
+                          {fmtTokens(row.promptTokens)}
+                        </Table.Cell>
+                        <Table.Cell className="!px-2 !py-1.5 text-center font-mono text-kumo-subtle">
+                          {fmtTokens(row.completionTokens)}
+                        </Table.Cell>
+                        <Table.Cell className="!px-2 !py-1.5 text-center font-mono text-kumo-subtle">
+                          {fmtTokens(row.cachedTokens)}
+                        </Table.Cell>
+                      </Table.Row>
+                    ))}
+                  </Table.Body>
+                </AppTable>
+              </div>
+            </>
+          ) : (
+            <div className="p-4">
+              <EmptyState
+                title="暂无用量"
+                description={`近 ${usageDays} 天没有经本插件转发的调用记录。`}
+              />
+            </div>
+          )}
+        </SectionCard>
+
+        <SectionCard
+          title="模型"
+          icon={<Layers className="h-4 w-4 text-brand" />}
+          bodyPadding="none"
+        >
+          {models.length ? (
+            <div className="overflow-x-auto">
+              <AppTable tableId="qoder-models" columns={QODER_MODEL_COLUMNS} className="w-full min-w-[36rem] text-xs">
+                <Table.Header variant="compact">
+                  <Table.Row className="h-8">
+                    <Table.Head className="!px-2 !py-1.5 text-center">
+                      <div className="flex justify-center">
+                        <Switch
+                          size="sm"
+                          checked={allEnabled}
+                          onCheckedChange={toggleAllModels}
+                          title={allEnabled ? '全部停用' : '全部启用'}
+                          aria-label="全选模型"
+                        />
+                      </div>
+                    </Table.Head>
+                    <Table.Head className="!px-2 !py-1.5 text-center">区域</Table.Head>
+                    <Table.Head className="!px-2.5 !py-1.5">模型</Table.Head>
+                    <Table.Head className="!px-2 !py-1.5 text-center">
+                      <span title="上游发布的上下文窗口档位（context_config），接口会自动选取最大档；请求可用 context_window 指定较小档位">上下文</span>
+                    </Table.Head>
+                    <Table.Head className="!px-2 !py-1.5 text-center">
+                      <span title="思考能力（thinking_config）：可用档位与是否可关闭；调用方用 reasoning_effort 指定，自动归一到上游档位">思考</span>
+                    </Table.Head>
+                    <Table.Head className="!px-2 !py-1.5 text-center">
+                      <div className="flex items-center justify-center gap-1">
+                        <span title="上游积分倍率（price_factor），Qoder 计费体系内的相对倍数，不含货币单价；倍率与错峰折扣均实时取自上游模型目录">
+                          倍率
+                        </span>
+                        {modelsLive ? (
+                          <Badge
+                            variant="success"
+                            className="text-[0.8em]"
+                            title="本列倍率实时取自上游模型目录接口（price_factor 与 promotion 规则）"
+                          >
+                            实时
+                          </Badge>
+                        ) : (
+                          <Badge
+                            variant="warning"
+                            className="text-[0.8em]"
+                            title="上游模型目录尚未拉取成功，本列为内置兜底值，可能已过期"
+                          >
+                            兜底
+                          </Badge>
+                        )}
+                      </div>
+                    </Table.Head>
+                  </Table.Row>
+                </Table.Header>
+                <Table.Body>
+                  {models.map(m => {
+                    const rm = modelRegionMeta(m);
+                    return (
+                      <Table.Row key={m.id} className="h-9">
+                        <Table.Cell className="!px-2 !py-1.5 text-center">
+                          <div className="flex justify-center">
+                            <Switch
+                              size="sm"
+                              checked={!!m.enabled}
+                              onCheckedChange={v => toggleModel(m, v)}
+                              title={
+                                m.enabled
+                                  ? '停用：写入网关端点停用名单（网关不再路由该模型），直连中继也会被拒'
+                                  : '启用：从网关端点停用名单移除，恢复路由'
+                              }
+                              aria-label={`${m.enabled ? '停用' : '启用'} ${m.id}`}
+                            />
+                          </div>
+                        </Table.Cell>
+                        <Table.Cell className="!px-2 !py-1.5 text-center">
+                          <Badge variant={rm.variant} className="text-xs" title={rm.title}>
+                            {rm.label}
+                          </Badge>
+                        </Table.Cell>
+                        <Table.Cell className="!px-2.5 !py-1.5">
+                          <div className="flex min-w-0 items-center gap-1.5">
+                            <div className="min-w-0 flex-1">
+                              <div className="truncate text-kumo-strong" title={m.id}>
+                                {m.id}
+                              </div>
+                              {m.key && m.key !== m.id ? (
+                                <div className="truncate font-mono text-kumo-subtle" title={m.key}>
+                                  {m.key}
+                                </div>
+                              ) : null}
+                            </div>
+                            {m.isNew ? (
+                              <Badge variant="info" className="shrink-0 text-[0.85em]" title="上游标记为新模型">
+                                NEW
+                              </Badge>
+                            ) : null}
+                            {m.isVl ? (
+                              <Badge variant="neutral" className="shrink-0 text-[0.85em]" title="支持图片输入（is_vl）">
+                                视觉
+                              </Badge>
+                            ) : null}
+                          </div>
+                        </Table.Cell>
+                        <Table.Cell className="!px-2 !py-1.5 text-center">
+                          <span className="font-mono text-xs text-kumo-strong" title={contextMeta(m).title}>
+                            {contextMeta(m).label}
+                          </span>
+                        </Table.Cell>
+                        <Table.Cell className="!px-2 !py-1.5 text-center">
+                          <span className="font-mono text-xs text-kumo-strong" title={thinkingMeta(m).title}>
+                            {thinkingMeta(m).label}
+                          </span>
+                        </Table.Cell>
+                        <Table.Cell className="!px-2 !py-1.5 text-center">
+                          <div className="flex flex-col items-center gap-0.5">
+                            <span className="font-mono text-xs text-kumo-strong" title={multiplierTitle(m)}>
+                              {fmtMultiplier(m)}
+                            </span>
+                            {m.hasOffPeak && m.offPeak ? (
+                              <Badge
+                                variant="success"
+                                className="text-[0.85em]"
+                                title={`${m.promotion?.badge || '错峰折扣'}生效中`}
+                              >
+                                低峰
+                              </Badge>
+                            ) : null}
+                          </div>
+                        </Table.Cell>
+                      </Table.Row>
+                    );
+                  })}
+                </Table.Body>
+              </AppTable>
+            </div>
+          ) : (
+            <div className="p-4">
+              <EmptyState
+                title={modelsReady ? '暂无模型' : '模型目录不可用'}
+                description={modelsReady ? '插件未返回可服务的模型。' : '模型目录拉取失败。'}
+              />
+            </div>
+          )}
+        </SectionCard>
+      </div>
+
+      <Dialog.Root open={loginOpen} onOpenChange={handleLoginOpenChange}>
+        <Dialog className="flex max-h-[min(calc(100dvh-2rem),44rem)] !w-[min(30rem,calc(100vw-2rem))] !max-w-[min(30rem,calc(100vw-2rem))] flex-col overflow-hidden !p-0">
+          <div className="shrink-0 px-6 pt-5">
+            <Dialog.Title className="mb-1 text-sm font-semibold text-kumo-strong">登录 Qoder</Dialog.Title>
+            <Dialog.Description className="mb-4 text-sm text-kumo-subtle">
+              选择区域后在新标签页打开 Qoder 授权页面并完成登录，授权成功后会自动加入账号列表。国内版（qoder.cn）签到不需要真实机器身份，多账号可各自领取；国际版（qoder.com）按真实设备身份下发活动，缺指纹时上游不下发每日签到。
+            </Dialog.Description>
+          </div>
+          <div className="min-h-0 flex-1 overflow-y-auto px-6 py-3 scrollbar-thin">
+            <div className="flex flex-col gap-3">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-xs text-kumo-subtle">区域</span>
+                <Select
+                  alignItemWithTrigger
+                  size="sm"
+                  className="w-32"
+                  value={loginRegion}
+                  onValueChange={chooseLoginRegion}
+                  items={[
+                    { value: 'cn', label: '国内版' },
+                    { value: 'intl', label: '国际版' },
+                  ]}
+                  disabled={login.phase === 'success' || login.phase === 'loading'}
+                />
+              </div>
+              {login.phase === 'idle' ? (
+                <div className="flex min-h-[96px] w-full items-center justify-center rounded border border-kumo-line px-4 text-center text-xs">
+                  <span className="text-kumo-subtle">
+                    选择上方的账号区域后，才会打开 Qoder 授权页面并开始等待登录。
+                  </span>
+                </div>
+              ) : login.phase === 'loading' ? (
+                <div className="flex h-[96px] w-full items-center justify-center rounded border border-kumo-line">
+                  <Loader size="lg" />
+                </div>
+              ) : (
+                <div className="flex min-h-[96px] w-full items-center justify-center rounded border border-kumo-line px-4 text-center text-xs">
+                  {login.phase === 'error' ? (
+                    <span className="text-kumo-strong">{login.error}</span>
+                  ) : login.phase === 'success' ? (
+                    <span className="text-kumo-strong">登录成功。</span>
+                  ) : login.phase === 'waiting' ? (
+                    <span className="text-kumo-subtle">已打开授权页面，正在等待登录完成…</span>
+                  ) : (
+                    <span className="text-kumo-subtle">暂无授权链接</span>
+                  )}
+                </div>
+              )}
+              {login.url ? (
+                <a
+                  className="max-w-full truncate font-mono text-[0.75em] text-brand underline"
+                  href={login.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  title={login.url}
+                >
+                  {login.url}
+                </a>
+              ) : null}
+            </div>
+          </div>
+          <div className="flex shrink-0 items-center justify-end gap-3 border-t border-kumo-line px-6 py-4">
+            <Dialog.Close render={props => <Button size="sm" variant="secondary" {...props}>关闭</Button>} />
+            {login.phase !== 'idle' ? (
+              <Button
+                size="sm"
+                variant="secondary"
+                disabled={login.phase === 'success' || login.phase === 'loading'}
+                onClick={() => startLogin()}
+              >
+                重新打开授权页
+              </Button>
+            ) : null}
+          </div>
+        </Dialog>
+      </Dialog.Root>
+
+      <Dialog.Root open={!!editAccount} onOpenChange={open => !open && setEditAccount(null)}>
+        <Dialog className="flex max-h-[min(calc(100dvh-2rem),44rem)] !w-[min(34rem,calc(100vw-2rem))] !max-w-[min(34rem,calc(100vw-2rem))] flex-col overflow-hidden !p-0">
+          <div className="shrink-0 px-6 pt-5">
+            <Dialog.Title className="mb-1 text-sm font-semibold text-kumo-strong">编辑账号</Dialog.Title>
+            <Dialog.Description className="mb-4 text-sm text-kumo-subtle">
+              {editAccount ? `修改 ${editAccount.id} 的备注名，仅影响本机展示。` : ''}
+            </Dialog.Description>
+          </div>
+          <div className="min-h-0 flex-1 overflow-y-auto px-6 py-3 scrollbar-thin">
+            <div className="flex flex-col gap-3">
+              <Input
+                size="sm"
+                label="备注名"
+                type="text"
+                className="w-full"
+                value={editName}
+                onChange={e => setEditName(e.target.value)}
+              />
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-xs text-kumo-subtle">区域</span>
+                <Select
+                  alignItemWithTrigger
+                  size="sm"
+                  className="w-32"
+                  value={editRegion}
+                  onValueChange={setEditRegion}
+                  items={[
+                    { value: 'cn', label: '国内版' },
+                    { value: 'intl', label: '国际版' },
+                  ]}
+                />
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs text-kumo-subtle">签到设备指纹</span>
+                  <div className="flex items-center gap-1.5 text-xs text-kumo-subtle">
+                    <span>清除</span>
+                    <Switch size="sm" checked={clearFingerprint} onCheckedChange={setClearFingerprint} aria-label="清除设备指纹" />
+                  </div>
+                </div>
+                <Textarea
+                  size="sm"
+                  className="w-full font-mono text-xs"
+                  rows={5}
+                  placeholder={
+                    editAccount?.fingerprint
+                      ? '已配置指纹（不回显）。留空表示不修改；要替换请粘贴新的 JSON。'
+                      : '未配置。国际版签到与 Sonus/Cantus/Fast 模型需要真实指纹，从官方客户端抓包取得，例如\n{"machine_id":"…","machine_token":"…","machine_type":"…","version":"0.4.4"}'
+                  }
+                  aria-label="签到设备指纹 JSON"
+                  value={editFingerprint}
+                  onChange={e => setEditFingerprint(e.target.value)}
+                  disabled={clearFingerprint}
+                />
+                {editFingerprintErr ? (
+                  <span className="text-xs text-kumo-warning">{editFingerprintErr}</span>
+                ) : (
+                  <span className="text-[11px] leading-4 text-kumo-subtle">
+                    国际版（qoder.com）签到活动按真实设备身份下发，缺指纹时上游不下发每日签到（表现为「暂无可领取权益」）。
+                    自造指纹无效；也可在官方客户端手动领取一次后转为懒下发。配置指纹同时启用新版推理协议（多出 Sonus / Cantus / Fast）。
+                  </span>
+                )}
+              </div>
+            </div>
+          </div>
+          <div className="flex shrink-0 items-center justify-end gap-3 border-t border-kumo-line px-6 py-4">
+            <Dialog.Close render={props => <Button size="sm" variant="secondary" {...props}>取消</Button>} />
+            <Button size="sm" variant="primary" onClick={saveEditAccount}>保存</Button>
+          </div>
+        </Dialog>
+      </Dialog.Root>
+
+      <Dialog.Root open={!!historyAccount} onOpenChange={open => !open && setHistoryAccount(null)}>
+        <Dialog className="flex max-h-[min(calc(100dvh-2rem),40rem)] !w-[min(28rem,calc(100vw-2rem))] !max-w-[min(28rem,calc(100vw-2rem))] flex-col overflow-hidden !p-0">
+          <div className="shrink-0 px-6 pt-5">
+            <Dialog.Title className="mb-1 text-sm font-semibold text-kumo-strong">签到历史</Dialog.Title>
+            <Dialog.Description className="mb-4 text-sm text-kumo-subtle">
+              {historyAccount ? `${historyAccount.nickname || historyAccount.id} · 按活动窗口日期（10:00 → 次日 09:59，UTC+8）记账` : ''}
+            </Dialog.Description>
+          </div>
+          <div className="min-h-0 flex-1 overflow-y-auto px-6 py-3 scrollbar-thin">
+            {historyBusy ? (
+              <div className="flex h-24 w-full items-center justify-center">
+                <Loader size="sm" />
+              </div>
+            ) : historyData?.records?.length ? (
+              <>
+                <div className="mb-3 grid grid-cols-3 gap-2">
+                  <div className="rounded border border-kumo-line px-2 py-1.5 text-center">
+                    <div className="text-base font-semibold text-kumo-strong">{historyData.streakDays}</div>
+                    <div className="text-[10px] text-kumo-subtle">连续天数</div>
+                  </div>
+                  <div className="rounded border border-kumo-line px-2 py-1.5 text-center">
+                    <div className="text-base font-semibold text-kumo-strong">{historyData.totalDays}</div>
+                    <div className="text-[10px] text-kumo-subtle">累计天数</div>
+                  </div>
+                  <div className="rounded border border-kumo-line px-2 py-1.5 text-center">
+                    <div className="text-base font-semibold text-kumo-strong">{fmtCredits(historyData.totalCredits)}</div>
+                    <div className="text-[10px] text-kumo-subtle">累计积分</div>
+                  </div>
+                </div>
+                <div className="divide-y divide-kumo-line">
+                  {historyData.records.map(r => (
+                    <div key={r.date} className="flex items-center justify-between gap-3 py-1.5 text-xs">
+                      <span className="font-mono text-kumo-strong">{r.date}</span>
+                      <span className="font-mono text-kumo-subtle">+{fmtCredits(r.amount)}</span>
+                    </div>
+                  ))}
+                </div>
+              </>
+            ) : (
+              <div className="py-8 text-center text-xs text-kumo-subtle">暂无签到记录</div>
+            )}
+          </div>
+          <div className="flex shrink-0 items-center justify-end gap-3 border-t border-kumo-line px-6 py-4">
+            <Dialog.Close render={props => <Button size="sm" variant="secondary" {...props}>关闭</Button>} />
+          </div>
+        </Dialog>
+      </Dialog.Root>
+
+    </div>
+  );
+}

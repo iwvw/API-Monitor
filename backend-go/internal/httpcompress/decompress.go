@@ -8,6 +8,8 @@ import (
 
 	"github.com/andybalholm/brotli"
 	"github.com/klauspost/compress/zstd"
+
+	"github.com/iwvw/api-monitor/backend-go/internal/applog"
 )
 
 // DefaultMaxRequestBodyBytes 是未显式配置时「解压后」请求体的上限（32MB）。
@@ -79,7 +81,8 @@ func DecompressRequest(maxBytes int64, skipPaths ...string) func(http.Handler) h
 					http.Error(w, "unsupported request Content-Encoding: "+r.Header.Get("Content-Encoding"), http.StatusUnsupportedMediaType)
 					return
 				}
-				http.Error(w, "invalid compressed request body: "+err.Error(), http.StatusBadRequest)
+				applog.Warn(r.Context(), "httpcompress", "invalid compressed request body", "error", err)
+				http.Error(w, "invalid compressed request body", http.StatusBadRequest)
 				return
 			}
 

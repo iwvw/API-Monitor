@@ -325,8 +325,8 @@ func init() {
 		"image": {t: "string", req: true, d: "镜像引用，如 iwvw/api-monitor:dev"},
 	})
 
-	// ===== OpenAI 网关 =====
-	routeRequestContracts["/api/openai/endpoints"] = obj([]string{"name", "baseUrl", "apiKey"}, map[string]prop{
+	// ===== 模型网关 =====
+	routeRequestContracts["/api/modelhub/endpoints"] = obj([]string{"name", "baseUrl", "apiKey"}, map[string]prop{
 		"name":         {t: "string", req: true},
 		"baseUrl":      {t: "string", req: true, d: "OpenAI 兼容地址，如 https://api.example.com/v1"},
 		"modelsUrl":    {t: "string", d: "模型列表 API（可选），默认 {BaseURL}/models；非标准路径端点在此填写完整 URL"},
@@ -338,7 +338,7 @@ func init() {
 		"protocol":     {t: "string", d: "连接协议 auto/http1/h2，默认 auto（HTTP/2 优先）"},
 		"skipVerify":   {t: "boolean"},
 	})
-	routeRequestContracts["/api/openai/endpoints/{id}"] = routeRequestContracts["/api/openai/endpoints"]
+	routeRequestContracts["/api/modelhub/endpoints/{id}"] = routeRequestContracts["/api/modelhub/endpoints"]
 
 	// ===== 通知中心 =====
 	routeRequestContracts["/api/notification/channels"] = obj([]string{"name", "type"}, map[string]prop{
@@ -490,8 +490,6 @@ func init() {
 		"subject":    {t: "string", d: "主题"},
 		"messageId":  {t: "string", d: "邮件 Message-ID，用于去重"},
 		"raw":        {t: "string", d: "邮件 MIME 原文，面板侧解析提取"},
-		"code":       {t: "string", d: "已提取的验证码（兼容旧版）"},
-		"link":       {t: "string", d: "已提取的验证链接（兼容旧版）"},
 		"snippet":    {t: "string", d: "正文摘要"},
 		"receivedAt": {t: "string", d: "收件时刻（RFC3339）"},
 	})
@@ -503,18 +501,25 @@ func init() {
 		"since":           {t: "string", d: "只接受该时刻之后的邮件（RFC3339）"},
 		"timeoutSec":      {t: "integer", d: "最长等待秒数"},
 		"consumer":        {t: "string", d: "认领方标识"},
-		"requireCode":     {t: "boolean", d: "是否要求已提取出验证码（默认 true）"},
 	})
 	routeRequestContracts["/api/emailcode/messages/{id}/consume"] = obj(nil, map[string]prop{})
 	routeRequestContracts["/api/emailcode/clear"] = obj(nil, map[string]prop{})
-	routeRequestContracts["/api/posthogcode/signup/start"] = obj(nil, map[string]prop{
-		"region":    {t: "string", d: "区域 us/eu，默认 us"},
-		"prefix":    {t: "string", d: "邮箱前缀，默认 probe"},
-		"domain":    {t: "string", d: "收件域名，需已部署收件箱，缺省用第一个可用域名"},
-		"password":  {t: "string", d: "账号密码，缺省自动生成"},
-		"accountId": {t: "string", d: "指定既有账号则复用其身份"},
-		"email":     {t: "string", d: "手动模式：用户自行在浏览器注册时使用的邮箱"},
-		"manual":    {t: "boolean", d: "人机分工模式：面板只备邮箱密码，由用户在浏览器过 Turnstile，面板接管验证与授权"},
+	routeRequestContracts["/api/emailcode/messages/batch"] = obj([]string{"mailboxes"}, map[string]prop{
+		"mailboxes":       {t: "array", req: true, d: "收件人邮箱数组,最多 50 个"},
+		"domain":          {t: "string", d: "收件域名精确过滤"},
+		"fromDomain":      {t: "string", d: "发件人域名过滤(支持后缀匹配主域/子域)"},
+		"includeConsumed": {t: "boolean", d: "是否包含已消费邮件"},
+		"limit":           {t: "integer", d: "每个邮箱返回上限,默认 50,最大 200"},
+	})
+	routeRequestContracts["/api/emailcode/messages/fetch"] = obj([]string{"ids"}, map[string]prop{
+		"ids": {t: "array", req: true, d: "邮件 id 数组,最多 50 个;返回含 MIME 原文 raw"},
+	})
+	routeRequestContracts["/api/emailcode/settings"] = obj([]string{"retentionDays"}, map[string]prop{
+		"retentionDays": {t: "integer", req: true, d: "邮件保留天数,1-90,默认 7;超期邮件在保存时立即清理"},
+	})
+	routeRequestContracts["/api/emailcode/messages/consume"] = obj([]string{"ids"}, map[string]prop{
+		"ids":      {t: "array", req: true, d: "邮件 id 数组,最多 50 个"},
+		"consumer": {t: "string", d: "认领方标识,默认 batch"},
 	})
 
 	// ===== GitHub =====
@@ -1097,51 +1102,53 @@ func init() {
 		"schedule": {t: "string", req: true},
 	})
 
-	// ===== OpenAI 网关剩余 =====
-	routeRequestContracts["/api/openai/endpoints/{id}/toggle"] = obj([]string{"enabled"}, map[string]prop{
+	// ===== 模型网关剩余 =====
+	routeRequestContracts["/api/modelhub/endpoints/{id}/toggle"] = obj([]string{"enabled"}, map[string]prop{
 		"enabled": {t: "boolean", req: true},
 	})
-	routeRequestContracts["/api/openai/endpoints/{id}/models/toggle"] = obj([]string{"model", "enabled"}, map[string]prop{
+	routeRequestContracts["/api/modelhub/endpoints/{id}/models/toggle"] = obj([]string{"model", "enabled"}, map[string]prop{
 		"model":   {t: "string", req: true, d: "模型名称"},
 		"enabled": {t: "boolean", req: true, d: "是否启用该模型"},
 	})
-	routeRequestContracts["/api/openai/endpoints/{id}/model-mappings"] = obj([]string{"mappings"}, map[string]prop{
+	routeRequestContracts["/api/modelhub/endpoints/{id}/model-mappings"] = obj([]string{"mappings"}, map[string]prop{
 		"mappings": {t: "object", req: true, d: "模型对外映射名称，键为真实模型名，值为对外名称"},
 	})
-	routeRequestContracts["/api/openai/keys"] = obj([]string{"name"}, map[string]prop{
+	routeRequestContracts["/api/modelhub/keys"] = obj([]string{"name"}, map[string]prop{
 		"name":      {t: "string", req: true, d: "密钥名称"},
 		"expiresAt": {t: "string", d: "过期时间，ISO 8601 字符串，留空表示不过期"},
 	})
-	routeRequestContracts["/api/openai/keys/{id}"] = routeRequestContracts["/api/openai/keys"]
-	routeRequestContracts["/api/openai/keys/{id}/toggle"] = obj([]string{"enabled"}, map[string]prop{
+	routeRequestContracts["/api/modelhub/keys/{id}"] = routeRequestContracts["/api/modelhub/keys"]
+	routeRequestContracts["/api/modelhub/keys/{id}/toggle"] = obj([]string{"enabled"}, map[string]prop{
 		"enabled": {t: "boolean", req: true},
 	})
-	routeRequestContracts["/api/openai/keys/{id}/rotate"] = noBody
-	routeRequestContracts["/api/openai/keys/{id}/default"] = noBody
-	routeRequestContracts["/api/openai/proxies/resolve-subscription"] = obj([]string{"url"}, map[string]prop{
+	routeRequestContracts["/api/modelhub/keys/{id}/rotate"] = noBody
+	routeRequestContracts["/api/modelhub/keys/{id}/default"] = noBody
+	routeRequestContracts["/api/modelhub/proxies/resolve-subscription"] = obj([]string{"url"}, map[string]prop{
 		"url": {t: "string", req: true, d: "订阅链接，必须以 http:// 或 https:// 开头"},
 	})
-	routeRequestContracts["/api/openai/analytics/clear"] = noBody
-	routeRequestContracts["/api/openai/analytics/clear-history"] = noBody
-	routeRequestContracts["/api/openai/relay-errors"] = noBody
-	routeRequestContracts["/api/openai/endpoints/{id}/routing"] = obj([]string{"priority", "weight"}, map[string]prop{
+	routeRequestContracts["/api/modelhub/analytics/clear"] = noBody
+	routeRequestContracts["/api/modelhub/analytics/clear-history"] = noBody
+	routeRequestContracts["/api/modelhub/relay-errors"] = noBody
+	routeRequestContracts["/api/modelhub/endpoints/{id}/routing"] = obj([]string{"priority", "weight"}, map[string]prop{
 		"priority": {t: "number", d: "路由优先级（越小越优先），与 weight 至少提供一个"},
 		"weight":   {t: "number", d: "路由权重，与 priority 至少提供一个"},
 	})
-	routeRequestContracts["/api/openai/endpoints/{id}/proxy-state"] = noBody
-	routeRequestContracts["/api/openai/endpoints/{id}/proxy-state/unban"] = noBody
-	routeRequestContracts["/api/openai/endpoints/{id}/verify"] = noBody
-	routeRequestContracts["/api/openai/endpoints/{id}/test"] = noBody
-	routeRequestContracts["/api/openai/endpoints/{id}/health-check"] = noBody
-	routeRequestContracts["/api/openai/endpoints/{id}/health-check-all"] = noBody
-	routeRequestContracts["/api/openai/endpoints/{id}/key-check"] = obj([]string{"keys"}, map[string]prop{
+	routeRequestContracts["/api/modelhub/endpoints/{id}/proxy-state"] = noBody
+	routeRequestContracts["/api/modelhub/endpoints/{id}/key-state"] = noBody
+	routeRequestContracts["/api/modelhub/endpoints/{id}/key-state/release"] = noBody
+	routeRequestContracts["/api/modelhub/endpoints/{id}/proxy-state/unban"] = noBody
+	routeRequestContracts["/api/modelhub/endpoints/{id}/verify"] = noBody
+	routeRequestContracts["/api/modelhub/endpoints/{id}/test"] = noBody
+	routeRequestContracts["/api/modelhub/endpoints/{id}/health-check"] = noBody
+	routeRequestContracts["/api/modelhub/endpoints/{id}/health-check-all"] = noBody
+	routeRequestContracts["/api/modelhub/endpoints/{id}/key-check"] = obj([]string{"keys"}, map[string]prop{
 		"keys":    {t: "array", req: true},
 		"timeout": {t: "number"},
 	})
-	routeRequestContracts["/api/openai/endpoints/refresh"] = noBody
-	routeRequestContracts["/api/openai/endpoints/refresh-all"] = noBody
-	routeRequestContracts["/api/openai/health-check-all"] = noBody
-	routeRequestContracts["/api/openai/import"] = obj([]string{"endpoints"}, map[string]prop{
+	routeRequestContracts["/api/modelhub/endpoints/refresh"] = noBody
+	routeRequestContracts["/api/modelhub/endpoints/refresh-all"] = noBody
+	routeRequestContracts["/api/modelhub/health-check-all"] = noBody
+	routeRequestContracts["/api/modelhub/import"] = obj([]string{"endpoints"}, map[string]prop{
 		"endpoints": {t: "array", req: true},
 	})
 
@@ -1429,10 +1436,10 @@ func init() {
 	})
 	routeRequestContracts["/api/notification/rules/{id}/enable"] = noBody
 	routeRequestContracts["/api/notification/rules/{id}/disable"] = noBody
-	routeRequestContracts["/api/notification/templates/preview"] = obj([]string{"template"}, map[string]prop{
-		"template":  {t: "string", req: true, d: "模板文本"},
-		"eventType": {t: "string", d: "事件类型"},
-		"context":   {t: "object", d: "渲染上下文"},
+	routeRequestContracts["/api/notification/templates/preview"] = obj(nil, map[string]prop{
+		"title_template":   {t: "string", d: "标题模板，支持 {{变量}}"},
+		"message_template": {t: "string", d: "内容模板，支持 {{变量}}；留空则用默认模板"},
+		"data":             {t: "object", d: "渲染上下文（事件字段），如 serverName/lastActive/downDurationMs"},
 	})
 	routeRequestContracts["/api/notification/config"] = obj(nil, map[string]prop{
 		"globalEnabled": {t: "boolean", d: "全局开关"},
@@ -1716,15 +1723,15 @@ func init() {
 		"limit": {t: "integer", d: "可用次数"},
 	})
 	routeRequestContracts["/api/m365/invite-codes/{id}"] = routeRequestContracts["/api/m365/invite-codes"]
-	routeRequestContracts["/api/openai/endpoints/reorder"] = obj([]string{"ids"}, map[string]prop{
+	routeRequestContracts["/api/modelhub/endpoints/reorder"] = obj([]string{"ids"}, map[string]prop{
 		"ids": {t: "array", req: true, d: "按新顺序排列的端点 ID"},
 	})
-	routeRequestContracts["/api/openai/endpoints/{id}/models/toggle-batch"] = obj([]string{"models"}, map[string]prop{
+	routeRequestContracts["/api/modelhub/endpoints/{id}/models/toggle-batch"] = obj([]string{"models"}, map[string]prop{
 		"models": {t: "array", req: true, d: "模型名数组"},
 		"enable": {t: "boolean", d: "true 启用 / false 停用"},
 	})
-	routeRequestContracts["/api/openai/endpoints/{id}/proxy-state/probe"] = noBody
-	routeRequestContracts["/api/openai/proxies/import-list"] = obj([]string{"nodes"}, map[string]prop{
+	routeRequestContracts["/api/modelhub/endpoints/{id}/proxy-state/probe"] = noBody
+	routeRequestContracts["/api/modelhub/proxies/import-list"] = obj([]string{"nodes"}, map[string]prop{
 		"nodes": {t: "array", req: true, d: "代理节点列表"},
 	})
 	routeRequestContracts["/api/uptime/monitors"] = obj([]string{"name"}, map[string]prop{

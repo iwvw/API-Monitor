@@ -96,7 +96,7 @@ func (s *Service) emailRoutingInbox(w http.ResponseWriter, r *http.Request, acco
 	if !ok {
 		return
 	}
-	cfAccountID, err := s.cloudflareAccountID(r.Context(), auth)
+	cfAccountID, err := s.cloudflareAccountIDForWrite(r.Context(), auth, r.Method)
 	if err != nil {
 		response.JSON(w, http.StatusInternalServerError, map[string]interface{}{"error": err.Error()})
 		return
@@ -211,7 +211,7 @@ func (s *Service) emailInboxDeploy(w http.ResponseWriter, r *http.Request, auth 
 		db, dbErr := s.open(r.Context())
 		if dbErr == nil {
 			if prev.WorkerName != "" {
-				_, _ = s.cfRequest(r.Context(), http.MethodDelete, "/accounts/"+cfAccountID+"/workers/scripts/"+prev.WorkerName, auth, nil)
+				_, _ = s.cfRequest(r.Context(), http.MethodDelete, "/accounts/"+url.PathEscape(cfAccountID)+"/workers/scripts/"+url.PathEscape(prev.WorkerName), auth, nil)
 			}
 			_ = deleteEmailInbox(r.Context(), db, zoneID)
 			db.Close()
@@ -279,7 +279,7 @@ func (s *Service) emailInboxDeploy(w http.ResponseWriter, r *http.Request, auth 
 // 全部尽力而为——已尽力把现场还原，不再覆盖要返回给用户的原始错误。
 func (s *Service) rollbackInboxDeploy(ctx context.Context, auth map[string]string, cfAccountID, zoneID string, prev emailInboxStatus, newWorkerName string) {
 	if newWorkerName != "" {
-		_, _ = s.cfRequest(ctx, http.MethodDelete, "/accounts/"+cfAccountID+"/workers/scripts/"+newWorkerName, auth, nil)
+		_, _ = s.cfRequest(ctx, http.MethodDelete, "/accounts/"+url.PathEscape(cfAccountID)+"/workers/scripts/"+url.PathEscape(newWorkerName), auth, nil)
 	}
 	switch {
 	case prev.Deployed && prev.WorkerName != "" && prev.WorkerName != newWorkerName:
@@ -294,11 +294,11 @@ func (s *Service) rollbackInboxDeploy(ctx context.Context, auth map[string]strin
 // ensureEmailRoutingEnabled 确保 zone 的 Email Routing 已启用：
 // 未启用时 CF 会拒绝创建任何路由规则（含 catch-all）。
 func (s *Service) ensureEmailRoutingEnabled(ctx context.Context, auth map[string]string, zoneID string) error {
-	payload, err := s.cfRequest(ctx, http.MethodGet, "zones/"+zoneID+"/email/routing", auth, nil)
+	payload, err := s.cfRequest(ctx, http.MethodGet, "zones/"+url.PathEscape(zoneID)+"/email/routing", auth, nil)
 	if err == nil && boolValue(objectValue(payload["result"])["enabled"]) {
 		return nil
 	}
-	_, err = s.cfRequest(ctx, http.MethodPost, "zones/"+zoneID+"/email/routing/enable", auth, nil)
+	_, err = s.cfRequest(ctx, http.MethodPost, "zones/"+url.PathEscape(zoneID)+"/email/routing/enable", auth, nil)
 	return err
 }
 
@@ -334,7 +334,7 @@ func (s *Service) emailInboxRemove(w http.ResponseWriter, r *http.Request, auth 
 	}
 	// 删除 Worker 脚本（失败不阻断：可能已被手动删除）。
 	if status.WorkerName != "" {
-		if _, err := s.cfRequest(r.Context(), http.MethodDelete, "/accounts/"+cfAccountID+"/workers/scripts/"+status.WorkerName, auth, nil); err != nil && !strings.Contains(strings.ToLower(err.Error()), "not found") {
+		if _, err := s.cfRequest(r.Context(), http.MethodDelete, "/accounts/"+url.PathEscape(cfAccountID)+"/workers/scripts/"+url.PathEscape(status.WorkerName), auth, nil); err != nil && !strings.Contains(strings.ToLower(err.Error()), "not found") {
 			response.JSON(w, http.StatusBadGateway, map[string]interface{}{"error": "删除 Worker 失败：" + err.Error()})
 			return
 		}
@@ -357,7 +357,7 @@ func (s *Service) catchAllAction(ctx context.Context, auth map[string]string, zo
 
 // catchAllState 读取 zone 的 catch-all 规则完整状态。
 func (s *Service) catchAllState(ctx context.Context, auth map[string]string, zoneID string) (map[string]string, error) {
-	payload, err := s.cfRequest(ctx, http.MethodGet, "zones/"+zoneID+"/email/routing/rules/catch_all", auth, nil)
+	payload, err := s.cfRequest(ctx, http.MethodGet, "zones/"+url.PathEscape(zoneID)+"/email/routing/rules/catch_all", auth, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -394,7 +394,7 @@ func (s *Service) setCatchAllAction(ctx context.Context, auth map[string]string,
 		"actions":  []interface{}{map[string]interface{}{"type": actionType, "value": []string{value}}},
 		"enabled":  true,
 	}
-	_, err := s.cfRequest(ctx, http.MethodPut, "zones/"+zoneID+"/email/routing/rules/catch_all", auth, body)
+	_, err := s.cfRequest(ctx, http.MethodPut, "zones/"+url.PathEscape(zoneID)+"/email/routing/rules/catch_all", auth, body)
 	return err
 }
 
@@ -405,7 +405,7 @@ func (s *Service) setCatchAllDisabledDrop(ctx context.Context, auth map[string]s
 		"actions":  []interface{}{map[string]interface{}{"type": "drop", "value": []string{}}},
 		"enabled":  false,
 	}
-	_, err := s.cfRequest(ctx, http.MethodPut, "zones/"+zoneID+"/email/routing/rules/catch_all", auth, body)
+	_, err := s.cfRequest(ctx, http.MethodPut, "zones/"+url.PathEscape(zoneID)+"/email/routing/rules/catch_all", auth, body)
 	return err
 }
 

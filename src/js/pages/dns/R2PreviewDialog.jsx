@@ -36,17 +36,18 @@ function R2PreviewDialog({
               <iframe
                 title={`预览 ${modal.data.name}`}
                 src={modal.data.url}
+                sandbox=""
                 className="h-[68vh] max-h-[42rem] min-h-[28rem] w-full bg-kumo-base"
               />
             ) : (
               <div className="flex min-h-[28rem] flex-col items-center justify-center gap-3 p-8 text-center">
                 <FileText className="h-8 w-8 text-kumo-subtle" />
                   <div>
-                    <div className="font-medium text-kumo-strong">该类型暂不支持内嵌预览</div>
-                    <div className="mt-1 text-sm text-kumo-subtle">由浏览器按文件类型处理。</div>
+                    <div className="font-medium text-kumo-strong">该类型不支持内嵌预览</div>
+                    <div className="mt-1 text-sm text-kumo-subtle">请下载或在新窗口下载查看。</div>
                   </div>
                 <Button size="sm" onClick={() => window.open(modal.data?.url, '_blank', 'noopener,noreferrer')} icon={<ExternalLink className="h-4 w-4" />}>
-                  打开对象
+                  下载 / 新窗口下载
                 </Button>
               </div>
             )}

@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/iwvw/api-monitor/backend-go/internal/applog"
 	"github.com/iwvw/api-monitor/backend-go/internal/response"
 )
 
@@ -57,7 +58,9 @@ var deprecatedTableRules = []deprecatedTableRule{
 	{Exact: "nextchat_messages", Category: "legacy_chat", Reason: "Legacy NextChat tables are no longer used by the current OpenAI chat UI"},
 	{Prefix: "ai_chat_", Category: "legacy_ai", Reason: "Legacy AI chat tables are no longer used by the current UI"},
 	{Prefix: "ai_draw_", Category: "legacy_ai", Reason: "Legacy AI drawing tables are no longer used by the current UI"},
-	{Prefix: "antigravity_", Category: "legacy_ai_gateway", Reason: "Legacy Antigravity gateway tables are not used by the current Go backend"},
+	{Prefix: "lobsterai_", Category: "retired_module", Reason: "LobsterAI plugin is removed"},
+	{Prefix: "zcode_", Category: "retired_module", Reason: "ZCode plugin is removed"},
+	{Prefix: "autoclaw_", Category: "retired_module", Reason: "AutoClaw plugin is removed"},
 	{Prefix: "gemini_cli_", Category: "legacy_ai_gateway", Reason: "Legacy Gemini CLI gateway tables are not used by the current Go backend"},
 	{Prefix: "qwen_", Category: "legacy_ai_gateway", Reason: "Legacy Qwen gateway tables are not used by the current Go backend"},
 	{Exact: "ds_accounts", Category: "legacy_ai_gateway", Reason: "Legacy DS gateway tables are not used by the current Go backend"},
@@ -274,19 +277,7 @@ func (s *Service) cleanupDeprecatedTables(w http.ResponseWriter, r *http.Request
 	// 回收空间：INCREMENTAL 库按批增量回收（每次持锁仅几十毫秒，对在线请求
 	// 几乎无感）；NONE 存量库无法增量回收，排队后台全量迁移压缩（复用既有
 	// 异步任务机制，请求不阻塞）。
-	mode, modeErr := autoVacuumMode(r.Context(), db)
-	if modeErr == nil && mode == 2 {
-		for rounds := 0; rounds < 64; rounds++ {
-			freePages, freeErr := freelistPageCount(r.Context(), db)
-			if freeErr != nil || freePages == 0 {
-				break
-			}
-			_, _ = db.ExecContext(r.Context(), `PRAGMA incremental_vacuum(4096)`)
-		}
-		_, _ = db.ExecContext(r.Context(), `PRAGMA wal_checkpoint(TRUNCATE)`)
-	} else if modeErr == nil && mode == 0 {
-		_, _ = s.enqueueVacuumTask(r.Context())
-	}
+	s.reclaimDroppedTableSpace(r.Context(), db, true)
 
 	response.JSON(w, http.StatusOK, map[string]interface{}{
 		"success": true,
@@ -298,6 +289,93 @@ func (s *Service) cleanupDeprecatedTables(w http.ResponseWriter, r *http.Request
 			"storage":     databaseStorageStats(r.Context(), db, s.store.DatabasePath()),
 		},
 	})
+}
+
+// reclaimDroppedTableSpace 按 auto_vacuum 模式回收 DROP 后的空闲页：
+// INCREMENTAL 库在用户主动操作（interactive=true，设置页动作）时分批增量回收
+// 并用 PASSIVE checkpoint 推进 WAL 回写；自动路径（interactive=false，服务
+// 启动清理）只做 PASSIVE checkpoint——硬性规则禁止自动路径 TRUNCATE/RESTART
+// （常驻轮询读者 + modernc 驱动会无限阻塞，是 database is locked 风暴根因），
+// 增量回收留给下一次用户主动压缩。
+// NONE 存量库无法增量回收，排队后台全量迁移压缩（复用既有异步任务机制，不阻塞）。
+func (s *Service) reclaimDroppedTableSpace(ctx context.Context, db *sql.DB, interactive bool) {
+	mode, modeErr := autoVacuumMode(ctx, db)
+	if modeErr == nil && mode == 2 {
+		if !interactive {
+			_, _ = db.ExecContext(ctx, `PRAGMA wal_checkpoint(PASSIVE)`)
+			return
+		}
+		for rounds := 0; rounds < 64; rounds++ {
+			freePages, freeErr := freelistPageCount(ctx, db)
+			if freeErr != nil || freePages == 0 {
+				break
+			}
+			_, _ = db.ExecContext(ctx, `PRAGMA incremental_vacuum(4096)`)
+		}
+		_, _ = db.ExecContext(ctx, `PRAGMA wal_checkpoint(PASSIVE)`)
+	} else if modeErr == nil && mode == 0 {
+		_, _ = s.enqueueVacuumTask(ctx)
+	}
+}
+
+// StartupCleanupDeprecatedTables 在服务启动阶段自动清理废弃表：
+// 仅当存在按 deprecatedTableRules 匹配的表时，先备份数据库再 DROP 并回收空间；
+// 无候选时静默跳过。供系统更新/重启后的启动流程调用，替代手动到设置页清理。
+func (s *Service) StartupCleanupDeprecatedTables(ctx context.Context) {
+	s.cleanupStaleImportPreviews(time.Now())
+	db, err := s.store.Open(ctx)
+	if err != nil {
+		applog.Warn(ctx, "settings", "startup deprecated table cleanup skipped", "error", err.Error())
+		return
+	}
+	defer db.Close()
+
+	candidates, err := deprecatedTableCandidates(ctx, db)
+	if err != nil {
+		applog.Warn(ctx, "settings", "startup deprecated table cleanup scan failed", "error", err.Error())
+		return
+	}
+	targets, err := selectedDeprecatedTables(nil, false, candidates)
+	if err != nil {
+		applog.Warn(ctx, "settings", "startup deprecated table cleanup select failed", "error", err.Error())
+		return
+	}
+	if len(targets) == 0 {
+		return
+	}
+
+	backupPath := filepath.Join(s.backupDir(), "api-monitor-before-deprecated-cleanup-"+timestampForFile(time.Now())+".db")
+	if err := s.backupCurrentDatabase(ctx, backupPath); err != nil {
+		applog.Warn(ctx, "settings", "startup deprecated table cleanup backup failed", "error", err.Error())
+		return
+	}
+
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		applog.Warn(ctx, "settings", "startup deprecated table cleanup begin failed", "error", err.Error())
+		return
+	}
+	for _, table := range targets {
+		if _, err := tx.ExecContext(ctx, "DROP TABLE IF EXISTS "+quoteIdentifier(table.Table)); err != nil {
+			_ = tx.Rollback()
+			applog.Warn(ctx, "settings", "startup deprecated table cleanup drop failed", "table", table.Table, "error", err.Error())
+			return
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		applog.Warn(ctx, "settings", "startup deprecated table cleanup commit failed", "error", err.Error())
+		return
+	}
+	s.reclaimDroppedTableSpace(ctx, db, false)
+	applog.Info(ctx, "settings", fmt.Sprintf("startup deprecated table cleanup dropped %d tables", len(targets)), "tables", strings.Join(tableNames(targets), ", "))
+}
+
+func tableNames(tables []deprecatedTableCandidate) []string {
+	names := make([]string, 0, len(tables))
+	for _, table := range tables {
+		names = append(names, table.Table)
+	}
+	return names
 }
 
 func deprecatedTableCandidates(ctx context.Context, db *sql.DB) ([]deprecatedTableCandidate, error) {

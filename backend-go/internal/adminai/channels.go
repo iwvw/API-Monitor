@@ -44,6 +44,40 @@ func authorizeByWhitelist(db *sql.DB, channelID, userID string) bool {
 	return hit > 0
 }
 
+// channelAuthorizer 构造 per-channel 授权:白名单来自 bindings 表,allowFrom 为频道内联白名单。
+// 两者均未配置时默认拒绝(不放行任何入站消息),避免未接授权导致静默越权。
+func (s *Service) channelAuthorizer(channelID string, allowFrom []string) channel.AuthorizeFunc {
+	allow := make(map[string]struct{}, len(allowFrom))
+	for _, uid := range allowFrom {
+		if uid = strings.TrimSpace(uid); uid != "" {
+			allow[uid] = struct{}{}
+		}
+	}
+	return func(userID, username, chatType string) bool {
+		if userID == "" {
+			return false
+		}
+		if _, ok := allow[userID]; ok {
+			return true
+		}
+		db, err := s.open(context.Background())
+		if err != nil {
+			return false
+		}
+		defer db.Close()
+		var total int
+		if err := db.QueryRowContext(context.Background(),
+			`SELECT COUNT(*) FROM admin_ai_channel_bindings WHERE channel_id = ?`, channelID).Scan(&total); err != nil {
+			return false
+		}
+		if total == 0 {
+			slog.Warn("channel-authorize-not-configured", "channelId", channelID, "userId", userID)
+			return false
+		}
+		return authorizeByWhitelist(db, channelID, userID)
+	}
+}
+
 // resolveBotToken 解析频道的 bot token：优先取来源通知渠道（telegram 且启用）的 bot_token，
 // 否则沿用旧配置内联的 botToken（零迁移兼容：旧频道在重新选择来源前继续可用）。
 func (s *Service) resolveBotToken(ctx context.Context, notificationChannelID string, cfg channel.TelegramConfig) (string, error) {
@@ -226,6 +260,7 @@ func (s *Service) reloadChannels(auth func(userID, username, chatType string) bo
 				continue
 			}
 			wc := channel.NewWeChatChannel(id, wcfg, s.chanMgr.registry)
+			wc.SetAuthorize(s.channelAuthorizer(id, wcfg.AllowFrom))
 			s.chanMgr.registry.Register(wc)
 		case "wecom":
 			var wccfg channel.WeComConfig
@@ -233,6 +268,7 @@ func (s *Service) reloadChannels(auth func(userID, username, chatType string) bo
 				continue
 			}
 			wc := channel.NewWeComChannel(id, wccfg, s.chanMgr.registry)
+			wc.SetAuthorize(s.channelAuthorizer(id, nil))
 			s.chanMgr.registry.Register(wc)
 		}
 	}
@@ -295,6 +331,7 @@ func (s *Service) startChannelInstance(ctx context.Context, id string) error {
 			return fmt.Errorf("频道配置解密失败: %w", err)
 		}
 		wc := channel.NewWeChatChannel(id, wcfg, s.chanMgr.registry)
+		wc.SetAuthorize(s.channelAuthorizer(id, wcfg.AllowFrom))
 		ch = wc
 	case "wecom":
 		var wccfg channel.WeComConfig
@@ -302,6 +339,7 @@ func (s *Service) startChannelInstance(ctx context.Context, id string) error {
 			return fmt.Errorf("频道配置解密失败: %w", err)
 		}
 		wcc := channel.NewWeComChannel(id, wccfg, s.chanMgr.registry)
+		wcc.SetAuthorize(s.channelAuthorizer(id, nil))
 		ch = wcc
 	default:
 		return fmt.Errorf("不支持的频道类型: %s", ctype)
@@ -309,6 +347,11 @@ func (s *Service) startChannelInstance(ctx context.Context, id string) error {
 
 	runCtx, cancel := context.WithCancel(context.Background())
 	s.chanMgr.mu.Lock()
+	if _, running := s.chanMgr.cancels[id]; running {
+		s.chanMgr.mu.Unlock()
+		cancel()
+		return nil // 并发启动竞争:已有实例在运行
+	}
 	s.chanMgr.cancels[id] = cancel
 	s.chanMgr.mu.Unlock()
 
@@ -316,9 +359,11 @@ func (s *Service) startChannelInstance(ctx context.Context, id string) error {
 	// 启动就绪通知（开关开启时）：向白名单成员发送命令面板，与 telegram.go 内的
 	// AllowFrom 就绪消息共用同一开关；独立 goroutine 发送，不阻塞启动流程。
 	if notifyOnStart {
-		go s.sendChannelStartNotify(id)
+		runChannelAsync("channel-start-notify", func() {
+			s.sendChannelStartNotify(id)
+		})
 	}
-	go func() {
+	runChannelAsync("channel-poll", func() {
 		// Start 阻塞；退出后清理 cancel 注册（含异常退出）
 		err := ch.Start(runCtx)
 		if err != nil {
@@ -330,7 +375,7 @@ func (s *Service) startChannelInstance(ctx context.Context, id string) error {
 			delete(s.chanMgr.cancels, id)
 		}
 		s.chanMgr.mu.Unlock()
-	}()
+	})
 	return nil
 }
 
@@ -348,7 +393,9 @@ func (s *Service) sendChannelStartNotify(channelID string) {
 	defer db.Close()
 	// 去重：telegram.go Start() 已给 AllowFrom 用户发送就绪消息，这里排除，避免同一用户收两条。
 	var chType, encrypted string
-	_ = db.QueryRowContext(context.Background(), `SELECT type, config FROM admin_ai_channels WHERE id = ?`, channelID).Scan(&chType, &encrypted)
+	if err := db.QueryRowContext(context.Background(), `SELECT type, config_encrypted FROM admin_ai_channels WHERE id = ?`, channelID).Scan(&chType, &encrypted); err != nil {
+		slog.Warn("channel-start-notify-config", "channelId", channelID, "err", err.Error())
+	}
 	allowFrom := map[string]bool{}
 	if chType == "telegram" && encrypted != "" {
 		var cfg channel.TelegramConfig
@@ -418,6 +465,19 @@ func (s *Service) StopAllChannels() {
 	s.chanMgr.registry.SetOnInbound(nil)
 }
 
+// runChannelAsync 在独立 goroutine 中执行频道异步任务并兜底 recover:
+// 频道消息处理链路的意外 panic 不应终止整个后端进程。
+func runChannelAsync(task string, fn func()) {
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				slog.Error("channel-async-panic", "task", task, "panic", fmt.Sprint(r))
+			}
+		}()
+		fn()
+	}()
+}
+
 // handleChannelInbound 处理频道入站消息：斜杠命令（通知类）→ 其余消息进入 AI 对话。
 // 普通消息异步处理，避免 AI 推理耗时阻塞频道轮询（阻塞会导致后续消息积压）。
 func (s *Service) handleChannelInbound(env channel.InboundEnvelope) {
@@ -428,14 +488,16 @@ func (s *Service) handleChannelInbound(env channel.InboundEnvelope) {
 		}
 		return
 	}
-	go s.handleChannelConversation(env)
+	runChannelAsync("channel-conversation", func() {
+		s.handleChannelConversation(env)
+	})
 }
 
 // handleChannelConversation 异步执行频道普通消息对话（先发占位消息，再流式 Edit 增量呈现）。
 // 会话已有活跃 run（web/BOT/上一条频道消息执行中）时，消息进入 per-session 排队：
 // 等待当前 run 结束后自动启动新 run 消费，不再被互斥拒绝（对齐 web 的 join 语义）。
 func (s *Service) handleChannelConversation(env channel.InboundEnvelope) {
-	slog.Info("channel-inbound-start", "channelId", env.ChannelID, "chatId", env.ChatID, "text", env.Text)
+	slog.Info("channel-inbound-start", "channelId", env.ChannelID, "chatId", env.ChatID, "textLen", len(env.Text))
 	// 会话键：channels 用 chatID 派生（同一对话/群组共享上下文）
 	sessionID := "cha_" + env.ChatID
 	source := "channel:" + env.ChannelID
@@ -451,7 +513,9 @@ func (s *Service) handleChannelConversation(env channel.InboundEnvelope) {
 	_, busy := s.sessionRuns[sessionID]
 	s.mu.Unlock()
 	if busy {
-		go s.queueChannelConversation(env, sessionID, source, string(identity))
+		runChannelAsync("channel-queue", func() {
+			s.queueChannelConversation(env, sessionID, source, string(identity))
+		})
 		return
 	}
 
@@ -599,7 +663,7 @@ func (s *Service) streamChannelReply(env channel.InboundEnvelope, runID, msgID s
 	defer timer.Stop()
 	done := make(chan struct{})
 
-	go func() {
+	runChannelAsync("channel-edit-ticker", func() {
 		for {
 			select {
 			case <-done:
@@ -614,7 +678,7 @@ func (s *Service) streamChannelReply(env channel.InboundEnvelope, runID, msgID s
 				s.sendChannelEdit(env, msgID, cur)
 			}
 		}
-	}()
+	})
 
 	s.subscribeRunLive(runID, func(ev SSEEvent) {
 		mu.Lock()
@@ -906,7 +970,7 @@ func (s *Service) channelBriefingReply(env channel.InboundEnvelope) string {
 			_ = ch.Delete(context.Background(), env.ChatID, phID)
 		}
 	}
-	go func() {
+	runChannelAsync("channel-briefing", func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
 		defer cancel()
 		model := s.getBriefingModel(ctx)
@@ -931,7 +995,7 @@ func (s *Service) channelBriefingReply(env channel.InboundEnvelope) string {
 			slog.Warn("channel-briefing-send-failed", "channelId", env.ChannelID, "chatId", env.ChatID, "err", err.Error())
 		}
 		clearPlaceholder()
-	}()
+	})
 	return ""
 }
 
@@ -960,8 +1024,12 @@ type channelItem struct {
 }
 
 func maskBotToken(cfg map[string]interface{}) map[string]interface{} {
-	if token, ok := cfg["botToken"].(string); ok && len(token) > 8 {
-		cfg["botToken"] = token[:4] + "****" + token[len(token)-4:]
+	if token, ok := cfg["botToken"].(string); ok && token != "" {
+		if len(token) > 8 {
+			cfg["botToken"] = token[:4] + "****" + token[len(token)-4:]
+		} else {
+			cfg["botToken"] = maskSecret(token)
+		}
 	}
 	if secret, ok := cfg["secret"].(string); ok && secret != "" {
 		cfg["secret"] = maskSecret(secret)

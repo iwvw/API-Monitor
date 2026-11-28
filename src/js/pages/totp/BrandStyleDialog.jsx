@@ -19,7 +19,6 @@ const BrandStyleDialog = ({
   resolveFormColor,
   accountForm,
   applyBrandStyleOption,
-  isArmed,
   deletingCustomBrandIconId,
   deleteCustomBrandIcon,
 }) => {
@@ -128,18 +127,10 @@ const BrandStyleDialog = ({
                       type="button"
                       size="sm"
                       shape="square"
-                      variant={
-                        isArmed(`custom-icon-${option.customId}`)
-                          ? 'destructive'
-                          : 'secondary-destructive'
-                      }
+                      variant="secondary-destructive"
                       icon={<Trash className="size-4" />}
                       aria-label={`删除 ${option.label}`}
-                      title={
-                        isArmed(`custom-icon-${option.customId}`)
-                          ? '再次点击确认删除'
-                          : `删除 ${option.label}`
-                      }
+                      title={`删除 ${option.label}`}
                       loading={deletingCustomBrandIconId === option.customId}
                       disabled={Boolean(deletingCustomBrandIconId)}
                       onClick={() => deleteCustomBrandIcon(option)}

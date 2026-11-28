@@ -24,6 +24,7 @@ import (
 	"github.com/iwvw/api-monitor/backend-go/internal/config"
 	"github.com/iwvw/api-monitor/backend-go/internal/database"
 	"github.com/iwvw/api-monitor/backend-go/internal/response"
+	"github.com/iwvw/api-monitor/backend-go/internal/timeutil"
 )
 
 type Service struct {
@@ -120,6 +121,8 @@ const (
 	databaseImportTTL      = 30 * time.Minute
 )
 
+var errInvalidTimeZone = errors.New("无效的时区设置")
+
 func New(cfg config.Config) *Service {
 	return &Service{
 		cfg:            cfg,
@@ -129,9 +132,12 @@ func New(cfg config.Config) *Service {
 }
 
 const (
-	defaultAutoCleanupHours = 24
-	initialAutoCleanupDelay = time.Minute
-	autoCleanupTimeout      = 2 * time.Minute
+	defaultAutoCleanupHours   = 24
+	defaultAutoCleanupEnabled = 1
+	defaultRetentionDays      = 30
+	defaultLogMaxDBSizeMB     = 500
+	initialAutoCleanupDelay   = time.Minute
+	autoCleanupTimeout        = 2 * time.Minute
 )
 
 // 周期 WAL 维护参数。面板有常驻轮询读者，重置型 checkpoint（TRUNCATE/RESTART）
@@ -151,6 +157,7 @@ func (s *Service) StartBackgroundCleanup() {
 	if s.cleanupCancel != nil {
 		return
 	}
+	s.applyLogFileMaxSize(context.Background())
 	ctx, cancel := context.WithCancel(context.Background())
 	s.cleanupCancel = cancel
 	s.cleanupWG.Add(1)
@@ -246,6 +253,15 @@ func (s *Service) walMaintenanceOnce(ctx context.Context) bool {
 	return ok
 }
 
+func (s *Service) applyLogFileMaxSize(ctx context.Context) {
+	db, err := s.store.Open(ctx)
+	if err != nil {
+		return
+	}
+	defer db.Close()
+	applog.SetMaxFileSizeMB(getConfigInt(ctx, db, "log_file_max_size_mb", 10))
+}
+
 func (s *Service) runBackgroundCleanup(ctx context.Context) {
 	timer := time.NewTimer(initialAutoCleanupDelay)
 	defer timer.Stop()
@@ -288,16 +304,16 @@ func (s *Service) autoCleanupOnce(ctx context.Context) {
 	defer db.Close()
 	// 总开关未显式关闭（system_config 中无该键）时默认启用自动清理。
 	// 显式写入 0 的用户仍可整体关闭。
-	if getConfigInt(ctx, db, "log_auto_cleanup", 1) == 0 {
+	if getConfigInt(ctx, db, "log_auto_cleanup", defaultAutoCleanupEnabled) == 0 {
 		return
 	}
 	// 未显式配置时启用内置保护默认：日志表 30 天截断、库文件 500MB 空间红线
 	// （仅增量回收 freelist，绝不触发行删除）防生产库无界膨胀；统计表独立
 	// 长保留（statisticsRetentionDays）不受 days 影响。显式配置（含 0=不限）
 	// 优先。
-	days := getConfigInt(ctx, db, "log_retention_days", 30)
+	days := getConfigInt(ctx, db, "log_retention_days", defaultRetentionDays)
 	count := getConfigInt(ctx, db, "log_max_count", 0)
-	dbSizeMB := getConfigInt(ctx, db, "log_max_db_size_mb", 500)
+	dbSizeMB := getConfigInt(ctx, db, "log_max_db_size_mb", defaultLogMaxDBSizeMB)
 	if days == 0 && count == 0 && dbSizeMB == 0 {
 		return
 	}
@@ -473,6 +489,11 @@ func (s *Service) getSettings(w http.ResponseWriter, r *http.Request) {
 func (s *Service) saveSettings(w http.ResponseWriter, r *http.Request, mergeCurrent bool) {
 	var payload map[string]interface{}
 	if !decodeJSON(w, r, &payload) {
+		return
+	}
+
+	if err := validateTimeZoneSetting(payload); err != nil {
+		response.JSON(w, http.StatusBadRequest, map[string]interface{}{"success": false, "error": err.Error()})
 		return
 	}
 
@@ -887,11 +908,12 @@ func (s *Service) getLogSettings(w http.ResponseWriter, r *http.Request) {
 	}
 	defer db.Close()
 
-	days := getConfigInt(r.Context(), db, "log_retention_days", 0)
+	days := getConfigInt(r.Context(), db, "log_retention_days", defaultRetentionDays)
 	count := getConfigInt(r.Context(), db, "log_max_count", 0)
-	dbSizeMB := getConfigInt(r.Context(), db, "log_max_db_size_mb", 0)
-	// Auto-cleanup toggles default OFF so existing deployments do not change behavior silently.
-	autoCleanup := getConfigInt(r.Context(), db, "log_auto_cleanup", 0)
+	dbSizeMB := getConfigInt(r.Context(), db, "log_max_db_size_mb", defaultLogMaxDBSizeMB)
+	// 展示默认值必须与 autoCleanupOnce 的实际执行默认一致,否则用户看到的
+	// 策略与后台真实策略相反。
+	autoCleanup := getConfigInt(r.Context(), db, "log_auto_cleanup", defaultAutoCleanupEnabled)
 	autoCleanupHours := getConfigInt(r.Context(), db, "log_auto_cleanup_hours", defaultAutoCleanupHours)
 	if autoCleanupHours < 1 {
 		autoCleanupHours = defaultAutoCleanupHours
@@ -977,6 +999,7 @@ func (s *Service) saveLogSettings(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	applog.SetMaxFileSizeMB(logFileSizeMB)
 
 	response.JSON(w, http.StatusOK, map[string]interface{}{
 		"success":  true,
@@ -1049,10 +1072,11 @@ func (s *Service) vacuumDatabase(w http.ResponseWriter, r *http.Request) {
 // 返回 errDatabaseSwapInProgress 表示数据库导入/替换/恢复进行中。
 func (s *Service) enqueueVacuumTask(ctx context.Context) (bool, error) {
 	s.vacuumMu.Lock()
-	defer s.vacuumMu.Unlock()
 	if s.vacuumRunning {
+		s.vacuumMu.Unlock()
 		return false, nil
 	}
+	s.vacuumMu.Unlock()
 	// 换库互斥必须用 TryLock 在此真实取得，而非依赖 vacuumRunning 标志：
 	// 标志只反映「压缩任务自身」，无法与导入/恢复竞速（TOCTOU）。锁由
 	// runVacuum 在收尾时释放；TryLock 失败说明导入/替换/恢复持有互斥，
@@ -1060,12 +1084,19 @@ func (s *Service) enqueueVacuumTask(ctx context.Context) (bool, error) {
 	if !database.SwapMutex().TryLock() {
 		return false, errDatabaseSwapInProgress
 	}
+	s.vacuumMu.Lock()
+	if s.vacuumRunning {
+		s.vacuumMu.Unlock()
+		database.SwapMutex().Unlock()
+		return false, nil
+	}
 	s.vacuumRunning = true
 	s.vacuumStarted = time.Now()
 	s.vacuumDone = time.Time{}
 	s.vacuumError = ""
 	s.vacuumBefore = 0
 	s.vacuumAfter = 0
+	s.vacuumMu.Unlock()
 
 	// 探测 auto_vacuum 模式决定压缩路径：NONE 需首次全量迁移（建立
 	// pointer-map，耗时数分钟），INCREMENTAL/FULL 走增量回收（秒级）。
@@ -1078,14 +1109,18 @@ func (s *Service) enqueueVacuumTask(ctx context.Context) (bool, error) {
 		return autoVacuumMode(ctx, db)
 	}()
 	if err != nil {
+		s.vacuumMu.Lock()
 		s.vacuumRunning = false
+		s.vacuumMu.Unlock()
 		database.SwapMutex().Unlock()
 		return false, err
 	}
+	s.vacuumMu.Lock()
 	s.vacuumMode = vacuumModeIncremental
 	if mode == 0 {
 		s.vacuumMode = vacuumModeMigrate
 	}
+	s.vacuumMu.Unlock()
 
 	s.cleanupWG.Add(1)
 	go s.runVacuum(context.Background())
@@ -1178,6 +1213,15 @@ func (s *Service) runVacuum(ctx context.Context) {
 }
 
 func (s *Service) clearLogs(w http.ResponseWriter, r *http.Request) {
+	if !database.SwapMutex().TryLock() {
+		response.JSON(w, http.StatusConflict, map[string]interface{}{
+			"success": false,
+			"message": errDatabaseSwapInProgress.Error(),
+		})
+		return
+	}
+	defer database.SwapMutex().Unlock()
+
 	db, err := s.store.Open(r.Context())
 	if err != nil {
 		response.Error(w, http.StatusInternalServerError, err.Error())
@@ -1210,6 +1254,15 @@ func (s *Service) enforceLogLimits(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+
+	if !database.SwapMutex().TryLock() {
+		response.JSON(w, http.StatusConflict, map[string]interface{}{
+			"success": false,
+			"message": errDatabaseSwapInProgress.Error(),
+		})
+		return
+	}
+	defer database.SwapMutex().Unlock()
 
 	db, err := s.store.Open(r.Context())
 	if err != nil {
@@ -1327,7 +1380,7 @@ func loadUserSettings(ctx context.Context, db *sql.DB) (map[string]interface{}, 
 	if errors.Is(err, sql.ErrNoRows) {
 		if _, insertErr := db.ExecContext(ctx, `
 			INSERT OR IGNORE INTO user_settings (id, custom_css, module_visibility, module_order)
-			VALUES (1, '', '{"openai":true,"dns":true,"server":true}', '["openai","dns","server"]')
+			VALUES (1, '', '{"modelhub":true,"dns":true,"server":true}', '["modelhub","dns","server"]')
 		`); insertErr != nil {
 			return nil, fmt.Errorf("create default user settings: %w", insertErr)
 		}
@@ -1338,9 +1391,9 @@ func loadUserSettings(ctx context.Context, db *sql.DB) (map[string]interface{}, 
 	}
 
 	visibility := parseObject(row.ModuleVisibility, map[string]interface{}{
-		"dns":    true,
-		"openai": true,
-		"server": true,
+		"dns":      true,
+		"modelhub": true,
+		"server":   true,
 	})
 	delete(visibility, "antigravity")
 	delete(visibility, "gemini-cli")
@@ -1363,7 +1416,7 @@ func loadUserSettings(ctx context.Context, db *sql.DB) (map[string]interface{}, 
 	delete(channelModelPrefix, "gemini-cli")
 	delete(channelModelPrefix, "qwen")
 
-	order := parseStringSlice(row.ModuleOrder, []string{"dns", "openai", "server"})
+	order := parseStringSlice(row.ModuleOrder, []string{"dns", "modelhub", "server"})
 	order = filterString(order, "antigravity")
 	order = filterString(order, "gemini-cli")
 	order = filterString(order, "qwen")
@@ -1374,6 +1427,19 @@ func loadUserSettings(ctx context.Context, db *sql.DB) (map[string]interface{}, 
 	}
 	order = uniqueStrings(order)
 	order = ensureBefore(order, "scheduler", "server")
+
+	// 模块改名兼容：历史设置里模块 id 为 openai（本次重命名为 modelhub）。
+	// 兼容已持久化的 module_visibility / module_order / channel_enabled / channel_model_prefix，
+	// 把旧 key 迁移到新 key（新 key 已存在则保留新值）。
+	renameLegacyModuleKey(visibility, "openai", "modelhub")
+	renameLegacyModuleKey(channelEnabled, "openai", "modelhub")
+	renameLegacyModuleKey(channelModelPrefix, "openai", "modelhub")
+	for i, item := range order {
+		if item == "openai" {
+			order[i] = "modelhub"
+		}
+	}
+	order = uniqueStrings(order)
 
 	// tileLayout 兼容两种格式：旧版直接是布局数组（桌面）；新版为 { desktop: [...], mobile: [...] } 双桶对象
 	var tileLayout interface{} = []interface{}{}
@@ -1587,6 +1653,21 @@ func assignJSON(updates map[string]interface{}, column string, settings map[stri
 	}
 }
 
+func validateTimeZoneSetting(settings map[string]interface{}) error {
+	value, ok := firstValue(settings, "timezone", "timeZone", "time_zone")
+	if !ok || value == nil {
+		return nil
+	}
+	name := strings.TrimSpace(fmt.Sprint(value))
+	if name == "" || name == "system" {
+		return nil
+	}
+	if _, err := time.LoadLocation(name); err != nil {
+		return fmt.Errorf("%w: %s", errInvalidTimeZone, name)
+	}
+	return nil
+}
+
 func firstValue(settings map[string]interface{}, keys ...string) (interface{}, bool) {
 	for _, key := range keys {
 		value, ok := settings[key]
@@ -1666,6 +1747,22 @@ func ensureStringKey(target map[string]interface{}, key string, value string) {
 	if _, ok := target[key]; !ok {
 		target[key] = value
 	}
+}
+
+// renameLegacyModuleKey 把历史模块 id（oldKey）迁移为新 id（newKey）。
+// 若目标 key 已存在则以新值为准，避免覆盖用户显式设置。
+func renameLegacyModuleKey(target map[string]interface{}, oldKey, newKey string) {
+	if target == nil {
+		return
+	}
+	legacyValue, ok := target[oldKey]
+	if !ok {
+		return
+	}
+	if _, exists := target[newKey]; !exists {
+		target[newKey] = legacyValue
+	}
+	delete(target, oldKey)
 }
 
 func filterString(values []string, forbidden string) []string {
@@ -2151,7 +2248,7 @@ func intFromPayloadOrConfig(ctx context.Context, db *sql.DB, payload map[string]
 // 这些数据是仪表盘与报表的数据源，删除会丢失全部历史统计，
 // 因此不参与日志清理（只按独立长保留策略清理，见 enforceLogTableLimits）。
 var statisticsTables = map[string]bool{
-	"openai_gateway_analytics":    true,
+	"modelhub_gateway_analytics":  true,
 	"system_api_stats":            true,
 	"uptime_daily_stats":          true,
 	"github_repository_snapshots": true,
@@ -2167,6 +2264,7 @@ func listLogTables(ctx context.Context, db *sql.DB) ([]string, error) {
 			name LIKE '%_logs'
 			OR name LIKE '%_history'
 			OR name LIKE '%_audit'
+			OR name LIKE 'admin_ai_%'
 			OR name IN (
 				'uptime_heartbeats', 'server_network_quality_samples',
 				'github_action_runs', 'github_events', 'github_webhook_deliveries'
@@ -2188,12 +2286,28 @@ func listLogTables(ctx context.Context, db *sql.DB) ([]string, error) {
 		if statisticsTables[name] {
 			continue
 		}
+		// admin_ai_* 里只有逐条流水该按日志清理；记忆/设置类表不能删。
+		if strings.HasPrefix(name, "admin_ai_") && !adminAILogTables[name] {
+			continue
+		}
 		tables = append(tables, name)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("iterate log tables: %w", err)
 	}
 	return tables, nil
+}
+
+// adminAILogTables 是管理端 AI 的「逐条流水」表白名单。
+//
+// 背景：`admin_ai_messages`（对话消息，实测 9.94MB）与
+// `admin_ai_tool_calls`（工具调用明细，7.94MB）此前完全不在清理范围内 ——
+// 既不以 `_logs` 结尾、也不在显式列表里，于是随使用无界增长，最终成为
+// 库内最大的两张表。`admin_ai_memories` 是用户显式保存的长期记忆、
+// `admin_ai_settings` 是配置，都不该按日志策略删除，所以用白名单而非通配。
+var adminAILogTables = map[string]bool{
+	"admin_ai_messages":   true,
+	"admin_ai_tool_calls": true,
 }
 
 func clearLogTables(ctx context.Context, db *sql.DB) (int64, error) {
@@ -2268,7 +2382,7 @@ func enforceLogTableLimits(ctx context.Context, db *sql.DB, dbPath string, days,
 		}
 		quotedTable := quoteIdentifier(table)
 		quotedTime := quoteIdentifier(timeColumn)
-		cutoff := time.Now().UTC().AddDate(0, 0, -statisticsRetentionDays).Format(logCutoffFormat(timeColumn))
+		cutoff := logCutoff(ctx, db, timeColumn, statisticsRetentionDays)
 		for ctx.Err() == nil {
 			result, err := db.ExecContext(ctx, `
 				DELETE FROM `+quotedTable+`
@@ -2308,7 +2422,7 @@ func enforceLogTableLimits(ctx context.Context, db *sql.DB, dbPath string, days,
 		quotedTime := quoteIdentifier(timeColumn)
 
 		if days > 0 {
-			cutoff := time.Now().UTC().AddDate(0, 0, -days).Format(logCutoffFormat(timeColumn))
+			cutoff := logCutoff(ctx, db, timeColumn, days)
 			// 分批删除旧数据：每次只删 cleanupBatchSize 行，避免长事务锁库。
 			for ctx.Err() == nil {
 				result, err := db.ExecContext(ctx, `
@@ -2423,8 +2537,8 @@ var logTableGroupColumns = map[string]string{
 	"uptime_heartbeats":           "monitor_id",
 	"server_metrics_history":      "server_id",
 	"server_monitor_logs":         "server_id",
-	"openai_health_history":       "endpoint_id",
-	"openai_gateway_analytics":    "endpoint_id",
+	"modelhub_health_history":     "endpoint_id",
+	"modelhub_gateway_analytics":  "endpoint_id",
 	"github_repository_snapshots": "repository_id",
 	"github_traffic_samples":      "repository_id",
 	"github_contributors":         "repository_id",
@@ -2470,11 +2584,6 @@ func planLogTableLimits(ctx context.Context, db *sql.DB, days, count int) ([]log
 	if err != nil {
 		return nil, err
 	}
-	var cutoffTime time.Time
-	hasCutoff := days > 0
-	if hasCutoff {
-		cutoffTime = time.Now().UTC().AddDate(0, 0, -days)
-	}
 	plans := make([]logTablePlan, 0, len(tables))
 	for _, table := range tables {
 		timeColumn, err := logTimeColumn(ctx, db, table)
@@ -2486,10 +2595,7 @@ func planLogTableLimits(ctx context.Context, db *sql.DB, days, count int) ([]log
 		}
 		// 预览口径必须与 enforceLogTableLimits 的实际删除一致（含 cutoff
 		// 格式），否则预览统计与执行结果出现边界日偏差。
-		cutoff := ""
-		if hasCutoff {
-			cutoff = cutoffTime.Format(logCutoffFormat(timeColumn))
-		}
+		cutoff := logCutoff(ctx, db, timeColumn, days)
 		total, err := countTableRows(ctx, db, table)
 		if err != nil {
 			return nil, err
@@ -2531,12 +2637,26 @@ func logTimeColumn(ctx context.Context, db *sql.DB, table string) (string, error
 	if err != nil {
 		return "", err
 	}
-	for _, column := range []string{"created_at", "checked_at", "timestamp", "recorded_at", "start_time", "collected_at", "date"} {
+	for _, column := range []string{"created_at", "checked_at", "timestamp", "recorded_at", "start_time", "started_at", "collected_at", "date"} {
 		if columns[column] {
 			return column, nil
 		}
 	}
 	return "", nil
+}
+
+// logCutoff 计算清理 cutoff 字符串。时间戳列以 UTC 写入(CURRENT_TIMESTAMP),
+// 用 UTC 基准;date 列(system_api_stats.date)由写入端按站点时区归属,因此
+// 必须用站点时区取「今天」,否则边界日会因 UTC/本地日界差少删或多删一天。
+func logCutoff(ctx context.Context, db *sql.DB, timeColumn string, days int) string {
+	if days <= 0 {
+		return ""
+	}
+	base := time.Now().UTC()
+	if timeColumn == "date" {
+		base = time.Now().In(timeutil.LocationFromSettings(ctx, db))
+	}
+	return base.AddDate(0, 0, -days).Format(logCutoffFormat(timeColumn))
 }
 
 // logCutoffFormat 返回清理 cutoff 的时间格式，必须与表内实际存储格式一致：
@@ -2713,6 +2833,37 @@ func (s *Service) cleanupExpiredImportsLocked(now time.Time) {
 			_ = os.Remove(pending.Path)
 			delete(s.pendingImports, token)
 		}
+	}
+}
+
+func (s *Service) cleanupStaleImportPreviews(now time.Time) {
+	dir := filepath.Join(s.cfg.DataDir, "temp")
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+	removed := 0
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		if !strings.HasPrefix(name, "database-import-") || !strings.HasSuffix(name, ".db") {
+			continue
+		}
+		info, err := entry.Info()
+		if err != nil {
+			continue
+		}
+		if now.Sub(info.ModTime()) < databaseImportTTL {
+			continue
+		}
+		if err := os.Remove(filepath.Join(dir, name)); err == nil {
+			removed++
+		}
+	}
+	if removed > 0 {
+		applog.Info(context.Background(), "settings", fmt.Sprintf("removed %d stale database import previews", removed))
 	}
 }
 

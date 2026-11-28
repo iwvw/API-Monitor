@@ -12,6 +12,7 @@ import (
 
 	"github.com/iwvw/api-monitor/backend-go/internal/config"
 	"github.com/iwvw/api-monitor/backend-go/internal/database"
+	"github.com/iwvw/api-monitor/backend-go/internal/timeutil"
 )
 
 func newSwapTestService(t *testing.T) *Service {
@@ -223,7 +224,8 @@ func TestStatisticsRetentionCutoffKeepsBoundaryDay(t *testing.T) {
 	}
 	defer db.Close()
 
-	today := time.Now().UTC()
+	loc := timeutil.LocationFromSettings(ctx, db)
+	today := time.Now().In(loc)
 	dates := map[string]bool{ // value: 是否应保留
 		today.AddDate(0, 0, -statisticsRetentionDays).Format("2006-01-02"):       true,  // 边界日：保留
 		today.AddDate(0, 0, -(statisticsRetentionDays + 1)).Format("2006-01-02"): false, // 超期一天：删除
@@ -314,5 +316,22 @@ func TestVacuumEndpointReturnsConflictWhileSwapHeld(t *testing.T) {
 	res := performSettingsRequest(service, http.MethodPost, "/api/settings/vacuum-database", "")
 	if res.Code != http.StatusConflict {
 		t.Fatalf("vacuum status = %d body=%s, want 409", res.Code, res.Body.String())
+	}
+}
+
+// 清空日志(clearLogs)与日志限额执行(enforceLogLimits)都会重写库文件
+// (全量 VACUUM / incremental_vacuum),换库互斥被持有时必须返回 409,
+// 不得在未持互斥的情况下并发重写正在被导入/恢复替换的库文件。
+func TestLogMaintenanceEndpointsReturnConflictWhileSwapHeld(t *testing.T) {
+	service := newSwapTestService(t)
+	swapMu := database.SwapMutex()
+	swapMu.Lock()
+	defer swapMu.Unlock()
+
+	for _, path := range []string{"/api/settings/clear-logs", "/api/settings/enforce-log-limits"} {
+		res := performSettingsRequest(service, http.MethodPost, path, "")
+		if res.Code != http.StatusConflict {
+			t.Fatalf("%s status = %d body=%s, want 409", path, res.Code, res.Body.String())
+		}
 	}
 }

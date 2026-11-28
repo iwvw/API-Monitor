@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -215,6 +216,16 @@ func (s *Service) resolveAgentDownloadBaseURL(ctx context.Context, db *sql.DB, s
 	err := db.QueryRowContext(ctx, `SELECT agent_download_url FROM user_settings WHERE id = 1`).Scan(&configured)
 	if err == nil && configured.Valid {
 		raw := strings.TrimRight(strings.TrimSpace(configured.String), "/")
+		if proto, host, ok := parseInstallBaseURL(raw); ok {
+			parsed, _ := url.Parse(raw)
+			path := strings.TrimRight(parsed.EscapedPath(), "/")
+			return proto + "://" + host + path
+		}
+	}
+	// 构建期注入的默认下载源(镜像里已不再附带 Agent 二进制)。
+	// 放在用户设置之后、面板自身静态目录之前:设置可覆盖,
+	// 而未注入的本地构建/离线部署仍回退到面板自己的 /agent。
+	if raw := strings.TrimRight(strings.TrimSpace(s.cfg.AgentDownloadURL), "/"); raw != "" {
 		if proto, host, ok := parseInstallBaseURL(raw); ok {
 			parsed, _ := url.Parse(raw)
 			path := strings.TrimRight(parsed.EscapedPath(), "/")
@@ -814,9 +825,9 @@ func (s *Service) handleAgentAutoInstall(w http.ResponseWriter, r *http.Request,
 	origin := agentInstallOrigin{Proto: proto, Host: host}
 
 	if conn, exists := s.registry.Get(serverID); exists && !req.ForceSSH {
-		// 发送升级指令
-		downloadURL := s.agentUpgradeDownloadURL(r.Context(), db, conn, origin)
-		if s.sendUpgradeTask(conn, downloadURL) {
+		// 发送升级指令（同时下发 sha256，Agent 会在执行前校验）
+		downloadURL, sha256 := s.agentUpgradeDownloadURL(r.Context(), db, conn, origin)
+		if s.sendUpgradeTask(conn, downloadURL, sha256) {
 			response.JSON(w, http.StatusOK, map[string]interface{}{
 				"success": true,
 				"message": "Agent 自更新指令已下发（后台执行）",
@@ -863,7 +874,7 @@ func (s *Service) handleAgentAutoInstall(w http.ResponseWriter, r *http.Request,
 	})
 }
 
-func (s *Service) agentUpgradeDownloadURL(ctx context.Context, db *sql.DB, conn *AgentConnection, origin agentInstallOrigin) string {
+func (s *Service) agentUpgradeDownloadURL(ctx context.Context, db *sql.DB, conn *AgentConnection, origin agentInstallOrigin) (string, string) {
 	proto := origin.Proto
 	if proto != "http" && proto != "https" {
 		proto = "https"
@@ -879,7 +890,62 @@ func (s *Service) agentUpgradeDownloadURL(ctx context.Context, db *sql.DB, conn 
 	platform := strings.ToLower(strings.TrimSpace(fmt.Sprint(metadata["platform"])))
 	arch := strings.ToLower(strings.TrimSpace(fmt.Sprint(metadata["arch"])))
 	filename := agentBinaryFilenameFor(platform, arch)
-	return strings.TrimRight(baseURL, "/") + "/" + filename
+	downloadURL := strings.TrimRight(baseURL, "/") + "/" + filename
+
+	// 同时下发 SHA-256：Agent 会在执行前校验，缺失就拒绝升级。
+	// 没有这一步，拿到面板控制权的一方只要把下载地址指向自己的服务器，
+	// 就能让所有被管主机执行任意二进制。
+	return downloadURL, s.fetchAgentBinarySHA256(ctx, downloadURL)
+}
+
+// fetchAgentBinarySHA256 读取 `<downloadURL>.sha256` sidecar。
+//
+// 与首次安装脚本（getAgentInstallScript 里的 CHECKSUM_URL）用的是同一份产物，
+// 由发布流水线/镜像构建写入。取不到时返回空串 —— 调用方会把空串原样下发，
+// Agent 侧会明确拒绝升级（而不是悄悄跳过校验）。
+func (s *Service) fetchAgentBinarySHA256(ctx context.Context, downloadURL string) string {
+	checksumURL := downloadURL + ".sha256"
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, checksumURL, nil)
+	if err != nil {
+		applog.Warn(ctx, "serveragent", "build checksum request failed",
+			"url", checksumURL, "error", err.Error())
+		return ""
+	}
+	req.Header.Set("User-Agent", "api-monitor/1.0")
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		applog.Warn(ctx, "serveragent", "fetch agent checksum failed",
+			"url", checksumURL, "error", err.Error())
+		return ""
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 256))
+		applog.Warn(ctx, "serveragent", "fetch agent checksum returned non-200",
+			"url", checksumURL, "status", resp.StatusCode)
+		return ""
+	}
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 512))
+	if err != nil {
+		applog.Warn(ctx, "serveragent", "read agent checksum failed",
+			"url", checksumURL, "error", err.Error())
+		return ""
+	}
+	// 兼容「<hex>  <filename>」与纯 hex 两种写法。
+	for _, field := range strings.Fields(string(body)) {
+		if len(field) == 64 {
+			if _, err := hex.DecodeString(field); err == nil {
+				return strings.ToLower(field)
+			}
+		}
+	}
+	applog.Warn(ctx, "serveragent", "agent checksum file has no valid digest",
+		"url", checksumURL, "body", strings.TrimSpace(string(body)))
+	return ""
 }
 
 func agentBinaryFilenameFor(platform, arch string) string {
@@ -893,11 +959,11 @@ func agentBinaryFilenameFor(platform, arch string) string {
 }
 
 // sendUpgradeTask 发送自更新指令给 Agent
-func (s *Service) sendUpgradeTask(conn *AgentConnection, downloadURL string) bool {
-	return s.sendUpgradeTaskWithID(conn, downloadURL, uuid.New().String())
+func (s *Service) sendUpgradeTask(conn *AgentConnection, downloadURL, sha256 string) bool {
+	return s.sendUpgradeTaskWithID(conn, downloadURL, sha256, uuid.New().String())
 }
 
-func (s *Service) sendUpgradeTaskWithID(conn *AgentConnection, downloadURL string, taskID string) bool {
+func (s *Service) sendUpgradeTaskWithID(conn *AgentConnection, downloadURL, sha256, taskID string) bool {
 	if s.presence != nil && conn != nil {
 		s.presence.suppress(conn.ServerID, 10*time.Minute)
 	}
@@ -906,6 +972,7 @@ func (s *Service) sendUpgradeTaskWithID(conn *AgentConnection, downloadURL strin
 	}
 	data, _ := json.Marshal(map[string]string{
 		"download_url": downloadURL,
+		"sha256":       sha256,
 	})
 	payload := map[string]interface{}{
 		"id":      taskID,
@@ -945,7 +1012,7 @@ func (s *Service) executeSSHCommand(ctx context.Context, db *sql.DB, serverID st
 	sshConfig := &ssh.ClientConfig{
 		User:            cfg.Username,
 		Auth:            authMethods,
-		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+		HostKeyCallback: s.sshHostKeyCallback(),
 		Timeout:         timeout,
 	}
 	addr := fmt.Sprintf("%s:%d", cfg.Host, cfg.Port)

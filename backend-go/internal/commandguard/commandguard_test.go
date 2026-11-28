@@ -7,6 +7,7 @@ func TestDetectDangerousVariants(t *testing.T) {
 		"rm -rf /tmp/x",
 		"rm -fr /tmp/x",
 		"rm -rfv /tmp/x",
+		"rm -f -r /tmp/x",
 		"rm --recursive --force /tmp/x",
 		"shutdown -h now",
 		"reboot",

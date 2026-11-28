@@ -27,6 +27,8 @@ const (
 	// maxRotatedLogFiles 是轮转历史文件保留上限：超过后删除最旧的轮转文件，
 	// 避免 logs 目录随时间无限堆积磁盘空间。
 	maxRotatedLogFiles = 10
+	// maxRequestIDLen 限制可复用的上游追踪 ID 长度,避免超长值撑大日志。
+	maxRequestIDLen = 64
 )
 
 var (
@@ -76,6 +78,15 @@ func Init(dataDir string, maxFileSizeMB int) error {
 	log.SetOutput(&stdlogWriter{})
 	log.SetFlags(0)
 	return nil
+}
+
+func SetMaxFileSizeMB(maxFileSizeMB int) {
+	mu.Lock()
+	defer mu.Unlock()
+	if maxFileSizeMB < 1 {
+		maxFileSizeMB = defaultMaxMB
+	}
+	maxSize = int64(maxFileSizeMB) * 1024 * 1024
 }
 
 // stdlogWriter 把标准库 log 的每一行转成 applog 日志，统一格式。
@@ -150,6 +161,37 @@ func NewRequestID() string {
 	return "req_" + hex.EncodeToString(raw[:])
 }
 
+// isValidRequestID 只接受链路追踪常用的安全字符集。
+// 客户端可任意伪造 X-Request-Id,若直接当作审计关联 ID 使用,攻击者就能
+// 把恶意流量"贴标签"成合法请求,或在日志里写入超长/含 HTML 的值。
+func isValidRequestID(value string) bool {
+	if value == "" || len(value) > maxRequestIDLen {
+		return false
+	}
+	for i := 0; i < len(value); i++ {
+		c := value[i]
+		switch {
+		case c >= 'a' && c <= 'z':
+		case c >= 'A' && c <= 'Z':
+		case c >= '0' && c <= '9':
+		case c == '.', c == '_', c == '-':
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+// normalizeRequestID 复用格式合法的上游追踪 ID(便于网关链路串联),
+// 非法值一律丢弃并由服务端重新生成。
+func normalizeRequestID(value string) string {
+	value = strings.TrimSpace(value)
+	if isValidRequestID(value) {
+		return value
+	}
+	return NewRequestID()
+}
+
 func LogPath() string {
 	mu.Lock()
 	defer mu.Unlock()
@@ -204,6 +246,13 @@ func (w *rotatingWriter) Write(p []byte) (int, error) {
 	}
 	if err := rotateLocked(); err != nil {
 		return 0, err
+	}
+	if logFile == nil {
+		file, err := os.OpenFile(w.path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
+		if err != nil {
+			return 0, err
+		}
+		logFile = file
 	}
 	return logFile.Write(p)
 }
@@ -374,10 +423,7 @@ func (r *statusRecorder) Unwrap() http.ResponseWriter {
 
 func Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		requestID := strings.TrimSpace(r.Header.Get("X-Request-ID"))
-		if requestID == "" {
-			requestID = NewRequestID()
-		}
+		requestID := normalizeRequestID(r.Header.Get("X-Request-ID"))
 		ctx := WithRequestID(r.Context(), requestID)
 		w.Header().Set("X-Request-ID", requestID)
 
@@ -450,7 +496,7 @@ func (h *consoleHandler) Enabled(ctx context.Context, l slog.Level) bool {
 
 func (h *consoleHandler) Handle(ctx context.Context, r slog.Record) error {
 	timeStr := r.Time.Format("15:04:05")
-	
+
 	const (
 		ansiReset   = "\033[0m"
 		ansiRed     = "\033[31m"
@@ -481,9 +527,9 @@ func (h *consoleHandler) Handle(ctx context.Context, r slog.Record) error {
 	path := ""
 	status := int64(0)
 	duration := int64(0)
-	
+
 	var extraAttrs []string
-	
+
 	extract := func(a slog.Attr) {
 		if a.Key == "module" {
 			module = a.Value.String()

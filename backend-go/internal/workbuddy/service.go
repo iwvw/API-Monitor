@@ -7,7 +7,7 @@
 // 本项目是内嵌 Go 进程架构，不加载 .so/.dll，故按其记录的上游协议事实原生实现。
 // 上游协议细节集中在 upstream.go，其余文件只做本地编排。
 //
-// 目录结构、表命名、link/前缀语义与同类的 DS2API 插件保持一致，便于统一维护与卸载。
+// 目录结构、表命名、link/前缀语义与同类插件保持一致，便于统一维护与卸载。
 package workbuddy
 
 import (
@@ -195,6 +195,11 @@ type Service struct {
 	// rr 是 round-robin 策略的轮询游标（按原始列表下标锚定）。
 	rr accountpick.Cursor
 
+	// intlSessions 是国际版网页 session Cookie 的进程内缓存（按账号 ID）。
+	// 只放内存、不落盘：Cookie 绑定账号身份，落盘会让备份/导出带上额外凭据。
+	intlSessionMu sync.Mutex
+	intlSessions  map[string]intlWebSession
+
 	externalPool ProxyPoolSelector
 }
 
@@ -217,6 +222,7 @@ func New(cfg config.Config) *Service {
 		callBase:      map[string]int64{},
 		callPending:   map[string]int64{},
 		creditDayUsed: map[string]float64{},
+		intlSessions:  map[string]intlWebSession{},
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -563,14 +569,26 @@ func (s *Service) flushCallStats(ctx context.Context) {
 		return
 	}
 	defer db.Close()
+	var failed map[string]int64
 	for id, delta := range pend {
-		_, _ = db.ExecContext(ctx, `
+		if _, err := db.ExecContext(ctx, `
 			INSERT INTO workbuddy_call_stats (identifier, count) VALUES (?, ?)
-			ON CONFLICT(identifier) DO UPDATE SET count = count + excluded.count`, id, delta)
+			ON CONFLICT(identifier) DO UPDATE SET count = count + excluded.count`, id, delta); err != nil {
+			if failed == nil {
+				failed = map[string]int64{}
+			}
+			failed[id] = delta
+		}
 	}
 	s.callMu.Lock()
 	for k, v := range pend {
+		if _, bad := failed[k]; bad {
+			continue
+		}
 		s.callBase[k] += v
+	}
+	for k, v := range failed {
+		s.callPending[k] += v
 	}
 	s.callMu.Unlock()
 }
@@ -695,6 +713,8 @@ func (s *Service) handleSettings(w http.ResponseWriter, r *http.Request) {
 		//   - DisabledModels：由专用接口（models/toggle、toggle-batch）持有。
 		//     前端「保存设置」是整对象 PUT，禁用名单在本地可能还是切换前的快照，
 		//     若接受回传值会把刚做的模型启停覆盖掉（现象：开关存不住）。
+		s.accountsMu.Lock()
+		defer s.accountsMu.Unlock()
 		current := s.Settings()
 		body.Accounts = current.Accounts
 		body.DisabledModels = current.DisabledModels

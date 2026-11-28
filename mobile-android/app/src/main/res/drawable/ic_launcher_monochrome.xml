@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Android 13+ 主题图标（monochrome）用的单色前景。
+  系统会用自己的主题色替换 #FFFFFF，所以这里不能带任何彩色信息。
+  圆点用白色实心，靠留白与括号区分（单色语境下不需要深色描边）。
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <group
+        android:pivotX="54"
+        android:pivotY="54"
+        android:scaleX="0.92"
+        android:scaleY="0.92">
+
+        <path
+            android:pathData="M46.5,30 C38.5,30 34.5,34 34.5,42 L34.5,47 C34.5,50.5 32,53 27.5,54 C32,55 34.5,57.5 34.5,61 L34.5,66 C34.5,74 38.5,78 46.5,78"
+            android:fillColor="#00000000"
+            android:strokeColor="#FFFFFF"
+            android:strokeWidth="6.4"
+            android:strokeLineCap="round"
+            android:strokeLineJoin="round" />
+
+        <path
+            android:pathData="M61.5,30 C69.5,30 73.5,34 73.5,42 L73.5,47 C73.5,50.5 76,53 80.5,54 C76,55 73.5,57.5 73.5,61 L73.5,66 C73.5,74 69.5,78 61.5,78"
+            android:fillColor="#00000000"
+            android:strokeColor="#FFFFFF"
+            android:strokeWidth="6.4"
+            android:strokeLineCap="round"
+            android:strokeLineJoin="round" />
+
+        <path
+            android:pathData="M54,54 m-7.6,0 a7.6,7.6 0 1,0 15.2,0 a7.6,7.6 0 1,0 -15.2,0"
+            android:fillColor="#FFFFFF" />
+
+    </group>
+
+</vector>

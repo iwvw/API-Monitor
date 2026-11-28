@@ -98,6 +98,10 @@ func (s *Service) updateAsset(w http.ResponseWriter, r *http.Request, id string)
 
 func (s *Service) deleteAsset(w http.ResponseWriter, r *http.Request, id string) {
 	if err := s.DeleteAsset(r.Context(), id); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			response.Error(w, http.StatusNotFound, "asset not found")
+			return
+		}
 		writeInternalError(w, err)
 		return
 	}

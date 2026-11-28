@@ -79,6 +79,10 @@ const inboundReqTTL = 60 * time.Second
 // inboundReqCleanupInterval 过期入站回调 req_id 的清理扫描间隔。
 const inboundReqCleanupInterval = 60 * time.Second
 
+// wecomDedupMaxEntries 是企微 msgid 去重表的容量上限;超出后按 FIFO 淘汰最旧一条,
+// 避免整体清空留下重放窗口。
+const wecomDedupMaxEntries = 2000
+
 type inboundReqRec struct {
 	reqID string
 	at    time.Time
@@ -153,6 +157,7 @@ type WeComChannel struct {
 
 	dedupMu sync.Mutex
 	dedup   map[string]struct{}
+	dedupOrder []string
 
 	streamMu sync.Mutex
 	streams  map[string]*wecomStreamState // chatID -> 活跃流
@@ -505,14 +510,22 @@ func (w *WeComChannel) handleInbound(frame wecomFrame) {
 		return
 	}
 	w.dedup[dedupKey] = struct{}{}
-	if len(w.dedup) > 2000 {
-		// 简单清理：重建 map
-		w.dedup = make(map[string]struct{})
+	w.dedupOrder = append(w.dedupOrder, dedupKey)
+	if len(w.dedupOrder) > wecomDedupMaxEntries {
+		// FIFO 淘汰最旧 msgid：整体清空会留下重放窗口，改为只淘汰一条
+		oldest := w.dedupOrder[0]
+		copy(w.dedupOrder, w.dedupOrder[1:])
+		w.dedupOrder = w.dedupOrder[:len(w.dedupOrder)-1]
+		delete(w.dedup, oldest)
 	}
 	w.dedupMu.Unlock()
 
 	// 授权检查
-	if w.authorize != nil && !w.authorize(msg.From.UserID, "", "dm") {
+	if w.authorize == nil {
+		slog.Warn("wecom-authorize-not-configured", "channelId", w.id, "userId", msg.From.UserID)
+		return
+	}
+	if !w.authorize(msg.From.UserID, "", "dm") {
 		slog.Info("wecom-unauthorized", "channelId", w.id, "userId", msg.From.UserID)
 		return
 	}

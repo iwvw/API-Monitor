@@ -412,6 +412,27 @@ func (s *Service) lookupModelKey(model string) string {
 	return name
 }
 
+// displayModelName 把上游短 key（或已是对外名）解析为对外模型名，用于用量记录。
+//
+// 记账必须存**对外名**：上游短 key 会随改版在多个官方名之间复用（如 dfmodel
+// 先后对应 DeepSeek-Flash / DeepSeek-V4.1-Flash），只存 key 会让「按模型」统计
+// 出现一串内部代号，用户看不出实际调的是哪个模型。
+func (s *Service) displayModelName(model string) string {
+	name := strings.TrimSpace(s.stripModelPrefix(strings.TrimSpace(model)))
+	if name == "" {
+		return ""
+	}
+	for _, m := range s.catalog() {
+		if strings.EqualFold(m.ID, name) {
+			return m.ID
+		}
+		if m.Key != "" && strings.EqualFold(m.Key, name) {
+			return m.ID
+		}
+	}
+	return name
+}
+
 // modelAliasClosure 从一个或多个种子名出发，计算「同一模型」的别名闭包（全小写）。
 //
 // 每个目录条目（静态表 + 当前动态目录）都被视为一条 id ↔ key 双向边；同名/同 key
@@ -614,6 +635,8 @@ func (s *Service) handleBatchToggleModels(w http.ResponseWriter, r *http.Request
 
 // setModelsEnabled 把给定模型名批量置为启用/停用并持久化。
 func (s *Service) setModelsEnabled(ctx context.Context, ids []string, enabled bool) error {
+	s.accountsMu.Lock()
+	defer s.accountsMu.Unlock()
 	st := s.Settings()
 	disabled := map[string]bool{}
 	for _, d := range st.DisabledModels {

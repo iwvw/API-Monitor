@@ -12,7 +12,7 @@ import {
   getSourceModuleName,
   getEventTypeName,
 } from './constants.js';
-import { buildSampleEventData } from './utils.js';
+import { buildSampleEventData, getNotificationTargetWarning } from './utils.js';
 import { ChannelsPanel } from './ChannelsPanel.jsx';
 import { RulesPanel } from './RulesPanel.jsx';
 import { EventsPanel } from './EventsPanel.jsx';
@@ -20,6 +20,15 @@ import { HistoryPanel } from './HistoryPanel.jsx';
 import { SettingsPanel } from './SettingsPanel.jsx';
 import { ChannelDialog } from './ChannelDialog.jsx';
 import { RuleDialog } from './RuleDialog.jsx';
+
+const parseRuleJson = (value, fallback) => {
+  if (typeof value !== 'string') return value ?? fallback;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return fallback;
+  }
+};
 
 function NotificationPage() {
   const { isArmed, confirmPress } = useConfirmPress();
@@ -44,7 +53,7 @@ function NotificationPage() {
   
   // 过滤选项
   const [notificationRuleFilter, setNotificationRuleFilter] = useState(''); // '' | 'uptime' | 'server'
-  const [notificationHistoryFilter, setNotificationHistoryFilter] = useState(''); // '' | 'sent' | 'failed' | 'pending'
+  const [notificationHistoryFilter, setNotificationHistoryFilter] = useState(''); // '' | 'sent' | 'failed' | 'pending' | 'retrying'
   const [highlightRuleId, setHighlightRuleId] = useState(null);
 
   // Modals 控制
@@ -134,10 +143,11 @@ function NotificationPage() {
     }
   };
 
-  const loadNotificationHistory = async () => {
+  const loadNotificationHistory = async (status = notificationHistoryFilter) => {
     setNotificationLoading(true);
     try {
-      const res = await fetch('/api/notification/history?limit=100', { headers: getAuthHeaders() });
+      const query = status ? `?limit=100&status=${encodeURIComponent(status)}` : '?limit=100';
+      const res = await fetch(`/api/notification/history${query}`, { headers: getAuthHeaders() });
       const data = await res.json();
       if (data.success) {
         setNotificationHistory(data.data || []);
@@ -178,10 +188,13 @@ function NotificationPage() {
   useEffect(() => {
     loadNotificationChannels();
     loadNotificationRules();
-    loadNotificationHistory();
     loadNotificationGlobalConfig();
     loadNotificationEventCatalog();
   }, []);
+
+  useEffect(() => {
+    loadNotificationHistory(notificationHistoryFilter);
+  }, [notificationHistoryFilter]);
 
   // ==================== 2. 渠道管理 CRUD ====================
   const handleOpenAddChannel = () => {
@@ -326,6 +339,21 @@ function NotificationPage() {
   };
 
   const handleTestChannel = async (id) => {
+    const channel = notificationChannels.find(item => item.id === id);
+    if (channel) {
+      let config = channel.config;
+      if (typeof config === 'string') {
+        try {
+          config = JSON.parse(config);
+        } catch {
+          config = {};
+        }
+      }
+      const warning = getNotificationTargetWarning(channel.type, config || {});
+      if (warning && !(await dialog.confirm({ title: '内网目标确认', message: warning, confirmText: '仍要测试' }))) {
+        return;
+      }
+    }
     toast.info('正在发送测试通知...', { isManual: true });
     try {
       const res = await fetch(`/api/notification/channels/${id}/test`, {
@@ -418,9 +446,7 @@ function NotificationPage() {
       setHighlightRuleId(existing.id);
       // 意图同样要立即消费：否则依赖数组变化时 effect 反复重跑（高亮周期性闪烁），
       // 且删掉该规则后刷新会突然弹出预填弹窗
-      setRuleCreateIntent(null); // 高亮清理由下方 timer 兜底
-      const timer = window.setTimeout(() => setHighlightRuleId(null), 2500);
-      return () => window.clearTimeout(timer);
+      setRuleCreateIntent(null); // 高亮清理由独立 effect 兜底
     } else {
       handleOpenAddRule({
         name: ruleCreateWorkflowName
@@ -439,6 +465,12 @@ function NotificationPage() {
     }
     setRuleCreateIntent(null); // 只消费一次
   }, [ruleCreateIntent, notificationLoading, notificationEventCatalog, notificationRules, handleOpenAddRule, ruleCreateWorkflowId, ruleCreateWorkflowName]);
+
+  useEffect(() => {
+    if (highlightRuleId == null) return undefined;
+    const timer = window.setTimeout(() => setHighlightRuleId(null), 2500);
+    return () => window.clearTimeout(timer);
+  }, [highlightRuleId]);
 
   const handleOpenEditRule = (rule) => {
     let channels = rule.channels || [];
@@ -466,14 +498,14 @@ function NotificationPage() {
       event_type: rule.event_type || 'down',
       severity: rule.severity || 'warning',
       channels: channels.map(String),
-      suppression: typeof rule.suppression === 'string' ? JSON.parse(rule.suppression) : (rule.suppression || { repeat_count: 1, silence_minutes: 30 }),
-      time_window: typeof rule.time_window === 'string' ? JSON.parse(rule.time_window) : (rule.time_window || { enabled: false }),
+      suppression: parseRuleJson(rule.suppression, { repeat_count: 1, silence_minutes: 30 }) || { repeat_count: 1, silence_minutes: 30 },
+      time_window: parseRuleJson(rule.time_window, { enabled: false }) || { enabled: false },
       description: rule.description || '',
       title_template: rule.title_template || '',
       message_template: rule.message_template || '',
       backup_channels: backupChannels.map(String),
       quiet_until: rule.quiet_until || '',
-      conditions: typeof rule.conditions === 'string' ? (() => { try { return JSON.parse(rule.conditions); } catch { return null; } })() : (rule.conditions || []),
+      conditions: parseRuleJson(rule.conditions, []) || [],
       enabled: !!rule.enabled
     });
     setTemplatePreview(null);
@@ -618,7 +650,12 @@ function NotificationPage() {
 
   // ==================== 4. 历史记录与全局设置 ====================
   const handleClearHistory = async () => {
-    if (!(await dialog.confirm('确定要清空所有通知历史记录吗？清空后将无法找回！'))) return;
+    if (!(await dialog.deleteResource({
+      title: '清空通知历史',
+      resourceName: '全部通知历史',
+      confirmText: '清空',
+      message: '确定要清空所有通知历史记录吗？清空后将无法找回！',
+    }))) return;
     try {
       const res = await fetch('/api/notification/history', {
         method: 'DELETE',

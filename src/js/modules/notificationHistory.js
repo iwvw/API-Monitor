@@ -22,7 +22,12 @@ export const parseLifecycleHistoryMeta = (rawData) => {
 };
 
 const toHistoryTimestamp = (value, fallback = 0) => {
-  const parsed = Date.parse(value || '');
+  if (!value) return fallback;
+  const text = String(value);
+  const normalized = /^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}(\.\d+)?$/.test(text)
+    ? `${text.replace(' ', 'T')}Z`
+    : text;
+  const parsed = Date.parse(normalized);
   return Number.isFinite(parsed) ? parsed : fallback;
 };
 

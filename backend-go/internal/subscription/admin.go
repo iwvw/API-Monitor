@@ -23,7 +23,9 @@ func (s *Service) listLogs(w http.ResponseWriter, r *http.Request, db *sql.DB) {
 		var subID, token, ip, ua, format, errMsg, created string
 		var success int
 		var up, down, total, expire int64
-		_ = rows.Scan(&id, &subID, &token, &ip, &ua, &format, &success, &status, &errMsg, &nodeCount, &up, &down, &total, &expire, &created)
+		if err := rows.Scan(&id, &subID, &token, &ip, &ua, &format, &success, &status, &errMsg, &nodeCount, &up, &down, &total, &expire, &created); err != nil {
+			continue
+		}
 		items = append(items, map[string]interface{}{"id": id, "subscription_id": subID, "public_token": token, "ip_address": ip, "user_agent": ua, "format": format, "success": success == 1, "status_code": status, "error_message": errMsg, "node_count": nodeCount, "upload_bytes": up, "download_bytes": down, "total_bytes": total, "expire_at": expire, "created_at": created})
 	}
 	response.OK(w, items)

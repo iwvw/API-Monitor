@@ -82,6 +82,22 @@ function OraclePage() {
     cost: new Map(),
   });
   const previousScopeRef = useRef('');
+  const scopeRef = useRef('');
+  useEffect(() => {
+    scopeRef.current = `${selectedAccountId}:${selectedCompartmentId || 'root'}`;
+  }, [selectedAccountId, selectedCompartmentId]);
+  const timersRef = useRef(new Set());
+  const scheduleRefresh = useCallback((fn, delay) => {
+    const id = setTimeout(() => {
+      timersRef.current.delete(id);
+      fn();
+    }, delay);
+    timersRef.current.add(id);
+  }, []);
+  useEffect(() => () => {
+    timersRef.current.forEach((id) => clearTimeout(id));
+    timersRef.current.clear();
+  }, [selectedAccountId, selectedCompartmentId]);
 
   const selectedAccount = accounts.find((account) => String(account.id) === String(selectedAccountId));
   const selectedInstance = useMemo(
@@ -166,8 +182,10 @@ function OraclePage() {
   const loadCompartments = useCallback(async ({ force = false, silent = false, accountId = selectedAccountId } = {}) => {
     if (!accountId) return [];
     const cacheKey = String(accountId);
+    const startedAccount = String(accountId);
     const cached = force ? null : getCachedValue(cacheRef.current.compartments.get(cacheKey), CACHE_TTL_MS.compartments);
     if (cached) {
+      if (scopeRef.current.split(':')[0] !== startedAccount) return cached;
       setCompartments(cached);
       setSelectedCompartmentId((current) => {
         if (current && cached.some((item) => String(item.id) === String(current))) return current;
@@ -183,6 +201,7 @@ function OraclePage() {
       if (!response.ok || result.success === false) throw new Error(result.error || '加载 compartment 失败');
       const items = unwrap(result).items || [];
       cacheRef.current.compartments.set(cacheKey, { value: items, at: Date.now() });
+      if (scopeRef.current.split(':')[0] !== startedAccount) return items;
       setCompartments(items);
         setSelectedCompartmentId((current) => {
           if (current && items.some((item) => String(item.id) === String(current))) return current;
@@ -229,6 +248,7 @@ function OraclePage() {
         if (!response.ok || result.success === false) throw new Error(result.error || '加载实例失败');
         const list = unwrap(result).instances || [];
         cacheRef.current.instances.set(cacheKey, { value: list, at: Date.now() });
+        if (scopeRef.current !== cacheKey) return list;
         setInstances(list);
         setSelectedInstanceId((current) => {
           if (current && list.some((instance) => instance.id === current)) return current;
@@ -258,8 +278,10 @@ function OraclePage() {
   } = {}) => {
     if (!accountId || !instanceId) return null;
     const cacheKey = `${accountId}:${compartmentId || 'root'}:${instanceId}`;
+    const startedScope = `${accountId}:${compartmentId || 'root'}`;
     const cached = force ? null : getCachedValue(cacheRef.current.details.get(cacheKey), CACHE_TTL_MS.detail);
     if (cached) {
+      if (scopeRef.current !== startedScope) return cached;
       setInstanceDetail(cached);
       return cached;
     }
@@ -274,6 +296,7 @@ function OraclePage() {
         if (!response.ok || result.success === false) throw new Error(result.error || '加载实例详情失败');
         const instance = unwrap(result).instance || null;
         cacheRef.current.details.set(cacheKey, { value: instance, at: Date.now() });
+        if (scopeRef.current !== startedScope) return instance;
         setInstanceDetail(instance);
         return instance;
       })();
@@ -336,8 +359,10 @@ function OraclePage() {
   const loadCost = useCallback(async ({ force = false, silent = false, accountId = selectedAccountId } = {}) => {
     if (!accountId) return null;
     const cacheKey = String(accountId);
+    const startedAccount = String(accountId);
     const cached = force ? null : getCachedValue(cacheRef.current.cost.get(cacheKey), CACHE_TTL_MS.cost);
     if (cached) {
+      if (scopeRef.current.split(':')[0] !== startedAccount) return cached;
       setCostOverview(cached);
       return cached;
     }
@@ -350,6 +375,7 @@ function OraclePage() {
         if (!response.ok || result.success === false) throw new Error(result.error || '加载成本数据失败');
         const data = unwrap(result);
         cacheRef.current.cost.set(cacheKey, { value: data, at: Date.now() });
+        if (scopeRef.current.split(':')[0] !== startedAccount) return data;
         setCostOverview(data);
         return data;
       })();
@@ -706,7 +732,7 @@ function OraclePage() {
       if (!response.ok || result.success === false) throw new Error(result.error || '动作执行失败');
       toast.success(`${labels[action] || action}指令已下发`);
       invalidateScopeCache();
-      setTimeout(() => {
+      scheduleRefresh(() => {
         loadInstances({ force: true });
         loadInstanceDetail({ force: true });
       }, 1200);
@@ -717,7 +743,11 @@ function OraclePage() {
 
   const terminateInstance = async () => {
     if (!selectedInstance) return;
-    if (!(await dialog.confirm(`确认终止实例 ${selectedInstance.name || selectedInstance.id} 吗？该操作风险较高，请确认已备份数据。`))) return;
+    const ok = await dialog.deleteResource({
+      resourceName: selectedInstance.name || selectedInstance.id,
+      message: `确认终止实例「${selectedInstance.name || selectedInstance.id}」吗？该操作风险较高，引导卷将保留，请确认已备份数据。`,
+    });
+    if (!ok) return;
     try {
       const response = await fetch(`/api/oracle/accounts/${selectedAccountId}/instances/${encodeURIComponent(selectedInstance.id)}`, {
         method: 'DELETE',
@@ -729,7 +759,7 @@ function OraclePage() {
       toast.success('终止指令已下发');
       invalidateScopeCache();
       setSelectedInstanceId('');
-      setTimeout(() => loadInstances({ force: true }), 1200);
+      scheduleRefresh(() => loadInstances({ force: true }), 1200);
     } catch (error) {
       toast.error(error.message || '终止实例失败');
     }

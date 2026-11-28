@@ -16,6 +16,10 @@ import (
 	"github.com/iwvw/api-monitor/backend-go/internal/response"
 )
 
+// maxPromptDraftBytes 是草稿正文的最大字节数,与 drawio 默认 5MB 对齐;
+// 解码前先用 MaxBytesReader 卡住请求体,避免超大体完整进内存。
+const maxPromptDraftBytes = 5 << 20
+
 type Service struct {
 	cfg   config.Config
 	store *Store
@@ -105,7 +109,7 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 						response.Error(w, http.StatusBadRequest, "Invalid version ID")
 						return
 					}
-					s.getVersion(ctx, w, versionID)
+					s.getVersion(ctx, w, id, versionID)
 				case len(parts) == 5 && parts[2] == "versions" && parts[4] == "restore" && r.Method == http.MethodPost:
 					versionID, verr := strconv.ParseInt(parts[3], 10, 64)
 					if verr != nil {
@@ -272,9 +276,14 @@ func (s *Service) getDraft(ctx context.Context, w http.ResponseWriter, id int64)
 }
 
 func (s *Service) saveDraft(ctx context.Context, w http.ResponseWriter, r *http.Request, id int64) {
+	r.Body = http.MaxBytesReader(w, r.Body, maxPromptDraftBytes+(1<<20))
 	var req SaveDraftRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		response.Error(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+	if int64(len(req.ContentMD)) > maxPromptDraftBytes {
+		response.Error(w, http.StatusRequestEntityTooLarge, "Draft content exceeds size limit")
 		return
 	}
 
@@ -332,9 +341,9 @@ func (s *Service) listVersions(ctx context.Context, w http.ResponseWriter, id in
 	response.JSON(w, http.StatusOK, map[string]interface{}{"versions": versions})
 }
 
-func (s *Service) getVersion(ctx context.Context, w http.ResponseWriter, versionID int64) {
+func (s *Service) getVersion(ctx context.Context, w http.ResponseWriter, entryID, versionID int64) {
 	version, err := s.store.GetVersion(ctx, versionID)
-	if err != nil || version == nil {
+	if err != nil || version == nil || version.EntryID != entryID {
 		response.Error(w, http.StatusNotFound, "Version not found")
 		return
 	}

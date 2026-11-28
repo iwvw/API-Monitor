@@ -140,7 +140,7 @@ func TestNormalizeInstanceShowServer(t *testing.T) {
 			"addresses": {
 				"net": [
 					{"addr": "192.168.5.170", "version": "4", "OS-EXT-IPS:type": "fixed"},
-					{"addr": "189.1.217.109", "version": "4", "OS-EXT-IPS:type": "floating"}
+					{"addr": "192.0.2.11", "version": "4", "OS-EXT-IPS:type": "floating"}
 				]
 			},
 			"metadata": {"charging_mode": "1"},
@@ -162,7 +162,7 @@ func TestNormalizeInstanceShowServer(t *testing.T) {
 	if instance.Status != "ACTIVE" {
 		t.Errorf("status = %q, want ACTIVE", instance.Status)
 	}
-	if instance.PublicIP != "189.1.217.109" {
+	if instance.PublicIP != "192.0.2.11" {
 		t.Errorf("publicIp = %q", instance.PublicIP)
 	}
 	if instance.PrivateIP != "192.168.5.170" {

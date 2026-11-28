@@ -29,11 +29,11 @@ export const MODULE_CONFIG = {
     icon: 'fa-cog',
     description: '全局偏好',
   },
-  openai: {
+  modelhub: {
     name: '模型网关',
     shortName: '模型',
     icon: 'fa-wand',
-    description: 'OpenAI 网关',
+    description: '模型网关',
   },
   subscription: {
     name: '订阅分发',
@@ -210,6 +210,12 @@ export const MODULE_GROUPS = [
     trailingModules: ['server', 'paas'],
   },
   {
+    id: 'api-gateway',
+    name: 'API 服务',
+    icon: 'fa-bolt',
+    modules: ['modelhub', 'subscription', 'aiagent'],
+  },
+  {
     id: 'toolbox',
     name: '工具箱',
     icon: 'fa-toolbox',
@@ -227,12 +233,6 @@ export const MODULE_GROUPS = [
       },
     ],
     trailingModules: ['totp'],
-  },
-  {
-    id: 'api-gateway',
-    name: 'API 服务',
-    icon: 'fa-bolt',
-    modules: ['openai', 'subscription', 'aiagent'],
   },
   {
     id: 'system',
@@ -376,6 +376,7 @@ export const DEFAULT_CHANNEL_MODEL_PREFIX = {};
 
 const LEGACY_MODULE_ALIASES = {
   'self-h': 'scheduler',
+  openai: 'modelhub',
 };
 
 const normalizeModuleId = (moduleId) => LEGACY_MODULE_ALIASES[moduleId] || moduleId;
@@ -386,8 +387,12 @@ const getAuthHeaders = () => ({
 
 // Older releases persisted the administrator password in localStorage. Remove
 // those legacy values immediately; authentication now uses the HttpOnly session cookie.
-localStorage.removeItem('admin_password');
-localStorage.removeItem('password_time');
+try {
+  localStorage.removeItem('admin_password');
+  localStorage.removeItem('password_time');
+} catch (e) {
+  console.error('Failed to clear legacy auth cache:', e);
+}
 
 let appearanceSettingsSaveTimer = null;
 let pendingAppearanceSettingsPatch = {};
@@ -421,6 +426,48 @@ const scheduleAppearanceSettingsSave = (patch) => {
       console.error('Failed to save appearance settings:', error);
     }
   }, 250);
+};
+
+const USER_SETTINGS_MAX_RETRIES = 5;
+let userSettingsRetryTimer = null;
+let userSettingsRetryAttempts = 0;
+
+const clearUserSettingsRetry = () => {
+  if (userSettingsRetryTimer) {
+    clearTimeout(userSettingsRetryTimer);
+    userSettingsRetryTimer = null;
+  }
+  userSettingsRetryAttempts = 0;
+};
+
+const scheduleUserSettingsRetry = (get) => {
+  if (userSettingsRetryTimer) return;
+  if (userSettingsRetryAttempts >= USER_SETTINGS_MAX_RETRIES) return;
+  userSettingsRetryAttempts += 1;
+  const delay = Math.min(1000 * 2 ** (userSettingsRetryAttempts - 1), 16000);
+  userSettingsRetryTimer = setTimeout(() => {
+    userSettingsRetryTimer = null;
+    if (get().isAuthenticated) {
+      get().loadUserSettings();
+    }
+  }, delay);
+};
+
+const VOID_OWNER_CREDENTIAL_PREFIX = 'void_owner_credentials:';
+
+const clearVoidOwnerCredentials = () => {
+  [window.localStorage, window.sessionStorage].forEach((storage) => {
+    try {
+      const keys = [];
+      for (let i = 0; i < storage.length; i += 1) {
+        const key = storage.key(i);
+        if (key && key.startsWith(VOID_OWNER_CREDENTIAL_PREFIX)) keys.push(key);
+      }
+      keys.forEach((key) => storage.removeItem(key));
+    } catch (error) {
+      console.error('Failed to clear void owner credentials:', error);
+    }
+  });
 };
 
 export const applyCustomCss = (css = '') => {
@@ -475,6 +522,7 @@ export const applyUIFont = (font) => {
   if (font === 'default' || !font) {
     if (existing) existing.remove();
     document.getElementById(SERIF_FONT_LINK_ID)?.remove();
+    document.getElementById('lora-font-link')?.remove();
     root.classList.remove(SERIF_CLASS, SORA_CLASS);
     if (!document.getElementById(SORA_FONT_LINK_ID)) {
       const link = document.createElement('link');
@@ -494,6 +542,7 @@ export const applyUIFont = (font) => {
 
   if (font === 'lxgw-wenkai-screen') {
     document.getElementById(SERIF_FONT_LINK_ID)?.remove();
+    document.getElementById('lora-font-link')?.remove();
     document.getElementById(SORA_FONT_LINK_ID)?.remove();
     root.classList.remove(SERIF_CLASS, SORA_CLASS);
     if (!existing) {
@@ -545,6 +594,7 @@ export const applyUIFont = (font) => {
     // 组合字体：西文标题 Sora + 正文 Manrope，中文 HarmonyOS Sans SC，
     // 代码 JetBrains Mono，均本地自托管（含按需汉字子集）
     document.getElementById(SERIF_FONT_LINK_ID)?.remove();
+    document.getElementById('lora-font-link')?.remove();
     root.classList.remove(SERIF_CLASS);
     const soraLink = document.createElement('link');
     soraLink.id = SORA_FONT_LINK_ID;
@@ -564,6 +614,7 @@ export const applyUIFont = (font) => {
   root.classList.remove(SERIF_CLASS, SORA_CLASS);
   document.getElementById(SERIF_FONT_LINK_ID)?.remove();
   document.getElementById(SORA_FONT_LINK_ID)?.remove();
+  document.getElementById('lora-font-link')?.remove();
   if (document.body) {
     document.body.style.removeProperty('font-family');
     document.body.style.removeProperty('font-weight');
@@ -933,13 +984,15 @@ const useStore = create((set, get) => ({
   setUIFont: (uiFont, persist = true) => {
     const normalized = FONT_OPTIONS.some(o => o.value === uiFont) ? uiFont : 'default';
     applyUIFont(normalized);
-    if (persist && get().isAuthenticated) {
-      scheduleAppearanceSettingsSave({ uiFont: normalized });
-    }
-    try {
-      localStorage.setItem(UI_FONT_STORAGE_KEY, normalized);
-    } catch (error) {
-      console.error('Failed to persist ui font:', error);
+    if (persist) {
+      try {
+        localStorage.setItem(UI_FONT_STORAGE_KEY, normalized);
+      } catch (error) {
+        console.error('Failed to persist ui font:', error);
+      }
+      if (get().isAuthenticated) {
+        scheduleAppearanceSettingsSave({ uiFont: normalized });
+      }
     }
     set({ uiFont: normalized });
   },
@@ -1031,9 +1084,9 @@ const useStore = create((set, get) => ({
       const response = await fetch('/api/settings', {
         headers: getAuthHeaders(),
       });
-      const result = await response.json();
-      if (!response.ok || !result.success) {
-        throw new Error(result.error || 'Failed to load settings');
+      const result = await readJsonSafely(response);
+      if (!response.ok || !result?.success) {
+        throw new Error(result?.error || 'Failed to load settings');
       }
       const rawSettings = result.data || {};
       const normalized = get().applyUserSettings(rawSettings);
@@ -1056,9 +1109,11 @@ const useStore = create((set, get) => ({
       if (Object.keys(appearancePatch).length > 0) {
         scheduleAppearanceSettingsSave(appearancePatch);
       }
+      clearUserSettingsRetry();
       return normalized;
     } catch (error) {
       console.error('Failed to load user settings:', error);
+      scheduleUserSettingsRetry(get);
       return null;
     } finally {
       set({ userSettingsLoading: false });
@@ -1219,8 +1274,10 @@ const useStore = create((set, get) => ({
   handleAuthExpired: () => {
     if (!get().isAuthenticated) return;
     clearPendingAuthProvider();
+    clearUserSettingsRetry();
     set({
       isAuthenticated: false,
+      userSettingsLoaded: false,
       showLoginModal: true,
       showSetPasswordModal: false,
       loginPassword: '',
@@ -1243,8 +1300,12 @@ const useStore = create((set, get) => ({
       console.error('Failed to clear auth cache:', error);
     }
 
+    clearUserSettingsRetry();
+    clearVoidOwnerCredentials();
+
     set({
       isAuthenticated: false,
+      userSettingsLoaded: false,
       showLoginModal: true,
       showSetPasswordModal: false,
       loginPassword: '',

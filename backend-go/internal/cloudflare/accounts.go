@@ -200,7 +200,13 @@ func (s *Service) importAccounts(w http.ResponseWriter, r *http.Request) {
 			response.JSON(w, http.StatusBadRequest, map[string]interface{}{"error": err.Error()})
 			return
 		}
-		encrypted, err := secure.SecureEncrypt(secure.SecureDecrypt(apiToken))
+		decryptedToken := secure.SecureDecrypt(apiToken)
+		if secure.IsEncrypted(apiToken) && decryptedToken == "" {
+			_ = tx.Rollback()
+			response.JSON(w, http.StatusBadRequest, map[string]interface{}{"error": "导入的 API Token 无法解密:加密密钥与本实例不一致,请填写明文 Token"})
+			return
+		}
+		encrypted, err := secure.SecureEncrypt(decryptedToken)
 		if err != nil {
 			_ = tx.Rollback()
 			response.JSON(w, http.StatusInternalServerError, map[string]interface{}{"error": "数据加密失败"})
@@ -416,16 +422,36 @@ func (s *Service) cloudflareUserEmail(ctx context.Context, auth map[string]strin
 }
 
 func (s *Service) cloudflareAccountID(ctx context.Context, auth map[string]string) (string, error) {
+	return s.resolveCloudflareAccountID(ctx, auth, 1, false)
+}
+
+func (s *Service) cloudflareAccountIDStrict(ctx context.Context, auth map[string]string) (string, error) {
+	return s.resolveCloudflareAccountID(ctx, auth, 5, true)
+}
+
+// cloudflareAccountIDForWrite 对写/破坏性操作要求账户唯一可解析,避免 token 可见
+// 多个账户时静默落到第一个账户并误改/误删。只读(GET)仍保持宽松解析。
+func (s *Service) cloudflareAccountIDForWrite(ctx context.Context, auth map[string]string, method string) (string, error) {
+	if method == http.MethodGet {
+		return s.cloudflareAccountID(ctx, auth)
+	}
+	return s.cloudflareAccountIDStrict(ctx, auth)
+}
+
+func (s *Service) resolveCloudflareAccountID(ctx context.Context, auth map[string]string, perPage int, requireUnique bool) (string, error) {
 	if id := strings.TrimSpace(auth["__cf_account_id"]); id != "" {
 		return id, nil
 	}
-	payload, err := s.cfRequest(ctx, http.MethodGet, "/accounts?page=1&per_page=1", auth, nil)
+	payload, err := s.cfRequest(ctx, http.MethodGet, fmt.Sprintf("/accounts?page=1&per_page=%d", perPage), auth, nil)
 	if err != nil {
 		return "", err
 	}
 	accounts := arrayValue(payload["result"])
 	if len(accounts) == 0 {
 		return "", errors.New("未找到 Cloudflare Account ID")
+	}
+	if requireUnique && len(accounts) > 1 {
+		return "", errors.New("当前 Token 可访问多个 Cloudflare 账户,无法确定目标账户,请为该账号显式配置 Cloudflare Account ID")
 	}
 	id := stringValue(objectValue(accounts[0])["id"], "")
 	if id == "" {

@@ -22,13 +22,13 @@ func newTestService(t *testing.T) *Service {
 func TestIngestAndList(t *testing.T) {
 	s := newTestService(t)
 	ctx := context.Background()
-	if _, err := s.Ingest(ctx, Message{Mailbox: "Probe1@DSUKHUB.com", Code: "123456", Subject: "Verify", Sender: "hey@x.com"}); err != nil {
+	if _, err := s.Ingest(ctx, Message{Mailbox: "Probe1@DSUKHUB.com", Subject: "Verify", Sender: "hey@x.com"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.Ingest(ctx, Message{Mailbox: "probe1@dsukhub.com", Code: "654321", Subject: "Verify2"}); err != nil {
+	if _, err := s.Ingest(ctx, Message{Mailbox: "probe1@dsukhub.com", Subject: "Verify2"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.Ingest(ctx, Message{Mailbox: "other@dsukhub.com", Code: "999999"}); err != nil {
+	if _, err := s.Ingest(ctx, Message{Mailbox: "other@dsukhub.com"}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -39,8 +39,8 @@ func TestIngestAndList(t *testing.T) {
 	if len(msgs) != 2 {
 		t.Fatalf("应返回 2 封，得到 %d: %+v", len(msgs), msgs)
 	}
-	if msgs[0].Code != "654321" {
-		t.Fatalf("应按时间倒序，首条 code = %q", msgs[0].Code)
+	if msgs[0].Subject != "Verify2" {
+		t.Fatalf("should order by id desc, first subject = %q", msgs[0].Subject)
 	}
 	if msgs[0].ReceivedAt == "" {
 		t.Fatal("receivedAt 应自动填充")
@@ -53,11 +53,11 @@ func TestIngestAndList(t *testing.T) {
 func TestIngestDeduplicatesByMessageID(t *testing.T) {
 	s := newTestService(t)
 	ctx := context.Background()
-	first, err := s.Ingest(ctx, Message{Mailbox: "a@x.com", Code: "111111", MessageID: "<dup@x>"})
+	first, err := s.Ingest(ctx, Message{Mailbox: "a@x.com", MessageID: "<dup@x>"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := s.Ingest(ctx, Message{Mailbox: "a@x.com", Code: "111111", MessageID: "<dup@x>"})
+	second, err := s.Ingest(ctx, Message{Mailbox: "a@x.com", MessageID: "<dup@x>"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -72,7 +72,7 @@ func TestIngestDeduplicatesByMessageID(t *testing.T) {
 
 func TestIngestRejectsEmptyMailbox(t *testing.T) {
 	s := newTestService(t)
-	if _, err := s.Ingest(context.Background(), Message{Code: "1"}); err == nil {
+	if _, err := s.Ingest(context.Background(), Message{}); err == nil {
 		t.Fatal("空收件人应报错")
 	}
 }
@@ -80,7 +80,7 @@ func TestIngestRejectsEmptyMailbox(t *testing.T) {
 func TestConsumeHidesFromDefaultList(t *testing.T) {
 	s := newTestService(t)
 	ctx := context.Background()
-	id, err := s.Ingest(ctx, Message{Mailbox: "a@x.com", Code: "111111"})
+	id, err := s.Ingest(ctx, Message{Mailbox: "a@x.com"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -100,8 +100,8 @@ func TestConsumeHidesFromDefaultList(t *testing.T) {
 func TestClearOnlyConsumed(t *testing.T) {
 	s := newTestService(t)
 	ctx := context.Background()
-	keep, _ := s.Ingest(ctx, Message{Mailbox: "a@x.com", Code: "111111"})
-	drop, _ := s.Ingest(ctx, Message{Mailbox: "a@x.com", Code: "222222"})
+	keep, _ := s.Ingest(ctx, Message{Mailbox: "a@x.com"})
+	drop, _ := s.Ingest(ctx, Message{Mailbox: "a@x.com"})
 	if err := s.Consume(ctx, drop, "test"); err != nil {
 		t.Fatal(err)
 	}
@@ -117,8 +117,8 @@ func TestClearOnlyConsumed(t *testing.T) {
 func TestPurgeBeforeRemovesOldMessages(t *testing.T) {
 	s := newTestService(t)
 	ctx := context.Background()
-	old, _ := s.Ingest(ctx, Message{Mailbox: "a@x.com", Code: "111111", ReceivedAt: time.Now().Add(-48 * time.Hour).UTC().Format(time.RFC3339)})
-	fresh, _ := s.Ingest(ctx, Message{Mailbox: "a@x.com", Code: "222222"})
+	old, _ := s.Ingest(ctx, Message{Mailbox: "a@x.com", ReceivedAt: time.Now().Add(-48 * time.Hour).UTC().Format(time.RFC3339)})
+	fresh, _ := s.Ingest(ctx, Message{Mailbox: "a@x.com"})
 	n, err := s.PurgeBefore(ctx, time.Now().Add(-24*time.Hour))
 	if err != nil {
 		t.Fatal(err)
@@ -137,15 +137,15 @@ func TestWaitClaimsAndFilters(t *testing.T) {
 	ctx := context.Background()
 
 	// 非目标发件人的邮件不应被认领。
-	if _, err := s.Ingest(ctx, Message{Mailbox: "u@x.com", Code: "111111", Sender: "noise@other.com"}); err != nil {
+	if _, err := s.Ingest(ctx, Message{Mailbox: "u@x.com", Sender: "noise@other.com"}); err != nil {
 		t.Fatal(err)
 	}
-	_, err := s.Wait(ctx, Selector{Mailbox: "u@x.com", FromDomain: "posthog.com", RequireCode: true}, "t", 300*time.Millisecond)
+	_, err := s.Wait(ctx, Selector{Mailbox: "u@x.com", FromDomain: "posthog.com"}, "t", 300*time.Millisecond)
 	if err == nil {
 		t.Fatal("发件人不匹配时不应认领")
 	}
 
-	target, err := s.Ingest(ctx, Message{Mailbox: "u@x.com", Code: "654321", Sender: "hey@posthog.com"})
+	target, err := s.Ingest(ctx, Message{Mailbox: "u@x.com", Sender: "hey@posthog.com"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -153,7 +153,7 @@ func TestWaitClaimsAndFilters(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if msg.Code != "654321" || msg.ID != target {
+	if msg.ID != target {
 		t.Fatalf("应认领目标邮件: %+v", msg)
 	}
 	// 认领后不可再次取用（认领语义）。
@@ -167,15 +167,15 @@ func TestWaitClaimsAndFilters(t *testing.T) {
 func TestWaitFromDomainMatchesSubdomain(t *testing.T) {
 	s := newTestService(t)
 	ctx := context.Background()
-	if _, err := s.Ingest(ctx, Message{Mailbox: "u@x.com", Code: "112233", Sender: "postmaster@cioeu80164.posthog.com"}); err != nil {
+	if _, err := s.Ingest(ctx, Message{Mailbox: "u@x.com", Sender: "postmaster@cioeu80164.posthog.com"}); err != nil {
 		t.Fatal(err)
 	}
 	msg, err := s.Wait(ctx, Selector{Mailbox: "u@x.com", FromDomain: "posthog.com"}, "t", 2*time.Second)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if msg.Code != "112233" {
-		t.Fatalf("子域发件人应命中主域选择器，得到 %q", msg.Code)
+	if msg.FromDomain != "cioeu80164.posthog.com" {
+		t.Fatalf("subdomain sender should match main-domain selector, got %q", msg.FromDomain)
 	}
 }
 
@@ -183,7 +183,7 @@ func TestWaitFromDomainMatchesSubdomain(t *testing.T) {
 func TestWaitFromDomainDoesNotMatchLookalike(t *testing.T) {
 	s := newTestService(t)
 	ctx := context.Background()
-	if _, err := s.Ingest(ctx, Message{Mailbox: "u@x.com", Code: "445566", Sender: "evil@notposthog.com"}); err != nil {
+	if _, err := s.Ingest(ctx, Message{Mailbox: "u@x.com", Sender: "evil@notposthog.com"}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.Wait(ctx, Selector{Mailbox: "u@x.com", FromDomain: "posthog.com"}, "t", 300*time.Millisecond); err == nil {
@@ -194,33 +194,31 @@ func TestWaitFromDomainDoesNotMatchLookalike(t *testing.T) {
 // TestWaitAcceptsMessageOlderThanSince 覆盖真实故障场景：
 // PostHog 短时间内重复登录会复用同一封验证邮件、不重发，
 // 用户先点登录页、稍后才发起面板自动登录时，邮件会早于会话开始时间。
-// 调用方（posthogcode）为此把 since 放宽 15 分钟；此处验证放宽后确实能取到旧邮件。
+// 调用方为此把 since 放宽 15 分钟；此处验证放宽后确实能取到旧邮件。
 func TestWaitAcceptsMessageOlderThanSince(t *testing.T) {
 	s := newTestService(t)
 	ctx := context.Background()
 	// 邮件到达于 7 分钟前。
 	if _, err := s.Ingest(ctx, Message{
 		Mailbox:    "u@x.com",
-		Code:       "150628",
 		Sender:     "postmaster@cioeu80164.posthog.com",
 		Subject:    "Verify your PostHog login",
 		ReceivedAt: time.Now().Add(-7 * time.Minute).UTC().Format(time.RFC3339),
 	}); err != nil {
 		t.Fatal(err)
 	}
-	// 会话 1 分钟前才开始，按 posthogcode 的策略放宽 15 分钟。
+	// 会话 1 分钟前才开始，按此策略放宽 15 分钟。
 	msg, err := s.Wait(ctx, Selector{
 		Mailbox:         "u@x.com",
 		FromDomain:      "posthog.com",
 		SubjectContains: "login",
 		Since:           time.Now().Add(-1 * time.Minute).Add(-15 * time.Minute),
-		RequireCode:     true,
 	}, "t", 2*time.Second)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if msg.Code != "150628" {
-		t.Fatalf("应取到早于会话开始的邮件，得到 %q", msg.Code)
+	if msg.Subject != "Verify your PostHog login" {
+		t.Fatalf("should pick the older message, got %q", msg.Subject)
 	}
 }
 
@@ -230,14 +228,14 @@ func TestWaitReceivesLateMessage(t *testing.T) {
 	since := time.Now()
 	go func() {
 		time.Sleep(150 * time.Millisecond)
-		_, _ = s.Ingest(context.Background(), Message{Mailbox: "late@x.com", Code: "777777"})
+		_, _ = s.Ingest(context.Background(), Message{Mailbox: "late@x.com"})
 	}()
-	msg, err := s.Wait(ctx, Selector{Mailbox: "late@x.com", Since: since, RequireCode: true}, "t", 3*time.Second)
+	msg, err := s.Wait(ctx, Selector{Mailbox: "late@x.com", Since: since}, "t", 3*time.Second)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if msg.Code != "777777" {
-		t.Fatalf("应收到后到的验证码，得到 %q", msg.Code)
+	if msg.Mailbox != "late@x.com" {
+		t.Fatalf("should receive the late message, got %q", msg.Mailbox)
 	}
 }
 
@@ -263,32 +261,6 @@ func TestWorkerSecretStableAndEnvOverride(t *testing.T) {
 	t.Setenv(workerSecretEnv, "custom-secret")
 	if WorkerSecret() != "custom-secret" {
 		t.Fatal("环境变量应覆盖派生值")
-	}
-}
-
-func TestStatsAggregation(t *testing.T) {
-	s := newTestService(t)
-	ctx := context.Background()
-	if _, err := s.Ingest(ctx, Message{Mailbox: "a@x.com", Domain: "x.com", Sender: "hey@posthog.com", FromDomain: "posthog.com", Code: "123456"}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.Ingest(ctx, Message{Mailbox: "a@x.com", Domain: "x.com", Sender: "hey@posthog.com", FromDomain: "posthog.com", Code: ""}); err != nil {
-		t.Fatal(err)
-	}
-	stats, err := s.Stats(ctx, 7)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if stats["received"].(int) != 2 || stats["extracted"].(int) != 1 {
-		t.Fatalf("统计不正确: %+v", stats)
-	}
-	rate, _ := stats["rate"].(float64)
-	if rate < 0.49 || rate > 0.51 {
-		t.Fatalf("提取率应约 0.5，得到 %v", rate)
-	}
-	rows, _ := stats["rows"].([]StatsRow)
-	if len(rows) != 1 || rows[0].FromDomain != "posthog.com" {
-		t.Fatalf("应按发件人域名聚合: %+v", rows)
 	}
 }
 
@@ -331,12 +303,6 @@ func TestIngestHandlerSecretAndParsing(t *testing.T) {
 	if len(msgs) != 1 {
 		t.Fatalf("邮件应已入库: %+v", msgs)
 	}
-	if msgs[0].Code != "919941" {
-		t.Fatalf("面板侧应提取出验证码，得到 %q", msgs[0].Code)
-	}
-	if msgs[0].ExtractStatus != ExtractOK {
-		t.Fatalf("extract_status 应为 ok，得到 %q", msgs[0].ExtractStatus)
-	}
 	if msgs[0].Subject != "Let's verify your email" {
 		t.Fatalf("MIME 头应解码，得到 %q", msgs[0].Subject)
 	}
@@ -348,7 +314,7 @@ func TestIngestHandlerSecretAndParsing(t *testing.T) {
 func TestIngestHandlerAcceptsToAlias(t *testing.T) {
 	s := newTestService(t)
 	t.Setenv(workerSecretEnv, "sekret")
-	req := httptest.NewRequest(http.MethodPost, "/api/emailcode/ingest", strings.NewReader(`{"to":"alias@x.com","code":"121212"}`))
+	req := httptest.NewRequest(http.MethodPost, "/api/emailcode/ingest", strings.NewReader(`{"to":"alias@x.com"}`))
 	req.Header.Set("X-Worker-Secret", "sekret")
 	rec := httptest.NewRecorder()
 	s.ServeHTTP(rec, req)
@@ -384,7 +350,7 @@ func TestDomainsEndpoint(t *testing.T) {
 func TestMessageItemDeleteAndConsumeRoutes(t *testing.T) {
 	s := newTestService(t)
 	ctx := context.Background()
-	id, _ := s.Ingest(ctx, Message{Mailbox: "a@x.com", Code: "1"})
+	id, _ := s.Ingest(ctx, Message{Mailbox: "a@x.com"})
 
 	req := httptest.NewRequest(http.MethodGet, "/api/emailcode/messages/"+itoa(id), nil)
 	rec := httptest.NewRecorder()

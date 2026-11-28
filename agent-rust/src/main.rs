@@ -15,6 +15,12 @@ mod protocol;
 mod proxy_runtime;
 mod proxy_traffic;
 mod pty;
+mod relay_http;
+mod relay_server;
+#[cfg(test)]
+mod relay_server_test;
+mod offline_buffer;
+mod selfmetrics;
 mod tcp_forwarder;
 mod remote_desktop;
 mod storage_server;
@@ -23,7 +29,7 @@ use futures_util::{SinkExt, StreamExt};
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::net::SocketAddr;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tokio::net::TcpStream;
@@ -33,11 +39,13 @@ use tokio_tungstenite::{
     client_async_with_config, connect_async, tungstenite::protocol::Message, MaybeTlsStream,
 };
 
-use crate::collector::{Collector, DockerInfo, State};
+use crate::collector::{AgentSelfMetrics, Collector, DockerInfo, State};
 use crate::config::{CliArgs, Config};
 use crate::docker::DockerBridge;
 use crate::file_manager::FileManager;
+use crate::offline_buffer::OfflineBuffer;
 use crate::protocol::*;
+use crate::selfmetrics::SelfMetricsSource;
 use crate::pty::PtySession;
 use crate::remote_desktop::{
     RemoteDesktopManager, SignalPayload as RemoteDesktopSignalPayload,
@@ -46,6 +54,21 @@ use crate::remote_desktop::{
 use clap::Parser;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
+
+// 1Panel 安装探测脚本（task_type 61）。
+// 只读检查：1pctl 命令、/opt/1panel 目录、8888 端口监听、systemd 服务状态。
+// 输出固定格式 key=value，由后端解析；任何一项命中即认为已安装。
+#[cfg(not(target_os = "windows"))]
+const ONEPANEL_PROBE_SCRIPT: &str = concat!(
+    "if command -v 1pctl >/dev/null 2>&1; then echo cmd=1; else echo cmd=0; fi; ",
+    "if [ -d /opt/1panel ]; then echo dir=1; else echo dir=0; fi; ",
+    "if command -v 1panel-core >/dev/null 2>&1 || pgrep -f '1panel-core' >/dev/null 2>&1; then echo proc=1; else echo proc=0; fi; ",
+    "if (ss -tln 2>/dev/null || netstat -tln 2>/dev/null) | grep -q ':8888 '; then echo port=1; else echo port=0; fi"
+);
+
+// Windows 主机上 1Panel 不是标准安装形态，直接返回未安装。
+#[cfg(target_os = "windows")]
+const ONEPANEL_PROBE_SCRIPT: &str = "echo cmd=0 & echo dir=0 & echo proc=0 & echo port=0";
 
 fn agent_capabilities() -> Vec<String> {
     #[allow(unused_mut)]
@@ -83,11 +106,165 @@ fn agent_capabilities() -> Vec<String> {
 struct UpgradePayload {
     download_url: Option<String>,
     download_base_url: Option<String>,
+    /// 目标二进制的 SHA-256（小写 hex）。
+    ///
+    /// 自更新链路的安全根：没有这个校验，拿到面板控制权的一方只要把
+    /// download_url 指向自己的地址，就能让所有主机执行任意二进制。
+    /// 面板侧从 release 资产的 `.sha256` sidecar 取；缺失时 Agent 拒绝升级，
+    /// 而不是「跳过校验继续装」。
+    sha256: Option<String>,
+}
+
+/// 校验并规整 SHA-256 摘要：必须是 64 位 hex。
+fn normalize_sha256(raw: Option<&str>) -> Result<String, String> {
+    let value = raw.unwrap_or("").trim().to_ascii_lowercase();
+    if value.is_empty() {
+        return Err(
+            "升级任务缺少 sha256 校验和，已拒绝执行。请把面板升级到支持校验的版本，\
+             或在下载目录提供 <文件名>.sha256。"
+                .to_string(),
+        );
+    }
+    if value.len() != 64 || !value.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return Err(format!("sha256 校验和格式无效: {value}"));
+    }
+    Ok(value)
+}
+
+/// 从 `<download_url>.sha256` 读取校验和。
+///
+/// 只在手动 `api-monitor-agent upgrade`（没有面板下发 payload）时用到。
+/// 兼容「<hex>  <filename>」与纯 hex 两种写法 —— 与面板侧
+/// `fetchReleaseAssetSHA256` 的解析规则一致。
+///
+/// 注意：这里是 async，调用方（`handle_action`）是同步函数，必须用
+/// `block_in_place` 包一层。不能用 `reqwest::blocking` —— 它在已有
+/// tokio 运行时里会直接 panic。
+async fn fetch_remote_sha256(download_url: &str) -> Result<String, String> {
+    let checksum_url = format!("{download_url}.sha256");
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(30))
+        .build()
+        .map_err(|e| format!("创建下载客户端失败: {e}"))?;
+    let response = client
+        .get(&checksum_url)
+        .header("User-Agent", "api-monitor-agent")
+        .send()
+        .await
+        .map_err(|e| format!("获取校验和失败（{checksum_url}）: {e}"))?;
+    if !response.status().is_success() {
+        return Err(format!(
+            "获取校验和失败（{checksum_url}）: HTTP {}。可改用 --sha256 手动指定。",
+            response.status()
+        ));
+    }
+    let body = response
+        .text()
+        .await
+        .map_err(|e| format!("读取校验和失败: {e}"))?;
+    let digest = body
+        .split_whitespace()
+        .find(|token| token.len() == 64 && token.bytes().all(|b| b.is_ascii_hexdigit()))
+        .ok_or_else(|| format!("校验和文件内容无效: {}", body.trim()))?;
+    normalize_sha256(Some(digest))
 }
 
 fn stamp_state(state: &mut State, sequence: u64, sample_interval_ms: u64) {
     state.sequence = sequence;
     state.sample_interval_ms = sample_interval_ms;
+}
+
+/// 断线期间的离线采样器。
+///
+/// 为什么存在：采集循环原先跑在「已认证连接」内部（见 run_client），连接一断
+/// 整条链路就停 —— 断网 5 分钟，面板上就是 5 分钟空洞，而 CPU/内存/磁盘本来
+/// 都不依赖网络。这个任务与连接解耦，**只在断开期间**采样并写入缓冲：
+///  - 连着时什么都不做（一次 collect 都不跑），不增加任何常态开销；
+///  - 断开时按 report_interval 采样，重连后由 `replay_offline_buffer` 补发。
+///
+/// 不重构主采样路径是刻意的：那条路径承担实时上报 + 自监控 + docker 摘要，
+/// 改动面大、回归风险高；离线场景单独一条轻量旁路更安全。
+async fn run_offline_sampler(
+    store: Arc<OfflineStateStore>,
+    collector: Arc<tokio::sync::Mutex<Collector>>,
+    report_interval_ms: u64,
+) {
+    let mut timer = tokio::time::interval(Duration::from_millis(report_interval_ms.max(500)));
+    timer.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    let mut sequence = 0u64;
+    loop {
+        timer.tick().await;
+        if store.is_connected() {
+            continue;
+        }
+        let state = {
+            let mut guard = collector.lock().await;
+            guard.collect_state()
+        };
+        sequence = sequence.wrapping_add(1);
+        store.buffer_sample(sequence, state);
+    }
+}
+
+/// 连接状态 + 离线缓冲的共享句柄。
+struct OfflineStateStore {
+    buffer: OfflineBuffer,
+    connected: AtomicBool,
+}
+
+impl OfflineStateStore {
+    fn new(buffer: OfflineBuffer) -> Self {
+        Self {
+            buffer,
+            connected: AtomicBool::new(false),
+        }
+    }
+
+    fn set_connected(&self, connected: bool) {
+        self.connected.store(connected, Ordering::Relaxed);
+    }
+
+    fn is_connected(&self) -> bool {
+        self.connected.load(Ordering::Relaxed)
+    }
+
+    /// 把一次采样写进缓冲。只保留回放需要的字段，不存整个 State 的旁支数据。
+    fn buffer_sample(&self, sequence: u64, mut state: State) {
+        // 与实时路径保持一致：docker 摘要在离线采样里不查（代价高、价值低）。
+        state.docker = DockerInfo::default();
+        state.network_quality = None;
+
+        let timestamp_ms = state.timestamp_ms;
+        // 回放时后端需要原始采集时刻，否则整段离线数据会被压到重连那一刻。
+        let recorded_at = chrono::DateTime::<chrono::Utc>::from_timestamp_millis(
+            timestamp_ms as i64,
+        )
+        .map(|dt| dt.to_rfc3339())
+        .unwrap_or_default();
+
+        self.buffer.push(sequence, recorded_at, state);
+    }
+}
+
+/// 重连后补发离线缓冲。
+///
+/// 走 `normal` 通道：补发量大但不是「必须立刻到」的数据，挤占高优先级
+/// （ping/任务结果）会导致实时控制面变慢。补发条数在自监控里可观测。
+async fn replay_offline_buffer(store: &OfflineStateStore, outbound: &OutboundQueues) {
+    let entries = store.buffer.drain();
+    if entries.is_empty() {
+        return;
+    }
+    println!("[Agent] 补发 {} 条离线采样", entries.len());
+    for entry in entries {
+        // 与服务端约定的事件：agent:offline_state，payload 形如
+        // { sequence, recorded_at, state }，服务端按 recorded_at 落库。
+        let msg = format_event(EVENT_AGENT_OFFLINE_STATE, &entry);
+        if outbound.send_normal(msg).await.is_err() {
+            // 通道已关（连接又断了）：剩下的丢掉，不让缓冲无限增长。
+            break;
+        }
+    }
 }
 
 fn docker_summary(info: &DockerInfo) -> DockerInfo {
@@ -99,17 +276,51 @@ fn docker_summary(info: &DockerInfo) -> DockerInfo {
     }
 }
 
+/// 采一次 state，并填充 Agent 自监控字段。
+///
+/// 抽成函数是为了让两条上报路径（首次 + 定时）用同一套逻辑：
+/// 采集耗时、队列积压、丢弃数、自身 RSS/CPU 都要一致，否则面板上
+/// 「首次那条」永远是 0，看着像没数据。
+async fn sample_state_with_self_metrics(
+    collector: &tokio::sync::Mutex<Collector>,
+    outbound: &OutboundQueues,
+    offline: &OfflineStateStore,
+) -> State {
+    let started = Instant::now();
+    let mut state = collector.lock().await.collect_state();
+    let elapsed = started.elapsed();
+
+    let source = outbound.self_metrics();
+    source.record_collect_state(elapsed);
+    let snapshot = source.snapshot();
+
+    state.self_metrics = Some(AgentSelfMetrics {
+        dropped_low: source.dropped_low(),
+        reconnect_count: source.reconnect_count(),
+        collect_state_us: source.collect_state_us(),
+        outbound_backlog: outbound.backlog(),
+        rss_bytes: snapshot.rss_bytes,
+        cpu_percent: snapshot.cpu_percent,
+        offline_buffered: offline.buffer.len() as u64,
+        offline_dropped: offline.buffer.dropped(),
+    });
+    state
+}
+
 #[derive(Clone)]
 struct OutboundQueues {
     high: mpsc::Sender<String>,
     normal: mpsc::Sender<String>,
     low: mpsc::Sender<String>,
     latest_normal: Arc<Mutex<Option<String>>>,
-    dropped_low: Arc<AtomicU64>,
+    /// 丢弃计数与其它自监控指标共用一份 source，避免两处各记一份对不上。
+    self_metrics: SelfMetricsSource,
 }
 
 impl OutboundQueues {
-    fn new() -> (
+    /// `self_metrics` 由 main 创建并跨连接复用 —— 重连计数、丢弃计数必须累计，
+    /// 若每次连接都新建，面板上"重连次数"永远显示 0。
+    fn new(self_metrics: SelfMetricsSource) -> (
         Self,
         mpsc::Receiver<String>,
         mpsc::Receiver<String>,
@@ -124,12 +335,27 @@ impl OutboundQueues {
                 normal: normal_tx,
                 low: low_tx,
                 latest_normal: Arc::new(Mutex::new(None)),
-                dropped_low: Arc::new(AtomicU64::new(0)),
+                self_metrics,
             },
             high_rx,
             normal_rx,
             low_rx,
         )
+    }
+
+    /// 自监控数据源（与丢弃计数共享同一实例）。
+    fn self_metrics(&self) -> &SelfMetricsSource {
+        &self.self_metrics
+    }
+
+    /// 出站队列积压总量（三条通道已排队但未写出的消息数）。
+    ///
+    /// `capacity()` 返回的是**剩余可用**槽位，所以要 `max_capacity - capacity`。
+    fn backlog(&self) -> u64 {
+        let pending = |sender: &mpsc::Sender<String>| {
+            sender.max_capacity().saturating_sub(sender.capacity()) as u64
+        };
+        pending(&self.high) + pending(&self.normal) + pending(&self.low)
     }
 
     async fn send_high(&self, msg: String) -> Result<(), mpsc::error::SendError<String>> {
@@ -154,7 +380,9 @@ impl OutboundQueues {
         match self.low.try_send(msg) {
             Ok(()) => {}
             Err(mpsc::error::TrySendError::Full(_)) => {
-                self.dropped_low.fetch_add(1, Ordering::Relaxed);
+                // 丢弃必须计入自监控：否则"加了低优先级补发却悄悄丢"这类问题
+                // 只能靠外部抓包发现。
+                self.self_metrics.record_dropped_low();
             }
             Err(mpsc::error::TrySendError::Closed(_)) => {}
         }
@@ -171,7 +399,14 @@ impl OutboundQueues {
 
 #[tokio::main]
 async fn main() {
-    let cli = CliArgs::parse();
+    // 兼容旧 relay unit 的单横线写法：原 Go relay 用 flag 包，接受
+    // `-listen` / `-config`；已部署的 systemd unit 与运维脚本里大量存在
+    // 这种形式。clap 只认 `--listen`，会把 `-listen` 当成短选项拼写并报
+    // "unexpected argument '-l'"，导致升级后 relay 起来就崩
+    // （Restart=always → 无限重启）。解析前统一规整，比要求用户改 unit 稳妥。
+    let cli = CliArgs::parse_from(normalize_legacy_relay_args(
+        std::env::args_os().collect(),
+    ));
 
     if let Some(ref action) = cli.action {
         if let Err(e) = handle_action(action, &cli) {
@@ -224,6 +459,17 @@ async fn main() {
     let pty_sessions = Arc::new(Mutex::new(HashMap::<String, Arc<PtySession>>::new()));
     let task_progress = Arc::new(Mutex::new(HashMap::<String, TaskProgress>::new()));
     let remote_desktop = Arc::new(RemoteDesktopManager::new());
+    // 自监控计数器跨连接存活：重连次数/丢弃计数若每次连接都清零，
+    // 面板上永远看不到"这台主机在反复掉线"。
+    let self_metrics = SelfMetricsSource::new();
+    // 离线缓冲 + 采样器：与连接解耦，断网期间继续采样，重连后补发。
+    let offline_store = Arc::new(OfflineStateStore::new(OfflineBuffer::default()));
+    {
+        let store = offline_store.clone();
+        let collector_clone = collector.clone();
+        let interval = config.report_interval;
+        tokio::spawn(run_offline_sampler(store, collector_clone, interval));
+    }
 
     #[cfg(unix)]
     tokio::spawn(proxy_traffic::run(config.clone()));
@@ -248,6 +494,8 @@ async fn main() {
             pty_sessions.clone(),
             task_progress.clone(),
             remote_desktop.clone(),
+            self_metrics.clone(),
+            offline_store.clone(),
         )
         .await
         {
@@ -258,9 +506,13 @@ async fn main() {
                 eprintln!("[Agent] 运行错误: {}", e);
             }
         }
+        // 断开后立刻标记，让离线采样器开始补采。放在这里而不是 run_client
+        // 内部，是因为任何返回路径（正常关闭/错误/panic 前的 unwind）都要覆盖。
+        offline_store.set_connected(false);
         if connected_since.elapsed() >= Duration::from_secs(60) {
             next_reconnect_delay = base_reconnect_delay;
         }
+        self_metrics.record_reconnect();
         println!(
             "[Agent] 将在 {}ms 后重连...",
             next_reconnect_delay.as_millis()
@@ -315,6 +567,8 @@ async fn run_client(
     pty_sessions: Arc<Mutex<HashMap<String, Arc<PtySession>>>>,
     task_progress: Arc<Mutex<HashMap<String, TaskProgress>>>,
     remote_desktop: Arc<RemoteDesktopManager>,
+    self_metrics: SelfMetricsSource,
+    offline_store: Arc<OfflineStateStore>,
 ) -> Result<(), String> {
     // 直接 WebSocket 连接（无需 polling handshake）
     let mut ws_url = if config.server_url.starts_with("https://") {
@@ -379,7 +633,7 @@ async fn run_client(
     let (mut ws_writer, mut ws_reader) = ws_stream.split();
 
     // Priority queues for multiplexing outbound messages.
-    let (outbound, mut high_rx, mut normal_rx, mut low_rx) = OutboundQueues::new();
+    let (outbound, mut high_rx, mut normal_rx, mut low_rx) = OutboundQueues::new(self_metrics.clone());
     let outbound_writer = outbound.clone();
 
     // Task to write outgoing messages to websocket
@@ -431,6 +685,7 @@ async fn run_client(
     let network_targets_clone = network_targets.clone();
     let latest_network_quality_clone = latest_network_quality.clone();
     let remote_desktop_clone = remote_desktop.clone();
+    let offline_store_clone = offline_store.clone();
 
     let mut read_task = tokio::spawn(async move {
         while let Some(res) = ws_reader.next().await {
@@ -472,6 +727,12 @@ async fn run_client(
                         println!("[Agent] ✅ 认证成功");
                         *authenticated_clone.lock().await = true;
 
+                        // 认证成功后：先标记「已连接」（离线采样器随即停采），
+                        // 再把断线期间攒的样本补发出去。顺序不能反 —— 反了会
+                        // 一边回放一边继续往缓冲里塞新样本。
+                        offline_store_clone.set_connected(true);
+                        replay_offline_buffer(&offline_store_clone, &tx_clone).await;
+
                         // Parse network_targets from auth payload if present
                         if let Some(targets_val) = data.get("network_targets") {
                             if let Ok(targets) = serde_json::from_value::<Vec<NetworkQualityTarget>>(
@@ -481,6 +742,11 @@ async fn run_client(
                             }
                         }
 
+                        // 运行时下发的文件访问根(`*` 表示全开),改面板配置重启即可,免重装 Agent。
+                        if let Some(roots_val) = data.get("fileRoots").and_then(|v| v.as_str()) {
+                            crate::file_manager::set_file_roots(roots_val);
+                        }
+
                         // Start loops for reports
                         let auth_tx = auth_ok_tx.clone();
                         let collector_loop = collector_clone.clone();
@@ -488,6 +754,7 @@ async fn run_client(
                         let cfg = config_clone.clone();
                         let network_targets_probe = network_targets_clone.clone();
                         let latest_network_quality_probe = latest_network_quality_clone.clone();
+                        let offline_store_task = offline_store_clone.clone();
 
                         tokio::spawn(async move {
                             let docker_cache =
@@ -570,7 +837,12 @@ async fn run_client(
                                 .send_normal(format_event(EVENT_AGENT_HOST_INFO, &host_info))
                                 .await;
 
-                            let mut state = collector_loop.lock().await.collect_state();
+                            let mut state = sample_state_with_self_metrics(
+                                &collector_loop,
+                                &auth_tx,
+                                &offline_store_task,
+                            )
+                            .await;
                             stamp_state(&mut state, state_sequence, cfg.report_interval);
                             state_sequence = state_sequence.wrapping_add(1);
                             state.docker = {
@@ -604,7 +876,12 @@ async fn run_client(
                                         if auth_tx.is_closed() {
                                             break;
                                         }
-                                        let mut state = collector_loop.lock().await.collect_state();
+                                        let mut state = sample_state_with_self_metrics(
+                                            &collector_loop,
+                                            &auth_tx,
+                                            &offline_store_task,
+                                        )
+                                        .await;
                                         stamp_state(&mut state, state_sequence, cfg.report_interval);
                                         state_sequence = state_sequence.wrapping_add(1);
                                         state.docker = {
@@ -650,6 +927,11 @@ async fn run_client(
                             .to_string();
                         eprintln!("[Agent] ❌ 认证失败: {}", reason);
                         std::process::exit(1);
+                    } else if !*authenticated_clone.lock().await {
+                        // 未认证连接:除认证相关事件外,一律忽略任务/PTY/远程桌面/
+                        // 服务器动作等控制指令。否则在明文 ws:// 或中间人链路上,
+                        // 任何人都能直接下发 dashboard:task 执行任意命令(RCE)。
+                        eprintln!("[Agent] 忽略未认证连接下发的事件: {}", event);
                     } else if event == EVENT_DASHBOARD_REMOTE_DESKTOP_START {
                         if let Ok(payload) =
                             serde_json::from_value::<RemoteDesktopStartPayload>(data)
@@ -966,8 +1248,9 @@ async fn run_client(
                                             )
                                             .await;
                                         });
-                                        successful = true;
-                                        res_data = "容器更新任务已启动".to_string();
+                                        // 后台更新由 handle_docker_container_update 发送真实进度与最终结果；
+                                        // 不在本处回执成功，否则后端会提前把任务判为完成，前端即刻显示“成功”。
+                                        return;
                                     }
                                     25 => {
                                         // DOCKER_RENAME_CONTAINER
@@ -1164,6 +1447,18 @@ async fn run_client(
                                     43 => {
                                         // FILE_ROOTS：返回沙箱真实根目录与白名单根
                                         match FileManager::handle_file_roots() {
+                                            Ok(out) => {
+                                                successful = true;
+                                                res_data = out;
+                                            }
+                                            Err(err) => {
+                                                res_data = err;
+                                            }
+                                        }
+                                    }
+                                    44 => {
+                                        // FILE_WALK(递归列目录)
+                                        match FileManager::handle_file_walk(&task.data) {
                                             Ok(out) => {
                                                 successful = true;
                                                 res_data = out;
@@ -1374,6 +1669,26 @@ async fn run_client(
                                         )
                                         .await;
                                         return; // PTY runs in background long connection, does not yield instant TaskResult
+                                    }
+                                    61 => {
+                                        // ONEPANEL_PROBE：探测本机是否安装 1Panel。
+                                        // 只做只读检查（命令 / 目录 / 端口 / systemd），
+                                        // 不读写 1Panel 的任何配置或数据。
+                                        match execute_command_in(
+                                            ONEPANEL_PROBE_SCRIPT,
+                                            10,
+                                            None,
+                                        )
+                                        .await
+                                        {
+                                            Ok((out, _)) => {
+                                                successful = true;
+                                                res_data = out;
+                                            }
+                                            Err(err) => {
+                                                res_data = err;
+                                            }
+                                        }
                                     }
                                     _ => {
                                         res_data = format!("不支持的任务类型: {}", task.task_type);
@@ -1967,9 +2282,14 @@ async fn handle_upgrade(_task_id: &str, data: &str, config: &Config) -> Result<S
 
     let payload = serde_json::from_str::<UpgradePayload>(data).unwrap_or_default();
     let download_url = resolve_upgrade_download_url(config, &payload)?;
-    schedule_self_update(&download_url)?;
+    let expected_sha256 = normalize_sha256(payload.sha256.as_deref())?;
+    schedule_self_update(&download_url, &expected_sha256)?;
 
-    Ok(format!("自更新已在后台安排，下载地址: {}", download_url))
+    Ok(format!(
+        "自更新已在后台安排，下载地址: {}（sha256 {}…）",
+        download_url,
+        &expected_sha256[..12]
+    ))
 }
 
 fn resolve_upgrade_download_url(
@@ -2038,7 +2358,7 @@ fn take_upgrade_status_file() -> Option<serde_json::Value> {
     Some(value)
 }
 
-fn schedule_self_update(download_url: &str) -> Result<(), String> {
+fn schedule_self_update(download_url: &str, expected_sha256: &str) -> Result<(), String> {
     let exe_path =
         std::env::current_exe().map_err(|e| format!("获取当前 Agent 路径失败: {}", e))?;
     let timestamp_ms = SystemTime::now()
@@ -2047,9 +2367,14 @@ fn schedule_self_update(download_url: &str) -> Result<(), String> {
         .as_millis();
 
     if cfg!(target_os = "windows") {
-        schedule_self_update_windows(&exe_path, download_url, timestamp_ms)
+        schedule_self_update_windows(
+            &exe_path,
+            download_url,
+            expected_sha256,
+            timestamp_ms,
+        )
     } else {
-        schedule_self_update_unix(&exe_path, download_url, timestamp_ms)
+        schedule_self_update_unix(&exe_path, download_url, expected_sha256, timestamp_ms)
     }
 }
 
@@ -2205,6 +2530,7 @@ fn schedule_self_uninstall() -> Result<(), String> {
 fn schedule_self_update_windows(
     exe_path: &std::path::Path,
     download_url: &str,
+    expected_sha256: &str,
     timestamp_ms: u128,
 ) -> Result<(), String> {
     let install_dir = exe_path
@@ -2227,6 +2553,7 @@ Write-Host "API Monitor Agent self-update started at $(Get-Date -Format o)"
 $AgentPath = {agent_path}
 $TempAgentPath = {temp_agent}
 $DownloadUrl = {download_url}
+$ExpectedSha256 = {expected_sha256}
 $LaunchVbs = {launch_vbs}
 $AgentPid = {agent_pid}
 $ResultPath = Join-Path $env:TEMP "api-monitor-agent-upgrade-result.json"
@@ -2247,6 +2574,15 @@ try {{
         Remove-Item -Path $TempAgentPath -Force -ErrorAction SilentlyContinue
     }}
     Invoke-WebRequest -Uri $DownloadUrl -OutFile $TempAgentPath -UseBasicParsing
+
+    # 完整性校验必须在执行之前：没有它，拿到面板控制权的一方只要把
+    # DownloadUrl 指向自己的地址，就能让所有主机执行任意二进制。
+    $actualSha256 = (Get-FileHash -Path $TempAgentPath -Algorithm SHA256).Hash.ToLower()
+    if ($actualSha256 -ne $ExpectedSha256) {{
+        Write-UpgradeResult "failed" "Agent 二进制校验失败：期望 $ExpectedSha256，实际 $actualSha256"
+        exit 1
+    }}
+
     $newVersion = (& $TempAgentPath --version 2>&1 | Select-Object -Last 1)
 
     Start-Sleep -Seconds 2
@@ -2299,6 +2635,7 @@ try {{
         agent_path = ps_quote(&exe_path.to_string_lossy()),
         temp_agent = ps_quote(&temp_agent.to_string_lossy()),
         download_url = ps_quote(download_url),
+        expected_sha256 = ps_quote(expected_sha256),
         launch_vbs = ps_quote(&launch_vbs.to_string_lossy()),
         agent_pid = agent_pid,
     );
@@ -2322,22 +2659,20 @@ try {{
 fn schedule_self_update_windows(
     _exe_path: &std::path::Path,
     _download_url: &str,
+    _expected_sha256: &str,
     _timestamp_ms: u128,
 ) -> Result<(), String> {
     Err("Windows self-update is not available on this platform".to_string())
 }
 
 #[cfg(not(target_os = "windows"))]
-fn schedule_self_update_unix(
+fn render_self_update_unix_script(
     exe_path: &std::path::Path,
     download_url: &str,
-    timestamp_ms: u128,
-) -> Result<(), String> {
-    let script_path =
-        std::env::temp_dir().join(format!("api-monitor-agent-upgrade-{}.sh", timestamp_ms));
-    let unit_name = format!("api-monitor-agent-upgrade-{}", timestamp_ms);
+    expected_sha256: &str,
+) -> String {
     let agent_pid = std::process::id();
-    let script = format!(
+    format!(
         r#"#!/bin/sh
 set -eu
 LOG="/tmp/api-monitor-agent-upgrade.log"
@@ -2346,6 +2681,7 @@ exec >>"$LOG" 2>&1
 echo "API Monitor Agent self-update started at $(date -Is)"
 AGENT_PATH={agent_path}
 DOWNLOAD_URL={download_url}
+EXPECTED_SHA256={expected_sha256}
 AGENT_PID={agent_pid}
 TMP_AGENT="$(mktemp /tmp/api-monitor-agent.XXXXXX)"
 cleanup() {{
@@ -2364,6 +2700,23 @@ elif command -v wget >/dev/null 2>&1; then
     wget -O "$TMP_AGENT" "$DOWNLOAD_URL" || {{ write_result_failed "下载 Agent 二进制失败，请检查面板下载地址与网络连通性"; exit 1; }}
 else
     write_result_failed "curl 与 wget 均不可用"
+    exit 1
+fi
+
+# 完整性校验必须在 chmod/执行之前。没有校验，拿到面板控制权的一方只要把
+# DOWNLOAD_URL 指向自己的地址，就能让所有主机执行任意二进制 —— 那是全机 RCE。
+# sha256sum / shasum 都不可用时按失败处理，绝不"跳过校验继续装"。
+if command -v sha256sum >/dev/null 2>&1; then
+    ACTUAL_SHA256="$(sha256sum "$TMP_AGENT" | awk '{{print $1}}')"
+elif command -v shasum >/dev/null 2>&1; then
+    ACTUAL_SHA256="$(shasum -a 256 "$TMP_AGENT" | awk '{{print $1}}')"
+else
+    write_result_failed "缺少 sha256sum/shasum，无法校验下载的 Agent 二进制"
+    exit 1
+fi
+
+if [ "$ACTUAL_SHA256" != "$EXPECTED_SHA256" ]; then
+    write_result_failed "Agent 二进制校验失败：期望 $EXPECTED_SHA256，实际 $ACTUAL_SHA256"
     exit 1
 fi
 
@@ -2404,8 +2757,23 @@ echo "API Monitor Agent self-update completed at $(date -Is)"
 "#,
         agent_path = sh_quote(&exe_path.to_string_lossy()),
         download_url = sh_quote(download_url),
+        expected_sha256 = sh_quote(expected_sha256),
         agent_pid = agent_pid,
-    );
+    )
+}
+
+/// 写好并拉起升级脚本（systemd-run 优先，退化为 nohup）。
+#[cfg(not(target_os = "windows"))]
+fn schedule_self_update_unix(
+    exe_path: &std::path::Path,
+    download_url: &str,
+    expected_sha256: &str,
+    timestamp_ms: u128,
+) -> Result<(), String> {
+    let script_path =
+        std::env::temp_dir().join(format!("api-monitor-agent-upgrade-{}.sh", timestamp_ms));
+    let unit_name = format!("api-monitor-agent-upgrade-{}", timestamp_ms);
+    let script = render_self_update_unix_script(exe_path, download_url, expected_sha256);
     fs::write(&script_path, script).map_err(|e| format!("写入升级脚本失败: {}", e))?;
 
     if let Ok(status) = Command::new("systemd-run")
@@ -2441,6 +2809,7 @@ echo "API Monitor Agent self-update completed at $(date -Is)"
 fn schedule_self_update_unix(
     _exe_path: &std::path::Path,
     _download_url: &str,
+    _expected_sha256: &str,
     _timestamp_ms: u128,
 ) -> Result<(), String> {
     Err("Unix self-update is not available on this platform".to_string())
@@ -2471,7 +2840,15 @@ fn agent_config_path() -> Option<PathBuf> {
     Some(config::agent_base_dir().join("config.json"))
 }
 
-/// 自动清理历史安装/升级产生的陈旧备份文件与临时下载文件（如 .previous, *.prev.exe, *.bak*, *.download* 等）
+/// 自动清理历史安装/升级产生的陈旧备份文件与临时下载文件
+/// （如 .previous、*.prev.exe、*.download* 等）。
+///
+/// 注意：**不能**删 `*.bak-*`。升级脚本正是把旧二进制备份成
+/// `api-monitor-agent.bak-<版本>`，并在同目录写 `ROLLBACK.txt` 指向它。
+/// 历史上这里把 `.bak-` 也当作残留清理，导致 Agent 一启动就把刚做好的
+/// 回滚副本删掉 —— 用户按 ROLLBACK.txt 操作时会发现备份文件不存在，
+/// 回滚彻底失效。备份文件保留成本很低（一个旧版本二进制），
+/// 但丢掉它意味着升级出问题时无路可退。
 fn cleanup_legacy_backups() {
     let base = config::agent_base_dir();
     let Ok(entries) = fs::read_dir(&base) else {
@@ -2491,17 +2868,19 @@ fn cleanup_legacy_backups() {
     }
 }
 
-/// 判断安装目录下的文件名是否为历史安装/升级残留（备份二进制或临时下载文件）。
+/// 判断安装目录下的文件名是否为可安全删除的历史残留（临时下载文件）。
+///
+/// 备份二进制（`*.bak-*` / `.previous` / `.prev.exe`）**不在此列**：
+/// 它们是 ROLLBACK.txt 的回滚依据，必须保留到用户主动清理或下一次成功升级。
 fn is_legacy_artifact(name: &str) -> bool {
-    // 备份二进制：api-monitor-agent.previous / api-monitor-agent.prev.exe / *.bak-*
-    let is_backup = name.ends_with(".previous")
-        || name.ends_with(".prev.exe")
-        || name.contains(".bak-");
     // 临时下载：*.download / *.download.exe
     let is_download = name.ends_with(".download")
         || name.ends_with(".download.exe")
         || (name.starts_with("api-monitor-agent.") && name.contains(".download.exe"));
-    is_backup || is_download
+    // .previous / .prev.exe 属于更早期的升级器遗留（不配 ROLLBACK.txt，
+    // 也没有任何代码再引用它们），可以安全清理。
+    let is_orphan_previous = name.ends_with(".previous") || name.ends_with(".prev.exe");
+    is_download || is_orphan_previous
 }
 
 #[cfg(target_os = "windows")]
@@ -2723,6 +3102,15 @@ async fn handle_pty_start_v2(
             .remove(&task_id_cleanup);
     });
 
+    // Agent 侧主动保活。
+    // 背景：tungstenite 0.26 的 WebSocketConfig 还没有 ping_interval 字段
+    // （0.27+ 才有），只能自己起 ticker 发 Ping。这条链路是长连接直连，
+    // 网络闪断时 TCP 会长期处于半开状态：双方都不报错、数据也过不来，
+    // 表现为「终端卡住但界面仍显示已连接」。定时 Ping 让写端尽早暴露失败。
+    let mut ping_ticker = tokio::time::interval(Duration::from_secs(15));
+    // 第一次 tick 会立即触发，先消耗掉避免刚建连就发。
+    ping_ticker.tick().await;
+
     loop {
         tokio::select! {
             Some(data) = pty_rx.recv() => {
@@ -2735,6 +3123,12 @@ async fn handle_pty_start_v2(
                         rows: None,
                     },
                 ).await.is_err() {
+                    break;
+                }
+            }
+            _ = ping_ticker.tick() => {
+                // 写 Ping 失败即代表链路已死，直接退出让上层重连。
+                if ws_writer.send(Message::Ping(Vec::new().into())).await.is_err() {
                     break;
                 }
             }
@@ -2753,9 +3147,29 @@ async fn handle_pty_start_v2(
                                         let _ = session.resize(cols, rows);
                                     }
                                 }
+                                // 应用层心跳：服务端/代理会吞掉 WS 控制帧时，
+                                // 前端改发 JSON ping，这里回 pong 维持链路。
+                                "ping" => {
+                                    let _ = send_terminal_stream_message(
+                                        &mut ws_writer,
+                                        TerminalStreamMessage {
+                                            message_type: "pong".to_string(),
+                                            data: None,
+                                            cols: None,
+                                            rows: None,
+                                        },
+                                    ).await;
+                                }
+                                "pong" => {}
                                 "stop" => break,
                                 _ => {}
                             }
+                        }
+                    }
+                    Some(Ok(Message::Ping(payload))) => {
+                        // 手动回应 Ping：部分代理只是转发控制帧，语义仍需对端回 Pong。
+                        if ws_writer.send(Message::Pong(payload)).await.is_err() {
+                            break;
                         }
                     }
                     Some(Ok(Message::Close(_))) | None => break,
@@ -3065,7 +3479,16 @@ async fn send_task_error(task_id: &str, err_msg: &str, tx: OutboundQueues) {
 fn handle_action(action: &str, cli: &CliArgs) -> Result<(), String> {
     if action == "sample" || action == "probe" {
         let mut collector = Collector::new();
-        let state = collector.collect_state();
+        let mut state = collector.collect_state();
+        // 一次性采样也带自监控：运维用 `sample` 排查时，能同时看到
+        // 「主机指标」和「Agent 自身开销」，不用另跑 perf。
+        let source = SelfMetricsSource::new();
+        let snapshot = source.snapshot();
+        state.self_metrics = Some(AgentSelfMetrics {
+            rss_bytes: snapshot.rss_bytes,
+            cpu_percent: snapshot.cpu_percent,
+            ..AgentSelfMetrics::default()
+        });
         let json = serde_json::to_string_pretty(&state)
             .map_err(|e| format!("serialize sample state failed: {}", e))?;
         println!("{}", json);
@@ -3075,10 +3498,32 @@ fn handle_action(action: &str, cli: &CliArgs) -> Result<(), String> {
     match action {
         "upgrade" | "self-update" => {
             let config = Config::load(cli)?;
-            let download_url = resolve_upgrade_download_url(&config, &UpgradePayload::default())?;
-            schedule_self_update(&download_url)?;
+            let payload = UpgradePayload::default();
+            let download_url = resolve_upgrade_download_url(&config, &payload)?;
+            // 手动触发（CLI）没有面板给的 sha256，就去下载地址旁边取 .sha256 sidecar，
+            // 与首次安装脚本（agent.go 的 install 脚本）用的是同一份校验和。
+            let expected_sha256 = match cli.sha256.clone() {
+                Some(value) => normalize_sha256(Some(&value))?,
+                // handle_action 是同步函数，而 main 本身是 #[tokio::main]：
+                // 直接 block_on 会 panic（不能在运行时里嵌套 block_on），
+                // 也不能用 reqwest::blocking。与 relay 分支同样处理——另起线程。
+                None => {
+                    let url = download_url.clone();
+                    std::thread::spawn(move || {
+                        let rt = tokio::runtime::Builder::new_current_thread()
+                            .enable_all()
+                            .build()
+                            .map_err(|e| format!("build runtime: {e}"))?;
+                        rt.block_on(fetch_remote_sha256(&url))
+                    })
+                    .join()
+                    .map_err(|_| "获取校验和的线程异常退出".to_string())??
+                }
+            };
+            schedule_self_update(&download_url, &expected_sha256)?;
             println!("✅ Agent 自更新已在后台安排");
             println!("   下载地址: {}", download_url);
+            println!("   校验和:   {}", expected_sha256);
             println!(
                 "   日志: {}",
                 if cfg!(target_os = "windows") {
@@ -3175,6 +3620,48 @@ fn handle_action(action: &str, cli: &CliArgs) -> Result<(), String> {
             );
             Ok(())
         }
+        // relay 已合并进本二进制：`api-monitor-agent relay --listen ... --config ...`
+        // 保留独立进程/独立 systemd 服务，因此 relay 崩溃或重启不影响 agent 主进程。
+        //
+        // 注意：不能在这里 build 新 runtime 再 block_on —— main 本身是
+        // #[tokio::main]，嵌套启动 runtime 会直接 panic。
+        "relay" => {
+            let listen = cli
+                .relay_listen
+                .clone()
+                .or_else(|| std::env::var("API_MONITOR_RELAY_ADDR").ok())
+                .unwrap_or_else(|| "127.0.0.1:18080".to_string());
+            let config = cli
+                .relay_config
+                .clone()
+                .unwrap_or_else(|| "/etc/api-monitor-relay/config.json".to_string());
+            let token = cli
+                .relay_mgmt_token
+                .clone()
+                .or_else(|| std::env::var("API_MONITOR_RELAY_TOKEN").ok())
+                .filter(|t| !t.is_empty());
+            // handle_action 是同步函数：用一个独立线程跑 relay，避免嵌套 runtime。
+            let (tx, rx) = std::sync::mpsc::channel();
+            std::thread::spawn(move || {
+                let rt = match tokio::runtime::Builder::new_multi_thread()
+                    .enable_all()
+                    .build()
+                {
+                    Ok(rt) => rt,
+                    Err(e) => {
+                        let _ = tx.send(Err(format!("build relay runtime: {e}")));
+                        return;
+                    }
+                };
+                let res = rt.block_on(relay_server::run(
+                    &listen,
+                    std::path::Path::new(&config),
+                    token,
+                ));
+                let _ = tx.send(res);
+            });
+            rx.recv().unwrap_or_else(|e| Err(format!("relay thread: {e}")))
+        }
         _ => Err(format!("不支持的动作: {}", action)),
     }
 }
@@ -3198,9 +3685,60 @@ fn hide_console_window() {
 #[cfg(not(target_os = "windows"))]
 fn hide_console_window() {}
 
+/// 把旧 relay 风格的单横线长选项（`-listen` / `-config` / `-mgmt-token`）
+/// 规整为 clap 认识的 `--xxx`。
+///
+/// 只处理这三个已知选项，其余单横线参数（如 `-s` / `-k` 等短选项）原样保留，
+/// 避免误改写。幂等：已经是双横线的不会被二次处理。
+fn normalize_legacy_relay_args(args: Vec<std::ffi::OsString>) -> Vec<std::ffi::OsString> {
+    const LEGACY: [&str; 3] = ["-listen", "-config", "-mgmt-token"];
+    args.into_iter()
+        .map(|arg| {
+            let Some(text) = arg.to_str() else { return arg };
+            for legacy in LEGACY {
+                if text == legacy {
+                    return std::ffi::OsString::from(format!("-{}", legacy));
+                }
+                // 同时支持 `-listen=127.0.0.1:18080` 形式
+                if let Some(rest) = text.strip_prefix(&format!("{legacy}=")) {
+                    return std::ffi::OsString::from(format!("-{}={rest}", legacy));
+                }
+            }
+            arg
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn legacy_relay_single_dash_args_are_normalized() {
+        // 原 Go relay 用 flag 包，unit 里写的是 `-listen` / `-config`。
+        // 若不改写，clap 会报 "unexpected argument '-l'"，relay 无限重启。
+        let input: Vec<std::ffi::OsString> = ["agent", "relay", "-listen", "127.0.0.1:18080",
+            "-config", "/etc/api-monitor-relay/config.json", "-mgmt-token", "tk"]
+            .iter().map(std::ffi::OsString::from).collect();
+        let out = normalize_legacy_relay_args(input);
+        let got: Vec<String> = out.iter().map(|a| a.to_string_lossy().into_owned()).collect();
+        assert_eq!(got, vec!["agent", "relay", "--listen", "127.0.0.1:18080",
+            "--config", "/etc/api-monitor-relay/config.json", "--mgmt-token", "tk"]);
+
+        // `-opt=value` 形式同样要处理
+        let input: Vec<std::ffi::OsString> = ["agent", "relay", "-listen=127.0.0.1:18080"]
+            .iter().map(std::ffi::OsString::from).collect();
+        let got: Vec<String> = normalize_legacy_relay_args(input)
+            .iter().map(|a| a.to_string_lossy().into_owned()).collect();
+        assert_eq!(got, vec!["agent", "relay", "--listen=127.0.0.1:18080"]);
+
+        // 短选项与正常参数不能被改写
+        let input: Vec<std::ffi::OsString> = ["agent", "-s", "https://x", "--id", "abc"]
+            .iter().map(std::ffi::OsString::from).collect();
+        let got: Vec<String> = normalize_legacy_relay_args(input)
+            .iter().map(|a| a.to_string_lossy().into_owned()).collect();
+        assert_eq!(got, vec!["agent", "-s", "https://x", "--id", "abc"]);
+    }
 
     #[test]
     fn prefer_ipv4_addresses_moves_ipv4_before_ipv6() {
@@ -3213,6 +3751,91 @@ mod tests {
 
         assert!(addrs[0].is_ipv4());
         assert!(addrs[1].is_ipv6());
+    }
+
+    // ---- 自更新完整性校验（issue #74）----
+    //
+    // 这里守的是「下载内容与预期不符时绝不执行」这条安全边界。
+    // 升级脚本是以字符串模板拼出来的，无法在单测里真跑一遍 install，
+    // 所以直接断言脚本内容包含校验步骤与失败退出路径。
+
+    #[cfg(not(target_os = "windows"))]
+    #[test]
+    fn unix_upgrade_script_verifies_sha256_before_executing() {
+        let script = render_self_update_unix_script(
+            std::path::Path::new("/opt/api-monitor-agent/api-monitor-agent"),
+            "https://panel.example.com/agent/agent-linux-arm64",
+            "9f2c1e0b7a4d3c5e6f8091a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6",
+        );
+
+        // 校验和必须写进脚本
+        assert!(script.contains(
+            "EXPECTED_SHA256='9f2c1e0b7a4d3c5e6f8091a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6'"
+        ));
+        // 必须有实际比对
+        assert!(script.contains("sha256sum") && script.contains("ACTUAL_SHA256"));
+        assert!(
+            script.contains(r#"[ "$ACTUAL_SHA256" != "$EXPECTED_SHA256" ]"#),
+            "脚本必须比对实际与期望的校验和"
+        );
+        // 不匹配要写失败结果并退出，不能继续 install
+        assert!(script.contains("Agent 二进制校验失败"));
+        // chmod/执行必须在校验之后：定位两个位置比较先后
+        let verify_at = script.find("ACTUAL_SHA256").expect("有校验步骤");
+        let chmod_at = script.find("chmod +x").expect("有 chmod");
+        assert!(
+            verify_at < chmod_at,
+            "校验必须发生在 chmod 之前，否则已经执行过未校验的二进制"
+        );
+    }
+
+    /// 缺少 sha256sum/shasum 时必须失败，而不是跳过校验。
+    #[cfg(not(target_os = "windows"))]
+    #[test]
+    fn unix_upgrade_script_fails_when_no_checksum_tool_available() {
+        let script = render_self_update_unix_script(
+            std::path::Path::new("/opt/api-monitor-agent/api-monitor-agent"),
+            "https://panel.example.com/agent/agent-linux-arm64",
+            "9f2c1e0b7a4d3c5e6f8091a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6",
+        );
+        assert!(script.contains("缺少 sha256sum/shasum"));
+    }
+
+    #[test]
+    fn normalize_sha256_accepts_lowercase_and_normalizes_case() {
+        let digest = "9F2C1E0B7A4D3C5E6F8091A2B3C4D5E6F708192A3B4C5D6E7F8091A2B3C4D5E6";
+        assert_eq!(
+            normalize_sha256(Some(digest)).unwrap(),
+            digest.to_ascii_lowercase()
+        );
+        // 前后空白要容忍（sidecar 文件常带换行）
+        assert!(normalize_sha256(Some(&format!("  {digest}  \n"))).is_ok());
+    }
+
+    #[test]
+    fn normalize_sha256_rejects_missing_or_malformed() {
+        // 缺失必须报错，绝不能返回 Ok("") 从而跳过校验
+        assert!(normalize_sha256(None).is_err());
+        assert!(normalize_sha256(Some("")).is_err());
+        assert!(normalize_sha256(Some("   ")).is_err());
+        // 长度不对
+        assert!(normalize_sha256(Some("abc")).is_err());
+        // 64 位但含非 hex 字符
+        let bad = "z".repeat(64);
+        assert!(normalize_sha256(Some(&bad)).is_err());
+    }
+
+    /// 升级 payload 里的 sha256 字段要能被反序列化出来。
+    #[test]
+    fn upgrade_payload_deserializes_sha256() {
+        let payload: UpgradePayload = serde_json::from_str(
+            r#"{"download_url":"https://x/agent","sha256":"9f2c1e0b7a4d3c5e6f8091a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6"}"#,
+        )
+        .expect("decode payload");
+        assert_eq!(
+            payload.sha256.as_deref(),
+            Some("9f2c1e0b7a4d3c5e6f8091a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6")
+        );
     }
 
     #[cfg(target_os = "linux")]
@@ -3270,16 +3893,27 @@ mod tests {
 
     #[test]
     fn legacy_artifact_matches_upgrade_leftovers_only() {
-        // 历史备份与临时下载：必须被清理
+        // 临时下载文件：必须被清理
         for legacy in [
-            "api-monitor-agent.previous",
-            "api-monitor-agent.prev.exe",
-            "api-monitor-agent.bak-20260101",
             "api-monitor-agent.download",
             "api-monitor-agent.0123456789abcdef.download.exe",
             "runtime.download",
+            // 更早期升级器的孤儿备份（不配 ROLLBACK.txt，无代码引用）
+            "api-monitor-agent.previous",
+            "api-monitor-agent.prev.exe",
         ] {
             assert!(is_legacy_artifact(legacy), "{legacy} should be cleaned");
+        }
+        // 升级备份：绝不能被自动清理。
+        // 它们正是 ROLLBACK.txt 里写的回滚源，删掉就等于让回滚失效。
+        for keep in [
+            "api-monitor-agent.bak-20260101",
+            "api-monitor-agent.bak-api-monitor-agent_0.6.36",
+        ] {
+            assert!(
+                !is_legacy_artifact(keep),
+                "{keep} 是 ROLLBACK.txt 的回滚目标，必须保留"
+            );
         }
         // 正常文件：绝不能被误删
         for keep in [
@@ -3289,6 +3923,7 @@ mod tests {
             "aiagent_processes.json",
             "launch.vbs",
             "apimon-snapshot.db.gz",
+            "ROLLBACK.txt",
         ] {
             assert!(!is_legacy_artifact(keep), "{keep} must be kept");
         }

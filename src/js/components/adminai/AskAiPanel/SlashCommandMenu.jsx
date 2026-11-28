@@ -37,7 +37,7 @@ function SlashCommandMenu({ query, onPick, onClose }) {
         e.preventDefault(); e.stopPropagation();
         setActiveIdx((i) => (i - 1 + list.length) % list.length);
       } else if (e.key === 'Enter') {
-        if (e.nativeEvent?.isComposing) return;
+        if (e.isComposing) return;
         e.preventDefault(); e.stopPropagation();
         onPick(list[activeIdx].name);
       } else if (e.key === 'Escape') {

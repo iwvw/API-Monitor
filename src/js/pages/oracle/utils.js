@@ -148,12 +148,13 @@ export function formatOciDate(value) {
   });
 }
 
-export function formatCurrency(value) {
+export function formatCurrency(value, currency = 'USD') {
   const numeric = Number(value);
   if (!Number.isFinite(numeric)) return '-';
+  const code = typeof currency === 'string' && /^[A-Za-z]{3}$/.test(currency.trim()) ? currency.trim().toUpperCase() : 'USD';
   return numeric.toLocaleString('zh-CN', {
     style: 'currency',
-    currency: 'USD',
+    currency: code,
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   });

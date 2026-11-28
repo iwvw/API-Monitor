@@ -11,6 +11,7 @@ import { sectionCardHeaderClass } from '../../components/ui/AppPrimitives.jsx';
 import { ArrowRight, GitBranch, Layers, Plus, Save, Sliders, Trash } from '../../components/Icons.jsx';
 import { CONDITION_ITEMS, TYPE_ITEMS } from './constants.js';
 import { IconButton } from './shared.jsx';
+import { formatTimestamp } from './utils.js';
 import { WorkflowCanvas } from './WorkflowCanvas.jsx';
 
 export function WorkflowDialog({
@@ -33,10 +34,13 @@ export function WorkflowDialog({
   addWorkflowEdge,
   saveWorkflow,
   saving,
+  workflowCronPreview,
+  workflowCronPreviewError,
 }) {
   return (
     <Dialog.Root open={workflowDialogOpen} onOpenChange={setWorkflowDialogOpen}>
       <Dialog className="@container scheduler-workflow-dialog flex h-[min(720px,calc(100dvh-2rem))] flex-col overflow-hidden p-5 cq-sm:p-6">
+        <Dialog.Title className="sr-only">工作流编排</Dialog.Title>
         <div className="flex min-h-0 flex-1 flex-col gap-3">
           <div className="grid min-h-0 flex-1 gap-3 overflow-y-auto pr-1 cq-md:grid-cols-[minmax(0,1fr)_26rem] cq-md:overflow-hidden cq-md:pr-0">
             <div className="flex min-h-0 flex-col gap-3 overflow-y-auto pr-1">
@@ -50,6 +54,15 @@ export function WorkflowDialog({
                     <span className="text-sm font-medium text-kumo-strong">启用</span>
                     <Switch checked={workflowForm.enabled === 1} onCheckedChange={(checked) => setWorkflowForm((prev) => ({ ...prev, enabled: checked ? 1 : 0 }))} />
                   </div>
+                </div>
+                <div className="text-[11px]">
+                  {workflowCronPreviewError ? (
+                    <span className="text-kumo-danger">{workflowCronPreviewError}</span>
+                  ) : workflowCronPreview?.summary ? (
+                    <span className="text-kumo-subtle">未来执行:{(workflowCronPreview.next || []).map(formatTimestamp).join('、')}</span>
+                  ) : (
+                    <span className="text-kumo-subtle">留空为手动触发;支持 5 段,或秒段为 0 的 6 段表达式。</span>
+                  )}
                 </div>
                 <div className="border-t border-kumo-line pb-3 pt-3">
                   <Input size="sm" label="描述" value={workflowForm.description} onChange={(event) => setWorkflowForm((prev) => ({ ...prev, description: event.target.value }))} />
@@ -191,7 +204,7 @@ export function WorkflowDialog({
             </div>
           </div>
 
-          <div className="flex shrink-0 items-center justify-end gap-2 border-t border-kumo-line pt-3"><Button size="sm" variant="secondary" onClick={() => setWorkflowDialogOpen(false)}>取消</Button><Button size="sm" variant="primary" onClick={saveWorkflow} disabled={saving}><Save className="h-3.5 w-3.5" />保存</Button></div>
+          <div className="flex shrink-0 items-center justify-end gap-2 border-t border-kumo-line pt-3"><Button size="sm" variant="secondary" onClick={() => setWorkflowDialogOpen(false)}>取消</Button><Button size="sm" variant="primary" onClick={saveWorkflow} disabled={saving || Boolean(workflowCronPreviewError)}><Save className="h-3.5 w-3.5" />保存</Button></div>
         </div>
       </Dialog>
     </Dialog.Root>

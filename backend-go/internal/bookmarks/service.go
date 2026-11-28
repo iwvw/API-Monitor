@@ -561,6 +561,10 @@ func (s *Service) updateGroup(w http.ResponseWriter, r *http.Request, id int64) 
 	slug := current.Slug
 	if raw, ok := req["slug"]; ok {
 		slug = normalizeSlug(stringValue(raw))
+		if slug != "" && isReservedSlug(slug) {
+			response.Error(w, http.StatusBadRequest, "slug is reserved")
+			return
+		}
 		if slug != current.Slug && slug != "" {
 			var count int
 			if err := db.QueryRowContext(ctx, `SELECT COUNT(1) FROM bookmark_groups WHERE slug = ? AND id != ?`, slug, id).Scan(&count); err != nil {
@@ -638,14 +642,22 @@ func (s *Service) deleteGroup(w http.ResponseWriter, r *http.Request, id int64) 
 		response.Error(w, http.StatusInternalServerError, "Failed to delete bookmarks")
 		return
 	}
-	if _, err := tx.ExecContext(ctx, `DELETE FROM bookmark_groups WHERE id = ?`, id); err != nil {
+	res, err := tx.ExecContext(ctx, `DELETE FROM bookmark_groups WHERE id = ?`, id)
+	if err != nil {
 		response.Error(w, http.StatusInternalServerError, "Failed to delete group")
+		return
+	}
+	affected, _ := res.RowsAffected()
+	if affected == 0 {
+		response.Error(w, http.StatusNotFound, "Group not found")
 		return
 	}
 	if err := tx.Commit(); err != nil {
 		response.Error(w, http.StatusInternalServerError, "Failed to commit delete")
 		return
 	}
+	// 整组删除后回收不再被引用的图标文件。
+	s.gcFaviconFiles(ctx, db)
 	response.OK(w, map[string]interface{}{"deleted": true})
 }
 
@@ -734,9 +746,9 @@ func (s *Service) createItem(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	title := strings.TrimSpace(stringValue(req["title"]))
-	rawURL := strings.TrimSpace(stringValue(req["url"]))
-	if title == "" || rawURL == "" {
-		response.Error(w, http.StatusBadRequest, "title and url are required")
+	rawURL, validURL := normalizeItemURL(stringValue(req["url"]))
+	if title == "" || !validURL {
+		response.Error(w, http.StatusBadRequest, "title and a valid http(s) url are required")
 		return
 	}
 
@@ -863,9 +875,9 @@ func (s *Service) updateItem(w http.ResponseWriter, r *http.Request, id int64) {
 		return
 	}
 	title := strings.TrimSpace(stringValue(req["title"]))
-	rawURL := strings.TrimSpace(stringValue(req["url"]))
-	if title == "" || rawURL == "" {
-		response.Error(w, http.StatusBadRequest, "title and url are required")
+	rawURL, validURL := normalizeItemURL(stringValue(req["url"]))
+	if title == "" || !validURL {
+		response.Error(w, http.StatusBadRequest, "title and a valid http(s) url are required")
 		return
 	}
 	ctx := r.Context()
@@ -887,6 +899,8 @@ func (s *Service) updateItem(w http.ResponseWriter, r *http.Request, id int64) {
 		response.Error(w, http.StatusNotFound, "Bookmark not found")
 		return
 	}
+	// 改图标/网址后旧文件可能成为孤儿,顺手回收。
+	s.gcFaviconFiles(ctx, db)
 	response.OK(w, map[string]interface{}{"updated": true})
 }
 
@@ -899,10 +913,19 @@ func (s *Service) deleteItem(w http.ResponseWriter, r *http.Request, id int64) {
 	}
 	defer db.Close()
 
-	if _, err := db.ExecContext(ctx, `DELETE FROM bookmarks WHERE id = ?`, id); err != nil {
+	res, err := db.ExecContext(ctx, `DELETE FROM bookmarks WHERE id = ?`, id)
+	if err != nil {
 		response.Error(w, http.StatusInternalServerError, "Failed to delete bookmark")
 		return
 	}
+	affected, _ := res.RowsAffected()
+	if affected == 0 {
+		response.Error(w, http.StatusNotFound, "Bookmark not found")
+		return
+	}
+	// 删条目后回收不再被任何书签引用的图标文件(此前只删数据库行,
+	// 文件永久残留在 data/bookmarks-favicons 里)。
+	s.gcFaviconFiles(ctx, db)
 	response.OK(w, map[string]interface{}{"deleted": true})
 }
 
@@ -926,7 +949,7 @@ func (s *Service) fetchFavicon(w http.ResponseWriter, r *http.Request) {
 		response.Error(w, http.StatusBadRequest, "favicon resolve failed: "+err.Error())
 		return
 	}
-	localPath, err := s.downloadFaviconFromCandidates(candidates)
+	localPath, err := s.downloadFaviconFromCandidates(candidates, true)
 	if err != nil {
 		response.Error(w, http.StatusBadRequest, "favicon download failed: "+err.Error())
 		return
@@ -1336,11 +1359,11 @@ func groupFromPublicRows(ctx context.Context, db *sql.DB, rows *sql.Rows, err er
 			"title":         title,
 			"url":           url,
 			"description":   description,
-			"icon_type":     iconType,
+			"icon_type":     normalizeIconType(iconType),
 			"icon_src":      iconSrc,
 			"icon_text":     iconText,
 			"icon_bg_color": iconBg,
-			"open_method":   openMethod,
+			"open_method":   normalizeOpenMethod(openMethod),
 		})
 	}
 	if err := itemRows.Err(); err != nil {

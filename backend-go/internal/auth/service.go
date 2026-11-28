@@ -7,6 +7,7 @@ import (
 	"crypto/rand"
 	"crypto/sha1"
 	"crypto/sha256"
+	"crypto/subtle"
 	"database/sql"
 	"encoding/base32"
 	"encoding/base64"
@@ -42,6 +43,7 @@ const (
 	sessionLimit       = 10
 	system2FAEnabled   = "system_2fa_enabled"
 	system2FASecretKey = "system_2fa_secret"
+	system2FALastStep  = "system_2fa_last_step"
 	system2FAAppName   = "API-Monitor"
 )
 
@@ -351,9 +353,22 @@ func (s *Service) login(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if !ok {
+			attempt, err := s.recordFailedAttempt(r.Context(), db, clientIP)
+			if err != nil {
+				response.Error(w, http.StatusInternalServerError, err.Error())
+				return
+			}
 			_ = s.logOperation(r.Context(), db, "LOGIN_2FA_FAILED", "auth", map[string]interface{}{
-				"ip": clientIP,
+				"ip":                clientIP,
+				"remainingAttempts": attempt.RemainingAttempts,
 			}, clientIP, r.UserAgent())
+			if attempt.Locked {
+				response.JSON(w, http.StatusTooManyRequests, map[string]interface{}{
+					"success": false,
+					"error":   "登录尝试过多,请稍后再试",
+				})
+				return
+			}
 			response.JSON(w, http.StatusUnauthorized, map[string]interface{}{
 				"success":    false,
 				"error":      "双因素验证码错误",
@@ -541,7 +556,7 @@ func (s *Service) issuePluginToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	expiresAt := time.Now().UTC().AddDate(0, 3, 0).Format(time.RFC3339)
-	key, err := s.keys.Create(r.Context(), apikeys.Input{Name: "TOTP 浏览器插件", Kind: "plugin", ExpiresAt: expiresAt})
+	key, err := s.keys.Create(r.Context(), apikeys.Input{Name: "TOTP 浏览器插件", Kind: "plugin", ExpiresAt: &expiresAt})
 	if err != nil {
 		response.Error(w, http.StatusInternalServerError, "保存插件令牌失败")
 		return
@@ -693,6 +708,20 @@ func (s *Service) verifyPassword(w http.ResponseWriter, r *http.Request) {
 	}
 	defer db.Close()
 
+	// 与 /api/auth/login 共用同一套 IP 锁定:否则该公开接口可被用来不限速
+	// 猜测管理员密码。
+	clientIP := s.requestClientIP(r)
+	if lockStatus, err := s.loginLockStatus(r.Context(), db, clientIP); err != nil {
+		response.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	} else if lockStatus.Locked {
+		response.JSON(w, http.StatusTooManyRequests, map[string]interface{}{
+			"success": false,
+			"error":   "尝试过多,请稍后再试",
+		})
+		return
+	}
+
 	savedPassword, err := s.loadAdminPassword(r.Context(), db)
 	if err != nil {
 		response.Error(w, http.StatusInternalServerError, err.Error())
@@ -704,6 +733,22 @@ func (s *Service) verifyPassword(w http.ResponseWriter, r *http.Request) {
 	}
 	if verifyPassword(body.Password, savedPassword) {
 		response.JSON(w, http.StatusOK, map[string]bool{"success": true})
+		return
+	}
+	attempt, err := s.recordFailedAttempt(r.Context(), db, clientIP)
+	if err != nil {
+		response.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	_ = s.logOperation(r.Context(), db, "PASSWORD_VERIFY_FAILED", "auth", map[string]interface{}{
+		"ip":                clientIP,
+		"remainingAttempts": attempt.RemainingAttempts,
+	}, clientIP, r.UserAgent())
+	if attempt.Locked {
+		response.JSON(w, http.StatusTooManyRequests, map[string]interface{}{
+			"success": false,
+			"error":   "尝试过多,请稍后再试",
+		})
 		return
 	}
 	response.JSON(w, http.StatusUnauthorized, map[string]interface{}{"success": false, "error": "密码错误"})
@@ -732,6 +777,18 @@ func (s *Service) changePassword(w http.ResponseWriter, r *http.Request) {
 	}
 	defer db.Close()
 
+	// 与 /api/auth/login 共用同一套 IP 锁定:该公开接口同样可用旧密码爆破。
+	if lockStatus, err := s.loginLockStatus(r.Context(), db, clientIP); err != nil {
+		response.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	} else if lockStatus.Locked {
+		response.JSON(w, http.StatusTooManyRequests, map[string]interface{}{
+			"success": false,
+			"error":   "尝试过多,请稍后再试",
+		})
+		return
+	}
+
 	savedPassword, err := s.loadAdminPassword(r.Context(), db)
 	if err != nil {
 		response.Error(w, http.StatusInternalServerError, err.Error())
@@ -742,10 +799,23 @@ func (s *Service) changePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !verifyPassword(body.OldPassword, savedPassword) {
+		attempt, attemptErr := s.recordFailedAttempt(r.Context(), db, clientIP)
+		if attemptErr != nil {
+			response.Error(w, http.StatusInternalServerError, attemptErr.Error())
+			return
+		}
 		_ = s.logOperation(r.Context(), db, "PASSWORD_CHANGE_FAILED", "auth", map[string]interface{}{
-			"ip":     clientIP,
-			"reason": "wrong_old_password",
+			"ip":                clientIP,
+			"reason":            "wrong_old_password",
+			"remainingAttempts": attempt.RemainingAttempts,
 		}, clientIP, r.UserAgent())
+		if attempt.Locked {
+			response.JSON(w, http.StatusTooManyRequests, map[string]interface{}{
+				"success": false,
+				"error":   "尝试过多,请稍后再试",
+			})
+			return
+		}
 		response.JSON(w, http.StatusUnauthorized, map[string]interface{}{"success": false, "error": "原密码错误"})
 		return
 	}
@@ -978,7 +1048,7 @@ func verifyPassword(plaintext, stored string) bool {
 		return false
 	}
 	if !isHashed(stored) {
-		return plaintext == stored
+		return subtle.ConstantTimeCompare([]byte(plaintext), []byte(stored)) == 1
 	}
 	return bcrypt.CompareHashAndPassword([]byte(stored), []byte(plaintext)) == nil
 }
@@ -1241,7 +1311,41 @@ func (s *Service) verifyLogin2FA(ctx context.Context, db *sql.DB, token string) 
 	if err != nil {
 		return false, err
 	}
-	return verifyTOTP(secret, token, time.Now().UTC()), nil
+	step, ok := verifyTOTPStep(secret, token, time.Now().UTC())
+	if !ok {
+		return false, nil
+	}
+	return s.consumeTOTPStep(ctx, db, step)
+}
+
+func (s *Service) consumeTOTPStep(ctx context.Context, db *sql.DB, step int64) (bool, error) {
+	last, err := s.configInt(ctx, db, system2FALastStep)
+	if err != nil {
+		return false, err
+	}
+	if step <= last {
+		return false, nil
+	}
+	if err := s.setConfig(ctx, db, system2FALastStep, strconv.FormatInt(step, 10), "系统 2FA 最近一次校验计数器"); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func (s *Service) configInt(ctx context.Context, db *sql.DB, key string) (int64, error) {
+	value, err := s.getConfig(ctx, db, key)
+	if err != nil {
+		return 0, err
+	}
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return 0, nil
+	}
+	parsed, err := strconv.ParseInt(value, 10, 64)
+	if err != nil {
+		return 0, nil
+	}
+	return parsed, nil
 }
 
 func generate2FASecret() (string, error) {
@@ -1287,22 +1391,28 @@ func encryptNodeGCM(plain string) (string, error) {
 }
 
 func verifyTOTP(secret, token string, now time.Time) bool {
+	_, ok := verifyTOTPStep(secret, token, now)
+	return ok
+}
+
+func verifyTOTPStep(secret, token string, now time.Time) (int64, bool) {
 	token = strings.ReplaceAll(strings.TrimSpace(token), " ", "")
 	if len(token) != 6 {
-		return false
+		return 0, false
 	}
 	secret = normalizeBase32Secret(secret)
 	key, err := base32.StdEncoding.WithPadding(base32.NoPadding).DecodeString(secret)
 	if err != nil {
-		return false
+		return 0, false
 	}
 	counter := now.Unix() / 30
 	for offset := int64(-1); offset <= 1; offset++ {
-		if hotp(key, uint64(counter+offset)) == token {
-			return true
+		step := counter + offset
+		if hmac.Equal([]byte(hotp(key, uint64(step))), []byte(token)) {
+			return step, true
 		}
 	}
-	return false
+	return 0, false
 }
 
 func normalizeBase32Secret(secret string) string {
@@ -1400,6 +1510,30 @@ func (s *Service) isTrustedProxy(ip net.IP) bool {
 		}
 	}
 	return false
+}
+
+func (s *Service) directRemoteIP(r *http.Request) net.IP {
+	direct := ""
+	if host, _, err := net.SplitHostPort(strings.TrimSpace(r.RemoteAddr)); err == nil {
+		direct = host
+	} else if r.RemoteAddr != "" {
+		direct = strings.Trim(strings.TrimSpace(r.RemoteAddr), "[]")
+	}
+	if direct == "" {
+		return nil
+	}
+	return net.ParseIP(direct)
+}
+
+func (s *Service) forwardedHostTrusted(r *http.Request) bool {
+	ip := s.directRemoteIP(r)
+	if ip == nil {
+		return false
+	}
+	if s.isTrustedProxy(ip) {
+		return true
+	}
+	return !s.cfg.IsProduction() && ip.IsLoopback()
 }
 
 func formatTime(t time.Time) string {

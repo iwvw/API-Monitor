@@ -1,8 +1,16 @@
-import React from 'react';
+import React, { lazy, Suspense, useState } from 'react';
+import { Button } from '@cloudflare/kumo/components/button';
+import { ButtonGroup } from '@cloudflare/kumo/components/button-group';
 import { Select } from '@cloudflare/kumo/components/select';
 import { CodeHighlighted } from '@cloudflare/kumo/code';
 import { AppCard, StatusBadge, cx } from '../../components/ui/AppPrimitives.jsx';
-import { methodClassName } from './utils.js';
+import { Check, Copy } from '../../components/Icons.jsx';
+import { toast } from '../../modules/toast.js';
+import { methodClassName, escapeMarkdownPlaceholders } from './utils.js';
+
+// renderMarkdown 会连带打包 marked/DOMPurify/katex（约 250KB），
+// 只有切换到「渲染」视图时才加载，API 文档页首屏不受影响。
+const MarkdownBlock = lazy(() => import('./MarkdownBlock.jsx'));
 
 export function StatCard({ icon: Icon, label, value, tone = 'brand' }) {
   const toneClass =
@@ -105,20 +113,75 @@ export function InfoRow({ label, value }) {
   );
 }
 
-export function SnippetBox({ label, value }) {
-  const lang = /curl/i.test(label) ? 'bash' : 'json';
+export function SnippetBox({ label, value, lang: langProp, markdown = false }) {
+  const lang = langProp || (/curl/i.test(label) ? 'bash' : 'json');
+  const [copied, setCopied] = useState(false);
+  const [view, setView] = useState(markdown ? 'rendered' : 'source');
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(String(value || ''));
+      setCopied(true);
+      toast.success(`${label} 已复制`);
+      window.setTimeout(() => setCopied(false), 2000);
+    } catch (error) {
+      console.error('copy failed:', error);
+      toast.error('复制失败');
+    }
+  };
   return (
     <div className="min-w-0 rounded-md border border-kumo-line bg-kumo-recessed/35">
-      <div className="flex items-center justify-between gap-2 border-b border-kumo-line px-3 py-2">
+      <div className="flex items-center justify-between gap-2 border-b border-kumo-line px-3 py-1.5">
         <div className="truncate text-xs font-semibold text-kumo-strong">{label}</div>
+        <div className="flex shrink-0 items-center gap-1.5">
+          {markdown ? (
+            <ButtonGroup aria-label="显示方式">
+              <Button
+                size="sm"
+                variant={view === 'rendered' ? 'secondary' : 'ghost'}
+                onClick={() => setView('rendered')}
+                aria-pressed={view === 'rendered'}
+              >
+                渲染
+              </Button>
+              <Button
+                size="sm"
+                variant={view === 'source' ? 'secondary' : 'ghost'}
+                onClick={() => setView('source')}
+                aria-pressed={view === 'source'}
+              >
+                源码
+              </Button>
+            </ButtonGroup>
+          ) : null}
+          <Button
+            size="sm"
+            variant="secondary"
+            onClick={handleCopy}
+            disabled={!value}
+            className="gap-1.5"
+          >
+            {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+            <span>{copied ? '已复制' : '复制代码'}</span>
+          </Button>
+        </div>
       </div>
-      <CodeHighlighted
-        code={value || ''}
-        lang={lang}
-        variant="plain"
-        showCopyButton
-        className="max-h-60 overflow-auto p-3"
-      />
+      {markdown && view === 'rendered' ? (
+        <Suspense
+          fallback={<div className="max-h-60 overflow-auto p-3 text-xs text-kumo-subtle">渲染中…</div>}
+        >
+          <MarkdownBlock
+            markdown={escapeMarkdownPlaceholders(value)}
+            className="app-markdown-rendered--flush max-h-60 overflow-auto"
+          />
+        </Suspense>
+      ) : (
+        <CodeHighlighted
+          code={value || ''}
+          lang={lang}
+          variant="plain"
+          className="max-h-60 overflow-auto p-3"
+        />
+      )}
     </div>
   );
 }

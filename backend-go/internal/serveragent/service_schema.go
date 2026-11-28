@@ -359,6 +359,26 @@ func ensureSchema(ctx context.Context, db *sql.DB) error {
 			UNIQUE(server_id, name),
 			FOREIGN KEY (server_id) REFERENCES server_accounts(id) ON DELETE CASCADE
 		)`,
+		`CREATE TABLE IF NOT EXISTS docker_auto_update_policy (
+			id INTEGER PRIMARY KEY CHECK (id = 1),
+			config_json TEXT NOT NULL DEFAULT '{}',
+			last_run_at DATETIME,
+			last_run_status TEXT,
+			last_run_summary TEXT,
+			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`CREATE TABLE IF NOT EXISTS docker_auto_update_results (
+			server_id TEXT NOT NULL,
+			container_id TEXT NOT NULL,
+			container_name TEXT,
+			image TEXT,
+			status TEXT NOT NULL,
+			message TEXT,
+			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			PRIMARY KEY (server_id, container_id)
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_docker_auto_update_results_server ON docker_auto_update_results(server_id, updated_at DESC)`,
+		`INSERT OR IGNORE INTO docker_auto_update_policy (id, config_json, last_run_status) VALUES (1, '{}', '')`,
 		`CREATE INDEX IF NOT EXISTS idx_server_accounts_status ON server_accounts(status)`,
 		`CREATE INDEX IF NOT EXISTS idx_server_monitor_logs_server ON server_monitor_logs(server_id, checked_at)`,
 		`CREATE INDEX IF NOT EXISTS idx_server_monitor_logs_status ON server_monitor_logs(status, checked_at)`,
@@ -371,6 +391,20 @@ func ensureSchema(ctx context.Context, db *sql.DB) error {
 		`CREATE INDEX IF NOT EXISTS idx_docker_stacks_server ON docker_stacks(server_id, updated_at DESC)`,
 		`CREATE INDEX IF NOT EXISTS idx_server_status_pages_slug ON server_status_pages(slug, public)`,
 		`CREATE INDEX IF NOT EXISTS idx_server_status_pages_domain ON server_status_pages(domain, public)`,
+		// 小时级降采样表：长跨度历史查询改读这里，避免把上百万原始点丢给前端。
+		// 建表放在主 schema 里（而不是查询时惰性创建），保证任何写入路径都有表；
+		// RollupMetrics 内部还会再 ensure 一次，是为「旧库升级后立即聚合」兜底。
+		`CREATE TABLE IF NOT EXISTS metrics_hourly_rollup (
+			server_id TEXT NOT NULL,
+			bucket_hour TEXT NOT NULL,
+			cpu_avg REAL, cpu_max REAL, cpu_min REAL,
+			mem_avg REAL, mem_max REAL, mem_min REAL,
+			disk_avg REAL, disk_max REAL, disk_min REAL,
+			samples INTEGER NOT NULL DEFAULT 0,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			PRIMARY KEY (server_id, bucket_hour)
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_metrics_rollup_hour ON metrics_hourly_rollup(bucket_hour DESC)`,
 		`INSERT OR IGNORE INTO server_monitor_config (id, probe_interval, probe_timeout, log_retention_days, max_connections, session_timeout, auto_start, metrics_collect_interval, metrics_retention_days) VALUES (1, 60, 10, 7, 10, 1800, 1, 300, 30)`,
 		`INSERT OR IGNORE INTO server_network_quality_targets (id, name, host, port, type, enabled, order_index) VALUES (1, '联通', 'hb-cu-v4.ip.zstaticcdn.com', 80, 'tcp', 1, 1)`,
 		`INSERT OR IGNORE INTO server_network_quality_targets (id, name, host, port, type, enabled, order_index) VALUES (2, '移动', 'hb-cm-v4.ip.zstaticcdn.com', 80, 'tcp', 1, 2)`,

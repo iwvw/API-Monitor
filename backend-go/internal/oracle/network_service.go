@@ -16,11 +16,18 @@ func (s *Service) listCompartments(ctx context.Context, account Account) ([]map[
 	}
 	callCtx, cancel := contextWithReadTimeout(ctx)
 	defer cancel()
-	res, err := client.ListCompartments(callCtx, identity.ListCompartmentsRequest{
-		CompartmentId:          common.String(account.TenancyOCID),
-		CompartmentIdInSubtree: common.Bool(true),
-		AccessLevel:            identity.ListCompartmentsAccessLevelAccessible,
-		LifecycleState:         identity.CompartmentLifecycleStateActive,
+	compartments, err := paginate(func(page *string) ([]identity.Compartment, *string, error) {
+		res, err := client.ListCompartments(callCtx, identity.ListCompartmentsRequest{
+			CompartmentId:          common.String(account.TenancyOCID),
+			CompartmentIdInSubtree: common.Bool(true),
+			AccessLevel:            identity.ListCompartmentsAccessLevelAccessible,
+			LifecycleState:         identity.CompartmentLifecycleStateActive,
+			Page:                   page,
+		})
+		if err != nil {
+			return nil, nil, err
+		}
+		return res.Items, res.OpcNextPage, nil
 	})
 	if err != nil {
 		return nil, err
@@ -28,7 +35,7 @@ func (s *Service) listCompartments(ctx context.Context, account Account) ([]map[
 	items := []map[string]interface{}{
 		{"id": account.TenancyOCID, "name": "根租户", "description": account.Name, "lifecycleState": "ACTIVE"},
 	}
-	for _, item := range res.Items {
+	for _, item := range compartments {
 		items = append(items, map[string]interface{}{
 			"id":             stringValuePtr(item.Id),
 			"name":           stringValuePtr(item.Name),
@@ -72,16 +79,23 @@ func (s *Service) listVNICs(ctx context.Context, account Account, compartmentID,
 	}
 	callCtx, cancel := contextWithReadTimeout(ctx)
 	defer cancel()
-	attachments, err := compute.ListVnicAttachments(callCtx, core.ListVnicAttachmentsRequest{
-		CompartmentId: common.String(compartmentID),
-		InstanceId:    common.String(instanceID),
+	attachments, err := paginate(func(page *string) ([]core.VnicAttachment, *string, error) {
+		res, err := compute.ListVnicAttachments(callCtx, core.ListVnicAttachmentsRequest{
+			CompartmentId: common.String(compartmentID),
+			InstanceId:    common.String(instanceID),
+			Page:          page,
+		})
+		if err != nil {
+			return nil, nil, err
+		}
+		return res.Items, res.OpcNextPage, nil
 	})
 	if err != nil {
 		return nil, err
 	}
-	items := make([]NormalizedVNIC, len(attachments.Items))
+	items := make([]NormalizedVNIC, len(attachments))
 	var wg sync.WaitGroup
-	for i, attachment := range attachments.Items {
+	for i, attachment := range attachments {
 		wg.Add(1)
 		go func(idx int, att core.VnicAttachment) {
 			defer wg.Done()

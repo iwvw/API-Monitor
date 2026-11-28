@@ -1,0 +1,1085 @@
+package modelhub
+
+import (
+	"bufio"
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"strings"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/iwvw/api-monitor/backend-go/internal/response"
+)
+
+// anthropicModelToOpenAI 将 Anthropic 客户端常用的 claude 模型名映射为本网关的 OpenAI 模型名。
+// 规则参考 DeepSeek Anthropic API 兼容层：claude-opus → deepseek-v4-pro，
+// claude-haiku / claude-sonnet → deepseek-v4-flash。其余模型名原样返回，
+// 由现有端点模型路由决定是否可用。
+func anthropicModelToOpenAI(model string) string {
+	switch {
+	case strings.HasPrefix(model, "claude-opus"):
+		return "deepseek-v4-pro"
+	case strings.HasPrefix(model, "claude-haiku"), strings.HasPrefix(model, "claude-sonnet"):
+		return "deepseek-v4-flash"
+	default:
+		return model
+	}
+}
+
+// anthropicToOpenAI 将 Anthropic Messages API 请求体转换为 OpenAI chat.completions 请求体。
+// 兼容细节参照 DeepSeek Anthropic API 兼容性表：
+//   - system（字符串或数组）转为首条 system 消息；metadata.user_id 转为 user 字段
+//   - content 字符串或 text 块透传；tool_use 块归并为 assistant 消息的 tool_calls；
+//     tool_result 块拆出为独立的 role=tool 消息；image/thinking 等其他块忽略
+//   - tools 由 {name, description, input_schema} 转为 function 工具
+//   - tool_choice: auto/any/none/tool 映射为 OpenAI 的 auto/required/none/指定工具
+//   - stop_sequences 转为 stop
+func anthropicToOpenAI(body map[string]interface{}) (map[string]interface{}, error) {
+	out := map[string]interface{}{}
+
+	model, _ := body["model"].(string)
+	out["model"] = anthropicModelToOpenAI(model)
+
+	switch v := body["max_tokens"].(type) {
+	case float64:
+		out["max_tokens"] = int(v)
+	case int:
+		out["max_tokens"] = v
+	}
+	if v, ok := body["temperature"].(float64); ok {
+		out["temperature"] = v
+	}
+	if v, ok := body["top_p"].(float64); ok {
+		out["top_p"] = v
+	}
+	if v, ok := body["stream"].(bool); ok {
+		out["stream"] = v
+	}
+	if v, ok := body["stop_sequences"].([]interface{}); ok && len(v) > 0 {
+		out["stop"] = v
+	}
+	if meta, ok := body["metadata"].(map[string]interface{}); ok {
+		if uid, ok := meta["user_id"].(string); ok && uid != "" {
+			out["user"] = uid
+		}
+	}
+
+	// system → 首条 system 消息。
+	var systemText string
+	if sys, ok := body["system"]; ok {
+		switch s := sys.(type) {
+		case string:
+			systemText = s
+		case []interface{}:
+			for _, part := range s {
+				if pm, ok := part.(map[string]interface{}); ok && pm["type"] == "text" {
+					if t, ok := pm["text"].(string); ok {
+						systemText += t
+					}
+				}
+			}
+		}
+	}
+
+	var messages []interface{}
+	if systemText != "" {
+		messages = append(messages, map[string]interface{}{
+			"role": "system", "content": systemText,
+		})
+	}
+
+	// 消息转换：Anthropic tool_result 需要拆成独立 role=tool 消息，
+	// 因此按顺序扫描，遇到 tool_result 块时生成 tool 消息。
+	if rawMsgs, ok := body["messages"].([]interface{}); ok {
+		for _, raw := range rawMsgs {
+			msg, ok := raw.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			role, _ := msg["role"].(string)
+			content := msg["content"]
+
+			var toolCalls []interface{}
+			var textParts []string
+			var toolResultParts []interface{}
+
+			if strContent, ok := content.(string); ok {
+				// 字符串 content：user/assistant 直接透传。
+				if role == "user" || role == "assistant" {
+					messages = append(messages, map[string]interface{}{
+						"role": role, "content": strContent,
+					})
+				}
+				continue
+			}
+			if contentArr, ok := content.([]interface{}); ok {
+				for _, part := range contentArr {
+					pm, ok := part.(map[string]interface{})
+					if !ok {
+						continue
+					}
+					switch pm["type"] {
+					case "text":
+						if t, ok := pm["text"].(string); ok && t != "" {
+							textParts = append(textParts, t)
+						}
+					case "tool_use":
+						id, _ := pm["id"].(string)
+						name, _ := pm["name"].(string)
+						input := pm["input"]
+						argsBytes, err := json.Marshal(input)
+						if err != nil {
+							argsBytes = []byte("{}")
+						}
+						toolCalls = append(toolCalls, map[string]interface{}{
+							"id":   id,
+							"type": "function",
+							"function": map[string]interface{}{
+								"name":      name,
+								"arguments": string(argsBytes),
+							},
+						})
+					case "tool_result":
+						toolResultParts = append(toolResultParts, pm)
+					}
+				}
+			}
+
+			// 拼接 text 块的 helper。
+			joinText := func() string {
+				var b strings.Builder
+				for _, tp := range textParts {
+					b.WriteString(tp)
+				}
+				return b.String()
+			}
+
+			switch role {
+			case "user":
+				// user 数组消息：text 块拼接为字符串；image 等块被静默忽略。
+				if len(textParts) > 0 {
+					messages = append(messages, map[string]interface{}{
+						"role": "user", "content": joinText(),
+					})
+				}
+			case "assistant":
+				// assistant 消息：文本与 tool_calls 合并为同一条（OpenAI 要求 tool 消息
+				// 紧跟带 tool_calls 的 assistant，中间不能插入纯文本 assistant）。
+				if len(textParts) > 0 || len(toolCalls) > 0 {
+					msgOut := map[string]interface{}{"role": "assistant"}
+					if len(textParts) > 0 {
+						msgOut["content"] = joinText()
+					}
+					if len(toolCalls) > 0 {
+						msgOut["tool_calls"] = toolCalls
+					}
+					messages = append(messages, msgOut)
+				}
+			}
+
+			// tool_result：拆为 role=tool 消息。OpenAI 的 tool 消息 content 是字符串或数组。
+			for _, tp := range toolResultParts {
+				pm := tp.(map[string]interface{})
+				toolUseID, _ := pm["tool_use_id"].(string)
+				toolContent := "ok"
+				if inner, ok := pm["content"]; ok {
+					switch ic := inner.(type) {
+					case string:
+						toolContent = ic
+					case []interface{}:
+						var b strings.Builder
+						for _, part := range ic {
+							if ip, ok := part.(map[string]interface{}); ok && ip["type"] == "text" {
+								if t, ok := ip["text"].(string); ok {
+									b.WriteString(t)
+								}
+							}
+						}
+						toolContent = b.String()
+					}
+				}
+				messages = append(messages, map[string]interface{}{
+					"role":         "tool",
+					"tool_call_id": toolUseID,
+					"content":      toolContent,
+				})
+			}
+		}
+	}
+	if len(messages) == 0 {
+		return nil, fmt.Errorf("messages must not be empty")
+	}
+	out["messages"] = messages
+
+	// tools: {name, description, input_schema} → function 风格。
+	if rawTools, ok := body["tools"].([]interface{}); ok && len(rawTools) > 0 {
+		var tools []interface{}
+		for _, raw := range rawTools {
+			tm, ok := raw.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			fn := map[string]interface{}{}
+			if name, ok := tm["name"].(string); ok {
+				fn["name"] = name
+			}
+			if desc, ok := tm["description"].(string); ok {
+				fn["description"] = desc
+			}
+			if schema, ok := tm["input_schema"]; ok && schema != nil {
+				fn["parameters"] = schema
+			}
+			tools = append(tools, map[string]interface{}{
+				"type":     "function",
+				"function": fn,
+			})
+		}
+		if len(tools) > 0 {
+			out["tools"] = tools
+		}
+	}
+
+	// tool_choice 映射。
+	if tc, ok := body["tool_choice"]; ok && tc != nil {
+		switch choice := tc.(type) {
+		case string:
+			switch choice {
+			case "auto":
+				out["tool_choice"] = "auto"
+			case "any":
+				out["tool_choice"] = "required"
+			case "none":
+				out["tool_choice"] = "none"
+			}
+		case map[string]interface{}:
+			if choice["type"] == "tool" {
+				if name, ok := choice["name"].(string); ok {
+					out["tool_choice"] = map[string]interface{}{
+						"type":     "function",
+						"function": map[string]interface{}{"name": name},
+					}
+				}
+			}
+		}
+	}
+
+	return out, nil
+}
+
+// openAIResponseToAnthropic 将 OpenAI chat.completions 非流式响应转换为 Anthropic Messages 响应。
+func openAIResponseToAnthropic(oaiBody []byte, fallbackModel string) ([]byte, error) {
+	var resp struct {
+		ID      string `json:"id"`
+		Model   string `json:"model"`
+		Choices []struct {
+			FinishReason string `json:"finish_reason"`
+			Message      struct {
+				Role      string `json:"role"`
+				Content   string `json:"content"`
+				ToolCalls []struct {
+					ID       string `json:"id"`
+					Function struct {
+						Name      string `json:"name"`
+						Arguments string `json:"arguments"`
+					} `json:"function"`
+				} `json:"tool_calls"`
+			} `json:"message"`
+		} `json:"choices"`
+		Usage struct {
+			PromptTokens     int `json:"prompt_tokens"`
+			CompletionTokens int `json:"completion_tokens"`
+		} `json:"usage"`
+	}
+	if err := json.Unmarshal(oaiBody, &resp); err != nil {
+		return nil, err
+	}
+	if len(resp.Choices) == 0 {
+		return nil, fmt.Errorf("no choices in upstream response")
+	}
+	choice := resp.Choices[0]
+
+	msg := map[string]interface{}{
+		"id":            "msg_" + resp.ID,
+		"type":          "message",
+		"role":          "assistant",
+		"model":         resp.Model,
+		"stop_reason":   anthropicStopReason(choice.FinishReason),
+		"stop_sequence": nil,
+		"content":       []interface{}{},
+		"usage": map[string]interface{}{
+			"input_tokens":  resp.Usage.PromptTokens,
+			"output_tokens": resp.Usage.CompletionTokens,
+		},
+	}
+	if msg["model"] == "" {
+		msg["model"] = fallbackModel
+	}
+
+	var content []interface{}
+	if choice.Message.Content != "" {
+		content = append(content, map[string]interface{}{
+			"type": "text",
+			"text": choice.Message.Content,
+		})
+	}
+	for _, tc := range choice.Message.ToolCalls {
+		var input interface{}
+		var argsObj map[string]interface{}
+		if json.Unmarshal([]byte(tc.Function.Arguments), &argsObj) == nil {
+			input = argsObj
+		} else {
+			input = map[string]interface{}{}
+		}
+		content = append(content, map[string]interface{}{
+			"type":  "tool_use",
+			"id":    tc.ID,
+			"name":  tc.Function.Name,
+			"input": input,
+		})
+	}
+	msg["content"] = content
+	return json.Marshal(msg)
+}
+
+// anthropicStopReason 将 OpenAI finish_reason 映射为 Anthropic stop_reason。
+func anthropicStopReason(finishReason string) string {
+	switch finishReason {
+	case "", "stop":
+		return "end_turn"
+	case "tool_calls":
+		return "tool_use"
+	case "length":
+		return "max_tokens"
+	case "content_filter":
+		return "end_turn"
+	default:
+		return "end_turn"
+	}
+}
+
+// relayChatOpenAI 是 /v1/messages 通道的共享转发核心：对转换后的 OpenAI chat 请求体
+// 执行端点路由、网关密钥限制与代理池重试，返回上游响应（body 未读取、由调用者处理）。
+// 逻辑与 proxyChatCompletions 的转发循环保持一致，但不做图片本地化（Anthropic 不支持图片）。
+// 统计路由固定为 "messages"。
+func (s *Service) relayChatOpenAI(ctx context.Context, r *http.Request, bodyBytes []byte, model string, stream bool, clientIP string, requestStarted time.Time) (int, *http.Response, error) {
+	route := "messages"
+
+	var parsedBody map[string]interface{}
+	if err := json.Unmarshal(bodyBytes, &parsedBody); err != nil {
+		s.recordRelayError(RelayErrorRecord{
+			Route: route, Kind: "bad_request",
+			ClientIP: clientIP, ElapsedMs: time.Since(requestStarted).Milliseconds(),
+			Error: "request body is not valid JSON: " + err.Error(),
+		})
+		errBody, _ := json.Marshal(map[string]string{"error": err.Error()})
+		s.recordAnalyticsKey(ctx, route, "", model, http.StatusBadRequest, time.Since(requestStarted).Milliseconds(), 0, 0, 0, 0, 0, boolToInt(stream), 0, clientIP, "", -1, "", &AnalyticsError{
+			Kind:     "bad_request",
+			Message:  "request body is not valid JSON: " + err.Error(),
+			Response: errorResponseForLog(errBody, http.StatusBadRequest),
+		})
+		return http.StatusBadRequest, nil, fmt.Errorf("request body is not valid JSON: %v", err)
+	}
+
+	targetEndpointID := s.resolveTargetEndpoint(r)
+	sessionKey := resolveSessionKey(r, parsedBody)
+
+	db, err := s.open(ctx)
+	if err != nil {
+		errBody, _ := json.Marshal(map[string]string{"error": err.Error()})
+		s.recordAnalyticsKey(ctx, route, "", model, http.StatusInternalServerError, time.Since(requestStarted).Milliseconds(), 0, 0, 0, 0, 0, boolToInt(stream), 0, clientIP, "", -1, "", &AnalyticsError{
+			Kind:     "gateway",
+			Message:  "open database failed: " + err.Error(),
+			Response: errorResponseForLog(errBody, http.StatusInternalServerError),
+		})
+		return http.StatusInternalServerError, nil, err
+	}
+	defer db.Close()
+
+	admission := s.admitGatewayRequest(ctx, db, admissionRequest{
+		Route:            route,
+		Model:            model,
+		Stream:           stream,
+		TargetEndpointID: targetEndpointID,
+		SessionKey:       sessionKey,
+		ClientIP:         clientIP,
+		Started:          requestStarted,
+	})
+	if admission.Rejected {
+		return admission.StatusCode, nil, fmt.Errorf("%s", admission.Reason)
+	}
+	endpointCandidates := admission.Candidates
+	selected := admission.Selected
+	chosenIndex := admission.ChosenIndex
+	viaProxy := admission.ViaProxy
+
+	// 若请求模型名是对外别名，转发到上游时还原为真实模型名。
+	// 注意：必须在循环内对每个候选独立执行，因为各候选的 modelMappings 可能不同。
+
+	// 请求体归一化在循环前统一执行（reasoning_effort max→high、带 tool_calls 的
+	// assistant 历史补推理内容）：会话亲和会把某候选提升为首选（k=0），归一化
+	// 只发生在 failover 副本时首选请求会拿到未归一化请求体而被枚举更窄的上游 400。
+	normalizeReasoningEffort(parsedBody)
+	if s.shouldNormalizeToolReasoningForCandidates(endpointCandidates, model, parsedBody) {
+		normalizeChatToolReasoningHistory(parsedBody)
+	}
+
+	// 正文由调用方读取：把 attempt context 的释放挂到 Body.Close 上，
+	// 避免在正文未读完时提前 cancel 掐断响应（非流式且未启用 AutoSwitch 时
+	// 对齐 New API 的 RetryTimes：全部候选失败后不立即返回，等待 interval 后
+	// 重试整轮，最多 endpointRetryRounds 轮，期间客户端保持等待状态。
+	var res *relayLoopResult
+	failCodes := []int{}
+	var lastRes *relayLoopResult
+	retryRoundFinished := false
+	// failoverSteps 记录本轮请求逐个尝试过的端点与状态码，前端据此展示迁移趋势。
+	var failoverSteps []map[string]interface{}
+	// clientCancelled 标记本轮请求期间客户端已断开：断开后不再尝试其他候选，仅静默收尾。
+	clientCancelled := false
+	// 从加权选中的端点起拼：让每一次请求的第一次尝试就是最优端点（会话亲和优先）。
+	startIdx := s.failoverStartIndex(chosenIndex, endpointCandidates, sessionKey)
+	// lastTried 记录最后一次真实转发的端点：整链失败时以真实端点记账，而非 unknown。
+	var lastTried *Endpoint
+	for retryRound := 0; retryRound <= endpointRetryRounds; retryRound++ {
+		// 每轮独立收集失败码；上一轮的失败响应体需关闭，避免连接泄漏。
+		if lastRes != nil && lastRes.resp != nil {
+			_ = lastRes.resp.Body.Close()
+			lastRes = nil
+		}
+		failCodes = failCodes[:0]
+		retryRoundCancelled := false
+		candCount := len(endpointCandidates)
+		for k := 0; k < candCount; k++ {
+			ci := (startIdx + k) % candCount
+			cand := endpointCandidates[ci]
+			// 每个候选独立解析模型映射，避免加权选中的端点映射污染其他候选。
+			candModel, _ := s.resolveEndpointModel(cand, model)
+			// 需要独立副本的情形：模型映射改写（写 model 字段）或 failover
+			// 候选归一化（写 reasoning_effort）。首个候选不复制、保持原样透传；
+			// 后续候选复制后再归一化，避免把 max 这类非标准值发给枚举更窄的上游。
+			candBody := parsedBody
+			needCopy := k > 0 || (candModel != model && candModel != "")
+			if needCopy {
+				cp := make(map[string]interface{}, len(parsedBody))
+				for k2, v := range parsedBody {
+					cp[k2] = v
+				}
+				candBody = cp
+			}
+			if candModel != model && candModel != "" {
+				candBody["model"] = candModel
+			}
+			upstreamBodyBytes, _ := json.Marshal(candBody)
+
+			fullURL := ensureVersionPath(cand.BaseURL)
+			fullURL += "/chat/completions"
+			res = s.relayLoop(relayLoopParams{
+				route:          route,
+				ctx:            ctx,
+				db:             db,
+				selected:       cand,
+				endpoints:      endpointCandidates,
+				model:          model,
+				realModel:      candModel,
+				fullURL:        fullURL,
+				body:           upstreamBodyBytes,
+				stream:         stream,
+				sessionKey:     sessionKey,
+				clientIP:       clientIP,
+				requestStarted: requestStarted,
+			})
+			// 记录该候选的尝试结果（端点名 + 状态码 + 最终使用的 key 序号），供前端展示迁移趋势。
+			lastTried = &cand
+			stepStatus := res.statusCode
+			if stepStatus == 0 && res.resp != nil {
+				stepStatus = res.resp.StatusCode
+			}
+			failoverSteps = append(failoverSteps, map[string]interface{}{"endpoint": cand.Name, "status": stepStatus, "keyIndex": res.stepKeyIndex})
+			// 客户端已断开（点击停止）：不再尝试其他候选端点，静默收尾。
+			if res.clientCancelled {
+				clientCancelled = true
+				break
+			}
+			if res.resp != nil && !res.retryableUpstream && !res.endpointExhausted {
+				selected = cand
+				// 会话亲和：仅当上游返回 2xx/3xx（真正成功）时记录该会话最近使用的端点，
+				// 4xx 客户端错误不记录，避免把会话钉死在无法服务该请求的端点上。
+				if res.resp.StatusCode >= 200 && res.resp.StatusCode < 400 {
+					s.recordChannelAffinity(sessionKey, cand.ID)
+				}
+				retryRoundFinished = true
+				break
+			}
+			// 端点不可用（key 耗尽或上游可重试错误）：收集失败码后尝试下一个候选端点。
+			if res.statusCode > 0 {
+				failCodes = append(failCodes, res.statusCode)
+			}
+			if k+1 < candCount {
+				selected = endpointCandidates[k+1]
+			}
+		}
+		if retryRoundFinished {
+			break
+		}
+		// 限流风暴快速收尾：本轮全部候选都返回限流（429/439）时，重试整轮只会继续
+		// 打同一批被限流的出口并串行吃掉全部耗时，直接聚合返回。
+		allRateLimited := len(failCodes) == candCount
+		if allRateLimited {
+			for _, c := range failCodes {
+				if c != http.StatusTooManyRequests && c != 439 {
+					allRateLimited = false
+					break
+				}
+			}
+		}
+		if allRateLimited {
+			break
+		}
+		// 全部候选均已失败（本轮）。继续下一轮前，等待间隔并检查客户端是否断开。
+		lastRes = res
+		if retryRound < endpointRetryRounds {
+			select {
+			case <-ctx.Done():
+				retryRoundCancelled = true
+			case <-time.After(endpointRetryDelay):
+			}
+		}
+		if retryRoundCancelled {
+			break
+		}
+	}
+	// 客户端已断开（请求上下文被取消，如点击停止）：不聚合错误、不记录故障、回传空结果静默收尾。
+	if clientCancelled || (ctx.Err() != nil && errors.Is(ctx.Err(), context.Canceled)) {
+		if lastRes != nil && lastRes.resp != nil {
+			_ = lastRes.resp.Body.Close()
+		}
+		return 0, nil, nil
+	}
+	// 全部候选端点均已失败（重试轮耗尽或客户端断开）：聚合错误决定返回给客户端的状态码。
+	if len(endpointCandidates) > 0 && len(failCodes) == len(endpointCandidates) {
+		status := unavailableStatusCode(model, failCodes)
+		msg := fmt.Sprintf("网关无可用渠道（模型 %s）", model)
+		// 透传最后一次失败捕获到的上游真实原因，避免根因被网关合成文案吞掉。
+		upstreamDetail := ""
+		if res != nil {
+			upstreamDetail = res.upstreamErrBody
+			msg = aggregatedUnavailableMessage(msg, upstreamDetail)
+		}
+		// 整链失败：切换过程不落日志，这里按「最终结果」聚合为一条，
+		// 端点取最后一次真实转发的候选（而非 unknown），模型与状态码齐备。
+		lastEpID, lastEpName := "", ""
+		if lastTried != nil {
+			lastEpID = lastTried.ID
+			lastEpName = lastTried.Name
+		}
+		attempts := 0
+		lastProxy := ""
+		if res != nil {
+			attempts = res.attempt + 1
+			lastProxy = hostFromProxyURL(res.lastProxy)
+		}
+		s.recordRelayError(RelayErrorRecord{
+			Route: route, Kind: "failover",
+			Endpoint: lastEpName, EndpointID: lastEpID, Model: model,
+			Stream: stream, Proxy: lastProxy, ClientIP: clientIP,
+			Attempts:   attempts,
+			ElapsedMs:  time.Since(requestStarted).Milliseconds(),
+			StatusCode: status,
+			Upstream:   upstreamDetail,
+			Error:      msg,
+		})
+		errBody, _ := json.Marshal(map[string]interface{}{
+			"error": map[string]string{"message": msg, "type": "service_unavailable"},
+		})
+		s.recordAnalyticsKey(ctx, route, lastEpID, model, status, time.Since(requestStarted).Milliseconds(), 0, 0, 0, 0, 0, boolToInt(stream), viaProxy, clientIP, "", -1, "", &AnalyticsError{
+			Kind:     "upstream",
+			Message:  msg,
+			Response: errorResponseForLog(errBody, status),
+		}, res.realModel)
+		// 必须携带非 nil error：调用方以 relayErr != nil 决定是否写错误响应，
+		// 此前误用了早已为 nil 的旧 err，导致 (503,nil,nil) 被当成静默收尾。
+		return status, nil, fmt.Errorf("%s", msg)
+	}
+	if lastRes != nil && lastRes.resp != nil {
+		_ = lastRes.resp.Body.Close()
+	}
+	if res.lastErr != nil && res.resp == nil {
+		return res.statusCode, nil, res.lastErr
+	}
+	res.resp.Body = &relayCancelOnCloseBody{ReadCloser: res.resp.Body, cancel: res.cancel}
+
+	// 记录 TTFB：流式用首字耗时，非流式用整体耗时（与 chat.completions 一致，
+	// 避免把 0 写入择优池导致该代理被误判为最优）。
+	if res.ttfbMs > 0 || !stream {
+		latency := res.ttfbMs
+		if !stream {
+			latency = time.Since(res.startTime).Milliseconds()
+		}
+		s.recordProxyTTFB(selected.ID, res.lastProxy, latency)
+	}
+
+	// 首字数据随响应体一并返回（流式首字等待阶段已读到的内容）。
+	if res.firstWritten && len(res.firstChunk) > 0 {
+		res.resp.Body = io.NopCloser(io.MultiReader(bytes.NewReader(res.firstChunk), res.resp.Body))
+	}
+	fp, _ := json.Marshal(failoverSteps)
+	var errInfo *AnalyticsError
+	if res.resp.StatusCode >= 400 {
+		errInfo = &AnalyticsError{
+			Kind:    "upstream",
+			Message: fmt.Sprintf("upstream returned HTTP %d", res.resp.StatusCode),
+		}
+	}
+	s.recordAnalyticsKey(ctx, route, selected.ID, model, res.resp.StatusCode, time.Since(res.startTime).Milliseconds(), res.ttfbMs, 0, 0, 0, 0, boolToInt(stream), boolToInt(res.lastProxy != ""), clientIP, res.egressIP, res.lastKeyIndex, string(fp), errInfo, res.realModel)
+	return res.resp.StatusCode, res.resp, nil
+}
+func (s *Service) proxyAnthropicMessages(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	requestStarted := time.Now()
+	clientIP := s.resolveClientIP(r)
+
+	// 请求体上限（与 chat/responses 对齐）：超限经 MaxBytesReader 截断读取，
+	// 由下方 err 分支返回 413，不会把超大 body 全量读入内存。
+	r.Body = http.MaxBytesReader(w, r.Body, s.gatewayBodyLimitBytes())
+	bodyBytes, err := io.ReadAll(r.Body)
+	if err != nil {
+		// 请求体超限应是客户端违约（413）；其他读取失败是网关侧问题（502）。
+		status, kind := gatewayBodyReadStatus(err)
+		s.recordRelayError(RelayErrorRecord{
+			Route: "messages", Kind: kind,
+			ClientIP: clientIP, ElapsedMs: time.Since(requestStarted).Milliseconds(),
+			Error: "request body read failed: " + err.Error(),
+		})
+		// 网关拦截（未到达上游）不写入调用日志。
+		response.JSON(w, status, map[string]string{"error": err.Error()})
+		return
+	}
+
+	var anthropicBody map[string]interface{}
+	if err := json.Unmarshal(bodyBytes, &anthropicBody); err != nil {
+		s.recordRelayError(RelayErrorRecord{
+			Route: "messages", Kind: "bad_request",
+			ClientIP: clientIP, ElapsedMs: time.Since(requestStarted).Milliseconds(),
+			Error: "request body is not valid JSON: " + err.Error(),
+		})
+		errBody, _ := json.Marshal(map[string]string{"error": err.Error()})
+		s.recordAnalyticsKey(ctx, "messages", "", "", http.StatusBadRequest, time.Since(requestStarted).Milliseconds(), 0, 0, 0, 0, 0, 0, 0, clientIP, "", -1, "", &AnalyticsError{
+			Kind:     "bad_request",
+			Message:  "request body is not valid JSON: " + err.Error(),
+			Response: errorResponseForLog(errBody, http.StatusBadRequest),
+		})
+		anthropicError(w, http.StatusBadRequest, "invalid_request_error", err.Error())
+		return
+	}
+
+	// 校验必填字段（Anthropic 格式）。
+	model, _ := anthropicBody["model"].(string)
+	if model == "" {
+		errBody, _ := json.Marshal(map[string]string{"error": "model: field required"})
+		s.recordAnalyticsKey(ctx, "messages", "", "", http.StatusBadRequest, time.Since(requestStarted).Milliseconds(), 0, 0, 0, 0, 0, 0, 0, clientIP, "", -1, "", &AnalyticsError{
+			Kind:     "bad_request",
+			Message:  "model: field required",
+			Response: errorResponseForLog(errBody, http.StatusBadRequest),
+		})
+		anthropicError(w, http.StatusBadRequest, "invalid_request_error", "model: field required")
+		return
+	}
+	if _, ok := anthropicBody["messages"]; !ok {
+		errBody, _ := json.Marshal(map[string]string{"error": "messages: field required"})
+		s.recordAnalyticsKey(ctx, "messages", "", model, http.StatusBadRequest, time.Since(requestStarted).Milliseconds(), 0, 0, 0, 0, 0, 0, 0, clientIP, "", -1, "", &AnalyticsError{
+			Kind:     "bad_request",
+			Message:  "messages: field required",
+			Response: errorResponseForLog(errBody, http.StatusBadRequest),
+		})
+		anthropicError(w, http.StatusBadRequest, "invalid_request_error", "messages: field required")
+		return
+	}
+
+	openAIBody, err := anthropicToOpenAI(anthropicBody)
+	if err != nil {
+		errBody, _ := json.Marshal(map[string]string{"error": err.Error()})
+		s.recordAnalyticsKey(ctx, "messages", "", model, http.StatusBadRequest, time.Since(requestStarted).Milliseconds(), 0, 0, 0, 0, 0, 0, 0, clientIP, "", -1, "", &AnalyticsError{
+			Kind:     "bad_request",
+			Message:  err.Error(),
+			Response: errorResponseForLog(errBody, http.StatusBadRequest),
+		})
+		anthropicError(w, http.StatusBadRequest, "invalid_request_error", err.Error())
+		return
+	}
+
+	stream, _ := anthropicBody["stream"].(bool)
+	upstreamModel, _ := openAIBody["model"].(string)
+	if upstreamModel == "" {
+		upstreamModel = model
+	}
+
+	// 复用 chat 转发管线，但统计路由标记为 messages。
+	oaiBytes, _ := json.Marshal(openAIBody)
+	statusCode, oaiResp, relayErr := s.relayChatOpenAI(ctx, r, oaiBytes, upstreamModel, stream, clientIP, requestStarted)
+	if relayErr != nil {
+		if statusCode == http.StatusServiceUnavailable {
+			anthropicError(w, statusCode, "service_unavailable", relayErr.Error())
+		} else {
+			anthropicError(w, statusCode, "api_error", relayErr.Error())
+		}
+		return
+	}
+	if oaiResp == nil {
+		// 客户端已断开：relayChatOpenAI 已静默收尾，此处仅返回、不写响应。
+		return
+	}
+	defer oaiResp.Body.Close()
+
+	if !stream {
+		respBodyBytes, readErr := readUpstreamBodyLimited(oaiResp.Body)
+		if readErr != nil {
+			anthropicError(w, http.StatusBadGateway, "api_error", readErr.Error())
+			return
+		}
+		// 上游错误响应原样透传（如 429/5xx），格式转成 Anthropic 错误。
+		if oaiResp.StatusCode >= 400 {
+			anthropicError(w, oaiResp.StatusCode, "api_error", upstreamErrorMessage(respBodyBytes))
+			return
+		}
+		converted, convErr := openAIResponseToAnthropic(respBodyBytes, upstreamModel)
+		if convErr != nil {
+			anthropicError(w, http.StatusBadGateway, "api_error", convErr.Error())
+			return
+		}
+		if keyIdentity := gatewayKeyFromContext(ctx); keyIdentity.ID != "" {
+			s.consumeGatewayKeyTokens(ctx, keyIdentity, int64(anthropicUsageTotal(respBodyBytes)))
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(converted)
+		return
+	}
+
+	// 流式：OpenAI SSE → Anthropic SSE。非 200 先判状态码，避免双写 header。
+	if oaiResp.StatusCode != http.StatusOK {
+		respBodyBytes, _ := readUpstreamBodyLimited(oaiResp.Body)
+		anthropicError(w, oaiResp.StatusCode, "api_error", upstreamErrorMessage(respBodyBytes))
+		return
+	}
+
+	sw := newSSEStreamWriter(w)
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no")
+	w.WriteHeader(http.StatusOK)
+
+	extendDeadline := func() {
+		_ = http.NewResponseController(w).SetWriteDeadline(time.Now().Add(streamWriteDeadline))
+	}
+	// SSE ping 保活：上游长时间不吐流时向客户端发送注释行，穿透 NAT 空闲超时。
+	stopPing := sw.startPing(ctx)
+	defer stopPing()
+	transformer := newAnthropicSSETransformer(upstreamModel)
+	scanner := bufio.NewScanner(oaiResp.Body)
+	scanner.Buffer(make([]byte, 1024*1024), 1024*1024)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if !strings.HasPrefix(line, "data: ") {
+			continue
+		}
+		data := strings.TrimPrefix(line, "data: ")
+		if data == "[DONE]" {
+			break
+		}
+		events := transformer.consume([]byte(data))
+		for _, ev := range events {
+			extendDeadline()
+			sw.write(ev)
+		}
+	}
+	// 流结束收尾（usage 与 message_stop）。
+	for _, ev := range transformer.finish() {
+		extendDeadline()
+		sw.write(ev)
+	}
+	if keyIdentity := gatewayKeyFromContext(ctx); keyIdentity.ID != "" {
+		s.consumeGatewayKeyTokens(ctx, keyIdentity, int64(transformer.totalTokens()))
+	}
+}
+
+// anthropicUsageTotal 从 OpenAI 格式的 chat.completions 响应体提取 usage 总量
+// （prompt_tokens + completion_tokens）；缺失时返回 0。
+func anthropicUsageTotal(body []byte) int {
+	var parsed struct {
+		Usage struct {
+			PromptTokens     int `json:"prompt_tokens"`
+			CompletionTokens int `json:"completion_tokens"`
+		} `json:"usage"`
+	}
+	if err := json.Unmarshal(body, &parsed); err != nil {
+		return 0
+	}
+	return parsed.Usage.PromptTokens + parsed.Usage.CompletionTokens
+}
+
+// upstreamErrorMessage 从上游 JSON 错误响应中提取 message。
+func upstreamErrorMessage(body []byte) string {
+	var parsed map[string]interface{}
+	if json.Unmarshal(body, &parsed) == nil {
+		if errObj, ok := parsed["error"].(map[string]interface{}); ok {
+			if m, ok := errObj["message"].(string); ok {
+				return m
+			}
+		}
+	}
+	return string(body)
+}
+
+// anthropicError 以 Anthropic 风格错误格式写出响应。
+func anthropicError(w http.ResponseWriter, status int, errType, message string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"type": "error",
+		"error": map[string]interface{}{
+			"type":    errType,
+			"message": message,
+		},
+	})
+}
+
+// anthropicSSETransformer 将 OpenAI chat.completions 流式 chunk 转换为 Anthropic SSE 事件。
+// 事件序列：message_start → content_block_start(text/tool_use) → content_block_delta
+// → content_block_stop → message_delta(usage) → message_stop。并行工具调用按 OpenAI
+// tool index 拆块，并通过 toolIndexToBlock 保持「OpenAI index → Anthropic block index」
+// 的稳定映射，避免交错推送时 delta 标错块。
+type anthropicSSETransformer struct {
+	model            string
+	messageID        string
+	blockIndex       int
+	textBlockIndex   int         // 文本块的 Anthropic index（-1 表示未开始）
+	toolIndexToBlock map[int]int // OpenAI tool index → Anthropic block index
+	inputJSONs       map[int]*strings.Builder
+	started          bool
+	finished         bool
+	stopReason       string
+	usage            *struct {
+		PromptTokens     int `json:"prompt_tokens"`
+		CompletionTokens int `json:"completion_tokens"`
+	}
+}
+
+func newAnthropicSSETransformer(model string) *anthropicSSETransformer {
+	return &anthropicSSETransformer{
+		model:            model,
+		messageID:        "msg_" + uuid.NewString(),
+		textBlockIndex:   -1,
+		toolIndexToBlock: map[int]int{},
+		inputJSONs:       map[int]*strings.Builder{},
+	}
+}
+
+func (t *anthropicSSETransformer) sse(eventType string, data interface{}) []byte {
+	dataJSON, _ := json.Marshal(data)
+	out := append([]byte("event: "+eventType+"\ndata: "), dataJSON...)
+	return append(out, '\n', '\n')
+}
+
+// consume 处理一个 OpenAI chunk，返回需要写出的 Anthropic SSE 事件块。
+func (t *anthropicSSETransformer) consume(chunk []byte) [][]byte {
+	if t.finished {
+		return nil
+	}
+	var payload struct {
+		Choices []struct {
+			Delta struct {
+				Content   string `json:"content"`
+				ToolCalls []struct {
+					Index    int    `json:"index"`
+					ID       string `json:"id"`
+					Function struct {
+						Name      string `json:"name"`
+						Arguments string `json:"arguments"`
+					} `json:"function"`
+				} `json:"tool_calls"`
+			} `json:"delta"`
+			FinishReason string `json:"finish_reason"`
+		} `json:"choices"`
+		Usage *struct {
+			PromptTokens     int `json:"prompt_tokens"`
+			CompletionTokens int `json:"completion_tokens"`
+		} `json:"usage"`
+	}
+	if err := json.Unmarshal(chunk, &payload); err != nil {
+		return nil
+	}
+
+	var events [][]byte
+
+	if !t.started {
+		t.started = true
+		events = append(events, t.sse("message_start", map[string]interface{}{
+			"type": "message_start",
+			"message": map[string]interface{}{
+				"id":            t.messageID,
+				"type":          "message",
+				"role":          "assistant",
+				"model":         t.model,
+				"content":       []interface{}{},
+				"stop_reason":   nil,
+				"stop_sequence": nil,
+				"usage": map[string]interface{}{
+					"input_tokens":  0,
+					"output_tokens": 0,
+				},
+			},
+		}))
+	}
+
+	// usage 可能出现在带 choices 的 chunk（多数上游在最后一个 chunk 与
+	// finish_reason 同帧下发），也可能出现在仅含 usage 的独立 chunk。
+	if payload.Usage != nil {
+		t.usage = payload.Usage
+	}
+
+	if len(payload.Choices) == 0 {
+		return events
+	}
+	choice := payload.Choices[0]
+
+	// 文本增量（块索引固定为 textBlockIndex，先于工具块或与工具块交错均不串号）。
+	if choice.Delta.Content != "" {
+		if t.textBlockIndex < 0 {
+			t.textBlockIndex = t.blockIndex
+			t.blockIndex++
+			events = append(events, t.sse("content_block_start", map[string]interface{}{
+				"type":  "content_block_start",
+				"index": t.textBlockIndex,
+				"content_block": map[string]interface{}{
+					"type": "text",
+					"text": "",
+				},
+			}))
+		}
+		events = append(events, t.sse("content_block_delta", map[string]interface{}{
+			"type":  "content_block_delta",
+			"index": t.textBlockIndex,
+			"delta": map[string]interface{}{
+				"type": "text_delta",
+				"text": choice.Delta.Content,
+			},
+		}))
+	}
+
+	// 工具调用增量（并行按 OpenAI tool index 拆块）。
+	for _, tc := range choice.Delta.ToolCalls {
+		blockIdx, started := t.toolIndexToBlock[tc.Index]
+		if !started {
+			blockIdx = t.blockIndex
+			t.blockIndex++
+			t.toolIndexToBlock[tc.Index] = blockIdx
+			events = append(events, t.sse("content_block_start", map[string]interface{}{
+				"type":  "content_block_start",
+				"index": blockIdx,
+				"content_block": map[string]interface{}{
+					"type":  "tool_use",
+					"id":    tc.ID,
+					"name":  tc.Function.Name,
+					"input": map[string]interface{}{},
+				},
+			}))
+			if t.inputJSONs[tc.Index] == nil {
+				t.inputJSONs[tc.Index] = &strings.Builder{}
+			}
+		}
+		if tc.Function.Arguments != "" {
+			if t.inputJSONs[tc.Index] == nil {
+				t.inputJSONs[tc.Index] = &strings.Builder{}
+			}
+			t.inputJSONs[tc.Index].WriteString(tc.Function.Arguments)
+			events = append(events, t.sse("content_block_delta", map[string]interface{}{
+				"type":  "content_block_delta",
+				"index": blockIdx,
+				"delta": map[string]interface{}{
+					"type":         "input_json_delta",
+					"partial_json": tc.Function.Arguments,
+				},
+			}))
+		}
+	}
+
+	if choice.FinishReason != "" {
+		t.stopReason = anthropicStopReason(choice.FinishReason)
+	}
+	return events
+}
+
+// finish 在流结束时写出收尾事件（关闭所有块、message_delta、message_stop）。
+func (t *anthropicSSETransformer) finish() [][]byte {
+	if t.finished {
+		return nil
+	}
+	t.finished = true
+	var events [][]byte
+
+	if !t.started {
+		t.started = true
+		events = append(events, t.sse("message_start", map[string]interface{}{
+			"type": "message_start",
+			"message": map[string]interface{}{
+				"id":            t.messageID,
+				"type":          "message",
+				"role":          "assistant",
+				"model":         t.model,
+				"content":       []interface{}{},
+				"stop_reason":   nil,
+				"stop_sequence": nil,
+				"usage": map[string]interface{}{
+					"input_tokens":  0,
+					"output_tokens": 0,
+				},
+			},
+		}))
+	}
+
+	// 关闭所有已开始的块。
+	for i := 0; i < t.blockIndex; i++ {
+		events = append(events, t.sse("content_block_stop", map[string]interface{}{
+			"type":  "content_block_stop",
+			"index": i,
+		}))
+	}
+
+	stopReason := t.stopReason
+	if stopReason == "" {
+		stopReason = "end_turn"
+	}
+	usage := map[string]interface{}{"input_tokens": 0, "output_tokens": 0}
+	if t.usage != nil {
+		usage = map[string]interface{}{
+			"input_tokens":  t.usage.PromptTokens,
+			"output_tokens": t.usage.CompletionTokens,
+		}
+	}
+	events = append(events, t.sse("message_delta", map[string]interface{}{
+		"type": "message_delta",
+		"delta": map[string]interface{}{
+			"stop_reason":   stopReason,
+			"stop_sequence": nil,
+		},
+		"usage": usage,
+	}))
+	events = append(events, t.sse("message_stop", map[string]interface{}{
+		"type": "message_stop",
+	}))
+	return events
+}
+
+// totalTokens 返回该流累计的 token 总量（prompt + completion）；上游未在流中
+// 提供 usage 时返回 0。
+func (t *anthropicSSETransformer) totalTokens() int {
+	if t.usage == nil {
+		return 0
+	}
+	return t.usage.PromptTokens + t.usage.CompletionTokens
+}

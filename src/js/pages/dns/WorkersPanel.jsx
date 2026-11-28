@@ -45,6 +45,7 @@ function WorkersPanel({
   loading,
   workers,
   workerSubdomain,
+  workerSubdomains = {},
   workerUsage,
   workerColWidths,
   startWorkerResize,
@@ -100,7 +101,7 @@ function WorkersPanel({
                   <Button size="sm" variant="secondary" onClick={() => openWorkerRoutesModal(worker)}>路由</Button>
                   <Button size="sm" variant="secondary" onClick={() => openWorkerDomainsModal(worker)}>域名</Button>
                   <Button size="sm" variant="secondary" onClick={() => openWorkerAnalyticsModal(worker)}>统计</Button>
-                  <Button size="sm" variant="secondary" onClick={() => toggleWorkerSubdomain(worker, true)}>启用</Button>
+                  <Button size="sm" variant="secondary" onClick={() => toggleWorkerSubdomain(worker, !workerSubdomains[worker.name])}>{workerSubdomains[worker.name] ? '停用' : '启用'}</Button>
                   <Button size="sm" variant={isArmed(`worker:${worker.id}`) ? 'destructive' : 'secondary-destructive'} onClick={() => deleteWorker(worker)} aria-label={`删除 ${worker.name}`} title="删除" icon={<Trash className="h-4 w-4" />} />
                 </div>
               </Table.Cell>

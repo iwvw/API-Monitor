@@ -1,13 +1,9 @@
 package notification
 
 import (
-	"context"
-	"fmt"
 	"html"
 	"strings"
 	"time"
-
-	"github.com/iwvw/api-monitor/backend-go/internal/applog"
 )
 
 func cloneNotificationData(data map[string]interface{}) map[string]interface{} {
@@ -21,13 +17,19 @@ func cloneNotificationData(data map[string]interface{}) map[string]interface{} {
 func notificationDataChanges(previous, current map[string]interface{}) map[string]interface{} {
 	changes := map[string]interface{}{}
 	keys := map[string]struct{}{}
+	// downDuration 每次刷新都会增长，disconnectedAt/recoveredAt 是派生时间字段，
+	// 都不属于「事件内容变化」，否则刷新历史会被时间字段刷屏。
+	skip := func(key string) bool {
+		return strings.HasPrefix(key, "lifecycle") || key == "downDuration" ||
+			key == "disconnectedAt" || key == "recoveredAt"
+	}
 	for key := range previous {
-		if !strings.HasPrefix(key, "lifecycle") && key != "downDuration" {
+		if !skip(key) {
 			keys[key] = struct{}{}
 		}
 	}
 	for key := range current {
-		if !strings.HasPrefix(key, "lifecycle") && key != "downDuration" {
+		if !skip(key) {
 			keys[key] = struct{}{}
 		}
 	}
@@ -80,12 +82,10 @@ func normalizeRichTextColons(text string) string {
 }
 
 func telegramMessageLine(line string) string {
-	applog.Info(context.Background(), "notification", "telegram-line-in", "lineHex", fmt.Sprintf("%x", []byte(line)))
 	field := parseNotificationMessageLine(line)
 	if field.Empty {
 		return ""
 	}
-	applog.Info(context.Background(), "notification", "telegram-line-parse", "labelHex", fmt.Sprintf("%x", []byte(field.Label)), "valueHex", fmt.Sprintf("%x", []byte(field.Value)))
 	if field.Label == "" {
 		return field.Value
 	}
@@ -117,7 +117,6 @@ func telegramEscapeV2(s string) string {
 
 // telegramEscapeBold 转义 MarkdownV2 加粗实体内部内容（同全量转义）。
 func telegramEscapeBold(s string) string { return telegramEscapeV2(s) }
-
 
 // telegramEscapeCode 转义 MarkdownV2 行内代码内部（仅 ` 与 \ 需转义）。
 func telegramEscapeCode(s string) string {

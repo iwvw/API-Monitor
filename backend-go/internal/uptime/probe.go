@@ -108,13 +108,29 @@ func (s *Service) jsonProbe(ctx context.Context, monitor map[string]interface{})
 	if !compareValues(actual, expected, operator) {
 		return probeResult{}, fmt.Errorf("JSON Query mismatch at %s: expected %s %v", stringFallback(path, "$"), operator, expected)
 	}
-	result := probeResult{OK: true, Status: stateUp, LatencyMS: time.Since(started).Milliseconds(), Message: "OK", StatusCode: &statusCode, Details: map[string]interface{}{"contentLength": len(content), "jsonQueryPath": stringFallback(path, "$"), "jsonQueryOperator": operator, "jsonQueryActual": actual}}
+	result := probeResult{OK: true, Status: stateUp, LatencyMS: time.Since(started).Milliseconds(), Message: "OK", StatusCode: &statusCode, Details: map[string]interface{}{"contentLength": len(content), "jsonQueryPath": stringFallback(path, "$"), "jsonQueryOperator": operator, "jsonQueryActual": truncateProbeValue(actual)}}
 	// Extract TLS certificate expiry
 	if res.TLS != nil && len(res.TLS.PeerCertificates) > 0 {
 		expiry := res.TLS.PeerCertificates[0].NotAfter
 		result.SslExpiry = &expiry
 	}
 	return result, nil
+}
+
+// maxProbeDetailChars 限制写入心跳 details_json 的探活实际值长度:
+// json 探活把整个响应体($ 路径指向大对象/数组)写库时单条可达 ~1MB,
+// 按 60s 间隔 + 30 天保留会放大成几十 GB。
+const maxProbeDetailChars = 2048
+
+func truncateProbeValue(value interface{}) interface{} {
+	if value == nil {
+		return nil
+	}
+	runes := []rune(fmt.Sprint(value))
+	if len(runes) <= maxProbeDetailChars {
+		return value
+	}
+	return string(runes[:maxProbeDetailChars]) + "...(truncated)"
 }
 
 func tcpProbe(ctx context.Context, monitor map[string]interface{}) (probeResult, error) {

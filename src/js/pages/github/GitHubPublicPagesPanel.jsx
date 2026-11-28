@@ -113,13 +113,18 @@ function GitHubPublicPagesPanel({ repositories = [] }) {
   useEffect(() => {
     setForm((current) => ({
       ...current,
-      repositoryIds: current.repositoryIds.filter((id) => repositoryMap.has(String(id))),
+      repositoryIds: current.repositoryIds.filter((id) => {
+        const repo = repositoryMap.get(String(id));
+        return repo && !repo.private;
+      }),
     }));
   }, [repositoryMap]);
 
   const resetForm = () => setForm(createEmptyGitHubPublicPageForm());
 
   const toggleRepository = (id, checked) => {
+    const repo = repositoryMap.get(String(id));
+    if (repo?.private) return;
     setForm((current) => ({
       ...current,
       repositoryIds: checked
@@ -141,9 +146,11 @@ function GitHubPublicPagesPanel({ repositories = [] }) {
       showRepoLinks: config.showRepoLinks !== false,
       showDescriptions: config.showDescriptions !== false,
       showRepositoryStats: config.showRepositoryStats !== false,
-      showOnDashboard: !!config.showOnDashboard,
+      showOnDashboard: config.showOnDashboard !== false,
       publicIconId: String(config.publicIconId || '').trim(),
-      repositoryIds: Array.isArray(page.repositoryIds) ? page.repositoryIds : [],
+      repositoryIds: (Array.isArray(page.repositoryIds) ? page.repositoryIds : []).filter(
+        (id) => !repositoryMap.get(String(id))?.private,
+      ),
     });
   };
 
@@ -154,8 +161,11 @@ function GitHubPublicPagesPanel({ repositories = [] }) {
       toast.warning('请填写公开页名称');
       return;
     }
-    if (form.repositoryIds.length === 0) {
-      toast.warning('请至少绑定一个仓库');
+    const publicRepositoryIds = form.repositoryIds.filter(
+      (id) => !repositoryMap.get(String(id))?.private,
+    );
+    if (publicRepositoryIds.length === 0) {
+      toast.warning('请至少绑定一个公开仓库');
       return;
     }
 
@@ -168,7 +178,7 @@ function GitHubPublicPagesPanel({ repositories = [] }) {
         description: form.description.trim(),
         public: !!form.public,
         cacheSeconds: Math.max(30, Number(form.cacheSeconds) || 300),
-        repositoryIds: form.repositoryIds,
+        repositoryIds: publicRepositoryIds,
         config: {
           showRepoLinks: !!form.showRepoLinks,
           showDescriptions: !!form.showDescriptions,
@@ -287,7 +297,7 @@ function GitHubPublicPagesPanel({ repositories = [] }) {
             <Button
               size="sm"
               variant="secondary"
-              onClick={() => setForm((current) => ({ ...current, repositoryIds: repositories.map((repo) => repo.id) }))}
+              onClick={() => setForm((current) => ({ ...current, repositoryIds: repositories.filter((repo) => !repo.private).map((repo) => repo.id) }))}
               disabled={repositories.length === 0}
             >
               全选
@@ -303,11 +313,12 @@ function GitHubPublicPagesPanel({ repositories = [] }) {
                     <Checkbox
                       checked={form.repositoryIds.includes(repo.id)}
                       onCheckedChange={(checked) => toggleRepository(repo.id, checked)}
+                      disabled={!!repo.private}
                       aria-label={`绑定 ${repo.full_name}`}
                     />
                     <span className="min-w-0 flex-1 truncate text-sm text-kumo-strong">{repo.full_name}</span>
                     <span className="hidden max-w-[12rem] truncate text-[10px] text-kumo-subtle cq-sm:block">
-                      {repo.private ? '私有仓库' : '公开仓库'}
+                      {repo.private ? '私有仓库(不可公开)' : '公开仓库'}
                     </span>
                   </label>
                 ))}

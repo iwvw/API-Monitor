@@ -34,7 +34,7 @@ func (s *Service) emailRoutingZones(w http.ResponseWriter, r *http.Request, acco
 			continue
 		}
 		g.Go(func() error {
-			payload, err := s.cfRequest(gctx, http.MethodGet, "zones/"+id+"/email/routing", auth, nil)
+			payload, err := s.cfRequest(gctx, http.MethodGet, "zones/"+url.PathEscape(id)+"/email/routing", auth, nil)
 			if err != nil {
 				return nil
 			}
@@ -62,7 +62,7 @@ func (s *Service) emailRoutingSettings(w http.ResponseWriter, r *http.Request, a
 	if err == nil {
 		zoneName = zoneNameByID(zones, zoneID)
 	}
-	payload, err := s.cfRequest(r.Context(), http.MethodGet, "zones/"+zoneID+"/email/routing", auth, nil)
+	payload, err := s.cfRequest(r.Context(), http.MethodGet, "zones/"+url.PathEscape(zoneID)+"/email/routing", auth, nil)
 	if err != nil {
 		response.JSON(w, http.StatusInternalServerError, map[string]interface{}{"error": err.Error()})
 		return
@@ -97,14 +97,14 @@ func (s *Service) emailRoutingAddresses(w http.ResponseWriter, r *http.Request, 
 	if !ok {
 		return
 	}
-	cfAccountID, err := s.cloudflareAccountID(r.Context(), auth)
+	cfAccountID, err := s.cloudflareAccountIDForWrite(r.Context(), auth, r.Method)
 	if err != nil {
 		response.JSON(w, http.StatusInternalServerError, map[string]interface{}{"error": err.Error()})
 		return
 	}
 	switch r.Method {
 	case http.MethodGet:
-		payload, err := s.cfRequest(r.Context(), http.MethodGet, "accounts/"+cfAccountID+"/email/routing/addresses", auth, nil)
+		payload, err := s.cfRequest(r.Context(), http.MethodGet, "accounts/"+url.PathEscape(cfAccountID)+"/email/routing/addresses", auth, nil)
 		if err != nil {
 			response.JSON(w, http.StatusInternalServerError, map[string]interface{}{"error": err.Error()})
 			return
@@ -127,7 +127,7 @@ func (s *Service) emailRoutingAddresses(w http.ResponseWriter, r *http.Request, 
 			response.JSON(w, http.StatusBadRequest, map[string]interface{}{"error": "邮箱不能为空"})
 			return
 		}
-		respPayload, err := s.cfRequest(r.Context(), http.MethodPost, "accounts/"+cfAccountID+"/email/routing/addresses", auth,
+		respPayload, err := s.cfRequest(r.Context(), http.MethodPost, "accounts/"+url.PathEscape(cfAccountID)+"/email/routing/addresses", auth,
 			map[string]interface{}{"email": email})
 		if err != nil {
 			response.JSON(w, http.StatusInternalServerError, map[string]interface{}{"error": err.Error()})
@@ -181,12 +181,12 @@ func (s *Service) emailRoutingDeleteAddress(w http.ResponseWriter, r *http.Reque
 	if !ok {
 		return
 	}
-	cfAccountID, err := s.cloudflareAccountID(r.Context(), auth)
+	cfAccountID, err := s.cloudflareAccountIDStrict(r.Context(), auth)
 	if err != nil {
 		response.JSON(w, http.StatusInternalServerError, map[string]interface{}{"error": err.Error()})
 		return
 	}
-	if _, err := s.cfRequest(r.Context(), http.MethodDelete, "accounts/"+cfAccountID+"/email/routing/addresses/"+addressID, auth, nil); err != nil {
+	if _, err := s.cfRequest(r.Context(), http.MethodDelete, "accounts/"+url.PathEscape(cfAccountID)+"/email/routing/addresses/"+url.PathEscape(addressID), auth, nil); err != nil {
 		response.JSON(w, http.StatusInternalServerError, map[string]interface{}{"error": err.Error()})
 		return
 	}
@@ -205,7 +205,7 @@ func (s *Service) emailRoutingRules(w http.ResponseWriter, r *http.Request, acco
 	}
 	switch r.Method {
 	case http.MethodGet:
-		payload, err := s.cfRequest(r.Context(), http.MethodGet, "zones/"+zoneID+"/email/routing/rules", auth, nil)
+		payload, err := s.cfRequest(r.Context(), http.MethodGet, "zones/"+url.PathEscape(zoneID)+"/email/routing/rules", auth, nil)
 		if err != nil {
 			response.JSON(w, http.StatusInternalServerError, map[string]interface{}{"error": err.Error()})
 			return
@@ -238,7 +238,7 @@ func (s *Service) emailRoutingRules(w http.ResponseWriter, r *http.Request, acco
 				body["matchers"] = []interface{}{m}
 			}
 		}
-		respPayload, err := s.cfRequest(r.Context(), http.MethodPost, "zones/"+zoneID+"/email/routing/rules", auth, body)
+		respPayload, err := s.cfRequest(r.Context(), http.MethodPost, "zones/"+url.PathEscape(zoneID)+"/email/routing/rules", auth, body)
 		if err != nil {
 			response.JSON(w, http.StatusInternalServerError, map[string]interface{}{"error": err.Error()})
 			return
@@ -266,7 +266,7 @@ func (s *Service) emailRoutingDeleteRule(w http.ResponseWriter, r *http.Request,
 	if !ok {
 		return
 	}
-	if _, err := s.cfRequest(r.Context(), http.MethodDelete, "zones/"+zoneID+"/email/routing/rules/"+ruleID, auth, nil); err != nil {
+	if _, err := s.cfRequest(r.Context(), http.MethodDelete, "zones/"+url.PathEscape(zoneID)+"/email/routing/rules/"+url.PathEscape(ruleID), auth, nil); err != nil {
 		response.JSON(w, http.StatusInternalServerError, map[string]interface{}{"error": err.Error()})
 		return
 	}
@@ -274,27 +274,16 @@ func (s *Service) emailRoutingDeleteRule(w http.ResponseWriter, r *http.Request,
 }
 
 // resolveZoneID 解析要操作的域名：优先用 URL 查询参数 zoneId，
-// 未指定时回退到账号下第一个 zone。失败时写入错误响应并返回 false。
+// 缺失时返回 400,避免静默落到账号下的某个 zone 造成视图歧义。
 func (s *Service) resolveZoneID(w http.ResponseWriter, r *http.Request, auth map[string]string) (string, bool) {
 	if z := strings.TrimSpace(r.URL.Query().Get("zoneId")); z != "" {
 		return z, true
 	}
-	return s.firstZoneID(w, r, auth)
-}
-
-// firstZoneID 返回账号下第一个 zone 的 id；失败时写入错误响应并返回 false。
-func (s *Service) firstZoneID(w http.ResponseWriter, r *http.Request, auth map[string]string) (string, bool) {
-	zones, _, err := s.listZones(r.Context(), auth, url.Values{})
-	if err != nil || len(zones) == 0 {
-		response.JSON(w, http.StatusInternalServerError, map[string]interface{}{"error": "无法获取该账号下的域名列表"})
-		return "", false
-	}
-	zoneID := stringValue(objectValue(zones[0])["id"], "")
-	if zoneID == "" {
-		response.JSON(w, http.StatusInternalServerError, map[string]interface{}{"error": "域名缺少 zone id"})
-		return "", false
-	}
-	return zoneID, true
+	// 本接口是域名(zone)级。此前缺 zoneId 会静默回退到「账号下第一个 zone」,
+	// 与显式指定 zone 的查询结果不一致(看起来像账号级视图互相矛盾),容易误判。
+	// 改为显式报错,强制调用方传 zoneId。
+	response.JSON(w, http.StatusBadRequest, map[string]interface{}{"error": "缺少 zoneId:该接口为域名(zone)级,请传入目标域名的 zoneId"})
+	return "", false
 }
 
 // mapEmailRule 把 Cloudflare Email Routing rule 映射为前端友好结构。

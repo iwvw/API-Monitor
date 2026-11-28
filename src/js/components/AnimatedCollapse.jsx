@@ -44,6 +44,7 @@ export function AnimatedCollapse({
   className = '',
   panelClassName = '',
   keepMounted = false,
+  animated = true,
 }) {
   const panelRef = useRef(null);
   const frameRef = useRef(null);
@@ -76,7 +77,7 @@ export function AnimatedCollapse({
       frameRef.current = null;
     }
 
-    if (prefersReducedMotion()) {
+    if (prefersReducedMotion() || !animated) {
       setHeight(open ? 'auto' : '0px');
       setOpacity(open ? 1 : 0);
       if (!open) {
@@ -112,7 +113,7 @@ export function AnimatedCollapse({
         frameRef.current = null;
       }
     };
-  }, [keepMounted, open, rendered]);
+  }, [animated, keepMounted, open, rendered]);
 
   const handleTransitionEnd = (event) => {
     if (event.target !== panelRef.current || event.propertyName !== 'height') return;
@@ -136,7 +137,7 @@ export function AnimatedCollapse({
           keepMounted
           aria-hidden={!open}
           className={cx(
-            panelMotionClassName,
+            animated ? panelMotionClassName : 'transition-none',
             isFullyOpen ? 'overflow-visible' : 'overflow-hidden',
             panelClassName,
             prefersReducedMotion() ? 'opacity-100' : ''

@@ -11,8 +11,10 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"crypto/tls"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -23,6 +25,9 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/iwvw/api-monitor/backend-go/internal/applog"
+	"github.com/iwvw/api-monitor/backend-go/internal/proxypool"
 )
 
 // upstreamImplemented 标记上游协议层是否已补全（管理面据此展示状态）。
@@ -254,6 +259,9 @@ type Account struct {
 	LastRefreshAt string `json:"lastRefreshAt,omitempty"`
 	// LastCheckinAt 是最近一次签到成功的时刻（RFC3339，UTC）。
 	LastCheckinAt string `json:"lastCheckinAt,omitempty"`
+	// LastActivityAt 是最近一次成功「活跃上报」的时刻（RFC3339，UTC）。
+	// 国际版无签到接口，其每日积分依赖主动达成活跃（见 activitySupported）。
+	LastActivityAt string `json:"lastActivityAt,omitempty"`
 	// Credits 是最近一次余额查询得到的剩余额度（签到/余额查询时回写，供账号表展示）。
 	Credits int64 `json:"credits,omitempty"`
 	// LastError 记录最近一次上游失败原因，便于排障。
@@ -278,8 +286,17 @@ type AccountView struct {
 	Available        bool   `json:"available"`
 	CallCount        int64  `json:"callCount"`
 	LastError        string `json:"lastError,omitempty"`
+	// RefreshBroken 表示 refresh token 已被上游判定失效（需重新扫码登录）。
+	// 与 tokenState 独立：access token 可能仍在有效期内（转发暂时正常），
+	// 但已无法续期，一旦过期就直接不可用，前端应提前预警。
+	RefreshBroken bool `json:"refreshBroken,omitempty"`
+	// LastRefreshAt 是最近一次成功刷新的时刻（RFC3339，UTC），供前端展示续期新鲜度。
+	LastRefreshAt string `json:"lastRefreshAt,omitempty"`
 	// LastCheckinAt 是最近一次签到成功的时刻（RFC3339，UTC）；国际版账号恒为空。
 	LastCheckinAt string `json:"lastCheckinAt,omitempty"`
+	// LastActivityAt 是最近一次成功活跃上报的时刻（RFC3339，UTC）。
+	// 国际版无签到接口，改用「每日活跃奖励」，前端据此展示其活跃状态。
+	LastActivityAt string `json:"lastActivityAt,omitempty"`
 	// Credits 是最近一次查询得到的剩余额度；0 表示尚未查询过。
 	Credits int64 `json:"credits,omitempty"`
 	// LimitedModels 是该账号当前被上游**模型级限流**的模型（含恢复时刻）。
@@ -336,12 +353,20 @@ var (
 )
 
 // sharedHTTPClient 是共享的出网客户端（带 cookie jar）。
+//
+// 显式置空 TLSClientConfig 禁用 HTTP/2：TLSClientConfig 非 nil 时标准库不再
+// 自动启用 h2（见 http.Transport 文档），出网固定走 HTTP/1.1。原因：共享
+// client 的 h2 连接池里一条连接被「响应体未读完即关闭」（健康检测/请求取消/
+// 空闲超时都会触发）毒化后，复用同连接的后续请求全部报
+// 「http2: response body closed」，且每次启动后的自动任务立刻复现；HTTP/1.1
+// 按请求独占连接，没有这个共享故障面。
 func sharedHTTPClient() *http.Client {
 	httpClientOnce.Do(func() {
 		jar, _ := cookiejar.New(nil)
 		sharedClient = &http.Client{
 			Timeout: 120 * time.Second,
 			Transport: &http.Transport{
+				TLSClientConfig:     &tls.Config{},
 				MaxIdleConns:        20,
 				IdleConnTimeout:     90 * time.Second,
 				MaxIdleConnsPerHost: 5,
@@ -364,7 +389,7 @@ func newLoginClient() *http.Client {
 }
 
 // httpClientFor 返回本次出网要用的客户端：配置了代理池时经 ProxyPoolSelector 选出口，
-// 否则用共享客户端。选路失败时静默回退直连，避免代理池故障直接打断转发。
+// 否则用共享客户端。池已配置但没有可用出口(或选路失败)时 fail-closed，拒绝直连。
 // 注意：带代理的客户端按请求新建（连接不复用），换来的是出口可随请求轮换。
 func (s *Service) httpClientFor(sessionKey string) *http.Client {
 	poolID := strings.TrimSpace(s.Settings().ProxyPoolID)
@@ -374,22 +399,52 @@ func (s *Service) httpClientFor(sessionKey string) *http.Client {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	raw, err := s.externalPool.SelectProxy(ctx, poolID, sessionKey)
-	if err != nil || strings.TrimSpace(raw) == "" {
+	if err != nil {
+		applog.Warn(ctx, "workbuddy", "proxy pool selection failed, refusing direct connection", "pool", poolID, "error", err.Error())
+		return failClosedClient(err)
+	}
+	if strings.TrimSpace(raw) == "" {
 		return sharedHTTPClient()
 	}
 	u, err := url.Parse(strings.TrimSpace(raw))
 	if err != nil || u.Host == "" {
-		return sharedHTTPClient()
+		if err == nil {
+			err = fmt.Errorf("代理地址非法")
+		}
+		applog.Warn(ctx, "workbuddy", "proxy pool returned invalid proxy, refusing direct connection", "pool", poolID, "error", err.Error())
+		return failClosedClient(err)
 	}
 	return &http.Client{
 		Timeout: 120 * time.Second,
 		Transport: &http.Transport{
 			Proxy:               http.ProxyURL(u),
+			TLSClientConfig:     &tls.Config{},
 			MaxIdleConns:        20,
 			IdleConnTimeout:     90 * time.Second,
 			MaxIdleConnsPerHost: 5,
 		},
 	}
+}
+
+// proxyPoolUnavailableError 表示代理池已配置但没有可用出口(或选路失败)。
+type proxyPoolUnavailableError struct{ err error }
+
+func (e *proxyPoolUnavailableError) Error() string {
+	if errors.Is(e.err, proxypool.ErrPoolUnavailable) {
+		return "代理池无可用出口,已拒绝直连"
+	}
+	return "代理池选择失败,已拒绝直连: " + e.err.Error()
+}
+
+func (e *proxyPoolUnavailableError) Unwrap() error { return e.err }
+
+// failClosedTransport 让请求在发出前立即失败,确保不经直连出网。
+type failClosedTransport struct{ err error }
+
+func (t failClosedTransport) RoundTrip(*http.Request) (*http.Response, error) { return nil, t.err }
+
+func failClosedClient(err error) *http.Client {
+	return &http.Client{Transport: failClosedTransport{err: &proxyPoolUnavailableError{err: err}}}
 }
 
 // commonHeaders 施加按区域派生的通用请求头。
@@ -1011,6 +1066,10 @@ func (s *Service) chatCompletions(ctx context.Context, w http.ResponseWriter, re
 	backendHeaders(httpReq, &req.Account, req.ConversationID)
 	resp, err := s.httpClientFor(req.Account.ID).Do(httpReq)
 	if err != nil {
+		var poolErr *proxyPoolUnavailableError
+		if errors.As(err, &poolErr) {
+			return &upstreamError{msg: poolErr.Error()}
+		}
 		return &upstreamError{msg: fmt.Sprintf("上游请求失败: %v", err), retryable: true}
 	}
 	defer resp.Body.Close()
@@ -1044,7 +1103,7 @@ func (s *Service) chatCompletions(ctx context.Context, w http.ResponseWriter, re
 // relayEmitsSSEFrame 报告中继面是否给 chunk 加 "data: " 分帧。
 // 参考实现（CPA ABI 插件）要按入口协议区分：原生 chat-completions 由宿主加分帧，
 // 跨协议翻译器只认已分帧 payload。本项目的中继面是**真实 HTTP 端点**、只说 OpenAI 协议，
-// 下游（模型网关）按标准 OpenAI SSE 消费（见 internal/openai/relay.go 的
+// 下游（模型网关）按标准 OpenAI SSE 消费（见 internal/modelhub/relay.go 的
 // `data: ` 前缀判定），因此恒为真，并在流末补 [DONE] 终止符。
 func relayEmitsSSEFrame() bool { return true }
 
@@ -1136,6 +1195,16 @@ func (s *Service) streamToClient(ctx context.Context, w http.ResponseWriter, bod
 		if err := consume(scanner.Text()); err != nil {
 			return nil
 		}
+	}
+	if err := scanner.Err(); err != nil {
+		payload, _ := json.Marshal(map[string]any{
+			"error": map[string]any{"message": "上游流中断: " + err.Error(), "type": "upstream_error"},
+		})
+		_, _ = io.WriteString(w, "data: "+string(payload)+"\n\n")
+		if flusher != nil {
+			flusher.Flush()
+		}
+		return nil
 	}
 	_, _ = io.WriteString(w, "data: [DONE]\n\n")
 	if flusher != nil {
@@ -1589,7 +1658,7 @@ func rewriteForUpstreamWithThinking(body []byte, model string, thinking *Thinkin
 }
 
 // cacheHitKeys 是各家上游对「缓存命中 token」的常见命名。网关只认标准形状
-// usage.prompt_tokens_details.cached_tokens（见 internal/openai/service.go 的
+// usage.prompt_tokens_details.cached_tokens（见 internal/modelhub/service.go 的
 // cachedTokensRegex 与 relay.go 对 prompt_tokens_details 的解析），
 // 因此这里把别名归一到标准字段，避免"上游明明报了、统计却是 0"。
 //
@@ -1798,7 +1867,7 @@ func isEmptyValue(v any) bool {
 //   - `stream: true`：上游对非流式对话直接回业务码 11101；
 //   - `stream_options.include_usage: true`：让上游在流末回完整的 usage
 //     （prompt/completion/total + `prompt_cache_hit_tokens` + `credit`）。
-//     网关不会自己带这个参数（internal/openai 里搜不到 stream_options），
+//     网关不会自己带这个参数（internal/modelhub 里搜不到 stream_options），
 //     而缺少 usage 会让缓存命中与用量统计全部为 0，所以由本层补上。
 //     已有的 stream_options 会被保留合并，不整体覆盖。
 func forceStreamBody(body []byte) []byte {

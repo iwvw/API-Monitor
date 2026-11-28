@@ -68,19 +68,19 @@ var adminAITools = []map[string]interface{}{
 			"required": []string{"channelId", "chatId", "text"},
 		},
 	}},
-		{"type": "function", "function": map[string]interface{}{
-			"name":        "memory_search",
-			"description": "搜索长期记忆（跨会话持久事实、用户偏好、历史决策，支持中文模糊检索与触发词标签命中）；回答涉及历史决策、环境偏好、曾做过的配置或用户习惯之前，先调用它。query 用记忆原文措辞或触发词更易命中；若用户明确给出记忆标签（如「用 xx 标签搜索记忆」），用 tags 参数按触发词精确检索。返回 0 命中即代表无相关记忆，不要更换关键词重复搜索，直接继续执行",
-			"parameters": map[string]interface{}{
-				"type": "object",
-				"properties": map[string]interface{}{
-					"query": map[string]interface{}{"type": "string", "description": "检索关键词，如「默认模型 网关」"},
-					"tags":  map[string]interface{}{"type": "string", "description": "触发词标签（逗号分隔），按记忆的 triggers 精确命中；用户明确指定标签时用（选填）"},
-					"limit": map[string]interface{}{"type": "integer", "description": "返回条数上限（默认 6，最大 10）"},
-				},
-				"required": []string{"query"},
+	{"type": "function", "function": map[string]interface{}{
+		"name":        "memory_search",
+		"description": "搜索长期记忆（跨会话持久事实、用户偏好、历史决策，支持中文模糊检索与触发词标签命中）；回答涉及历史决策、环境偏好、曾做过的配置或用户习惯之前，先调用它。query 用记忆原文措辞或触发词更易命中；若用户明确给出记忆标签（如「用 xx 标签搜索记忆」），用 tags 参数按触发词精确检索。返回 0 命中即代表无相关记忆，不要更换关键词重复搜索，直接继续执行",
+		"parameters": map[string]interface{}{
+			"type": "object",
+			"properties": map[string]interface{}{
+				"query": map[string]interface{}{"type": "string", "description": "检索关键词，如「默认模型 网关」"},
+				"tags":  map[string]interface{}{"type": "string", "description": "触发词标签（逗号分隔），按记忆的 triggers 精确命中；用户明确指定标签时用（选填）"},
+				"limit": map[string]interface{}{"type": "integer", "description": "返回条数上限（默认 6，最大 10）"},
 			},
-		}},
+			"required": []string{"query"},
+		},
+	}},
 	{"type": "function", "function": map[string]interface{}{
 		"name":        "memory_add",
 		"description": "写入一条长期记忆（跨会话保留的用户偏好/环境事实/重要决策）；用户说「记住…」时必须调用，内容要具体到名称/ID/取值；禁止记录可通过系统接口实时查询的动态资源状态（如实例规格、IP、端口、DNS 记录、任务配置、使用量等），这类数据以接口查询为准；内容编辑重发等场景不适用",
@@ -235,6 +235,9 @@ func (s *Service) executeCallAPITool(ctx context.Context, db *sql.DB, args map[s
 	headers := map[string]string{}
 	if rawHeaders, ok := args["headers"].(map[string]interface{}); ok {
 		for k, v := range rawHeaders {
+			if isReservedInternalHeader(k) {
+				continue
+			}
 			headers[k] = fmt.Sprint(v)
 		}
 	}
@@ -252,14 +255,21 @@ func (s *Service) executeCallAPITool(ctx context.Context, db *sql.DB, args map[s
 	if isWrite {
 		// 完全批准模式（admin_ai_auto_approve）：所有写操作免审批直接执行，
 		// 不再弹审批卡片；对模型标记「已自动批准」避免困惑。
+		writeAllowed, err := s.getWriteEnabled(ctx, db)
+		if err != nil {
+			return nil, err
+		}
+		if !writeAllowed {
+			return nil, fmt.Errorf("写操作未启用")
+		}
 		autoApprove, err := s.getAutoApprove(ctx, db)
 		if err != nil {
 			return nil, err
 		}
+		fullApprove = autoApprove
 		if !autoApprove {
 			// 定时 AI 任务（X-Internal-Cron）策略：readonly 时写操作直接拒绝；
-			// allow 时该次执行内写操作免审批，但「写操作全局开关」是硬底线，
-			// 必须先校验通过（关闭时拒绝），不得借定时任务绕过。
+			// allow 时该次执行内写操作免审批（写操作全局开关已在上面校验）。
 			s.mu.Lock()
 			runID := s.sessionRuns[sessionID]
 			policy := s.runPolicy[runID]
@@ -268,31 +278,16 @@ func (s *Service) executeCallAPITool(ctx context.Context, db *sql.DB, args map[s
 				return nil, fmt.Errorf("readonly 策略禁止写操作")
 			}
 			if policy == "allow" {
-				writeAllowed, err := s.getWriteEnabled(ctx, db)
-				if err != nil {
-					return nil, err
-				}
-				if !writeAllowed {
-					return nil, fmt.Errorf("写操作未启用")
-				}
 				autoApprove = true
 			}
 		}
 		if !autoApprove {
-			// 会话级写授权（“允许此对话”）优先于全局开关，授权后本会话后续写操作免审批
+			// 会话级写授权（“允许此对话”）只免除逐次审批，不突破写操作全局开关
 			sessionWrite, err := s.isSessionWriteEnabled(ctx, db, sessionID)
 			if err != nil {
 				return nil, err
 			}
 			if !sessionWrite {
-				writeAllowed, err := s.getWriteEnabled(ctx, db)
-				if err != nil {
-					return nil, err
-				}
-				if !writeAllowed {
-					return nil, fmt.Errorf("写操作未启用")
-				}
-
 				planSummary := fmt.Sprintf("执行 %s %s", method, path)
 				approvalID, _ := randomID("aaa_")
 				expiresAt := time.Now().UTC().Add(approvalTTL).Format(time.RFC3339)
@@ -309,7 +304,7 @@ func (s *Service) executeCallAPITool(ctx context.Context, db *sql.DB, args map[s
 				// 否则执行会静默挂起等待 30 分钟，而用户批准时因无 pending 行必然 409。
 				if err := execBusyRetry(ctx, db,
 					`INSERT INTO admin_ai_approvals (id, session_id, tool_call_id, status, plan_summary, method, path, body_snapshot, expires_at, created_at) VALUES (?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?)`,
-					approvalID, sessionID, tcID, planSummary, method, path, string(body), expiresAt, now); err != nil {
+					approvalID, sessionID, tcID, planSummary, method, path, redactSensitiveJSON(string(body)), expiresAt, now); err != nil {
 					s.mu.Lock()
 					delete(s.approval, approvalID)
 					s.mu.Unlock()
@@ -348,9 +343,6 @@ func (s *Service) executeCallAPITool(ctx context.Context, db *sql.DB, args map[s
 				}
 			}
 		}
-		// 走到此处即写操作已被授权（完全批准 / cron allow / 会话级授权 / 用户批准）。
-		// 注入内部头，允许命令执行等受危险操作拦截的端点在本调用中放行危险命令。
-		fullApprove = true
 	}
 
 	if fullApprove {
@@ -364,6 +356,17 @@ func (s *Service) executeCallAPITool(ctx context.Context, db *sql.DB, args map[s
 		return nil, err
 	}
 	return aiCallResult(resp)
+}
+
+// isReservedInternalHeader 判定模型提供的请求头是否为内部保留头(鉴权/内部标记):
+// 这类头由服务端自身注入,不得由模型参数伪造,否则内部授权标记(如
+// X-Admin-AI-Full-Approve)可被调用参数覆盖,破坏信任边界。
+func isReservedInternalHeader(name string) bool {
+	switch strings.ToLower(strings.TrimSpace(name)) {
+	case "authorization", "cookie", "x-admin-password", "x-internal-cron", "x-ai-agent", "x-admin-ai-full-approve":
+		return true
+	}
+	return false
 }
 
 // runToolWithRetry 执行一次工具调用并应用失败重试（仅幂等只读工具在偶发故障时重试，
@@ -412,7 +415,11 @@ func toolParallelSafe(toolName string, args map[string]interface{}) bool {
 // 写方法（POST/PUT/DELETE，含审批链）有副作用，禁止缓存。
 func toolIsCacheable(toolName string, args map[string]interface{}) bool {
 	if toolName != "call_api" {
-		return true
+		switch toolName {
+		case "list_apis", "get_route", "get_openapi", "get_ai_manifest", "get_system_status", "memory_search", "list_telegram_targets":
+			return true
+		}
+		return false
 	}
 	if method, ok := args["method"].(string); ok {
 		switch strings.ToUpper(method) {
@@ -423,6 +430,10 @@ func toolIsCacheable(toolName string, args map[string]interface{}) bool {
 		}
 	}
 	return true // 未显式指定方法时 call_api 默认 GET
+}
+
+func toolCallIsWrite(toolName string, args map[string]interface{}) bool {
+	return toolName == "call_api" && !toolIsCacheable(toolName, args)
 }
 
 // toolCacheKey 构造同轮去重缓存的键：工具名 + 规范化参数（JSON 稳定序列化，
@@ -454,19 +465,23 @@ func (s *Service) catalogChildrenOf(prefix string) string {
 	return strings.Join(children, "、")
 }
 
-// validateCallAPIPath 本地校验 call_api 的目标路径与方法是否在确定性清单中：
-// 聚合前缀直接拒绝（给出子路由提示）；清单（JSON session 接口）内路径做方法
-// 校验；不在清单但 manifest 中存在（如 ResponseProxy 的 R2 下载、public 路由等
-// 非 JSON 接口）放行，保持旧行为由真实 HTTP 层兜底——预检只负责拦截「必 404」
-// 的臆造路径，不缩小合法调用面。清单未构建（catalogRoutes 为空）时也放行。
+func isReadOnlyMethod(method string) bool {
+	switch strings.ToUpper(strings.TrimSpace(method)) {
+	case "", http.MethodGet, http.MethodHead, http.MethodOptions:
+		return true
+	}
+	return false
+}
+
+// validateCallAPIPath 本地校验 call_api 的目标路径与方法：聚合前缀直接拒绝（给出子路由
+// 提示）；清单内路径做方法校验；清单未列出的路径默认拒绝，仅放行只读 manifest 白名单
+// 内的代理/下载路由（manifestOnlyCallableRoutes）。不再对任意 manifest 路由兜底放行：
+// /api/system/ai-access 等会话路由会返回明文 Agent Key，兜底放行会把凭据泄露进模型上下文。
 func (s *Service) validateCallAPIPath(method, path string) (string, bool) {
 	s.catalogMu.Lock()
 	routes := s.catalogRoutes
 	prefixes := s.catalogPrefixes
 	s.catalogMu.Unlock()
-	if len(routes) == 0 {
-		return "", true
-	}
 	p := path
 	if i := strings.IndexByte(p, '?'); i >= 0 {
 		p = p[:i]
@@ -474,6 +489,13 @@ func (s *Service) validateCallAPIPath(method, path string) (string, bool) {
 	// 尾斜杠归一化（保留根路径 "/"）：与 get_route 一致
 	if len(p) > 1 {
 		p = strings.TrimRight(p, "/")
+	}
+	denyNotInCatalog := "路径 " + path + " 不在可调用接口清单中(不存在或不可调用):请对照系统提示词内置的接口清单选择真实路径与正确方法,禁止猜测或拼凑路径"
+	if len(routes) == 0 {
+		if isCatalogMetaEndpoint(p) {
+			return denyNotInCatalog, false
+		}
+		return "", true
 	}
 	if desc, ok := prefixes[p]; ok {
 		children := s.catalogChildrenOf(p)
@@ -491,22 +513,23 @@ func (s *Service) validateCallAPIPath(method, path string) (string, bool) {
 	}
 	best := routeContractFromCache(routes, p)
 	if best == nil {
-		// 不在清单但 manifest 中存在（非 JSON 响应接口，如 R2 下载代理/
-		// public 路由）：保留旧行为放行，由真实 HTTP 层校验（与 callAPIFromAI
-		// 的 manifest.Match + Owner/ResponseMode 限制一致）。
-		if route, ok := manifest.Match(p); ok {
-			if route.Owner != manifest.OwnerGo {
-				return "接口不可调用: " + p + "（非本端路由）", false
-			}
-			if route.ResponseMode == manifest.ResponseStream || route.ResponseMode == manifest.ResponseWebSocket {
-				return "流式或 WebSocket 接口不允许通过 AI 直接调用: " + p, false
-			}
-			if route.Auth == manifest.AuthAPIKey || route.Auth == manifest.AuthAgent {
-				return "该接口需要专用密钥鉴权（" + string(route.Auth) + "），不允许通过 AI 直接调用: " + p, false
-			}
-			return "", true
+		if !manifestOnlyRouteAllowed(p) || !isReadOnlyMethod(method) {
+			return denyNotInCatalog, false
 		}
-		return "路径 " + path + " 不在可调用接口清单中（不存在或不可调用）：请对照系统提示词内置的接口清单选择真实路径与正确方法，禁止猜测或拼凑路径", false
+		route, ok := manifest.Match(p)
+		if !ok {
+			return denyNotInCatalog, false
+		}
+		if route.Owner != manifest.OwnerGo {
+			return "接口不可调用: " + p + "（非本端路由）", false
+		}
+		if route.ResponseMode == manifest.ResponseStream || route.ResponseMode == manifest.ResponseWebSocket {
+			return "流式或 WebSocket 接口不允许通过 AI 直接调用: " + p, false
+		}
+		if route.Auth == manifest.AuthAPIKey || route.Auth == manifest.AuthAgent {
+			return "该接口需要专用密钥鉴权（" + string(route.Auth) + "），不允许通过 AI 直接调用: " + p, false
+		}
+		return "", true
 	}
 	// 契约命中但属密钥鉴权路由（AuthAPIKey/AuthAgent）：AI 无对应凭据，
 	// 且触发仅限本机/网关专用端点有越权风险，一律拒绝。
@@ -685,9 +708,6 @@ func retryableToolError(err error) bool {
 // 写操作（call_api 非 GET/HEAD/OPTIONS、send_telegram_message 等）失败不重试，
 // 避免"服务端已提交但响应丢失"时重复创建/删除资源，或重复插入同一审批再次打扰用户。
 func toolCallIdempotent(toolName string, args map[string]interface{}) bool {
-	if toolName != "call_api" {
-		return toolName != "send_telegram_message"
-	}
 	return toolIsCacheable(toolName, args)
 }
 

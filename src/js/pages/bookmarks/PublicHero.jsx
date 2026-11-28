@@ -3,11 +3,11 @@ import { Button } from '@cloudflare/kumo/components/button';
 import { Checkbox } from '@cloudflare/kumo/components/checkbox';
 import { Input } from '@cloudflare/kumo/components/input';
 import { addCollection } from '@iconify/react';
-import logosIcons from '@iconify-json/logos/icons.json';
-import { cx } from '../../components/ui/AppPrimitives.jsx';
+import { ICONIFY_COLLECTIONS } from '../../../assets/iconify/index.js';
+import { cx } from '../../components/ui/CardPrimitives.jsx';
 import { toast } from '../../modules/toast.js';
 import useStore from '../../store.js';
-import { Search, X } from '../../components/Icons.jsx';
+import { Search, X } from '../../components/PublicIcons.jsx';
 import EngineIconPreview from './EngineIconPreview.jsx';
 import {
   DEFAULT_SEARCH_ENGINES,
@@ -32,7 +32,13 @@ import {
 //     多个引擎会全是同一颜色，失去品牌辨识度」；
 //   - 图标字段是自由文本输入，没有选择器，用户无从得知有哪些 simple-icons 名字；
 //   - 代价却是实打实的 4.6MB 原始 JSON（约 1.2MB gzip）全量进包。
-addCollection(logosIcons);
+//
+// 而 logos 也不再全量进包：`assets/iconify/index.js` 由
+// tools/generate-iconify-subset.mjs 生成，只含源码里实际引用到的图标
+// （整包 7.9MB / 2282 个图标 → 子集 10KB / 3 个）。自定义引擎填了子集外的
+// 名字时，EngineIconPreview 会先经 hasIcon() 判断并回退成「品牌色圆底 + 首字」，
+// 不会去请求远端、也不会留白。
+for (const collection of ICONIFY_COLLECTIONS) addCollection(collection);
 
 const pad = (value) => String(value).padStart(2, '0');
 

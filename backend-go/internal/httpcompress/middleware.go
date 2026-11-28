@@ -30,8 +30,8 @@ var gzipWriterPool = sync.Pool{
 // 避免破坏逐事件推送的实时性。
 func Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !strings.Contains(r.Header.Get("Accept-Encoding"), "gzip") ||
-			r.Header.Get("Upgrade") != "" {
+		_, gzipOK := AcceptedEncodings(r.Header.Get("Accept-Encoding"))
+		if !gzipOK || r.Header.Get("Upgrade") != "" {
 			next.ServeHTTP(w, r)
 			return
 		}

@@ -191,6 +191,7 @@ func (s *Service) exportAccounts(w http.ResponseWriter, r *http.Request) {
 		response.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	applog.Warn(r.Context(), "huawei", "account credentials exported in plaintext", "count", len(accounts), "remote", r.RemoteAddr)
 	exported := make([]map[string]interface{}, 0, len(accounts))
 	for _, account := range accounts {
 		exported = append(exported, map[string]interface{}{

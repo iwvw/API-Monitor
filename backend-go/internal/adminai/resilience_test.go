@@ -687,6 +687,11 @@ func TestParallelReadonlyToolsThenWrite(t *testing.T) {
 		time.Now().UTC().Format(time.RFC3339)); err != nil {
 		t.Fatalf("config: %v", err)
 	}
+	if _, err := dbCfg.ExecContext(context.Background(),
+		`INSERT OR REPLACE INTO system_config (key, value, updated_at) VALUES ('admin_ai_write_enabled', 'true', ?)`,
+		time.Now().UTC().Format(time.RFC3339)); err != nil {
+		t.Fatalf("config: %v", err)
+	}
 	dbCfg.Close()
 
 	// mock LLM 网关：仅主流程推理请求（携带 tools）走轮次控制；会话标题/摘要等

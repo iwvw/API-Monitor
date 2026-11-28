@@ -51,6 +51,8 @@ const (
 	adminAIKeyMemoriesBootstrapChars = "admin_ai_memories_bootstrap_chars"
 	adminAIKeyMemoriesModel          = "admin_ai_memories_model" // 自动记忆提炼专用模型（留空回退会话模型/默认模型）
 	adminAIKeyContextWindow          = "admin_ai_context_window"
+	adminAIKeyEnabled                = "admin_ai_enabled"
+	adminAIKeyMemoriesRetention      = "admin_ai_memories_retention_days"
 
 	adminAIKeyMaxConcurrentRuns = "admin_ai_max_concurrent_runs" // 全局并发执行上限
 	adminAIKeySummaryModel      = "admin_ai_summary_model"       // 推理摘要专用模型（留空回退默认模型）

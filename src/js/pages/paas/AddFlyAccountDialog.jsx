@@ -1,6 +1,7 @@
 import React from 'react';
 import { LayerDialog } from '@cloudflare/kumo/components/layer-dialog';
 import { Input } from '@cloudflare/kumo/components/input';
+import { SensitiveInput } from '@cloudflare/kumo/components/sensitive-input';
 
 export default function AddFlyAccountDialog({ showAddFlyModal, setShowAddFlyModal, newFlyName, setNewFlyName, newFlyToken, setNewFlyToken, flyAddAccountError, addFlyAccount, flyAddingAccount }) {
   return (
@@ -25,11 +26,10 @@ export default function AddFlyAccountDialog({ showAddFlyModal, setShowAddFlyModa
               </div>
               <div className="space-y-1">
                 <label className="text-[11px] font-semibold text-kumo-subtle">API 令牌</label>
-                <Input size="sm"
+                <SensitiveInput size="sm"
                   aria-label="Fly.io API 令牌"
-                  type="text"
                   value={newFlyToken}
-                  onChange={(e) => setNewFlyToken(e.target.value)}
+                  onValueChange={setNewFlyToken}
                   placeholder="flyv1_xxxx"
                   autoComplete="off"
                   data-1p-ignore

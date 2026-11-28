@@ -14,7 +14,7 @@ import {
   defaultInviteCodeGeneratorForm,
   defaultPublicPageForm,
   defaultUserForm,
-  DEFAULT_NEW_USER_PASSWORD,
+  generateInitialPassword,
   workspaceHeightClass,
 } from './constants.js';
 import { M365_TABS } from './tabs.jsx';
@@ -65,8 +65,11 @@ function M365Page() {
   const [importingAccounts, setImportingAccounts] = useState(false);
 
   const [userSearch, setUserSearch] = useState('');
+  const [userSearchQuery, setUserSearchQuery] = useState('');
   const [usersLoading, setUsersLoading] = useState(false);
   const [users, setUsers] = useState([]);
+  const [usersTotal, setUsersTotal] = useState(0);
+  const [usersTruncated, setUsersTruncated] = useState(false);
   const [showUserDialog, setShowUserDialog] = useState(false);
   const [editingUser, setEditingUser] = useState(null);
   const [userForm, setUserForm] = useState(defaultUserForm);
@@ -347,17 +350,22 @@ function M365Page() {
   const loadUsers = useCallback(async () => {
     if (!selectedAccountId) {
       setUsers([]);
+      setUsersTotal(0);
+      setUsersTruncated(false);
       return;
     }
     setUsersLoading(true);
     try {
       const query = new URLSearchParams({ top: '200' });
-      if (userSearch.trim()) query.set('search', userSearch.trim());
+      if (userSearchQuery.trim()) query.set('search', userSearchQuery.trim());
       const data = await requestJSON(
         `/api/m365/accounts/${selectedAccountId}/users?${query.toString()}`
       );
       const items = Array.isArray(data.items) ? data.items : [];
       setUsers(items);
+      const total = Number(data.count);
+      setUsersTotal(Number.isFinite(total) && total > 0 ? total : items.length);
+      setUsersTruncated(Boolean(data.nextLink) || (Number.isFinite(total) && total > items.length));
       setSelectedUserId(current => {
         if (current && items.some(item => String(item.id) === String(current))) {
           return current;
@@ -370,7 +378,12 @@ function M365Page() {
     } finally {
       setUsersLoading(false);
     }
-  }, [activeTab, loadOneDriveUsage, requestJSON, selectedAccountId, userSearch]);
+  }, [loadOneDriveUsage, requestJSON, selectedAccountId, userSearchQuery]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => setUserSearchQuery(userSearch), 300);
+    return () => clearTimeout(timer);
+  }, [userSearch]);
 
   const loadSkusForAccount = useCallback(
     async accountId => {
@@ -750,7 +763,13 @@ function M365Page() {
   };
 
   const deleteAccount = async account => {
-    if (!confirmPress(`m365-account-delete:${account.id}`, `删除租户「${account.name}」`)) return;
+    if (
+      !confirmPress(
+        `m365-account-delete:${account.id}`,
+        `删除租户「${account.name}」(将同时删除其全部公开页与邀请码)`
+      )
+    )
+      return;
     try {
       await requestJSON(`/api/m365/accounts/${account.id}`, { method: 'DELETE' });
       toast.success('租户已删除');
@@ -821,6 +840,14 @@ function M365Page() {
       if (!Array.isArray(accountsToImport)) {
         throw new Error('导入内容必须是租户数组或包含 accounts 的对象');
       }
+      if (accountImportState.overwrite) {
+        const confirmed = await dialog.confirm({
+          title: '覆盖导入租户',
+          message: `将先删除数据库中的全部 ${accounts.length} 个现有租户及其公开页、邀请码,再写入本次导入的 ${accountsToImport.length} 个租户。`,
+          confirmText: '覆盖导入',
+        });
+        if (!confirmed) return;
+      }
       await requestJSON('/api/m365/import/accounts', {
         method: 'POST',
         body: JSON.stringify({
@@ -877,7 +904,7 @@ function M365Page() {
     setEditingUser(null);
     setUserForm({
       ...defaultUserForm,
-      password: DEFAULT_NEW_USER_PASSWORD,
+      password: generateInitialPassword(),
     });
     setUserDialogSkuIds([]);
     setInitialUserSkuIds([]);
@@ -962,7 +989,7 @@ function M365Page() {
       officeLocation: user.officeLocation || '',
       usageLocation: user.usageLocation || '',
       accountEnabled: user.accountEnabled !== false,
-      forceChangePasswordNextSignIn: false,
+      forceChangePasswordNextSignIn: true,
     });
     setUserDialogSkuIds([]);
     setInitialUserSkuIds([]);
@@ -989,7 +1016,7 @@ function M365Page() {
         officeLocation: details.officeLocation || '',
         usageLocation: details.usageLocation || '',
         accountEnabled: details.accountEnabled !== false,
-        forceChangePasswordNextSignIn: false,
+        forceChangePasswordNextSignIn: true,
       });
       setUserDialogSkuIds(assignedSkuIds);
       setInitialUserSkuIds(assignedSkuIds);
@@ -1064,20 +1091,31 @@ function M365Page() {
         const previousSkuIds = initialUserSkuIds.map(skuId => String(skuId || '')).filter(Boolean);
         const addLicenses = nextSkuIds.filter(skuId => !previousSkuIds.includes(skuId));
         const removeLicenses = previousSkuIds.filter(skuId => !nextSkuIds.includes(skuId));
+        setShowUserDialog(false);
+        await refreshUsersAndSkus();
+        toast.success('用户已更新');
         if (addLicenses.length > 0 || removeLicenses.length > 0) {
           setAssigningLicense(true);
-          await requestJSON(
-            `/api/m365/accounts/${selectedAccountId}/users/${editingUser.id}/assign-license`,
-            {
-              method: 'POST',
-              body: JSON.stringify({
-                addLicenses: addLicenses.map(skuId => ({ skuId })),
-                removeLicenses,
-              }),
-            }
-          );
+          try {
+            await requestJSON(
+              `/api/m365/accounts/${selectedAccountId}/users/${editingUser.id}/assign-license`,
+              {
+                method: 'POST',
+                body: JSON.stringify({
+                  addLicenses: addLicenses.map(skuId => ({ skuId })),
+                  removeLicenses,
+                }),
+              }
+            );
+            toast.success('许可证已更新');
+          } catch (licenseError) {
+            toast.warning(
+              `用户已更新,许可证分配失败:${licenseError.message || '可在编辑中重试'}`
+            );
+          } finally {
+            setAssigningLicense(false);
+          }
         }
-        toast.success('用户已更新');
       } else {
         const mailNickname = String(userForm.mailNickname || '').trim();
         const emailDomain = String(userForm.emailDomain || '').trim();
@@ -1095,24 +1133,34 @@ function M365Page() {
             userPrincipalName: `${mailNickname}@${emailDomain}`,
           }),
         });
-        if (userDialogSkuIds.length > 0 && createdUser?.id) {
-          setAssigningLicense(true);
-          await requestJSON(
-            `/api/m365/accounts/${selectedAccountId}/users/${createdUser.id}/assign-license`,
-            {
-              method: 'POST',
-              body: JSON.stringify({
-                addLicenses: userDialogSkuIds.map(skuId => ({ skuId })),
-                removeLicenses: [],
-              }),
-            }
-          );
-        }
+        const skuIdsToAssign = userDialogSkuIds.map(skuId => String(skuId || '')).filter(Boolean);
         setUserDialogSkuIds([]);
+        setShowUserDialog(false);
+        await refreshUsersAndSkus();
         toast.success('用户已创建');
+        if (skuIdsToAssign.length > 0 && createdUser?.id) {
+          setAssigningLicense(true);
+          try {
+            await requestJSON(
+              `/api/m365/accounts/${selectedAccountId}/users/${createdUser.id}/assign-license`,
+              {
+                method: 'POST',
+                body: JSON.stringify({
+                  addLicenses: skuIdsToAssign.map(skuId => ({ skuId })),
+                  removeLicenses: [],
+                }),
+              }
+            );
+            toast.success('许可证已分配');
+          } catch (licenseError) {
+            toast.warning(
+              `用户已创建,许可证分配失败:${licenseError.message || '可在编辑中重试'}`
+            );
+          } finally {
+            setAssigningLicense(false);
+          }
+        }
       }
-      setShowUserDialog(false);
-      await refreshUsersAndSkus();
     } catch (error) {
       toast.error(error.message || '保存用户失败');
     } finally {
@@ -1238,7 +1286,6 @@ function M365Page() {
         skuIds: publicPageForm.skuIds,
         enabled: publicPageForm.enabled,
         forceChangePasswordNextSignIn: publicPageForm.forceChangePasswordNextSignIn,
-        expiresAt: '',
       };
       if (publicPageForm.id) {
         await requestJSON(`/api/m365/public-pages/${publicPageForm.id}`, {
@@ -1455,6 +1502,8 @@ function M365Page() {
           openCreateUser={openCreateUser}
           usersLoading={usersLoading}
           users={users}
+          usersTotal={usersTotal}
+          usersTruncated={usersTruncated}
           skuLabelLookup={skuLabelLookup}
           selectedUserId={selectedUserId}
           setSelectedUserId={setSelectedUserId}

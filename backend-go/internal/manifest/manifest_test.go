@@ -423,11 +423,11 @@ func TestOpenListRouteIsRemoved(t *testing.T) {
 
 func TestOpenAIRoutesAreGoOwned(t *testing.T) {
 	for _, path := range []string{
-		"/api/openai/endpoints",
-		"/api/openai/endpoints/oai_123",
-		"/api/openai/endpoints/oai_123/verify",
-		"/api/openai/export",
-		"/api/openai/import",
+		"/api/modelhub/endpoints",
+		"/api/modelhub/endpoints/oai_123",
+		"/api/modelhub/endpoints/oai_123/verify",
+		"/api/modelhub/export",
+		"/api/modelhub/import",
 		"/v1/chat/completions",
 		"/v1/responses",
 		"/v1/models",

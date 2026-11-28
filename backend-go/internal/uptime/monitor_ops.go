@@ -232,7 +232,10 @@ func (s *Service) batchAction(w http.ResponseWriter, r *http.Request) {
 			count++
 		case "delete":
 			s.stopMonitor(id)
-			result, _ := db.ExecContext(r.Context(), `DELETE FROM uptime_monitors WHERE id = ?`, id)
+			result, execErr := db.ExecContext(r.Context(), `DELETE FROM uptime_monitors WHERE id = ?`, id)
+			if execErr != nil {
+				continue
+			}
 			changed, _ := result.RowsAffected()
 			if changed > 0 {
 				count++

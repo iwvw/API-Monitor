@@ -5,6 +5,7 @@ import { Empty } from '@cloudflare/kumo/components/empty';
 import { SectionCard } from '../../components/ui/AppPrimitives.jsx';
 import { Bell, Edit, GitBranch, Play, Plus, Trash } from '../../components/Icons.jsx';
 import { IconButton } from './shared.jsx';
+import { formatTimestamp } from './utils.js';
 import { WorkflowCanvas } from './WorkflowCanvas.jsx';
 
 export function WorkflowListTab({ workflows, tasks, runs, isArmed, onNavigate, openCreateWorkflow, openEditWorkflow, runWorkflow, deleteWorkflow }) {
@@ -39,7 +40,7 @@ export function WorkflowListTab({ workflows, tasks, runs, isArmed, onNavigate, o
                       <div className="mt-1 truncate text-xs font-semibold text-kumo-strong">
                         {workflow.enabled && workflow.schedule ? (
                           workflow.next_run
-                            ? new Date(workflow.next_run * 1000).toLocaleString()
+                            ? formatTimestamp(workflow.next_run)
                             : '等待调度'
                         ) : (
                           '手动触发'

@@ -29,6 +29,7 @@ import {
   Settings,
   Sparkle,
   LayoutSidebar,
+  Home,
   MODULE_GROUP_ICON_MAP,
   getModuleIconComponent,
 } from './Icons.jsx';
@@ -40,7 +41,7 @@ const TotpPage = lazy(() => import('../pages/TotpPage.jsx'));
 const FileboxPage = lazy(() => import('../pages/filebox/FileboxPage.jsx'));
 const UptimePage = lazy(() => import('../pages/uptime/UptimePage.jsx'));
 const NotificationPage = lazy(() => import('../pages/notification/NotificationPage.jsx'));
-const OpenAIPage = lazy(() => import('../pages/OpenAIPage.jsx'));
+const ModelHubPage = lazy(() => import('../pages/ModelHubPage.jsx'));
 const SubscriptionPage = lazy(() => import('../pages/SubscriptionPage.jsx'));
 const GitHubPage = lazy(() => import('../pages/GitHubPage.jsx'));
 const DockerHubPage = lazy(() => import('../pages/DockerHubPage.jsx'));
@@ -647,7 +648,7 @@ function MainLayout() {
     'notification',
     'filebox',
     'subscription',
-    'openai',
+    'modelhub',
     'aiagent',
     'apidocs',
     'dns',
@@ -679,6 +680,8 @@ function MainLayout() {
         : 'min-h-full'
   }`;
 
+  const BreadcrumbModuleIcon = getModuleIconComponent(mainActiveTab, Home);
+
   // 渲染当前模块页
   const renderActivePage = () => {
     switch (mainActiveTab) {
@@ -686,8 +689,8 @@ function MainLayout() {
         return <DashboardPage />;
       case 'assets':
         return <AssetsPage />;
-      case 'openai':
-        return <OpenAIPage />;
+      case 'modelhub':
+        return <ModelHubPage />;
       case 'subscription':
         return <SubscriptionPage />;
 
@@ -894,9 +897,11 @@ return (
                 spacing="compact"
                 breadcrumbs={
                   <AppBreadcrumbs size="sm" className="mr-0 min-w-0 overflow-hidden">
-                    <AppBreadcrumbs.Link href="/">首页</AppBreadcrumbs.Link>
+                    <AppBreadcrumbs.Link href="/" icon={<Home size={16} />}>首页</AppBreadcrumbs.Link>
                     <AppBreadcrumbs.Separator />
-                    <AppBreadcrumbs.Current>{getModuleName(mainActiveTab)}</AppBreadcrumbs.Current>
+                    <AppBreadcrumbs.Current icon={<BreadcrumbModuleIcon size={16} />}>
+                      {getModuleName(mainActiveTab)}
+                    </AppBreadcrumbs.Current>
                   </AppBreadcrumbs>
                 }
               >

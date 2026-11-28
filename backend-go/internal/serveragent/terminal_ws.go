@@ -27,8 +27,13 @@ type terminalWSMessage struct {
 }
 
 const (
-	terminalWriteWait    = 10 * time.Second
-	terminalPongWait     = 75 * time.Second
+	terminalWriteWait = 30 * time.Second
+	// terminalPongWait 是「多久没收到任何存活信号就认定链路已死」。
+	// 75s 在网络抖动时会因连丢 3 个 ping 就断开；120s 给到 4~5 个周期余量。
+	terminalPongWait = 120 * time.Second
+	// terminalPingInterval 必须明显小于 terminalPongWait，同时也要小于常见
+	// 反向代理的空闲超时（Nginx proxy_read_timeout 默认 60s）：
+	// 25s 一次能持续刷新代理侧的空闲计时器。
 	terminalPingInterval = 25 * time.Second
 )
 
@@ -276,6 +281,11 @@ func (s *Service) runAgentTerminalSession(r *http.Request, conn *websocket.Conn,
 			continue
 		}
 		switch msg.Type {
+		case "ping":
+			// 应用层探活：前端在无输出时靠它维持链路与代理空闲计时器。
+			writeJSON(terminalWSMessage{Type: "pong", Transport: "agent"})
+		case "pong":
+			// 前端对服务端 ping 的回应，收到即代表链路仍然可用。
 		case "input":
 			if msg.Data != "" {
 				_ = agentConn.SendEvent("dashboard:pty_input", map[string]interface{}{
@@ -323,7 +333,7 @@ func (s *Service) runSSHTerminalSession(r *http.Request, conn *websocket.Conn, c
 	client, err := ssh.Dial("tcp", net.JoinHostPort(cfg.Host, strconv.Itoa(cfg.Port)), &ssh.ClientConfig{
 		User:            cfg.Username,
 		Auth:            authMethods,
-		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+		HostKeyCallback: s.sshHostKeyCallback(),
 		Timeout:         20 * time.Second,
 	})
 	if err != nil {
@@ -417,6 +427,10 @@ func (s *Service) runSSHTerminalSession(r *http.Request, conn *websocket.Conn, c
 			continue
 		}
 		switch msg.Type {
+		case "ping":
+			writeJSON(terminalWSMessage{Type: "pong", Transport: "ssh"})
+		case "pong":
+			// 前端对服务端 ping 的回应。
 		case "input":
 			if msg.Data != "" {
 				_, _ = io.WriteString(stdin, msg.Data)

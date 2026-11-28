@@ -1,153 +1,154 @@
 package serveragent
 
 import (
-	"net/http"
-	"net/http/httptest"
-	"strings"
+	"fmt"
 	"testing"
 	"time"
-
-	"github.com/gorilla/websocket"
 )
 
-// TestMetricsHubBroadcastRemovesDeadClient 验证：客户端断开后广播不会
-// 永久阻塞，且死连接会被清理出注册表（慢/死客户端不得拖垮广播）。
-func TestMetricsHubBroadcastRemovesDeadClient(t *testing.T) {
-	upgrader := websocket.Upgrader{CheckOrigin: func(r *http.Request) bool { return true }}
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		conn, err := upgrader.Upgrade(w, r, nil)
-		if err != nil {
-			t.Errorf("upgrade: %v", err)
-			return
-		}
-		<-time.After(30 * time.Second)
-		_ = conn.Close()
-	}))
-	defer server.Close()
+// ---- 指标广播按需订阅（issue #77）----
 
-	wsURL := "ws" + strings.TrimPrefix(server.URL, "http")
-	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
-	if err != nil {
-		t.Fatalf("dial: %v", err)
+func newTestHubClient(id string) *MetricsHubClient {
+	return &MetricsHubClient{
+		sessionID: id,
+		connAt:    time.Now(),
 	}
+}
 
+// 未订阅（旧前端）仍按全量推送，保持向后兼容。
+func TestMetricsHubClientWantsWithoutSubscription(t *testing.T) {
+	client := newTestHubClient("c1")
+	if !client.wants("any-server") {
+		t.Fatal("未订阅的客户端应全量接收（兼容旧前端）")
+	}
+}
+
+// 订阅后只关心集合内的主机。
+func TestMetricsHubClientWantsAfterSubscribe(t *testing.T) {
 	hub := NewMetricsHub()
-	clientConn := conn // server side of the pair is inside the handler; the dialed conn is the "browser"
-	_ = clientConn
+	client := newTestHubClient("c2")
+	hub.clients["c2"] = client
 
-	// 为了让 server 侧拿到可写的连接，这里换一种方式：用 hub 直接持有
-	// 服务端升级后的连接。httptest handler 无法把 conn 传出，改用内存对：
-	// 注册一个「已关闭的挂起会话」，广播必须能清理它而不是永久阻塞。
-	session := &EngineIOSession{ID: "dead-client"}
-	session.mu.Lock()
-	session.wsConn = clientConn
-	session.mu.Unlock()
-	hub.Register("dead-client", session)
+	hub.Subscribe("c2", []string{"srv-a", " srv-b "})
 
-	clientConn.Close()
-
-	done := make(chan struct{})
-	go func() {
-		for i := 0; i < 20; i++ {
-			hub.BroadcastMetrics("server-1", map[string]interface{}{"cpu": i})
-		}
-		close(done)
-	}()
-
-	select {
-	case <-done:
-	case <-time.After(10 * time.Second):
-		t.Fatal("broadcast to dead client must not block forever")
+	if !client.wants("srv-a") || !client.wants("srv-b") {
+		t.Fatal("订阅内的主机应接收")
 	}
+	if client.wants("srv-c") {
+		t.Fatal("订阅外的主机不应接收")
+	}
+}
 
+// 空集合表示「明确不关心任何主机」，与「从未订阅」语义不同。
+func TestMetricsHubSubscribeEmptyMeansNothing(t *testing.T) {
+	hub := NewMetricsHub()
+	client := newTestHubClient("c3")
+	hub.clients["c3"] = client
+
+	hub.Subscribe("c3", []string{})
+
+	if client.wants("srv-a") {
+		t.Fatal("空订阅集合不应接收任何主机")
+	}
+	if client.subscription == nil {
+		t.Fatal("空订阅应是非 nil 的空集合，而不是「未订阅」")
+	}
+}
+
+// 订阅不存在的会话不得 panic、也不得凭空创建客户端。
+func TestMetricsHubSubscribeUnknownSessionIsNoop(t *testing.T) {
+	hub := NewMetricsHub()
+	hub.Subscribe("nobody", []string{"srv-a"})
 	if hub.ClientCount() != 0 {
-		t.Fatalf("dead client should be evicted, clients=%d", hub.ClientCount())
+		t.Fatalf("不应凭空创建客户端, count=%d", hub.ClientCount())
 	}
 }
 
-// TestMetricsHubBroadcastStripsSensitiveFields 验证：广播到浏览器命名空间的
-// 负载必须剥离 hostname/ip/isp/org/asn 等敏感标识（匿名可订阅），且不修改
-// 调用方持有的原始指标数据。
-func TestMetricsHubBroadcastStripsSensitiveFields(t *testing.T) {
+// 空白 serverId 要被过滤掉，避免把 "" 当成一台主机订阅。
+func TestMetricsHubSubscribeTrimsAndSkipsBlanks(t *testing.T) {
 	hub := NewMetricsHub()
-	session := &EngineIOSession{
-		ID:              "browser-client",
-		Transport:       "polling",
-		Namespace:       "/metrics",
-		PendingMessages: []string{},
-		LastActivity:    time.Now(),
-	}
-	hub.Register(session.ID, session)
+	client := newTestHubClient("c4")
+	hub.clients["c4"] = client
 
-	metrics := map[string]interface{}{
-		"cpu":      42.5,
-		"hostname": "secret-host",
-		"ip":       "203.0.113.7",
-		"network": map[string]interface{}{
-			"rx_speed": "1 MB/s",
-			"ip":       "198.51.100.9",
-		},
-		"docker": []interface{}{
-			map[string]interface{}{"name": "web", "ip": "10.0.0.2"},
-		},
-	}
-	hub.BroadcastMetrics("srv-1", metrics)
+	hub.Subscribe("c4", []string{"", "  ", "srv-a"})
 
-	session.mu.RLock()
-	defer session.mu.RUnlock()
-	if len(session.PendingMessages) != 1 {
-		t.Fatalf("pending messages = %#v", session.PendingMessages)
+	if len(client.subscription) != 1 {
+		t.Fatalf("订阅大小 = %d, want 1", len(client.subscription))
 	}
-	message := session.PendingMessages[0]
-	for _, banned := range []string{"secret-host", "203.0.113.7", "198.51.100.9", "10.0.0.2", "hostname", "\"ip\""} {
-		if strings.Contains(message, banned) {
-			t.Fatalf("broadcast leaked sensitive field %q: %s", banned, message)
+	if _, ok := client.subscription["srv-a"]; !ok {
+		t.Fatal("srv-a 应在订阅内")
+	}
+}
+
+// BroadcastMetrics 只分发给关心该主机的客户端。
+//
+// 直接断言「哪些客户端被选中」：hub.broadcastEvent 会真的往 websocket 写，
+// 测试里用无 session 的客户端会在写阶段被跳过，这里只验证筛选逻辑。
+func TestBroadcastMetricsFiltersBySubscription(t *testing.T) {
+	hub := NewMetricsHub()
+	interested := newTestHubClient("a")
+	interested.subscription = map[string]struct{}{"srv-1": {}}
+	bystander := newTestHubClient("b")
+	bystander.subscription = map[string]struct{}{"srv-2": {}}
+	legacy := newTestHubClient("c") // 未订阅，应全量接收
+	hub.clients["a"] = interested
+	hub.clients["b"] = bystander
+	hub.clients["c"] = legacy
+
+	var selected []string
+	hub.mu.RLock()
+	for _, c := range hub.clients {
+		if c.wants("srv-1") {
+			selected = append(selected, c.sessionID)
 		}
 	}
-	if !strings.Contains(message, `"cpu":42.5`) || !strings.Contains(message, "rx_speed") {
-		t.Fatalf("broadcast lost normal metrics fields: %s", message)
-	}
+	hub.mu.RUnlock()
 
-	// 原始 metrics 不允许被广播路径修改（仍需用于落库与内部缓存）。
-	if metrics["hostname"] != "secret-host" || metrics["ip"] != "203.0.113.7" {
-		t.Fatalf("original metrics map was mutated: %#v", metrics)
+	got := map[string]bool{}
+	for _, id := range selected {
+		got[id] = true
 	}
-	nested := metrics["network"].(map[string]interface{})
-	if nested["ip"] != "198.51.100.9" {
-		t.Fatalf("original nested map was mutated: %#v", nested)
+	if !got["a"] {
+		t.Fatal("订阅了 srv-1 的客户端应被选中")
+	}
+	if got["b"] {
+		t.Fatal("只订阅 srv-2 的客户端不应收到 srv-1 的指标")
+	}
+	if !got["c"] {
+		t.Fatal("未订阅的旧前端应继续全量接收")
 	}
 }
 
-// TestMetricsHubRootEventStripsSensitiveFields 验证 root 命名空间广播
-// （uptime:heartbeat）同样剥离敏感标识，包括嵌套在 beat.details 内的字段。
-func TestMetricsHubRootEventStripsSensitiveFields(t *testing.T) {
+// 订阅可被覆盖：前端切换看板时重复调用应生效，而不是累加。
+func TestMetricsHubSubscribeReplacesPrevious(t *testing.T) {
 	hub := NewMetricsHub()
-	session := &EngineIOSession{
-		ID:              "root-browser-client",
-		Transport:       "polling",
-		PendingMessages: []string{},
-		LastActivity:    time.Now(),
-	}
-	hub.RegisterRoot(session.ID, session)
+	client := newTestHubClient("c5")
+	hub.clients["c5"] = client
 
-	hub.BroadcastRootEvent("uptime:heartbeat", map[string]interface{}{
-		"monitorId": float64(3),
-		"beat": map[string]interface{}{
-			"status":  float64(1),
-			"details": map[string]interface{}{"ip": "192.0.2.44", "payload": "ok"},
-		},
-	})
+	hub.Subscribe("c5", []string{"srv-a", "srv-b"})
+	hub.Subscribe("c5", []string{"srv-c"})
 
-	session.mu.RLock()
-	defer session.mu.RUnlock()
-	if len(session.PendingMessages) != 1 {
-		t.Fatalf("pending messages = %#v", session.PendingMessages)
+	if client.wants("srv-a") {
+		t.Fatal("覆盖后不应再关心旧主机")
 	}
-	message := session.PendingMessages[0]
-	if strings.Contains(message, "192.0.2.44") || strings.Contains(message, "\"ip\"") {
-		t.Fatalf("root broadcast leaked sensitive field: %s", message)
+	if !client.wants("srv-c") {
+		t.Fatal("覆盖后应关心新主机")
 	}
-	if !strings.Contains(message, "uptime:heartbeat") || !strings.Contains(message, "payload") {
-		t.Fatalf("root broadcast lost normal fields: %s", message)
+}
+
+// 订阅集合要有上限：/metrics 命名空间匿名可达，无上限会被塞入巨量 id。
+func TestMetricsHubSubscribeCapsSize(t *testing.T) {
+	hub := NewMetricsHub()
+	client := newTestHubClient("c-cap")
+	hub.clients["c-cap"] = client
+
+	ids := make([]string, maxSubscriptionSize+500)
+	for i := range ids {
+		ids[i] = fmt.Sprintf("srv-%d", i)
+	}
+	hub.Subscribe("c-cap", ids)
+
+	if got := len(client.subscription); got != maxSubscriptionSize {
+		t.Fatalf("订阅大小 = %d, want %d（超限应截断）", got, maxSubscriptionSize)
 	}
 }

@@ -57,7 +57,7 @@ func sourceDescriptors() []sourceDescriptor {
 		{"server_accounts", "主机实例", "cloud_instance", categoryVirtual, loadServerAccounts},
 		{"subscription_subscriptions", "订阅套餐", "subscription", categoryVirtual, loadSubscriptions},
 		{"uptime_monitor_states", "SSL 证书", "ssl_cert", categoryVirtual, loadSSLMonitors},
-		{"openai_gateway_keys", "模型网关 Key", "api_key", categoryVirtual, loadOpenAIKeys},
+		{"modelhub_gateway_keys", "模型网关 Key", "api_key", categoryVirtual, loadModelHubKeys},
 		{"api_access_keys", "集中访问密钥", "api_key", categoryVirtual, loadAccessKeys},
 		{"aiagent_tokens", "Agent 令牌", "api_key", categoryVirtual, loadAgentTokens},
 		{"managed_proxy_nodes", "托管代理节点", "proxy_node", categoryVirtual, loadProxyNodes},
@@ -499,9 +499,9 @@ func loadSSLMonitors(ctx context.Context, db *sql.DB) ([]SourceCandidate, error)
 	return items, rows.Err()
 }
 
-func loadOpenAIKeys(ctx context.Context, db *sql.DB) ([]SourceCandidate, error) {
+func loadModelHubKeys(ctx context.Context, db *sql.DB) ([]SourceCandidate, error) {
 	rows, err := db.QueryContext(ctx,
-		"SELECT id, name, expires_at, enabled FROM openai_gateway_keys")
+		"SELECT id, name, expires_at, enabled FROM modelhub_gateway_keys")
 	if err != nil {
 		return nil, err
 	}
@@ -518,7 +518,7 @@ func loadOpenAIKeys(ctx context.Context, db *sql.DB) ([]SourceCandidate, error) 
 			continue
 		}
 		items = append(items, SourceCandidate{
-			SourceModule: "openai_gateway_keys",
+			SourceModule: "modelhub_gateway_keys",
 			SourceRefID:  id,
 			Name:         name,
 			Provider:     "模型网关",

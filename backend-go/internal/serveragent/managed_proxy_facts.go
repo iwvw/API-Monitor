@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"strings"
 	"time"
+
+	"github.com/iwvw/api-monitor/backend-go/internal/applog"
 )
 
 type managedRuntimeFact struct {
@@ -30,12 +32,17 @@ func (s *Service) startManagedProxyFactsLoop(ctx context.Context) {
 			return
 		case <-ticker.C:
 		}
+		sem := make(chan struct{}, 4)
 		for _, connection := range s.registry.List() {
 			serverID := strings.TrimSpace(connection.ServerID)
 			if serverID == "" {
 				continue
 			}
-			go s.reconcileManagedProxyFacts(serverID)
+			sem <- struct{}{}
+			go func(id string) {
+				defer func() { <-sem }()
+				s.reconcileManagedProxyFacts(id)
+			}(serverID)
 		}
 	}
 }
@@ -44,7 +51,7 @@ func (s *Service) reconcileManagedProxyFacts(serverID string) {
 	if _, busy := s.taskRegistry.ActiveTask(proxyTaskResource(serverID)); busy {
 		return
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	ctx, cancel := context.WithTimeout(s.backgroundCtx, 2*time.Minute)
 	defer cancel()
 	db, err := s.open(ctx)
 	if err != nil {
@@ -71,7 +78,9 @@ func (s *Service) reconcileManagedProxyFacts(serverID string) {
 					if desiredStatus == "removed" && !fact.Installed {
 						applyStatus, lastError = "not_installed", ""
 					}
-					_, _ = db.ExecContext(ctx, `UPDATE managed_proxy_runtimes SET observed_status=?,observed_version=?,observed_at=datetime('now'),apply_status=?,last_error=?,updated_at=datetime('now') WHERE server_id=?`, fact.Status, fact.Version, applyStatus, lastError, serverID)
+					if _, execErr := db.ExecContext(ctx, `UPDATE managed_proxy_runtimes SET observed_status=?,observed_version=?,observed_at=datetime('now'),apply_status=?,last_error=?,updated_at=datetime('now') WHERE server_id=?`, fact.Status, fact.Version, applyStatus, lastError, serverID); execErr != nil {
+						applog.Warn(ctx, "serveragent", "managed proxy runtime fact update failed", "server_id", serverID, "error", execErr.Error())
+					}
 				}
 			}
 		}
@@ -117,7 +126,9 @@ func (s *Service) reconcileManagedProxyFacts(serverID string) {
 			} else if node.enabled == 0 && (fact.Status == "stopped" || fact.Status == "missing") {
 				applyStatus, lastError = "stopped", ""
 			}
-			_, _ = db.ExecContext(ctx, `UPDATE managed_proxy_nodes SET observed_status=?,observed_revision=?,observed_port=?,stats_port=?,observed_at=datetime('now'),apply_status=?,publishable=CASE WHEN access_mode='cloudflare_tunnel' AND NOT EXISTS(SELECT 1 FROM managed_proxy_tunnels WHERE server_id=? AND apply_status='running') THEN 0 ELSE ? END,last_error=?,updated_at=datetime('now') WHERE id=?`, fact.Status, fact.Revision, fact.AssignedPort, fact.StatsPort, applyStatus, serverID, publishable, lastError, node.id)
+			if _, execErr := db.ExecContext(ctx, `UPDATE managed_proxy_nodes SET observed_status=?,observed_revision=?,observed_port=?,stats_port=?,observed_at=datetime('now'),apply_status=?,publishable=CASE WHEN access_mode='cloudflare_tunnel' AND NOT EXISTS(SELECT 1 FROM managed_proxy_tunnels WHERE server_id=? AND apply_status='running') THEN 0 ELSE ? END,last_error=?,updated_at=datetime('now') WHERE id=?`, fact.Status, fact.Revision, fact.AssignedPort, fact.StatsPort, applyStatus, serverID, publishable, lastError, node.id); execErr != nil {
+				applog.Warn(ctx, "serveragent", "managed proxy node fact update failed", "server_id", serverID, "node_id", node.id, "error", execErr.Error())
+			}
 		}
 	}
 }

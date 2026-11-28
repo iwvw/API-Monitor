@@ -157,11 +157,11 @@ var routeAliases = map[string][]string{
 	"/api/bookmarks/favicon/fetch": {"抓取网站图标", "favicon", "获取站点图标"},
 	"/api/bookmarks/import":        {"导入网址导航", "导入书签", "sunpanel 导入"},
 
-	"/api/openai":                             {"模型网关", "openai", "网关"},
-	"/api/openai/endpoints":                   {"模型端点", "模型接口"},
-	"/api/openai/endpoints/{id}/health-check": {"端点健康检查"},
-	"/api/openai/analytics/summary":           {"网关用量", "调用量汇总"},
-	"/api/openai/keys":                        {"网关 api key", "openai key"},
+	"/api/modelhub":                             {"模型网关", "modelhub", "网关"},
+	"/api/modelhub/endpoints":                   {"模型端点", "模型接口"},
+	"/api/modelhub/endpoints/{id}/health-check": {"端点健康检查"},
+	"/api/modelhub/analytics/summary":           {"网关用量", "调用量汇总"},
+	"/api/modelhub/keys":                        {"网关 api key", "modelhub key"},
 
 	"/api/subscription":              {"订阅分发", "订阅管理"},
 	"/sub/{token}":                   {"clash 订阅", "v2ray 订阅", "订阅链接"},
@@ -209,9 +209,9 @@ var routeAliases = map[string][]string{
 	"/api/assets/refresh-all":    {"刷新纳管", "同步来源", "刷新全部资产"},
 	"/api/assets/scan-expiry":    {"资产到期扫描", "执行到期检查", "触发到期告警"},
 
-	"/api/openai/analytics/logs":           {"网关日志", "调用日志", "请求日志", "openai 日志"},
-	"/api/openai/analytics/clear-history":  {"清理看板历史", "清空看板历史", "清除看板历史"},
-	"/api/openai/analytics":                {"网关统计", "用量统计", "令牌统计"},
+	"/api/modelhub/analytics/logs":           {"网关日志", "调用日志", "请求日志", "modelhub 日志"},
+	"/api/modelhub/analytics/clear-history":  {"清理看板历史", "清空看板历史", "清除看板历史"},
+	"/api/modelhub/analytics":                {"网关统计", "用量统计", "令牌统计"},
 	"/api/github/actions":                  {"workflow 运行", "actions", "工作流运行", "github 运行"},
 	"/api/github/repositories":             {"仓库列表", "github 仓库列表"},
 	"/api/cron":                            {"定时任务列表", "cron 任务"},
@@ -261,6 +261,9 @@ type intentSignals struct {
 	joined   string
 	tokens   []string
 	trigrams []string
+	// bigrams 是中文两字片段,仅用于匹配请求体字段语义(如“备注”)。
+	// 「备注」这类 2 字词落在三字片段之外,不加这层 body 字段永远召不回。
+	bigrams  []string
 	synonyms []string
 	// asciiStripped 是剔除 ASCII 词元后的紧凑串（「安装1panel应用」→「安装应用」），
 	// 用于别名匹配绕开夹在中间的模块名/品牌名。
@@ -314,11 +317,20 @@ func analyzeIntent(query string) intentSignals {
 		}
 		trigrams = append(trigrams, chunk)
 	}
+	bigrams := make([]string, 0, 16)
+	for i := 0; i+2 <= len(runes); i++ {
+		chunk := string(runes[i : i+2])
+		if !hasCJK(chunk) || containsString(bigrams, chunk) {
+			continue
+		}
+		bigrams = append(bigrams, chunk)
+	}
 	synonyms := expandIntentSynonyms(joined)
 	return intentSignals{
 		joined:        joined,
 		tokens:        tokens,
 		trigrams:      trigrams,
+		bigrams:       bigrams,
 		synonyms:      synonyms,
 		asciiStripped: stripASCIIWords(joined),
 	}
@@ -462,7 +474,8 @@ func scoreRouteMatch(route apiDocRoute, signals intentSignals) (int, []matchReas
 	lowerDesc := strings.ToLower(route.Description)
 	lowerGroup := strings.ToLower(route.Group)
 	lowerModule := strings.ToLower(strings.TrimPrefix(route.Module, "-"))
-	searchText := strings.ToLower(route.Prefix + " " + route.Detail + " " + route.Description + " " + route.Group + " " + route.Module)
+	schemaWords := strings.ToLower(schemaSearchWords(route.RequestSchema))
+	searchText := strings.ToLower(route.Prefix + " " + route.Detail + " " + route.Description + " " + route.Group + " " + route.Module) + " " + schemaWords
 
 	for _, tri := range signals.trigrams {
 		if strings.Contains(lowerDetail, tri) || strings.Contains(lowerDesc, tri) {
@@ -471,6 +484,16 @@ func scoreRouteMatch(route apiDocRoute, signals intentSignals) (int, []matchReas
 		} else if strings.Contains(lowerGroup, tri) || strings.Contains(lowerModule, tri) {
 			score += 2
 			reasons = appendReason(reasons, tri, "group", 2)
+		}
+	}
+	// 请求体字段语义召回:两字片段只与契约字段名/描述比对(如“备注”→description),
+	// 避免把「更新」「名称」这类泛词拿去匹配整段描述造成噪声。
+	if schemaWords != "" {
+		for _, big := range signals.bigrams {
+			if strings.Contains(schemaWords, big) {
+				score += 2
+				reasons = appendReason(reasons, big, "body-field", 2)
+			}
 		}
 	}
 	for _, token := range signals.tokens {

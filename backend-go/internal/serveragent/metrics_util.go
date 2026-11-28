@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -514,7 +515,24 @@ func stringMetric(metrics map[string]interface{}, key, fallback string) string {
 	return fallback
 }
 
+var (
+	cpuModelGenuineRe    = regexp.MustCompile(`(?i)\bGenuineIntel\b\s*`)
+	cpuModelAuthenticRe  = regexp.MustCompile(`(?i)\bAuthenticAMD\b\s*`)
+	cpuModelCoreSuffixRe = regexp.MustCompile(`\s+\d+\s*Core\(s\)\s*$`)
+)
+
+func normalizeCPUModel(model string) string {
+	m := cpuModelGenuineRe.ReplaceAllString(model, "")
+	m = cpuModelAuthenticRe.ReplaceAllString(m, "")
+	m = cpuModelCoreSuffixRe.ReplaceAllString(m, "")
+	return strings.Join(strings.Fields(m), " ")
+}
+
 func extractCPUModel(metrics map[string]interface{}) string {
+	return normalizeCPUModel(extractCPUModelRaw(metrics))
+}
+
+func extractCPUModelRaw(metrics map[string]interface{}) string {
 	candidates := []string{
 		stringMetric(metrics, "cpu_model", ""),
 		stringMetric(metrics, "cpu_name", ""),

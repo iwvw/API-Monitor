@@ -162,6 +162,13 @@ func clamp(value, min, max int) int {
 	return value
 }
 
+func firstError(current, next error) error {
+	if current != nil {
+		return current
+	}
+	return next
+}
+
 func firstNonEmpty(values ...string) string {
 	for _, value := range values {
 		if strings.TrimSpace(value) != "" {

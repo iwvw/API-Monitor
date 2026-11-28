@@ -39,6 +39,16 @@ const (
 	voidRoomModePersistent = "persistent"
 )
 
+// 公开端点(verify/download/retrieve)按「IP|code」记录失败次数并退避,
+// 阻断对受口令保护分享的在线爆破与 code 枚举。
+const (
+	publicAuthMaxFailures = 5
+	publicAuthWindow      = 15 * time.Minute
+	publicAuthBaseBackoff = 15 * time.Second
+	publicAuthMaxBackoff  = 30 * time.Minute
+	publicAttemptMaxKeys  = 8192
+)
+
 const textFormatMarkdown = "markdown"
 
 // downloadDedupWindow 是「真实逻辑下载」去重窗口：同一 IP 在同一 code 上
@@ -65,6 +75,15 @@ type Service struct {
 	// downloadDedup 记录每个「ip|code」最近一次计数的时刻，用于同一逻辑下载的并发/重复请求去重。
 	downloadDedup map[string]int64
 	dedupMu       sync.Mutex
+	// publicAttempts 记录每个「ip|code」的公开端点失败次数与锁定时刻,用于爆破/枚举退避。
+	publicAttempts map[string]*publicAttempt
+	attemptMu      sync.Mutex
+}
+
+type publicAttempt struct {
+	failures     int
+	firstFailure int64
+	blockedUntil int64
 }
 
 type voidRoom struct {
@@ -208,14 +227,15 @@ type sharePayload struct {
 func New(cfg config.Config, authenticator Authenticator) *Service {
 	dataDir := filepath.Join(cfg.DataDir, "filebox")
 	service := &Service{
-		cfg:           cfg,
-		store:         database.New(cfg),
-		auth:          authenticator,
-		dataDir:       dataDir,
-		uploadsDir:    filepath.Join(dataDir, "uploads"),
-		metadataFile:  filepath.Join(dataDir, "metadata.json"),
-		voidRooms:     map[string]*voidRoom{},
-		downloadDedup: map[string]int64{},
+		cfg:            cfg,
+		store:          database.New(cfg),
+		auth:           authenticator,
+		dataDir:        dataDir,
+		uploadsDir:     filepath.Join(dataDir, "uploads"),
+		metadataFile:   filepath.Join(dataDir, "metadata.json"),
+		voidRooms:      map[string]*voidRoom{},
+		downloadDedup:  map[string]int64{},
+		publicAttempts: map[string]*publicAttempt{},
 	}
 	_ = service.ensureDirs()
 	_ = service.migrateJSONMetadata(context.Background())
@@ -308,9 +328,9 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		s.detachVoidRoomFile(w, r, parts[2], parts[4])
 	case len(parts) == 2 && parts[0] == "retrieve" && r.Method == http.MethodGet:
-		s.sendEntryMetadata(w, r, parts[1])
+		s.sendEntryMetadata(w, r, parts[1], false)
 	case len(parts) == 2 && parts[0] == "public" && r.Method == http.MethodGet:
-		s.sendEntryMetadata(w, r, parts[1])
+		s.sendEntryMetadata(w, r, parts[1], false)
 	case len(parts) == 2 && parts[0] == "download" && r.Method == http.MethodGet:
 		s.downloadEntry(w, r, parts[1])
 	case len(parts) == 2 && parts[0] == "d" && r.Method == http.MethodGet:
@@ -355,7 +375,7 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if !s.requireAuth(w, r) {
 			return
 		}
-		s.sendEntryMetadata(w, r, parts[1])
+		s.sendEntryMetadata(w, r, parts[1], true)
 	case len(parts) == 1 && parts[0] == "storage-nodes" && r.Method == http.MethodGet:
 		if !s.requireAuth(w, r) {
 			return
@@ -396,18 +416,41 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Service) sendEntryMetadata(w http.ResponseWriter, r *http.Request, code string) {
+func (s *Service) sendEntryMetadata(w http.ResponseWriter, r *http.Request, code string, admin bool) {
+	ip := clientIP(r)
+	if !admin && s.publicAttemptBlocked(ip, code) {
+		response.JSON(w, http.StatusTooManyRequests, map[string]interface{}{"success": false, "error": "too many requests, please retry later"})
+		return
+	}
 	entry, err := s.GetEntry(r.Context(), code, false)
 	if err != nil {
 		response.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	if entry == nil {
+		if !admin {
+			s.notePublicFailure(ip, code)
+		}
 		response.JSON(w, http.StatusNotFound, map[string]interface{}{"success": false, "error": "File not found or expired"})
 		return
 	}
 	_ = s.LogAccess(r.Context(), entry.Code, "retrieve", metaFromRequest(r))
-	response.OK(w, publicEntry(entry))
+	if admin {
+		response.OK(w, publicEntry(entry))
+		return
+	}
+	accessPassword := accessPasswordFromRequest(r)
+	if !verifyAccessPassword(entry, accessPassword) {
+		// 口令错误同样计入公开端点失败退避,避免把元数据端点当口令预言机。
+		s.notePublicFailure(ip, code)
+		if s.publicAttemptBlocked(ip, code) {
+			response.JSON(w, http.StatusTooManyRequests, map[string]interface{}{"success": false, "error": "too many requests, please retry later"})
+			return
+		}
+	} else {
+		s.notePublicSuccess(ip, code)
+	}
+	response.OK(w, publicEntryForPublicRequest(entry, accessPassword))
 }
 
 func (s *Service) createVoidRoom(w http.ResponseWriter, r *http.Request) {
@@ -742,7 +785,7 @@ func (s *Service) attachVoidRoomFile(w http.ResponseWriter, r *http.Request, id 
 	s.persistVoidRoomFiles(r.Context(), room)
 
 	response.OK(w, map[string]interface{}{
-		"room": snapshot,
+		"room":  snapshot,
 		"entry": publicEntry(entry),
 	})
 }
@@ -770,7 +813,7 @@ func (s *Service) listVoidRoomFiles(w http.ResponseWriter, r *http.Request, id s
 		if err != nil || entry == nil {
 			continue
 		}
-		entries = append(entries, publicEntry(entry))
+		entries = append(entries, publicEntryForPublicRequest(entry, ""))
 	}
 	response.OK(w, entries)
 }
@@ -1337,19 +1380,27 @@ func isLoopbackHost(host string) bool {
 }
 
 func (s *Service) downloadEntry(w http.ResponseWriter, r *http.Request, code string) {
+	ip := clientIP(r)
+	if s.publicAttemptBlocked(ip, code) {
+		http.Error(w, "Too many failed attempts, please retry later", http.StatusTooManyRequests)
+		return
+	}
 	entry, err := s.GetEntry(r.Context(), code, false)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	if entry == nil {
+		s.notePublicFailure(ip, code)
 		http.Error(w, "File not found or expired", http.StatusNotFound)
 		return
 	}
 	if !verifyAccessPassword(entry, accessPasswordFromRequest(r)) {
+		s.notePublicFailure(ip, code)
 		http.Error(w, "Password required or invalid", http.StatusForbidden)
 		return
 	}
+	s.notePublicSuccess(ip, code)
 
 	// 先原子占用下载名额（计数/烧毁删除）再发送内容：并发请求同时通过的
 	// MaxDownloads 检查不会全部放行，超卖窗口关闭。
@@ -1402,6 +1453,10 @@ func (s *Service) downloadEntry(w http.ResponseWriter, r *http.Request, code str
 		http.Error(w, "File not found or expired", http.StatusNotFound)
 		return
 	}
+	if !isPathInside(s.uploadsDir, *entry.Path) {
+		http.Error(w, "File not found or expired", http.StatusNotFound)
+		return
+	}
 	file, err := os.Open(*entry.Path)
 	if err != nil {
 		http.Error(w, "File not found or expired", http.StatusNotFound)
@@ -1426,21 +1481,29 @@ func (s *Service) downloadEntry(w http.ResponseWriter, r *http.Request, code str
 }
 
 func (s *Service) verifyPublicShare(w http.ResponseWriter, r *http.Request, code string) {
+	ip := clientIP(r)
+	if s.publicAttemptBlocked(ip, code) {
+		response.JSON(w, http.StatusTooManyRequests, map[string]interface{}{"success": false, "requiresPassword": false})
+		return
+	}
 	entry, err := s.GetEntry(r.Context(), code, false)
 	if err != nil {
 		response.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	if entry == nil {
-		response.JSON(w, http.StatusNotFound, map[string]interface{}{"success": false, "error": "File not found or expired"})
+		// 与口令错误同构:同为 403,避免通过状态码区分 code 是否存在。
+		s.notePublicFailure(ip, code)
+		response.JSON(w, http.StatusForbidden, map[string]interface{}{"success": false, "requiresPassword": false})
 		return
 	}
-	verified := verifyAccessPassword(entry, accessPasswordFromRequest(r))
-	status := http.StatusOK
-	if !verified {
-		status = http.StatusForbidden
+	if !verifyAccessPassword(entry, accessPasswordFromRequest(r)) {
+		s.notePublicFailure(ip, code)
+		response.JSON(w, http.StatusForbidden, map[string]interface{}{"success": false, "requiresPassword": true})
+		return
 	}
-	response.JSON(w, status, map[string]interface{}{"success": verified, "requiresPassword": entry.RequiresPassword})
+	s.notePublicSuccess(ip, code)
+	response.JSON(w, http.StatusOK, map[string]interface{}{"success": true, "requiresPassword": entry.RequiresPassword})
 }
 
 func (s *Service) createShare(w http.ResponseWriter, r *http.Request) {
@@ -1842,6 +1905,88 @@ func (s *Service) claimDownloadSlot(ip, code string) bool {
 		}
 	}
 	return true
+}
+
+// publicAttemptKey 组装公开端点退避键(与 downloadDedup 同层,使用直连对端 IP,
+// 不采信可伪造的 X-Forwarded-For)。
+func publicAttemptKey(ip, code string) string {
+	return strings.TrimSpace(ip) + "|" + normalizeCode(code)
+}
+
+func clientIP(r *http.Request) string {
+	remote := strings.TrimSpace(r.RemoteAddr)
+	if host, _, err := net.SplitHostPort(remote); err == nil && host != "" {
+		return host
+	}
+	return remote
+}
+
+// publicAttemptBlocked 报告「IP|code」是否处于失败退避锁定中。
+func (s *Service) publicAttemptBlocked(ip, code string) bool {
+	key := publicAttemptKey(ip, code)
+	now := time.Now().UnixMilli()
+	s.attemptMu.Lock()
+	defer s.attemptMu.Unlock()
+	attempt := s.publicAttempts[key]
+	if attempt == nil {
+		return false
+	}
+	if attempt.blockedUntil > now {
+		return true
+	}
+	if attempt.blockedUntil != 0 {
+		delete(s.publicAttempts, key)
+		return false
+	}
+	if attempt.firstFailure > 0 && now-attempt.firstFailure >= publicAuthWindow.Milliseconds() {
+		delete(s.publicAttempts, key)
+	}
+	return false
+}
+
+// notePublicFailure 记录一次公开端点失败;达到阈值后按指数退避锁定。
+func (s *Service) notePublicFailure(ip, code string) {
+	if strings.TrimSpace(ip) == "" {
+		return
+	}
+	key := publicAttemptKey(ip, code)
+	now := time.Now().UnixMilli()
+	s.attemptMu.Lock()
+	defer s.attemptMu.Unlock()
+	attempt := s.publicAttempts[key]
+	if attempt == nil {
+		attempt = &publicAttempt{firstFailure: now}
+		s.publicAttempts[key] = attempt
+	} else if attempt.firstFailure > 0 && now-attempt.firstFailure >= publicAuthWindow.Milliseconds() {
+		attempt.failures = 0
+		attempt.firstFailure = now
+	}
+	attempt.failures++
+	if attempt.failures >= publicAuthMaxFailures {
+		backoff := time.Duration(attempt.failures-publicAuthMaxFailures+1) * publicAuthBaseBackoff
+		if backoff > publicAuthMaxBackoff {
+			backoff = publicAuthMaxBackoff
+		}
+		attempt.blockedUntil = now + backoff.Milliseconds()
+	}
+	if len(s.publicAttempts) > publicAttemptMaxKeys {
+		for k, item := range s.publicAttempts {
+			if item.blockedUntil <= now {
+				delete(s.publicAttempts, k)
+			}
+		}
+	}
+}
+
+// notePublicSuccess 清除「IP|code」的失败记录(成功访问即解除退避)。
+func (s *Service) notePublicSuccess(ip, code string) {
+	if strings.TrimSpace(ip) == "" {
+		return
+	}
+	key := publicAttemptKey(ip, code)
+	s.attemptMu.Lock()
+	delete(s.publicAttempts, key)
+	s.attemptMu.Unlock()
 }
 
 func (s *Service) DeleteEntry(ctx context.Context, code string) (bool, error) {
@@ -2263,6 +2408,21 @@ func publicEntry(entry *Entry) PublicEntry {
 		}
 		result.Preview = string(runes)
 	}
+	return result
+}
+
+// publicEntryForPublicRequest 返回面向未鉴权公开端点的条目视图:受口令保护的条目在
+// 通过口令校验前只暴露 code/type/requiresPassword,校验通过(或本无口令)后返回
+// 完整公开字段但剥离 ServerID(内部托管拓扑仅管理端可见)。
+func publicEntryForPublicRequest(entry *Entry, accessPassword string) PublicEntry {
+	if entry == nil {
+		return PublicEntry{}
+	}
+	if !verifyAccessPassword(entry, accessPassword) {
+		return PublicEntry{Code: entry.Code, Type: entry.Type, RequiresPassword: true}
+	}
+	result := publicEntry(entry)
+	result.ServerID = nil
 	return result
 }
 

@@ -1,0 +1,1951 @@
+import { Fragment, useEffect, useRef, useState } from 'react';
+import QRCode from 'qrcode';
+import { Button, Switch, Loader, Dialog, LayerCard, Input, Badge, Table, Toolbar, Select, Popover, Tabs } from '@cloudflare/kumo';
+import { SectionCard, FieldRow, EmptyState, AppTable } from '../../../components/ui/AppPrimitives.jsx';
+import { CodeBuddyBrand, Rocket, Users, Layers, TrendingUp, RefreshCw, Plus, Trash, Edit, Upload, Download } from '../../../components/Icons.jsx';
+import { toast } from '../../../modules/toast.js';
+import { dialog } from '../../../modules/dialog.js';
+import { TOOL_TABS_PROPS } from '../../../modules/kumoTabs.js';
+import { getAuthHeaders, formatCompact } from '../utils.js';
+
+const API = '/api/workbuddy';
+
+// 账号区域元数据：国内版（CodeBuddy 扫码）/ 办公版（WorkBuddy 桌面端，含企微）/
+// 国际版（网页 OneID）。region 缺省按国内版（与后端 normalizeRegion 一致）。
+const REGION_META = {
+  cn: { label: '国内', tag: '国内版 · codebuddy.cn', badge: 'blue', qr: true, checkin: true },
+  wb: { label: '办公', tag: '办公版 · workbuddy.cn', badge: 'teal', qr: false, checkin: false },
+  intl: { label: '国际', tag: '国际版 · workbuddy.ai', badge: 'purple', qr: false, checkin: false },
+};
+const normalizeRegion = region => (region === 'intl' || region === 'wb' ? region : 'cn');
+const regionMeta = region => REGION_META[normalizeRegion(region)];
+
+const WORKBUDDY_ACCOUNT_COLUMNS = [
+  { id: 'enabled', role: 'control' },
+  { id: 'checkinEnabled', role: 'control' },
+  { id: 'region', role: 'type' },
+  { id: 'account', role: 'primary', grow: 1 },
+  { id: 'calls', role: 'count', align: 'center' },
+  { id: 'checkin', role: 'meta', align: 'center' },
+  { id: 'balance', role: 'meta', align: 'center' },
+  { id: 'status', role: 'status' },
+  { id: 'actions', role: 'actions-lg' },
+];
+
+const WORKBUDDY_USAGE_ACCOUNT_COLUMNS = [
+  { id: 'account', role: 'primary', grow: 1 },
+  { id: 'calls', role: 'count', align: 'center' },
+  { id: 'prompt', role: 'count', align: 'center' },
+  { id: 'completion', role: 'count', align: 'center' },
+  { id: 'cached', role: 'count', align: 'center' },
+  { id: 'credit', role: 'count', align: 'center' },
+];
+
+const WORKBUDDY_USAGE_MODEL_COLUMNS = [
+  { id: 'model', role: 'primary', grow: 1 },
+  { id: 'calls', role: 'count', align: 'center' },
+  { id: 'prompt', role: 'count', align: 'center' },
+  { id: 'completion', role: 'count', align: 'center' },
+  { id: 'cached', role: 'count', align: 'center' },
+  { id: 'credit', role: 'count', align: 'center' },
+];
+
+const WORKBUDDY_MODEL_COLUMNS = [
+  { id: 'enabled', role: 'control' },
+  { id: 'region', role: 'type' },
+  { id: 'model', role: 'primary', grow: 1 },
+  { id: 'credits', role: 'meta', align: 'center' },
+  { id: 'context', role: 'count', align: 'center' },
+  { id: 'maxOutput', role: 'count', align: 'center' },
+  { id: 'thinking', role: 'meta', align: 'center' },
+  { id: 'images', role: 'status' },
+];
+
+// 登录轮询间隔：与参考实现一致，2 秒一次，由前端驱动节奏。
+const POLL_INTERVAL_MS = 2000;
+
+// fmtLeft 把剩余秒数格式化成「x 小时 y 分 / y 分」。
+const fmtLeft = seconds => {
+  const left = Number(seconds) || 0;
+  if (left <= 0) return '';
+  const h = Math.floor(left / 3600);
+  const m = Math.floor((left % 3600) / 60);
+  return h > 0 ? `${h}h${m}m` : `${Math.max(1, m)}m`;
+};
+
+// fmtUntil 把「限流恢复时刻」（Unix 秒）格式化成本地时间，用于悬停提示。
+const fmtUntil = unix => {
+  const sec = Number(unix) || 0;
+  if (sec <= 0) return '—';
+  const d = new Date(sec * 1000);
+  const p = n => String(n).padStart(2, '0');
+  return `${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+};
+
+// fmtStamp 把 RFC3339 时间戳格式化成本地「月-日 时:分」，用于签到列。
+const fmtStamp = value => {
+  if (!value) return '—';
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return '—';
+  const p = n => String(n).padStart(2, '0');
+  return `${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+};
+
+// tokenStateMeta 把后端 token 状态映射为徽标外观与文案。
+const tokenStateMeta = state => {
+  switch (state) {
+    case 'valid':
+      return { variant: 'success', label: '正常' };
+    case 'expiring':
+      return { variant: 'warning', label: '即将过期' };
+    case 'expired':
+      return { variant: 'danger', label: '已过期' };
+    default:
+      return { variant: 'neutral', label: '未知' };
+  }
+};
+
+const fmtContext = value => {
+  const n = Number(value) || 0;
+  if (n <= 0) return '—';
+  return n >= 1000 ? `${Math.round(n / 1000)}K` : String(n);
+};
+
+// 用量与扣费的展示格式：词元用万/亿压缩，扣费按量级保留 2~4 位小数
+// （credit 常是 0.03 这种小数，固定 2 位会全变成 0.03/0.00 看不出差异）。
+const fmtTokens = v => formatCompact(Number(v) || 0);
+const fmtCredit = v => {
+  const n = Number(v) || 0;
+  if (!(n > 0)) return '0';
+  if (n >= 1000) return n.toFixed(0);
+  if (n >= 1) return n.toFixed(2);
+  return n.toFixed(4);
+};
+const fmtRate = r => {
+  const n = Number(r);
+  if (!Number.isFinite(n) || n <= 0) return '—';
+  return `${(n * 100).toFixed(1)}%`;
+};
+
+// fmtBalance 格式化余额数值（积分）：整数不带小数，带小数保留两位。
+const fmtBalance = v => {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return '—';
+  return Number.isInteger(n) ? String(n) : n.toFixed(2);
+};
+
+// scopedRegionMeta 取某模型在指定区域的元数据（后端按区域保留思考能力/促销/套餐门槛）。
+//
+// 为什么必须按区域取：上游的这些字段是**按区域目录**分别下发的（促销与套餐门槛
+// 目前只有国际版下发），而模型目录是按 id 合并的视图。直接用顶层的 promotion/tier
+// 会把国际版的活动错标到国内版头上；反之合并时若丢掉非基座区域，整条促销信息
+// 就永远不可见。
+const scopedRegionMeta = (m, region) => m?.regionMeta?.[region] || null;
+
+// regionPromotion 取当前 tab 区域的限时促销。
+//
+// 有按区域元数据时**只用该区域自己的值**（没有就是没有，不跨区域借用）：
+// 顶层字段代表的是合并基座区域的值，借用它会把别的区域的促销错标过来。
+// 只有完全没有按区域元数据时（老后端）才退回顶层字段。
+const regionPromotion = (m, region) => {
+  const scoped = scopedRegionMeta(m, region);
+  if (scoped) return scoped.promotion || null;
+  return m?.promotion || null;
+};
+
+// regionTier 取当前 tab 区域的套餐门槛（规则同 regionPromotion）。
+const regionTier = (m, region) => {
+  const scoped = scopedRegionMeta(m, region);
+  if (scoped) return scoped.tier || null;
+  return m?.tier || null;
+};
+
+// regionThinking 取当前 tab 区域的思考能力（规则同 regionPromotion）。
+const regionThinking = (m, region) => {
+  const scoped = scopedRegionMeta(m, region);
+  if (scoped) return scoped.thinking || null;
+  return m?.thinking || null;
+};
+
+// fmtCredits 格式化上游积分倍率（来自 /v3/config 的 credits，形如 "x0.79 credits"）。
+// 解析失败时退回原始串，再退回「—」，绝不显示成 0（会被误读为免费）。
+// 有生效中的促销时显示「免费」/折后价，原价放进 tooltip。
+const fmtCredits = (m, region) => {
+  const promo = regionPromotion(m, region);
+  if (promo && Number(promo.factor) === 0) return '免费';
+  if (promo && Number(promo.factor) > 0 && Number(promo.factor) < 1) {
+    const base = m?.creditsParsed ? Number(m.creditsMultiplier) : 0;
+    if (base > 0) return `x${(base * Number(promo.factor)).toFixed(2)}`;
+  }
+  if (m?.creditsParsed) return `x${Number(m.creditsMultiplier).toFixed(2)}`;
+  if (m?.creditsLabel) return m.creditsLabel;
+  // 上游没下发倍率：办公版（wb）整份目录都没有 credits 字段，这不是拉取失败，
+  // 需要在表头提示里区分开（见 creditsColumnHint）。
+  return '—';
+};
+
+// creditsBorrowedInRegion 判断某模型在当前区域展示的倍率是否为「借自其它区域」。
+//
+// 办公版（wb）的 /v3/config 完全不返回 credits（实测 37/37），但同 id 的模型在
+// 国内版（cn）有值，合并时沿用了 cn 的倍率。对办公版用户来说那个数字不是本区域
+// 上游给的，必须标注，否则会被当成办公版的权威倍率。
+// 判据：当前区域视角下，该模型的 idRegions 里除了本区域还有别的区域（说明值可能
+// 来自那些区域），且本区域目录自己没下发倍率（用 creditsUnavailable 已判断过）。
+const creditsBorrowedInRegion = (m, region) => {
+  if (!m?.creditsParsed) return false;
+  const idRegions = Array.isArray(m.idRegions) ? m.idRegions : [];
+  if (idRegions.length < 2) return false;
+  // 只有「本区域目录不提供倍率」时才谈得上借用。
+  return idRegions.includes(region) && region === 'wb';
+};
+
+// creditsUnavailable 判断某区域上游是否**根本不提供** credits。
+//
+// 不能只看「所有模型都缺倍率」：办公版（wb）实测 37/37 缺该字段，但与国内版（cn）
+// 同 id 的模型在合并时会继承 cn 的倍率，于是 tab 里一半有值一半「—」，
+// 「全都缺」的判定永远为 false，提示出不来。
+//
+// 正确判据是该区域内**存在任何**仅属于它自己的模型（idRegions 只有本区域）
+// 却没有倍率——那说明本区域目录没下发，而不是个别模型没定价。
+const creditsUnavailable = (models, region) => {
+  if (!models?.length || !region) return false;
+  const ownOnly = models.filter(m => {
+    const idRegions = Array.isArray(m.idRegions) ? m.idRegions : [];
+    return idRegions.length === 1 && idRegions[0] === region;
+  });
+  if (!ownOnly.length) {
+    // 该区域没有独有模型（目录与其它区域完全重合）：退回「整份都缺」判定。
+    return models.every(m => !m.creditsParsed && !m.creditsLabel && !regionPromotion(m, region));
+  }
+  return ownOnly.every(m => !m.creditsParsed && !m.creditsLabel && !regionPromotion(m, region));
+};
+
+// creditsTitle 生成倍率列的悬浮说明：原价、促销详情、到期时间、区域来源。
+// 上游缺该字段时明确说明「办公版不提供」，并指向官方查看位置。
+// region 是当前 tab 的区域：办公版展示的值可能借自国内版，必须写明。
+const creditsTitle = (m, region) => {
+  const parts = [];
+  if (m?.creditsLabel) parts.push(`上游原始值：${m.creditsLabel}`);
+  const promo = regionPromotion(m, region);
+  if (promo) {
+    if (promo.label) parts.push(promo.label);
+    if (promo.text) parts.push(promo.text);
+    if (promo.validUntil) parts.push(`活动截止 ${promo.validUntil}`);
+  }
+  if (!parts.length) {
+    parts.push('上游未提供倍率');
+    // 当前 tab 的区域上游不返回 credits 字段：说明去向，避免误判为拉取失败。
+    if (region === 'wb') {
+      parts.push('办公版 /v3/config 不返回 credits，请到官网「个人中心 → 套餐与用量 → 积分消耗明细」查看');
+    }
+  } else if (region === 'wb') {
+    // 值存在但当前是办公版 tab：这个数字来自与办公版共用的其它区域目录。
+    const idRegions = Array.isArray(m?.idRegions) ? m.idRegions : [];
+    const sources = idRegions.filter(r => r !== 'wb');
+    if (sources.length) {
+      parts.push(`办公版目录不返回倍率，此处显示的是其它区域（${sources.join('/')}）的值，仅供横向参考`);
+    }
+  }
+  return parts.join(' · ');
+};
+
+// thinkingMeta 生成思考列：档位数量与是否可关闭，悬浮列出全部档位。
+// 按当前 tab 区域取思考能力（上游按区域目录分别声明）。
+const thinkingMeta = (m, region) => {
+  const t = regionThinking(m, region);
+  if (!t) return { label: '—', title: '该模型不支持思考档位' };
+  const efforts = t.supportedEfforts || [];
+  if (!efforts.length) {
+    // 只有默认档（上游未声明档位列表）：只能落到该档。
+    return {
+      label: t.defaultEffort || '固定',
+      title: `上游只接受固定档位 ${t.defaultEffort || '默认'}，调用方的 reasoning_effort 会被归一到该档`,
+    };
+  }
+  const detail = `档位：${efforts.join(' / ')}（默认 ${t.defaultEffort || efforts[efforts.length - 1]}）`;
+  const toggle = t.canDisable ? '可关闭' : '不可关闭';
+  return { label: `${efforts.length} 档`, title: `${detail} · ${toggle}` };
+};
+
+// modelsByRegion 把合并后的模型目录按**账号区域**拆成三份，供模型区 tab 使用。
+//
+// 为什么要拆：三个区域的目录差异很大，混在一张表里有两类问题——
+//   1) 办公版（wb）的 /v3/config 完全不返回 credits（实测 37/37 缺失），
+//      混排时同一列里既有权威倍率又有「—」，看不出是哪个区域缺；
+//   2) 型号级 regions 是「共用」的，而 idRegions 才说明当前这行属于哪个区域。
+//
+// 归属规则：优先用 routableRegions（该区域账号**实际可调用**的模型 id），
+// 回退到 idRegions / regions。
+//
+// **为什么不是只用 idRegions**：办公版目录不列 deepseek-v4.1-flash 等 19 个模型，
+// 但办公版账号实测可以调用（wb 与 cn 同域同模型命名空间，后端
+// buildRegionModelSet 已把 wb 扩为 cn ∪ wb）。只看目录会让这些可用模型在办公版
+// tab 里凭空消失。一个 id 若可被多区域调用，会同时出现在多个 tab —— 这是正确的，
+// 因为它在每个区域都是独立可选、独立计费的上游条目。
+const MODEL_REGION_TABS = [
+  { value: 'cn', label: '国内版' },
+  { value: 'wb', label: '办公版' },
+  { value: 'intl', label: '国际版' },
+];
+
+// modelRegionsOf 返回该模型归属的区域列表（按优先级回退）。
+// 优先 routableRegions（该区域账号实际可调用的模型 id），再退 idRegions / regions。
+// fallback 用于三者都缺失时的兜底（不同用途的兜底不同，故做成参数）。
+const modelRegionsOf = (m, fallback = []) => {
+  const candidates = [m?.routableRegions, m?.idRegions, m?.regions];
+  for (const list of candidates) {
+    if (Array.isArray(list) && list.length) return list;
+  }
+  return fallback;
+};
+
+const modelsByRegion = models => {
+  const groups = { cn: [], wb: [], intl: [] };
+  for (const m of models || []) {
+    for (const raw of modelRegionsOf(m, ['cn'])) {
+      const region = normalizeRegion(raw);
+      groups[region].push(m);
+    }
+  }
+  return groups;
+};
+
+// isListedInRegion 判断该模型是否出现在某区域的**上游目录**里（idRegions）。
+// 与 routableRegions 的区别：前者是「目录列出」，后者是「实际可调用」。
+// 办公版有若干模型目录不列但可调用，前端需要把这类标出来。
+const isListedInRegion = (m, region) => {
+  const idRegions = Array.isArray(m.idRegions) ? m.idRegions : [];
+  return idRegions.includes(normalizeRegion(region));
+};
+
+// WorkBuddyPlugin：模型网关「插件中心」卡片——腾讯 CodeBuddy / WorkBuddy 转 OpenAI 兼容 API。
+// 添加国内版/国际版账号后，插件把上游模型目录与对话转发包装成 OpenAI 兼容端点，
+// 可一键接入网关端点列表，由网关统一路由/计费/日志。
+export function WorkBuddyPlugin() {
+  const [settings, setSettings] = useState(null);
+  const [status, setStatus] = useState(null);
+  const [accounts, setAccounts] = useState([]);
+  const [models, setModels] = useState([]);
+  const [modelsReady, setModelsReady] = useState(true);
+  // 模型区分区域展示：三个区域目录差异大（办公版无倍率字段），混排会误导。
+  const [modelRegionTab, setModelRegionTab] = useState('cn');
+  const [linkState, setLinkState] = useState(null);
+  const [usage, setUsage] = useState(null);
+  const [usageDays, setUsageDays] = useState(7);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [prefixDraft, setPrefixDraft] = useState(null);
+  const [busyAccount, setBusyAccount] = useState('');
+  // 余额：accountId → Balance（含 error 字段），点按钮按需拉取。
+  const [balances, setBalances] = useState({});
+  const [balanceLoading, setBalanceLoading] = useState({});
+  // 连登状态：accountId → StreakFull（含 error 字段），点按钮按需拉取。
+  const [streaks, setStreaks] = useState({});
+  const [streakAccount, setStreakAccount] = useState(null);
+  const [linkBusy, setLinkBusy] = useState(false);
+  const [editAccount, setEditAccount] = useState(null);
+  const [editName, setEditName] = useState('');
+  const [loginOpen, setLoginOpen] = useState(false);
+  const [loginRegion, setLoginRegion] = useState('cn');
+  const [login, setLogin] = useState({ phase: 'idle', state: '', url: '', image: '', error: '' });
+  const fileInputRef = useRef(null);
+  const settingsSeqRef = useRef(0);
+
+  const load = async () => {
+    try {
+      const res = await fetch(`${API}/settings`, { headers: getAuthHeaders() });
+      const data = await res.json();
+      if (!res.ok || !data?.success) throw new Error(data?.error || '加载失败');
+      setSettings(data.settings);
+      setAccounts(data.settings?.accounts || []);
+    } catch (e) {
+      toast.error(`插件设置加载失败：${e.message}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const loadStatus = async () => {
+    try {
+      const res = await fetch(`${API}/status`, { headers: getAuthHeaders() });
+      const data = await res.json();
+      if (res.ok) setStatus(data);
+    } catch {
+      setStatus(null);
+    }
+  };
+
+  const loadAccounts = async () => {
+    try {
+      const res = await fetch(`${API}/accounts`, { headers: getAuthHeaders() });
+      const data = await res.json();
+      if (res.ok && data?.success) setAccounts(data.accounts || []);
+    } catch {
+      /* 保留上一次列表 */
+    }
+  };
+
+  const loadModels = async () => {
+    try {
+      const res = await fetch(`${API}/models`, { headers: getAuthHeaders() });
+      const data = await res.json();
+      if (res.ok && data?.success) {
+        setModels(data.models || []);
+        setModelsReady(!!data.upstreamReady);
+      }
+    } catch {
+      /* 保留上一次列表 */
+    }
+  };
+
+  // 用量与扣费：按站点时区近 N 天聚合（后端已 flush 未落盘增量，含刚发生的调用）。
+  const loadUsage = async () => {
+    try {
+      const res = await fetch(`${API}/usage?days=${usageDays}`, { headers: getAuthHeaders() });
+      const data = await res.json();
+      if (res.ok && data?.success) setUsage(data);
+    } catch {
+      /* 保留上一次数据 */
+    }
+  };
+
+  const loadLink = async () => {
+    try {
+      const res = await fetch(`${API}/link`, { headers: getAuthHeaders() });
+      const data = await res.json();
+      if (res.ok) setLinkState(data);
+    } catch {
+      setLinkState(null);
+    }
+  };
+
+  useEffect(() => {
+    load();
+    loadStatus();
+    loadModels();
+    loadLink();
+  }, []);
+
+  // 进入页面自动查询各账号余额（只查尚未缓存/未在查询中的账号，避免重复打上游）。
+  // 依赖账号 id 列表：登录/删除账号后自动补齐，无需手动点「查询」。
+  const accountIdKey = accounts.map(a => a.id).join(',');
+  useEffect(() => {
+    if (!accounts.length) return;
+    accounts.forEach(a => {
+      if (balances[a.id] || balanceLoading[a.id]) return;
+      loadBalance(a);
+    });
+  }, [accountIdKey]);
+
+  useEffect(() => {
+    loadUsage();
+  }, [usageDays]);
+
+  const refreshAll = async () => {
+    setRefreshing(true);
+    try {
+      await Promise.all([loadStatus(), loadAccounts(), loadModels(), loadLink(), loadUsage()]);
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
+  // 登录轮询：只在对话框打开且已拿到 state 时运行。
+  useEffect(() => {
+    if (!loginOpen || !login.state || login.phase === 'success') return undefined;
+    // 会话更替(切换区域/重新发起登录)时 abort 在途 poll,避免旧会话响应
+    // 把新会话错误地标成 error。
+    const controller = new AbortController();
+    const timer = setInterval(async () => {
+      try {
+        const res = await fetch(`${API}/login/poll`, {
+          method: 'POST',
+          headers: getAuthHeaders(),
+          body: JSON.stringify({ state: login.state }),
+          signal: controller.signal,
+        });
+        const data = await res.json();
+        if (!res.ok || !data?.success) throw new Error(data?.error || '轮询失败');
+        if (data.status === 'success') {
+          setLogin(prev => ({ ...prev, phase: 'success', error: '' }));
+          toast.success('CodeBuddy 登录成功');
+          await Promise.all([loadAccounts(), loadStatus(), loadModels()]);
+          setLoginOpen(false);
+        }
+      } catch (e) {
+        if (e?.name === 'AbortError') return;
+        setLogin(prev => (prev.phase === 'success' ? prev : { ...prev, phase: 'error', error: e.message }));
+      }
+    }, POLL_INTERVAL_MS);
+    return () => {
+      clearInterval(timer);
+      controller.abort();
+    };
+  }, [loginOpen, login.state, login.phase]);
+
+  // 登录方式：国内版用 CodeBuddy 客户端扫码；办公版/国际版是网页登录
+  // （办公版桌面端登录页含企业微信渠道），需在浏览器打开授权链接完成登录，故不生成二维码。
+  const regionNeedsQR = region => regionMeta(region).qr;
+
+  // 复制登录链接：办公版企微登录必须把链接在「企业微信内置浏览器」里打开
+  // （UA 含 wxwork 才会走企微 OAuth），故提供一键复制，方便转发到企业微信。
+  const copyLoginUrl = async () => {
+    if (!login.url) return;
+    try {
+      await navigator.clipboard.writeText(login.url);
+      toast.success('登录链接已复制，请在企业微信中打开');
+    } catch {
+      toast.error('复制失败，请手动选择链接复制');
+    }
+  };
+
+  const startLogin = async (region = loginRegion) => {
+    const target = region || 'cn';
+    setLogin({ phase: 'loading', state: '', url: '', image: '', error: '' });
+    try {
+      const res = await fetch(`${API}/login/start`, {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ region: target }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data?.success) throw new Error(data?.error || '发起登录失败');
+      const image = regionNeedsQR(target) ? await QRCode.toDataURL(data.url, { width: 220, margin: 1 }) : '';
+      setLogin({ phase: 'waiting', state: data.state, url: data.url, image, error: '' });
+    } catch (e) {
+      setLogin({ phase: 'error', state: '', url: '', image: '', error: e.message });
+    }
+  };
+
+  const openLogin = () => {
+    setLoginOpen(true);
+    startLogin();
+  };
+
+  // 切换登录区域：若当前处于等待授权，立即用新区域重新发起一次登录。
+  const changeLoginRegion = value => {
+    setLoginRegion(value);
+    if (loginOpen && login.phase === 'waiting') {
+      startLogin(value);
+    }
+  };
+
+  const save = async (next, msg = '设置已保存', snapshot) => {
+    if (!next) {
+      toast.error('插件设置尚未加载,无法保存');
+      return false;
+    }
+    const seq = ++settingsSeqRef.current;
+    setSaving(true);
+    try {
+      const res = await fetch(`${API}/settings`, {
+        method: 'PUT',
+        headers: getAuthHeaders(),
+        body: JSON.stringify(next),
+      });
+      const data = await res.json();
+      if (!res.ok || !data?.success) throw new Error(data?.error || '保存失败');
+      if (seq === settingsSeqRef.current) setSettings(data.settings);
+      toast.success(msg);
+      return true;
+    } catch (e) {
+      if (seq === settingsSeqRef.current) {
+        if (snapshot !== undefined) setSettings(snapshot);
+        toast.error(`保存失败：${e.message}`);
+      }
+      return false;
+    } finally {
+      if (seq === settingsSeqRef.current) setSaving(false);
+    }
+  };
+
+  const update = (patch, silent = false) => {
+    if (!settings) {
+      toast.error('插件设置尚未加载,暂不能修改');
+      return;
+    }
+    const snapshot = settings;
+    const next = { ...settings, ...patch };
+    setSettings(next);
+    if (!silent) void save(next, '设置已保存', snapshot);
+  };
+
+  // 模型前缀：输入过程用本地草稿，失焦才提交（避免每次击键 PUT）。
+  const commitModelPrefix = () => {
+    const v = String(prefixDraft ?? '').trim();
+    setPrefixDraft(null);
+    if (v !== (settings?.modelPrefix || '')) update({ modelPrefix: v });
+  };
+
+  // 启用开关:先落库设置,成功后再接入/移除网关端点,避免两次并发请求出现
+  // 「设置已启用但端点缺失」的长期不一致。
+  const toggleEnabled = async enabled => {
+    if (!settings) {
+      toast.error('插件设置尚未加载,暂不能修改');
+      return;
+    }
+    const ok = await save({ ...settings, enabled }, '设置已保存', settings);
+    if (ok) await linkPlugin(enabled ? 'link' : 'unlink');
+  };
+
+  const toggleAccount = async (account, enabled) => {
+    setBusyAccount(account.id);
+    try {
+      const res = await fetch(`${API}/accounts/${encodeURIComponent(account.id)}/toggle`, {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ disabled: !enabled }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data?.success) throw new Error(data?.error || '操作失败');
+      toast.success(enabled ? '账号已启用' : '账号已停用');
+      await loadAccounts();
+    } catch (e) {
+      toast.error(e.message);
+    } finally {
+      setBusyAccount('');
+    }
+  };
+
+  const toggleCheckin = async (account, enabled) => {
+    setBusyAccount(account.id);
+    try {
+      const res = await fetch(`${API}/accounts/${encodeURIComponent(account.id)}/checkin-toggle`, {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ disabled: !enabled }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data?.success) throw new Error(data?.error || '操作失败');
+      toast.success(enabled ? '已开启签到' : '已停用签到');
+      await loadAccounts();
+    } catch (e) {
+      toast.error(e.message);
+    } finally {
+      setBusyAccount('');
+    }
+  };
+
+  const refreshAccount = async account => {
+    setBusyAccount(account.id);
+    try {
+      const res = await fetch(`${API}/accounts/${encodeURIComponent(account.id)}/refresh`, {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: '{}',
+      });
+      const data = await res.json();
+      if (!res.ok || !data?.success) throw new Error(data?.error || '刷新失败');
+      toast.success('token 已刷新');
+      await loadAccounts();
+    } catch (e) {
+      toast.error(`刷新失败：${e.message}`);
+    } finally {
+      setBusyAccount('');
+    }
+  };
+
+  // 余额：按账号 id 缓存，点「余额」按钮时按需拉取（不自动全量拉，避免频繁打上游）。
+  const loadBalance = async account => {
+    setBalanceLoading(prev => ({ ...prev, [account.id]: true }));
+    try {
+      const res = await fetch(`${API}/accounts/${encodeURIComponent(account.id)}/balance`, {
+        headers: getAuthHeaders(),
+      });
+      const data = await res.json();
+      if (!res.ok || !data?.success) throw new Error(data?.error || '查询失败');
+      setBalances(prev => ({ ...prev, [account.id]: data.balance }));
+    } catch (e) {
+      setBalances(prev => ({ ...prev, [account.id]: { error: e.message } }));
+    } finally {
+      setBalanceLoading(prev => ({ ...prev, [account.id]: false }));
+    }
+  };
+
+  // 签到：单账号立即签到（含连登管家：兑换已解锁档位 + 抽奖）。
+  const checkinAccount = async account => {
+    setBusyAccount(account.id);
+    try {
+      const res = await fetch(`${API}/accounts/${encodeURIComponent(account.id)}/checkin`, {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: '{}',
+      });
+      const data = await res.json();
+      if (!res.ok || !data?.success) throw new Error(data?.error || '签到失败');
+      const r = data.result || {};
+      toast.success(`${account.nickname || account.id}：${r.message || '签到完成'}`);
+      await Promise.all([loadAccounts(), loadStatus()]);
+    } catch (e) {
+      toast.error(`签到失败：${e.message}`);
+    } finally {
+      setBusyAccount('');
+    }
+  };
+
+  const checkinAll = async () => {
+    setRefreshing(true);
+    try {
+      const res = await fetch(`${API}/checkin`, { method: 'POST', headers: getAuthHeaders(), body: '{}' });
+      const data = await res.json();
+      if (!res.ok || !data?.success) throw new Error(data?.error || '签到失败');
+      const results = data.results || [];
+      const ok = results.filter(r => r.success).length;
+      toast.success(`已签到 ${ok}/${results.length} 个账号`);
+      await Promise.all([loadAccounts(), loadStatus()]);
+    } catch (e) {
+      toast.error(`签到失败：${e.message}`);
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
+  const activityAll = async () => {
+    setRefreshing(true);
+    try {
+      const res = await fetch(`${API}/activity`, { method: 'POST', headers: getAuthHeaders(), body: '{}' });
+      const data = await res.json();
+      if (!res.ok || !data?.success) throw new Error(data?.error || '上报失败');
+      const results = data.results || [];
+      const ok = results.filter(r => r.success).length;
+      toast.success(`活跃已上报 ${ok}/${results.length} 个账号`);
+    } catch (e) {
+      toast.error(`活跃上报失败：${e.message}`);
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
+  // 连登状态：点按钮按需拉取，用 Popover 展示明细。
+  const loadStreak = async account => {
+    try {
+      const res = await fetch(`${API}/accounts/${encodeURIComponent(account.id)}/streak`, { headers: getAuthHeaders() });
+      const data = await res.json();
+      if (!res.ok || !data?.success) throw new Error(data?.error || '查询失败');
+      setStreaks(prev => ({ ...prev, [account.id]: data.streak }));
+    } catch (e) {
+      setStreaks(prev => ({ ...prev, [account.id]: { error: e.message } }));
+    }
+  };
+
+  const deleteAccount = async account => {
+    if (!(await dialog.deleteResource({ message: `确定删除账号 ${account.id} 吗?该账号凭据将从本机移除。` }))) return;
+    try {
+      const res = await fetch(`${API}/accounts/${encodeURIComponent(account.id)}`, {
+        method: 'DELETE',
+        headers: getAuthHeaders(),
+      });
+      const data = await res.json();
+      if (!res.ok || !data?.success) throw new Error(data?.error || '删除失败');
+      toast.success('账号已删除');
+      await Promise.all([loadAccounts(), loadStatus()]);
+    } catch (e) {
+      toast.error(`删除失败：${e.message}`);
+    }
+  };
+
+  const saveEditAccount = async () => {
+    if (!editAccount) return;
+    try {
+      const res = await fetch(`${API}/accounts/${encodeURIComponent(editAccount.id)}`, {
+        method: 'PUT',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ nickname: editName.trim() }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data?.success) throw new Error(data?.error || '保存失败');
+      toast.success('账号已更新');
+      setEditAccount(null);
+      await loadAccounts();
+    } catch (e) {
+      toast.error(`保存失败：${e.message}`);
+    }
+  };
+
+  // applyModels 是模型启停的唯一落点：同时更新表格与 settings.disabledModels。
+  // 若只更新表格，「保存设置」的整对象 PUT 会带上切换前的旧名单，
+  // 把刚做的启停覆盖掉（现象：开关存不住、刷新后回到之前的状态）。
+  const applyModels = next => {
+    setModels(next);
+    setSettings(s => (s ? { ...s, disabledModels: next.filter(m => !m.enabled).map(m => m.id) } : s));
+  };
+
+  const toggleModel = async (model, enabled) => {
+    try {
+      const res = await fetch(`${API}/models/toggle/${encodeURIComponent(model.id)}`, {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ enabled }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data?.success) throw new Error(data?.error || '操作失败');
+      applyModels(models.map(m => (m.id === model.id ? { ...m, enabled } : m)));
+    } catch (e) {
+      toast.error(e.message);
+    }
+  };
+
+  // toggleModelsBulk 按**给定模型列表**批量启停。模型区按区域分 tab 后，
+  // 表头的全选开关只作用于当前 tab 的模型，因此不能再无脑提交全部模型。
+  const toggleModelsBulk = async (targets, enabled) => {
+    const ids = (targets || []).map(m => m.id);
+    if (!ids.length) return;
+    try {
+      const res = await fetch(`${API}/models/toggle-batch`, {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ enabled, models: ids }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data?.success) throw new Error(data?.error || '操作失败');
+      const touched = new Set(ids);
+      applyModels(models.map(m => (touched.has(m.id) ? { ...m, enabled } : m)));
+    } catch (e) {
+      toast.error(e.message);
+    }
+  };
+
+  const linkPlugin = async action => {
+    setLinkBusy(true);
+    try {
+      const res = await fetch(`${API}/link`, {
+        method: action === 'link' ? 'POST' : 'DELETE',
+        headers: getAuthHeaders(),
+        body: '{}',
+      });
+      const data = await res.json();
+      if (!res.ok || !data?.success) throw new Error(data?.error || (action === 'link' ? '接入失败' : '断开失败'));
+      setLinkState(data);
+      toast.success(action === 'link' ? '已接入模型网关端点列表' : '已从端点列表移除');
+    } catch (e) {
+      toast.error(e.message);
+    } finally {
+      setLinkBusy(false);
+    }
+  };
+
+  const exportAccounts = () => window.open(`${API}/accounts/export`, '_blank');
+
+  const importFile = file => {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = async () => {
+      try {
+        const parsed = JSON.parse(String(reader.result || '{}'));
+        const payload = Array.isArray(parsed) ? { accounts: parsed } : parsed;
+        const res = await fetch(`${API}/accounts/import`, {
+          method: 'POST',
+          headers: getAuthHeaders(),
+          body: JSON.stringify(payload),
+        });
+        const data = await res.json();
+        if (!res.ok || !data?.success) throw new Error(data?.error || '导入失败');
+        toast.success(`已导入 ${data.added ?? 0} 个账号`);
+        await Promise.all([loadAccounts(), loadStatus()]);
+      } catch (e) {
+        toast.error(`导入失败：${e.message}`);
+      }
+    };
+    reader.readAsText(file);
+  };
+
+  if (loading) {
+    return (
+      <div className="flex h-full min-w-0 items-center justify-center">
+        <Loader size="lg" />
+      </div>
+    );
+  }
+
+  // 按区域拆分模型，并提供当前 tab 的列表与 tab 项（带数量徽标）。
+  const modelGroups = modelsByRegion(models);
+  const regionTabItems = MODEL_REGION_TABS.map(t => ({
+    value: t.value,
+    label: (
+      <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
+        {t.label}
+        <span className="font-mono text-[0.9em] text-kumo-subtle">{modelGroups[t.value].length}</span>
+      </span>
+    ),
+  }));
+  // 当前 tab 无模型时（例如只导入了国内版账号）自动落到第一个非空区域，
+  // 避免用户看到空白表却不知道为什么。
+  const activeRegionKey =
+    modelGroups[modelRegionTab]?.length || !models.length
+      ? modelRegionTab
+      : MODEL_REGION_TABS.map(t => t.value).find(k => modelGroups[k].length) || modelRegionTab;
+  const activeRegionModels = modelGroups[activeRegionKey] || [];
+  const activeRegionEnabled = activeRegionModels.length > 0 && activeRegionModels.every(m => m.enabled);
+  // 当前区域目录是否整份缺倍率（决定表头提示与是否显示「上游不提供」徽标）。
+  const activeRegionNoCredits = creditsUnavailable(activeRegionModels, activeRegionKey);
+
+  // 账号按区域分组（国内在上、办公居中、国际在下），表格内上下分开显示。
+  const accountGroups = [
+    { region: 'cn', label: REGION_META.cn.tag, items: accounts.filter(a => normalizeRegion(a.region) === 'cn') },
+    { region: 'wb', label: REGION_META.wb.tag, items: accounts.filter(a => normalizeRegion(a.region) === 'wb') },
+    { region: 'intl', label: REGION_META.intl.tag, items: accounts.filter(a => normalizeRegion(a.region) === 'intl') },
+  ].filter(g => g.items.length > 0);
+
+  // 模型跨区标记：按 **routableRegions**（实际可调用的区域）判定。
+  //
+  // 分 tab 后当前区域已由 tab 表达，再显示「共用」会让人误读成
+  // 「共用了别的区域的数据」。这里真正有用的信息是「这个 id 除了当前区域，
+  // 还能在哪些区域调用」——它决定转发时会不会在这些区域的账号间轮询。
+  const modelCrossRegionMeta = (m, region) => {
+    const routable = modelRegionsOf(m);
+    const others = routable.filter(r => normalizeRegion(r) !== normalizeRegion(region));
+    if (!others.length) return null;
+    const labels = others.map(r => regionMeta(r).label);
+    return {
+      label: `跨${labels.join('/')}`,
+      title: `该模型在${labels.join('、')}版也可调用（同一 id），转发时会在这些区域的账号间轮询选号`,
+    };
+  };
+
+  return (
+    <div className="flex min-h-0 flex-1 flex-col gap-3 cq-sm:gap-4">
+      <div className="flex items-center justify-between gap-2">
+        {linkState?.linked && linkState?.baseUrl ? (
+          <div className="flex min-w-0 flex-wrap items-center gap-2 text-xs">
+            <Rocket className="h-3.5 w-3.5 text-brand" />
+            <span className="text-kumo-strong">已接入网关端点</span>
+            <span className="truncate font-mono text-kumo-subtle" title="本插件在网关端点列表中的 base_url">
+              {linkState.baseUrl}
+            </span>
+            <span className="text-kumo-subtle">· {linkState.models?.length || 0} 个模型</span>
+          </div>
+        ) : (
+          <span />
+        )}
+        <div className="flex items-center gap-2">
+          <Button size="sm" variant="outline" disabled={refreshing} onClick={refreshAll}>
+            <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? 'animate-spin' : ''}`} /> 刷新
+          </Button>
+          <Button size="sm" variant="primary" disabled={saving} onClick={() => save(settings)}>
+            {saving ? '保存中...' : '保存设置'}
+          </Button>
+        </div>
+      </div>
+
+      <div className="flex min-w-0 flex-col gap-4">
+        <SectionCard title="WorkBuddy" icon={<CodeBuddyBrand className="h-4 w-4 text-brand" />} bodyPadding="none">
+          <FieldRow title={<span title="总开关：同时控制中继与模型网关接入。打开后启用中继并注册为网关端点；关闭后中继拒服并移除端点">启用中继</span>}>
+            <Switch
+              checked={!!settings?.enabled}
+              disabled={saving || linkBusy}
+              onCheckedChange={toggleEnabled}
+            />
+          </FieldRow>
+          <FieldRow title={<span title="给本插件对外暴露的所有模型名统一加前缀（如 wb-），便于在网关端点列表区分来源；请求转发时自动剥掉前缀还原到原模型，留空表示不加">模型前缀</span>}>
+            <Input
+              size="sm"
+              className="w-40"
+              placeholder="wb-"
+              aria-label="模型前缀"
+              value={prefixDraft ?? settings?.modelPrefix ?? ''}
+              onChange={e => setPrefixDraft(e.target.value)}
+              onBlur={commitModelPrefix}
+              disabled={saving}
+            />
+          </FieldRow>
+          <FieldRow title={<span title="转发给上游前把请求体 gzip 压缩（超过 4KB 才压）。长上下文对话的代码/日志/JSON 实测可压缩 10~37 倍，能大幅降低本机上行流量；上游会自动解压，对回答无影响。若上游日后改校验口径导致异常，可关掉此开关回退">上游请求压缩</span>}>
+            <Switch checked={settings?.compressUpstream !== false} onCheckedChange={v => update({ compressUpstream: v })} />
+          </FieldRow>
+          <FieldRow title={<span title="站点时区 9 点与 21 点自动签到（含连登档位兑换与抽奖）。仅国内版参与：国际版没有签到接口，其每日积分改为「每日活跃奖励」，由下面的「每日活跃上报」负责。账号级签到开关独立于转发开关：转发停用的账号只要签到开关开启就照常签到，token 过期会自动刷新。">每日自动签到</span>}>
+            <Switch checked={settings?.autoCheckin !== false} onCheckedChange={v => update({ autoCheckin: v })} />
+          </FieldRow>
+          <FieldRow title={<span title="站点时区 10 点自动上报一次对话活跃。国内版：点亮连登并解锁 first_buddy 任务。国际版：官方无签到接口，每日积分依赖「当日活跃」判定（Free 30 / Pro 50 积分，系统次日自动发放），因此这条上报就是国际版获取每日积分的途径。办公版企业账号不参与。">每日活跃上报</span>}>
+            <Switch checked={settings?.autoActivity !== false} onCheckedChange={v => update({ autoActivity: v })} />
+          </FieldRow>
+          <FieldRow title={<span title="多账号时的选号策略。按今日消耗（默认）：优先用站点时区今天已消耗 credit 最少的账号，按实际计费额度拉平消耗。固定首个：始终用列表第一个可用账号，其余作主备，行为最可预期。轮询：依次轮流，请求均匀分摊。三种都自动跳过已停用、token 过期、该模型限流中，以及该模型不提供的区域账号">选号策略</span>}>
+            <Select
+              alignItemWithTrigger
+              size="sm"
+              className="w-44"
+              value={settings?.accountStrategy || 'least-consumed'}
+              onValueChange={v => update({ accountStrategy: v })}
+              items={[
+                { value: 'least-consumed', label: '按今日消耗' },
+                { value: 'first', label: '固定首个可用' },
+                { value: 'round-robin', label: '轮询' },
+              ]}
+              disabled={saving || accounts.length < 2}
+            />
+          </FieldRow>
+          <div className="flex min-w-0 flex-col gap-3 border-b border-kumo-line px-4 py-3 last:border-b-0 cq-tight:flex-row cq-tight:items-center">
+            <div className="min-w-0 shrink-0">
+              <div className="truncate text-sm font-semibold text-kumo-strong" title="可用账号/账号总数，以及上游模型目录条数">
+                运行状态
+              </div>
+            </div>
+            <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-4 gap-y-2 cq-tight:justify-end">
+              <div className="flex min-w-0 items-center gap-2">
+                <span className="text-xs text-kumo-subtle">账号</span>
+                <Badge
+                  variant={status?.availableCount ? 'success' : 'warning'}
+                  className="text-xs"
+                  title="可参与转发的账号数（未停用且 token 未失效）"
+                >
+                  {status?.availableCount ?? 0}/{status?.accountCount ?? 0}
+                </Badge>
+              </div>
+              <div
+                className="flex min-w-0 items-center gap-2"
+                title="按区域分列的账号数（国内版 codebuddy.cn / 办公版 workbuddy.cn / 国际版 workbuddy.ai）"
+              >
+                <span className="text-xs text-kumo-subtle">国内</span>
+                <span className="font-mono text-xs text-kumo-default">
+                  {status?.regionCounts?.cn?.available ?? 0}/{status?.regionCounts?.cn?.total ?? 0}
+                </span>
+                <span className="text-xs text-kumo-subtle">办公</span>
+                <span className="font-mono text-xs text-kumo-default">
+                  {status?.regionCounts?.wb?.available ?? 0}/{status?.regionCounts?.wb?.total ?? 0}
+                </span>
+                <span className="text-xs text-kumo-subtle">国际</span>
+                <span className="font-mono text-xs text-kumo-default">
+                  {status?.regionCounts?.intl?.available ?? 0}/{status?.regionCounts?.intl?.total ?? 0}
+                </span>
+              </div>
+              <div
+                className="flex min-w-0 items-center gap-2"
+                title="上游 /v3/config 返回的模型条数（各区域合并去重）"
+              >
+                <span className="text-xs text-kumo-subtle">模型</span>
+                <span className="font-mono text-xs text-kumo-default">{status?.modelCount ?? 0}</span>
+              </div>
+              {status?.upstreamUsage ? (
+                <Badge
+                  variant={status.upstreamUsage.cacheReported ? 'success' : 'neutral'}
+                  className="text-xs"
+                  title={
+                    '上游最近一次 usage 的字段：\n' +
+                    ((status.upstreamUsage.keys || []).join(', ') || '(空)') +
+                    '\n\n原始样例：\n' +
+                    (status.upstreamUsage.sample || '(空)') +
+                    '\n\n时间：' +
+                    (status.upstreamUsage.at || '-') +
+                    '\n\n网关的缓存统计只认 usage.prompt_tokens_details.cached_tokens。'
+                  }
+                >
+                  {status.upstreamUsage.cacheReported ? '上游已上报缓存命中' : '上游未上报缓存命中'}
+                </Badge>
+              ) : null}
+              {status && !status.upstreamReady ? (
+                <Badge variant="warning" className="text-xs">上游协议层未就绪</Badge>
+              ) : null}
+            </div>
+          </div>
+        </SectionCard>
+
+        <SectionCard
+          title="账号"
+          icon={<Users className="h-4 w-4 text-brand" />}
+          bodyPadding="none"
+          actions={
+            <div className="flex items-center gap-1.5">
+              <Toolbar size="sm" aria-label="账号导出导入" className="shrink-0">
+                <Toolbar.Button onClick={exportAccounts} icon={<Upload className="h-3.5 w-3.5" />}>
+                  <span className="hidden cq-sm:inline">导出</span>
+                </Toolbar.Button>
+                <Toolbar.Button onClick={() => fileInputRef.current?.click()} icon={<Download className="h-3.5 w-3.5" />}>
+                  <span className="hidden cq-sm:inline">导入</span>
+                </Toolbar.Button>
+              </Toolbar>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".json,application/json"
+                className="hidden"
+                onChange={e => {
+                  importFile(e.target.files?.[0]);
+                  e.target.value = '';
+                }}
+              />
+              <Button size="sm" variant="outline" disabled={refreshing} onClick={activityAll} title="对所有国内版账号立即上报一次对话活跃">
+                <TrendingUp className="h-3.5 w-3.5" /> 活跃上报
+              </Button>
+              <Button size="sm" variant="outline" disabled={refreshing} onClick={checkinAll} title="对所有国内版账号立即签到（含连登兑换与抽奖）">
+                <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? 'animate-spin' : ''}`} /> 全部签到
+              </Button>
+              <Button size="sm" variant="primary" onClick={openLogin}>
+                <Plus className="h-3.5 w-3.5" /> 添加账号
+              </Button>
+            </div>
+          }
+        >
+          {accounts.length ? (
+            <div className="overflow-x-auto">
+              <AppTable tableId="workbuddy-accounts" columns={WORKBUDDY_ACCOUNT_COLUMNS} className="w-full min-w-[48rem] text-xs">
+                <Table.Header variant="compact">
+                  <Table.Row className="h-8">
+                    <Table.Head className="!px-2 !py-1.5 text-center" title="转发开关：停用后该账号不再参与网关转发与选号，但每日签到不受影响">转发</Table.Head>
+                    <Table.Head className="!px-2 !py-1.5 text-center" title="签到开关：独立于转发；只要插件总开关开着，开启即每日自动签到（含连登管家），与转发开关状态无关">签到</Table.Head>
+                    <Table.Head className="!px-2 !py-1.5 text-center">区域</Table.Head>
+                    <Table.Head className="!px-2.5 !py-1.5">账号</Table.Head>
+                    <Table.Head className="!px-2 !py-1.5 text-center">调用</Table.Head>
+                    <Table.Head className="!px-2 !py-1.5 text-center">
+                      <span title="最近一次签到时刻（站点时区显示由浏览器决定）；点击查看连续登录天数与档位状态">签到</span>
+                    </Table.Head>
+                    <Table.Head className="!px-2 !py-1.5 text-center">余额</Table.Head>
+                    <Table.Head className="!px-2 !py-1.5 text-center">状态</Table.Head>
+                    <Table.Head className="!px-2 !py-1.5 text-center">操作</Table.Head>
+                  </Table.Row>
+                </Table.Header>
+                <Table.Body>
+                  {accountGroups.map(group => (
+                    <Fragment key={group.region}>
+                      <Table.Row className="h-7 bg-kumo-recessed/40">
+                        <Table.Cell colSpan={9} className="!px-2.5 !py-1 !text-left font-medium text-kumo-subtle">
+                          {group.label}（{group.items.length}）
+                        </Table.Cell>
+                      </Table.Row>
+                      {group.items.map(a => {
+                        const meta = tokenStateMeta(a.tokenState);
+                        return (
+                          <Table.Row key={a.id} className="h-10">
+                            <Table.Cell className="!px-2 !py-1.5 text-center">
+                              <div className="flex justify-center">
+                                <Switch
+                                  size="sm"
+                                  checked={!a.disabled}
+                                  disabled={busyAccount === a.id}
+                                  onCheckedChange={v => toggleAccount(a, v)}
+                                  aria-label={`${a.disabled ? '启用转发' : '停用转发'} ${a.id}`}
+                                  title="转发开关"
+                                />
+                              </div>
+                            </Table.Cell>
+                            <Table.Cell className="!px-2 !py-1.5 text-center">
+                              <div className="flex justify-center">
+                                <Switch
+                                  size="sm"
+                                  checked={!a.checkinDisabled}
+                                  disabled={busyAccount === a.id || !regionMeta(a.region).checkin}
+                                  onCheckedChange={v => toggleCheckin(a, v)}
+                                  aria-label={`${a.checkinDisabled ? '开启签到' : '停用签到'} ${a.id}`}
+                                  title={regionMeta(a.region).checkin ? '签到开关（独立于转发）' : `${regionMeta(a.region).label}版无签到体系`}
+                                />
+                              </div>
+                            </Table.Cell>
+                            <Table.Cell className="!px-2 !py-1.5 text-center">
+                              <Badge
+                                variant={regionMeta(a.region).badge}
+                                className="!text-[0.72em]"
+                                title={`${regionMeta(a.region).tag} 账号`}
+                              >
+                                {regionMeta(a.region).label}
+                              </Badge>
+                            </Table.Cell>
+                            <Table.Cell className="!px-2.5 !py-1.5">
+                              <div className="min-w-0">
+                                <div className="truncate text-sm font-medium text-kumo-strong" title={a.id}>
+                                  {a.nickname || a.uid || a.id}
+                                </div>
+                                <div className="truncate font-mono text-kumo-subtle">
+                                  {[a.uid, a.enterpriseId].filter(Boolean).join(' · ') || a.id}
+                                </div>
+                              </div>
+                            </Table.Cell>
+                            <Table.Cell className="!px-2 !py-1.5 text-center">
+                              <span className="font-mono text-xs text-kumo-strong" title="该账号累计转发次数">{a.callCount ?? 0}</span>
+                            </Table.Cell>
+                            <Table.Cell className="!px-2 !py-1.5 text-center">
+                              {!regionMeta(a.region).checkin ? (
+                                <span className="text-xs text-kumo-subtle" title={`${regionMeta(a.region).label}版无签到体系`}>—</span>
+                              ) : (
+                                <div className="flex justify-center">
+                                  <Popover
+                                    open={streakAccount?.id === a.id}
+                                    onOpenChange={open => {
+                                      if (open) {
+                                        setStreakAccount(a);
+                                        loadStreak(a);
+                                      } else if (streakAccount?.id === a.id) {
+                                        setStreakAccount(null);
+                                      }
+                                    }}
+                                  >
+                                    <Popover.Trigger
+                                      nativeButton={false}
+                                      render={
+                                        <Button
+                                          type="button"
+                                          size="sm"
+                                          variant="ghost"
+                                          className="font-mono text-xs focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0"
+                                          title={
+                                            a.region === 'intl'
+                                              ? '国际版无签到接口，积分靠每日活跃；此处显示最近一次活跃上报时刻'
+                                              : '点击查看连续登录天数与档位解锁状态'
+                                          }
+                                        >
+                                          {a.region === 'intl'
+                                            ? (a.lastActivityAt ? fmtStamp(a.lastActivityAt) : '未活跃')
+                                            : (a.lastCheckinAt ? fmtStamp(a.lastCheckinAt) : '未签到')}
+                                        </Button>
+                                      }
+                                    />
+                                    <Popover.Content
+                                      side="bottom"
+                                      align="center"
+                                      className="w-72 shrink-0 px-3 pb-2 pt-2.5"
+                                    >
+                                      <div className="truncate text-xs font-semibold leading-normal text-kumo-strong">
+                                        {a.nickname || a.uid || a.id}
+                                      </div>
+                                      {(() => {
+                                        const st = streaks[a.id];
+                                        if (!st) {
+                                          return (
+                                            <div className="flex h-16 w-full items-center justify-center">
+                                              <Loader size="sm" />
+                                            </div>
+                                          );
+                                        }
+                                        if (st.error) {
+                                          return <div className="py-3 text-center text-xs text-kumo-danger">{st.error}</div>;
+                                        }
+                                        const tiers = st.redemption_status?.tiers || [];
+                                        // 28d 档同时也作为未知 tier 的兜底，与后端字段一一对应。
+                                        const TIER_STATUS_FIELD = {
+                                          '7d': 'tier_7d_status',
+                                          '14d': 'tier_14d_status',
+                                        };
+                                        const statusOf = tier =>
+                                          st.redemption_status?.[
+                                            TIER_STATUS_FIELD[tier] || 'tier_28d_status'
+                                          ];
+                                        const STATUS_LABEL = {
+                                          claimed: '已兑换',
+                                          locked: '未解锁',
+                                        };
+                                        const statusLabel = s => STATUS_LABEL[s] || '可兑换';
+                                        return (
+                                          <div className="mt-1.5">
+                                            <div className="flex items-center justify-between gap-3 py-1">
+                                              <span className="text-xs text-kumo-subtle">连续登录</span>
+                                              <span className="font-mono text-xs text-kumo-strong">
+                                                {st.streak?.days ?? 0} 天
+                                              </span>
+                                            </div>
+                                            <div className="flex items-center justify-between gap-3 py-1">
+                                              <span className="text-xs text-kumo-subtle">补签卡</span>
+                                              <span className="font-mono text-xs text-kumo-strong">
+                                                {st.makeup_cards?.balance ?? 0}/{st.makeup_cards?.max ?? 0}
+                                              </span>
+                                            </div>
+                                            <div className="mt-1.5 border-t border-kumo-line pt-1.5">
+                                              <div className="flex flex-col divide-y divide-kumo-line">
+                                                {tiers.map(t => (
+                                                  <div key={t.tier} className="flex items-center justify-between gap-3 py-1.5">
+                                                    <span className="text-xs text-kumo-strong">
+                                                      {t.days} 天档
+                                                    </span>
+                                                    <span className="font-mono text-xs text-kumo-subtle">
+                                                      {t.credit ? `+${t.credit}分 ` : ''}
+                                                      {t.energy ? `+${t.energy}能 ` : ''}
+                                                      {statusLabel(statusOf(t.tier))}
+                                                    </span>
+                                                  </div>
+                                                ))}
+                                              </div>
+                                            </div>
+                                          </div>
+                                        );
+                                      })()}
+                                    </Popover.Content>
+                                  </Popover>
+                                </div>
+                              )}
+                            </Table.Cell>
+                            <Table.Cell className="!px-2 !py-1.5 text-center">
+                              {(() => {
+                                const bal = balances[a.id];
+                                if (balanceLoading[a.id]) {
+                                  return <Loader size="sm" />;
+                                }
+                                if (bal?.error) {
+                                  return (
+                                    <span className="text-xs text-kumo-danger" title={bal.error}>
+                                      查询失败
+                                    </span>
+                                  );
+                                }
+                                if (bal) {
+                                  return (
+                                    <span
+                                      className="font-mono text-xs text-kumo-strong"
+                                      title={
+                                        `剩余 ${fmtBalance(bal.remain)} / 共 ${fmtBalance(bal.size)}` +
+                                        (bal.updatedAt ? `\n更新于 ${bal.updatedAt}` : '') +
+                                        ((bal.packages || [])
+                                          .map(p => `\n· ${p.name || '计费包'}: ${fmtBalance(p.remain)}/${fmtBalance(p.size)}`)
+                                          .join('') || '')
+                                      }
+                                    >
+                                      {fmtBalance(bal.remain)}
+                                      <span className="text-kumo-subtle">/{fmtBalance(bal.size)}</span>
+                                    </span>
+                                  );
+                                }
+                                return (
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    disabled={busyAccount === a.id}
+                                    onClick={() => loadBalance(a)}
+                                    title="查询该账号余额（按需拉取，不打上游轮询）"
+                                  >
+                                    查询
+                                  </Button>
+                                );
+                              })()}
+                            </Table.Cell>
+                            <Table.Cell className="!px-2 !py-1.5 text-center">
+                              <div className="flex flex-wrap items-center justify-center gap-1">
+                                {/* token 状态徽标：账号级问题（即将过期/已过期/未知）才显示；
+                                    token 正常时省略，由「限流 N 模型」徽标表达
+                                    「账号可用、仅部分模型限流」，避免与「正常」并排冲突。 */}
+                                {a.tokenState !== 'valid' && (
+                                  <Badge variant={meta.variant} className="text-xs" title={a.lastError || undefined}>
+                                    {meta.label}
+                                    {a.tokenState === 'expiring' && a.expiresInSeconds ? ` ${fmtLeft(a.expiresInSeconds)}` : ''}
+                                  </Badge>
+                                )}
+                                {/* 模型级限流：只影响列出的模型，账号本身仍可用（其它模型照常转发），
+                                    hover/点击弹层展示每个模型的解冻时间。 */}
+                                {(a.limitedModels?.length ?? 0) > 0 && (
+                                  <Popover>
+                                    <Popover.Trigger
+                                      openOnHover
+                                      delay={150}
+                                      render={
+                                        <Button
+                                          type="button"
+                                          size="sm"
+                                          variant="ghost"
+                                          className="!px-1.5 !py-0.5 bg-transparent! hover:bg-transparent! active:bg-transparent! focus-visible:bg-transparent! focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0"
+                                          title="查看各模型的解冻时间"
+                                        >
+                                          <Badge variant="warning" className="text-xs">
+                                            限流 {a.limitedModels.length} 模型
+                                          </Badge>
+                                        </Button>
+                                      }
+                                    />
+                                    <Popover.Content
+                                      side="bottom"
+                                      align="center"
+                                      className="w-72 shrink-0 px-3 pb-2 pt-2.5"
+                                    >
+                                      <div className="truncate text-xs font-semibold leading-normal text-kumo-strong">
+                                        {a.nickname || a.uid || a.id}
+                                      </div>
+                                      <div className="mt-1.5 flex flex-col divide-y divide-kumo-line">
+                                        {a.limitedModels.map(m => (
+                                          <div
+                                            key={m.model}
+                                            className="flex items-center justify-between gap-3 py-1.5"
+                                          >
+                                            <span className="truncate text-xs text-kumo-strong" title={m.model}>
+                                              {m.model}
+                                            </span>
+                                            <span
+                                              className="shrink-0 font-mono text-xs text-kumo-subtle"
+                                              title={`解冻于 ${fmtUntil(m.until)}`}
+                                            >
+                                              {fmtLeft(m.remainingSeconds)}后解冻
+                                            </span>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    </Popover.Content>
+                                  </Popover>
+                                )}
+                                {/* 无任何限流且 token 正常时显示「正常」徽标。 */}
+                                {(a.limitedModels?.length ?? 0) === 0 && a.tokenState === 'valid' && (
+                                  <Badge variant={meta.variant} className="text-xs" title={a.lastError || undefined}>
+                                    {meta.label}
+                                  </Badge>
+                                )}
+                                {/* refresh token 已失效：access token 可能仍有效（转发暂时正常），
+                                    但已无法续期，过期即不可用 —— 必须提前预警而非显示「正常」。 */}
+                                {a.refreshBroken && (
+                                  <Badge
+                                    variant="danger"
+                                    className="text-xs"
+                                    title={
+                                      'refresh token 已被上游判定失效，无法自动续期；' +
+                                      '当前 access token 到期后将直接不可用，请重新扫码登录。' +
+                                      (a.lastError ? `上游原文：${a.lastError}` : '')
+                                    }
+                                  >
+                                    需重新登录
+                                  </Badge>
+                                )}
+                              </div>
+                            </Table.Cell>
+                            <Table.Cell className="!px-2 !py-1.5 text-center">
+                              <div className="flex items-center justify-center gap-1">
+                                <Button
+                                  size="sm"
+                                  variant="secondary"
+                                  disabled={busyAccount === a.id || !regionMeta(a.region).checkin}
+                                  title={regionMeta(a.region).checkin ? '立即签到（含连登兑换与抽奖）' : `${regionMeta(a.region).label}版无签到体系`}
+                                  onClick={() => checkinAccount(a)}
+                                >
+                                  签到
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="secondary"
+                                  disabled={busyAccount === a.id}
+                                  title="立即刷新 access token"
+                                  onClick={() => refreshAccount(a)}
+                                >
+                                  <RefreshCw className={`h-3 w-3 ${busyAccount === a.id ? 'animate-spin' : ''}`} />
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  shape="square"
+                                  variant="outline"
+                                  aria-label={`编辑 ${a.id}`}
+                                  onClick={() => {
+                                    setEditName(a.nickname || '');
+                                    setEditAccount(a);
+                                  }}
+                                >
+                                  <Edit className="h-3 w-3" />
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  shape="square"
+                                  variant="secondary-destructive"
+                                  aria-label={`删除 ${a.id}`}
+                                  title={`删除 ${a.id}`}
+                                  onClick={() => deleteAccount(a)}
+                                >
+                                  <Trash className="h-3 w-3" />
+                                </Button>
+                              </div>
+                            </Table.Cell>
+                          </Table.Row>
+                        );
+                      })}
+                    </Fragment>
+                  ))}
+                </Table.Body>
+              </AppTable>
+            </div>
+          ) : (
+            <div className="p-4">
+              <EmptyState
+                title="暂无账号"
+                description="点击「添加账号」，按账号区域完成授权后即可加入账号池。"
+              />
+            </div>
+          )}
+        </SectionCard>
+
+        {/* 用量与扣费：选号权重就是站点时区「今天」各账号的扣费，切到「今天」即为当前权重 */}
+        <SectionCard
+          title="用量与扣费"
+          icon={<TrendingUp className="h-4 w-4 text-brand" />}
+          bodyPadding="none"
+          actions={
+            <div className="flex items-center gap-2">
+              <Select
+                size="sm"
+                className="w-28"
+                value={String(usageDays)}
+                onValueChange={v => setUsageDays(Number(v))}
+                items={[
+                  { value: '1', label: '今天' },
+                  { value: '7', label: '近 7 天' },
+                  { value: '30', label: '近 30 天' },
+                  { value: '90', label: '近 90 天' },
+                ]}
+              />
+              <Button size="sm" variant="outline" onClick={loadUsage}>
+                刷新
+              </Button>
+            </div>
+          }
+        >
+          {usage?.totals?.requests ? (
+            <>
+              <div className="grid grid-cols-2 gap-2 p-3 cq-sm:grid-cols-4">
+                <div className="rounded border border-kumo-line px-2 py-1.5 text-center">
+                  <div className="text-base font-semibold text-kumo-strong">{usage.totals.requests}</div>
+                  <div className="text-[10px] text-kumo-subtle">调用次数</div>
+                </div>
+                <div className="rounded border border-kumo-line px-2 py-1.5 text-center">
+                  <div className="text-base font-semibold text-kumo-strong">{fmtTokens(usage.totals.promptTokens)}</div>
+                  <div className="text-[10px] text-kumo-subtle">
+                    输入词元（缓存 {fmtTokens(usage.totals.cachedTokens)}）
+                  </div>
+                </div>
+                <div className="rounded border border-kumo-line px-2 py-1.5 text-center">
+                  <div className="text-base font-semibold text-kumo-strong">{fmtRate(usage.totals.cacheHitRate)}</div>
+                  <div className="text-[10px] text-kumo-subtle">缓存命中率</div>
+                </div>
+                <div className="rounded border border-kumo-line px-2 py-1.5 text-center">
+                  <div className="text-base font-semibold text-kumo-strong">{fmtCredit(usage.totals.credit)}</div>
+                  <div className="text-[10px] text-kumo-subtle">扣费（credit）</div>
+                </div>
+              </div>
+
+              <div className="overflow-x-auto border-t border-kumo-line">
+                <AppTable tableId="workbuddy-usage-accounts" columns={WORKBUDDY_USAGE_ACCOUNT_COLUMNS} className="w-full min-w-[40rem] text-xs">
+                  <Table.Header variant="compact">
+                    <Table.Row className="h-8">
+                      <Table.Head className="!px-2.5 !py-1.5">账号</Table.Head>
+                      <Table.Head className="!px-2 !py-1.5 text-center">调用</Table.Head>
+                      <Table.Head className="!px-2 !py-1.5 text-center">输入</Table.Head>
+                      <Table.Head className="!px-2 !py-1.5 text-center">输出</Table.Head>
+                      <Table.Head className="!px-2 !py-1.5 text-center">缓存命中</Table.Head>
+                      <Table.Head className="!px-2 !py-1.5 text-center">扣费</Table.Head>
+                    </Table.Row>
+                  </Table.Header>
+                  <Table.Body>
+                    {usage.byAccount.map(row => (
+                      <Table.Row key={row.accountId} className="h-9">
+                        <Table.Cell className="!px-2.5 !py-1.5">
+                          <div className="truncate text-kumo-strong" title={row.accountId}>
+                            {row.accountName || row.accountId}
+                          </div>
+                        </Table.Cell>
+                        <Table.Cell className="!px-2 !py-1.5 text-center font-mono text-kumo-strong">
+                          {row.requests}
+                        </Table.Cell>
+                        <Table.Cell className="!px-2 !py-1.5 text-center font-mono text-kumo-subtle">
+                          {fmtTokens(row.promptTokens)}
+                        </Table.Cell>
+                        <Table.Cell className="!px-2 !py-1.5 text-center font-mono text-kumo-subtle">
+                          {fmtTokens(row.completionTokens)}
+                        </Table.Cell>
+                        <Table.Cell className="!px-2 !py-1.5 text-center font-mono text-kumo-subtle">
+                          {fmtTokens(row.cachedTokens)}
+                        </Table.Cell>
+                        <Table.Cell className="!px-2 !py-1.5 text-center font-mono text-kumo-strong">
+                          {fmtCredit(row.credit)}
+                        </Table.Cell>
+                      </Table.Row>
+                    ))}
+                  </Table.Body>
+                </AppTable>
+              </div>
+
+              <div className="overflow-x-auto border-t border-kumo-line">
+                <AppTable tableId="workbuddy-usage-models" columns={WORKBUDDY_USAGE_MODEL_COLUMNS} className="w-full min-w-[40rem] text-xs">
+                  <Table.Header variant="compact">
+                  <Table.Row className="h-8">
+                    <Table.Head className="!px-2.5 !py-1.5">模型</Table.Head>
+                      <Table.Head className="!px-2 !py-1.5 text-center">调用</Table.Head>
+                      <Table.Head className="!px-2 !py-1.5 text-center">输入</Table.Head>
+                      <Table.Head className="!px-2 !py-1.5 text-center">输出</Table.Head>
+                      <Table.Head className="!px-2 !py-1.5 text-center">缓存命中</Table.Head>
+                      <Table.Head className="!px-2 !py-1.5 text-center">扣费</Table.Head>
+                    </Table.Row>
+                  </Table.Header>
+                  <Table.Body>
+                    {usage.byModel.map(row => (
+                      <Table.Row key={row.model} className="h-9">
+                        <Table.Cell className="!px-2.5 !py-1.5">
+                          <div className="truncate font-mono text-kumo-strong" title={row.model}>
+                            {row.model}
+                          </div>
+                        </Table.Cell>
+                        <Table.Cell className="!px-2 !py-1.5 text-center font-mono text-kumo-strong">
+                          {row.requests}
+                        </Table.Cell>
+                        <Table.Cell className="!px-2 !py-1.5 text-center font-mono text-kumo-subtle">
+                          {fmtTokens(row.promptTokens)}
+                        </Table.Cell>
+                        <Table.Cell className="!px-2 !py-1.5 text-center font-mono text-kumo-subtle">
+                          {fmtTokens(row.completionTokens)}
+                        </Table.Cell>
+                        <Table.Cell className="!px-2 !py-1.5 text-center font-mono text-kumo-subtle">
+                          {fmtTokens(row.cachedTokens)}
+                        </Table.Cell>
+                        <Table.Cell className="!px-2 !py-1.5 text-center font-mono text-kumo-strong">
+                          {fmtCredit(row.credit)}
+                        </Table.Cell>
+                      </Table.Row>
+                    ))}
+                  </Table.Body>
+                </AppTable>
+              </div>
+
+              {usage.creditReported === false ? (
+                <div className="border-t border-kumo-line px-3 py-2 text-[11px] text-kumo-subtle">
+                  上游未上报 credit 字段，扣费列显示 0（不代表免费）。
+                </div>
+              ) : null}
+            </>
+          ) : (
+            <div className="p-4">
+              <EmptyState
+                title="暂无用量"
+                description={`近 ${usageDays} 天没有经本插件转发的调用记录，或上游未返回 usage。`}
+              />
+            </div>
+          )}
+        </SectionCard>
+
+        <SectionCard
+          title="模型"
+          icon={<Layers className="h-4 w-4 text-brand" />}
+          bodyPadding="none"
+        >
+          {models.length ? (
+            <>
+              {/* 三个区域目录差异很大（办公版不返回 credits、国际版有促销/套餐门槛），
+                  分开 tab 展示：混排时同一列既有权威倍率又有「—」，看不出是哪个区域缺。
+
+                  注意：不要给 Tabs 加 overflow-x-auto。segmented 变体自带 rounded-lg + ring，
+                  而 SectionCard 外层是 overflow-hidden；overflow-x-auto 会把 overflow-y
+                  隐式变成 auto，等于在 tab 自己的圆角/描边外面再套一层裁剪框，
+                  tab 的下边界会被切掉。Kumo 的 TabsList 内部已有 overflow-x-auto 与
+                  溢出滚动按钮，横向滚动不需要外层再管。 */}
+              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-kumo-line px-3 py-2.5">
+                <div className="flex min-w-0 items-center gap-2">
+                  {/* 外层只负责布局，不设 overflow：给 segmented Tabs 的 rounded-lg + ring
+                      留出完整绘制空间，避免下边界被任何祖先裁剪掉。 */}
+                  <div className="flex min-w-0 items-center py-0.5">
+                    <Tabs
+                      {...TOOL_TABS_PROPS}
+                      value={activeRegionKey}
+                      onValueChange={value => setModelRegionTab(String(value))}
+                      tabs={regionTabItems}
+                      // 覆盖 TOOL_TABS_PROPS 的 w-full：外层是 flex 行，撑满会把右侧徽标挤走。
+                      // 注意不要加 overflow-x-auto（会把 overflow-y 隐式变 auto，切掉 tab 下边界）。
+                      className="min-w-max shrink-0"
+                    />
+                  </div>
+                  <Badge variant={regionMeta(activeRegionKey).badge} className="!text-[0.72em] shrink-0">
+                    {regionMeta(activeRegionKey).tag}
+                  </Badge>
+                </div>
+                {activeRegionNoCredits ? (
+                  <Badge
+                    variant="warning"
+                    className="shrink-0 !text-[0.72em]"
+                    title="该区域上游 /v3/config 目录不返回 credits 字段，倍率列无法显示——这不是解析失败"
+                  >
+                    上游未提供倍率
+                  </Badge>
+                ) : null}
+              </div>
+              <div className="overflow-x-auto">
+                <AppTable tableId="workbuddy-models" columns={WORKBUDDY_MODEL_COLUMNS} className="w-full min-w-[52rem] text-xs">
+                  <Table.Header variant="compact">
+                    <Table.Row className="h-8">
+                      <Table.Head className="!px-2 !py-1.5 text-center">
+                        <div className="flex justify-center">
+                          <Switch
+                            size="sm"
+                            checked={activeRegionEnabled}
+                            onCheckedChange={v => toggleModelsBulk(activeRegionModels, v)}
+                            title={activeRegionEnabled ? `停用${regionMeta(activeRegionKey).label}版全部模型` : `启用${regionMeta(activeRegionKey).label}版全部模型`}
+                            aria-label={`全选${regionMeta(activeRegionKey).label}版模型`}
+                          />
+                        </div>
+                      </Table.Head>
+                      <Table.Head className="!px-2 !py-1.5 text-center">
+                        <span title="该模型除本区域外还可在哪些区域调用（同一 id）。转发时会在这些区域的账号间轮询选号；空白表示仅本区域可用">跨区</span>
+                      </Table.Head>
+                      <Table.Head className="!px-2.5 !py-1.5">模型</Table.Head>
+                      <Table.Head className="!px-2 !py-1.5 text-center">
+                        <span
+                          title={
+                            activeRegionNoCredits
+                              ? '该区域上游 /v3/config 目录不返回 credits 字段，因此无法显示倍率——这不是解析失败。带 * 的值来自与其它区域共用的同 id 条目，仅供横向参考；该区域的积分消耗请到官网「个人中心 → 套餐与用量 → 积分消耗明细」查看'
+                              : '上游积分倍率（/v3/config 的 credits），CodeBuddy 计费体系内的相对倍数，不含货币单价'
+                          }
+                        >
+                          倍率{activeRegionNoCredits ? ' *' : ''}
+                        </span>
+                      </Table.Head>
+                      <Table.Head className="!px-2 !py-1.5 text-center">上下文</Table.Head>
+                      <Table.Head className="!px-2 !py-1.5 text-center">输出上限</Table.Head>
+                      <Table.Head className="!px-2 !py-1.5 text-center">
+                        <span title="思考能力（/v3/config 的 reasoning）：可用档位与是否可关闭；调用方用 reasoning_effort 指定，自动归一到上游档位">思考</span>
+                      </Table.Head>
+                      <Table.Head className="!px-2 !py-1.5 text-center">图像</Table.Head>
+                    </Table.Row>
+                  </Table.Header>
+                  <Table.Body>
+                    {activeRegionModels.map(m => (
+                      <Table.Row key={`${activeRegionKey}-${m.id}`} className="h-9">
+                        <Table.Cell className="!px-2 !py-1.5 text-center">
+                          <div className="flex justify-center">
+                            <Switch
+                              size="sm"
+                              checked={!!m.enabled}
+                              onCheckedChange={v => toggleModel(m, v)}
+                              title={
+                                m.enabled
+                                  ? '停用：写入网关端点停用名单（网关不再路由该模型），直连中继也会被拒'
+                                  : '启用：从网关端点停用名单移除，恢复路由'
+                              }
+                              aria-label={`${m.enabled ? '停用' : '启用'} ${m.id}`}
+                            />
+                          </div>
+                        </Table.Cell>
+                        <Table.Cell className="!px-2 !py-1.5 text-center">
+                          {(() => {
+                            const cross = modelCrossRegionMeta(m, activeRegionKey);
+                            if (!cross) {
+                              return (
+                                <span className="text-xs text-kumo-subtle" title="仅本区域提供">—</span>
+                              );
+                            }
+                            return (
+                              <Badge variant="outline" className="!text-[0.72em]" title={cross.title}>
+                                {cross.label}
+                              </Badge>
+                            );
+                          })()}
+                        </Table.Cell>
+                        <Table.Cell className="!px-2.5 !py-1.5">
+                          <div className="flex min-w-0 items-center gap-1.5">
+                            <span className="truncate font-mono text-kumo-strong" title={m.id}>
+                              {m.id}
+                            </span>
+                            {/* 该区域目录未列出、但实测可调用（办公版专属情形）。 */}
+                            {!isListedInRegion(m, activeRegionKey) ? (
+                              <Badge
+                                variant="warning"
+                                className="!text-[0.7em] shrink-0"
+                                title={`${regionMeta(activeRegionKey).label}版上游目录未列出该模型，但已实测可调用（与国内版同域同模型命名空间），转发时会正常路由`}
+                              >
+                                目录未列出
+                              </Badge>
+                            ) : null}
+                            {m.isDefault ? (
+                              <Badge variant="info" className="!text-[0.7em] shrink-0" title="上游默认模型">
+                                默认
+                              </Badge>
+                            ) : null}
+                            {regionTier(m, activeRegionKey) ? (
+                              <Badge
+                                variant="purple"
+                                className="!text-[0.7em] shrink-0"
+                                title={[regionTier(m, activeRegionKey).label, regionTier(m, activeRegionKey).text, regionTier(m, activeRegionKey).action].filter(Boolean).join(' · ')}
+                              >
+                                {regionTier(m, activeRegionKey).label || '需订阅'}
+                              </Badge>
+                            ) : null}
+                            {/* 模型级限流：并排在模型名之后，不单独占行。allLimited = 当前所有
+                                可用账号都在该模型上限流（此刻真的打不通，中继直接回 429 且不打上游）。 */}
+                            {m.limit && (
+                              <Badge
+                                variant={m.limit.allLimited ? 'danger' : 'warning'}
+                                className="!text-[0.7em] shrink-0"
+                                title={
+                                  (m.limit.allLimited
+                                    ? `当前所有可用账号（${m.limit.limited} 个）都在该模型上被上游限流，此刻完全打不通`
+                                    : `${m.limit.limited} 个账号在该模型上被限流，另有 ${m.limit.usable} 个账号可用（转发会自动选到可用账号）`) +
+                                  (m.limit.nextRecoveryAt ? `；最早 ${fmtUntil(m.limit.nextRecoveryAt)} 恢复` : '')
+                                }
+                              >
+                                {m.limit.allLimited ? '限流中' : `限流 ${m.limit.limited}/${m.limit.limited + m.limit.usable}`}
+                                {m.limit.nextRecoveryAt ? ` · ${fmtUntil(m.limit.nextRecoveryAt)}` : ''}
+                              </Badge>
+                            )}
+                          </div>
+                          <div className="truncate text-kumo-subtle">
+                            {[m.displayName && m.displayName !== m.id ? m.displayName : '', m.vendor ? `vendor ${m.vendor}` : '']
+                              .filter(Boolean)
+                              .join(' · ') || ' '}
+                          </div>
+                        </Table.Cell>
+                        <Table.Cell className="!px-2 !py-1.5 text-center">
+                          <div className="flex flex-col items-center gap-0.5">
+                            <span
+                              className={`font-mono text-xs ${creditsBorrowedInRegion(m, activeRegionKey) ? 'text-kumo-subtle italic' : 'text-kumo-strong'}`}
+                              title={creditsTitle(m, activeRegionKey)}
+                            >
+                              {fmtCredits(m, activeRegionKey)}
+                              {creditsBorrowedInRegion(m, activeRegionKey) ? '*' : ''}
+                            </span>
+                            {regionPromotion(m, activeRegionKey) ? (
+                              <Badge
+                                variant={Number(regionPromotion(m, activeRegionKey).factor) === 0 ? 'success' : 'warning'}
+                                className="!text-[0.7em]"
+                                title={creditsTitle(m, activeRegionKey)}
+                              >
+                                {regionPromotion(m, activeRegionKey).label || (Number(regionPromotion(m, activeRegionKey).factor) === 0 ? '免费' : '折扣')}
+                              </Badge>
+                            ) : null}
+                          </div>
+                        </Table.Cell>
+                        <Table.Cell className="!px-2 !py-1.5 text-center">
+                          <span className="font-mono text-xs text-kumo-subtle">{fmtContext(m.contextLength)}</span>
+                        </Table.Cell>
+                        <Table.Cell className="!px-2 !py-1.5 text-center">
+                          <span className="font-mono text-xs text-kumo-subtle">{fmtContext(m.maxOutputTokens)}</span>
+                        </Table.Cell>
+                        <Table.Cell className="!px-2 !py-1.5 text-center">
+                          <span className="font-mono text-xs text-kumo-strong" title={thinkingMeta(m, activeRegionKey).title}>
+                            {thinkingMeta(m, activeRegionKey).label}
+                          </span>
+                        </Table.Cell>
+                        <Table.Cell className="!px-2 !py-1.5 text-center">
+                          {m.supportsImages && !m.disabledMultimodal ? (
+                            <Badge variant="success" className="text-xs">支持</Badge>
+                          ) : (
+                            <span className="text-xs text-kumo-subtle">—</span>
+                          )}
+                        </Table.Cell>
+                      </Table.Row>
+                    ))}
+                  </Table.Body>
+                </AppTable>
+              </div>
+              {activeRegionModels.length === 0 ? (
+                <div className="px-4 py-8">
+                  <EmptyState
+                    title={`${regionMeta(activeRegionKey).label}版暂无模型`}
+                    description={`上游 ${regionMeta(activeRegionKey).tag.split('· ')[1]} 的目录未返回该区域模型，或该区域账号尚未添加。`}
+                  />
+                </div>
+              ) : null}
+            </>
+          ) : (
+            <div className="p-4">
+              <EmptyState
+                title={modelsReady ? '暂无模型' : '模型目录不可用'}
+                description={
+                  modelsReady
+                    ? '上游 /v3/config 未返回可服务对话的模型（图像类模型会被跳过）。'
+                    : '模型目录拉取失败，请检查网络/代理，或点右上角刷新重试。'
+                }
+              />
+            </div>
+          )}
+        </SectionCard>
+      </div>
+
+      <Dialog.Root open={loginOpen} onOpenChange={setLoginOpen}>
+        <Dialog className="flex max-h-[min(calc(100dvh-2rem),44rem)] !w-[min(30rem,calc(100vw-2rem))] !max-w-[min(30rem,calc(100vw-2rem))] flex-col overflow-hidden !p-0">
+          <div className="shrink-0 px-6 pt-5">
+            <Dialog.Title className="mb-1 text-sm font-semibold text-kumo-strong">
+              {loginRegion === 'intl' ? '添加国际版账号' : loginRegion === 'wb' ? '添加办公版账号' : '添加国内版账号'}
+            </Dialog.Title>
+            <Dialog.Description className="mb-3 text-sm text-kumo-subtle">
+              {loginRegion === 'cn'
+                ? '用 CodeBuddy 客户端扫描二维码完成授权。'
+                : loginRegion === 'wb'
+                  ? '办公版为网页登录：复制链接在企业微信中打开完成授权（企微渠道）。'
+                  : '国际版为网页登录：点击授权链接在浏览器完成登录即可。'}
+              国内版、办公版与国际版是独立账号、额度不互通，可分别添加。
+            </Dialog.Description>
+            <div className="mb-4 flex items-center gap-2">
+              <span className="text-xs text-kumo-subtle">账号区域</span>
+              <Select
+                size="sm"
+                value={loginRegion}
+                onValueChange={changeLoginRegion}
+                disabled={login.phase === 'success'}
+                aria-label="登录账号区域"
+                items={[
+                  { value: 'cn', label: '国内版 · codebuddy.cn' },
+                  { value: 'wb', label: '办公版 · workbuddy.cn（企微）' },
+                  { value: 'intl', label: '国际版 · workbuddy.ai' },
+                ]}
+              />
+            </div>
+          </div>
+          <div className="min-h-0 flex-1 overflow-y-auto px-6 py-3 scrollbar-thin">
+            <div className="flex flex-col items-center gap-3">
+              {login.phase === 'loading' ? (
+                <div className="flex h-[220px] w-[220px] items-center justify-center">
+                  <Loader size="lg" />
+                </div>
+              ) : login.image ? (
+                <img src={login.image} alt="登录二维码" className="h-[220px] w-[220px]" />
+              ) : login.url && !regionNeedsQR(loginRegion) ? (
+                // 办公版/国际版为网页登录：给出可点击的授权链接与说明，而非二维码。
+                <div className="flex w-full flex-col items-center gap-3 rounded border border-kumo-line px-4 py-6 text-center">
+                  <span className="text-xs text-kumo-subtle">
+                    {loginRegion === 'wb'
+                      ? '办公版企微登录：请复制下方链接，在企业微信中打开完成授权（桌面浏览器无企微入口，须在企微内置浏览器打开）。'
+                      : '国际版需在浏览器中完成登录，请点击下方链接授权后返回本页。'}
+                  </span>
+                  <a
+                    className="max-w-full truncate font-mono text-[0.78em] text-brand underline"
+                    href={login.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    title={login.url}
+                  >
+                    {login.url}
+                  </a>
+                  {loginRegion === 'wb' ? (
+                    <Button size="sm" variant="secondary" onClick={copyLoginUrl}>
+                      复制链接
+                    </Button>
+                  ) : null}
+                </div>
+              ) : (
+                <div className="flex h-[220px] w-[220px] items-center justify-center rounded border border-kumo-line px-4 text-center text-xs text-kumo-subtle">
+                  {login.error || '暂无二维码'}
+                </div>
+              )}
+              <div className="text-center text-xs text-kumo-subtle">
+                {login.phase === 'waiting' ? (regionNeedsQR(loginRegion) ? '等待扫码授权…' : '等待浏览器授权…') : null}
+                {login.phase === 'success' ? '登录成功。' : null}
+                {login.phase === 'error' ? <span className="text-kumo-strong">{login.error}</span> : null}
+              </div>
+              {login.url && regionNeedsQR(loginRegion) ? (
+                <a
+                  className="max-w-full truncate font-mono text-[0.75em] text-brand underline"
+                  href={login.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  title={login.url}
+                >
+                  {login.url}
+                </a>
+              ) : null}
+            </div>
+          </div>
+          <div className="flex shrink-0 items-center justify-end gap-3 border-t border-kumo-line px-6 py-4">
+            <Dialog.Close render={props => <Button size="sm" variant="secondary" {...props}>关闭</Button>} />
+            <Button size="sm" variant="primary" onClick={() => startLogin()}>
+              {regionNeedsQR(loginRegion) ? '重新获取二维码' : '重新获取链接'}
+            </Button>
+          </div>
+        </Dialog>
+      </Dialog.Root>
+
+      <Dialog.Root open={!!editAccount} onOpenChange={open => !open && setEditAccount(null)}>
+        <Dialog className="flex max-h-[min(calc(100dvh-2rem),44rem)] !w-[min(34rem,calc(100vw-2rem))] !max-w-[min(34rem,calc(100vw-2rem))] flex-col overflow-hidden !p-0">
+          <div className="shrink-0 px-6 pt-5">
+            <Dialog.Title className="mb-1 text-sm font-semibold text-kumo-strong">编辑账号</Dialog.Title>
+            <Dialog.Description className="mb-4 text-sm text-kumo-subtle">
+              {editAccount ? `修改 ${editAccount.id} 的备注名，仅影响本机展示。` : ''}
+            </Dialog.Description>
+          </div>
+          <div className="min-h-0 flex-1 overflow-y-auto px-6 py-3 scrollbar-thin">
+            <Input
+              size="sm"
+              label="备注名"
+              type="text"
+              className="w-full"
+              value={editName}
+              onChange={e => setEditName(e.target.value)}
+            />
+          </div>
+          <div className="flex shrink-0 items-center justify-end gap-3 border-t border-kumo-line px-6 py-4">
+            <Dialog.Close render={props => <Button size="sm" variant="secondary" {...props}>取消</Button>} />
+            <Button size="sm" variant="primary" onClick={saveEditAccount}>保存</Button>
+          </div>
+        </Dialog>
+      </Dialog.Root>
+    </div>
+  );
+}

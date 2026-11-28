@@ -95,4 +95,15 @@ badSubPath, _ := json.Marshal(map[string]interface{}{"accountId": "acc-1"})
 	if err := service.ValidateAICallBody("POST", "/api/flyio/apps/some-app/update-image", badSubPath); err == nil {
 		t.Fatal("expected missing image error on pattern route")
 	}
+
+// 显式声明方法的契约:调用的方法不在契约方法集合内应被门禁拒绝。
+if err := service.ValidateAICallBody("PATCH", "/api/system/api-keys", json.RawMessage(`{"name":"x"}`)); err == nil || !strings.Contains(err.Error(), "不支持") {
+	t.Fatalf("expected method mismatch error, got %v", err)
+}
+if err := service.ValidateAICallBody("POST", "/api/system/api-keys", json.RawMessage(`{"name":"x"}`)); err != nil {
+	t.Fatalf("POST should pass seed-declared method set, got %v", err)
+}
+if err := service.ValidateAICallBody("POST", "/api/system/api-keys/abc123/revoke", json.RawMessage(`{}`)); err != nil {
+	t.Fatalf("prefix-parent contract must not apply to child path, got %v", err)
+}
 }

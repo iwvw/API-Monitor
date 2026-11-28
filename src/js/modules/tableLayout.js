@@ -242,12 +242,20 @@ export function allocateColumnWidths(layout, containerWidth) {
     return flexibleWidths.get(column.id) ?? column.minWidth;
   });
 
-  // 修正整数取整造成的尾差，把差额补到最后一个弹性列，保证总宽等于 available。
   const total = result.reduce((sum, value) => sum + value, 0);
-  if (flexibleColumns.length > 0 && total !== available) {
-    const lastFlexible = flexibleColumns[flexibleColumns.length - 1];
-    const index = columns.indexOf(lastFlexible);
-    if (index >= 0) result[index] = Math.max(lastFlexible.minWidth, result[index] + (available - total));
+  let diff = available - total;
+  if (flexibleColumns.length > 0 && diff !== 0) {
+    for (let i = flexibleColumns.length - 1; i >= 0 && diff !== 0; i -= 1) {
+      const column = flexibleColumns[i];
+      const index = columns.indexOf(column);
+      if (index < 0) continue;
+      const upper = column.maxWidth === null ? Infinity : column.maxWidth;
+      const room = diff > 0 ? upper - result[index] : result[index] - column.minWidth;
+      if (room <= 0) continue;
+      const applied = diff > 0 ? Math.min(diff, room) : Math.max(diff, -room);
+      result[index] += applied;
+      diff -= applied;
+    }
   }
   return result;
 }

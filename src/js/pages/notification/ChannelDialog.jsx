@@ -1,8 +1,40 @@
+import { useState } from 'react';
 import { LayerDialog } from '@cloudflare/kumo/components/layer-dialog';
+import { Button } from '@cloudflare/kumo/components/button';
 import { Input } from '@cloudflare/kumo/components/input';
 import { Select } from '@cloudflare/kumo/components/select';
 import { Switch } from '@cloudflare/kumo/components/switch';
-import { Save } from '../../components/Icons.jsx';
+import { Eye, EyeOff, Save } from '../../components/Icons.jsx';
+
+function SecretInput({ label, ariaLabel, value, onChange, placeholder, mono }) {
+  const [reveal, setReveal] = useState(false);
+  return (
+    <div className="space-y-1.5">
+      <div className="flex items-center justify-between">
+        <label className="text-xs font-semibold text-kumo-subtle">{label}</label>
+        <Button
+          size="sm"
+          variant="secondary"
+          shape="square"
+          aria-label={reveal ? '隐藏密钥' : '显示密钥'}
+          title={reveal ? '隐藏' : '显示'}
+          onClick={() => setReveal(prev => !prev)}
+          icon={reveal ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+        />
+      </div>
+      <Input size="sm"
+        aria-label={ariaLabel}
+        type={reveal ? 'text' : 'password'}
+        placeholder={placeholder}
+        value={value}
+        autoComplete="off"
+        spellCheck={false}
+        onChange={onChange}
+        className={mono ? 'w-full font-mono' : 'w-full'}
+      />
+    </div>
+  );
+}
 
 export function ChannelDialog({
   showChannelModal,
@@ -118,29 +150,19 @@ export function ChannelDialog({
                 />
               </div>
 
-              <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-kumo-subtle">SMTP 授权码 *</label>
-                <Input size="sm"
-                  aria-label="SMTP 授权口令"
-                  type="text"
-                  placeholder="your_smtp_app_password"
-                  value={channelForm.config.auth.pass}
-                  autoComplete="off"
-                  data-1p-ignore
-                  data-lpignore="true"
-                  data-bwignore="true"
-                  data-form-type="other"
-                  spellCheck={false}
-                  onChange={(e) => setChannelForm(prev => ({
-                    ...prev,
-                    config: {
-                      ...prev.config,
-                      auth: { ...prev.config.auth, pass: e.target.value }
-                    }
-                  }))}
-                  className="w-full"
-                />
-              </div>
+              <SecretInput
+                label="SMTP 授权码 *"
+                ariaLabel="SMTP 授权口令"
+                placeholder="your_smtp_app_password"
+                value={channelForm.config.auth.pass}
+                onChange={(e) => setChannelForm(prev => ({
+                  ...prev,
+                  config: {
+                    ...prev.config,
+                    auth: { ...prev.config.auth, pass: e.target.value }
+                  }
+                }))}
+              />
 
               <div className="space-y-1.5">
                 <label className="text-xs font-semibold text-kumo-subtle">发件人名（可选）</label>
@@ -177,20 +199,17 @@ export function ChannelDialog({
           {/* Telegram configuration */}
           {channelForm.type === 'telegram' && (
             <>
-              <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-kumo-subtle">Telegram Bot 令牌 *</label>
-                <Input size="sm"
-                  aria-label="Telegram Bot 令牌"
-                  type="text"
-                  placeholder="123456789:ABCDefgh..."
-                  value={channelForm.config.bot_token}
-                  onChange={(e) => setChannelForm(prev => ({
-                    ...prev,
-                    config: { ...prev.config, bot_token: e.target.value }
-                  }))}
-                  className="w-full font-mono"
-                />
-              </div>
+              <SecretInput
+                label="Telegram Bot 令牌 *"
+                ariaLabel="Telegram Bot 令牌"
+                placeholder="123456789:ABCDefgh..."
+                value={channelForm.config.bot_token}
+                mono
+                onChange={(e) => setChannelForm(prev => ({
+                  ...prev,
+                  config: { ...prev.config, bot_token: e.target.value }
+                }))}
+              />
 
               <div className="space-y-1.5">
                 <label className="text-xs font-semibold text-kumo-subtle">Chat ID *</label>

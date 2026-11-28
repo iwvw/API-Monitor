@@ -40,18 +40,46 @@ export const parseUptimeBeatTime = (value) => {
   return Number.isFinite(timestamp) ? timestamp : null;
 };
 
+export const UPTIME_STATUS_BY_STATE = {
+  up: 'up',
+  down: 'down',
+  pending_down: 'pending',
+  pending_up: 'pending',
+  maintenance: 'maintenance',
+  paused: 'paused',
+  unknown: 'unknown',
+};
+
 export const normalizeUptimeBeat = (beat = {}) => {
   const timestamp = parseUptimeBeatTime(beat.time || beat.created_at || beat.createdAt);
-  let status = beat.status;
+  const monitorState = beat.monitorState && typeof beat.monitorState === 'object' ? beat.monitorState : null;
+  const state = String((monitorState && monitorState.state) || '').trim().toLowerCase();
+  let status = UPTIME_STATUS_BY_STATE[state] || beat.status;
   if (typeof status === 'number') {
     status = status === 1 ? 'up' : 'down';
   }
   return {
     ...beat,
+    state,
     status,
     time: timestamp ? new Date(timestamp).toISOString() : beat.time,
     timestamp,
   };
+};
+
+export const resolveUptimeStatus = (monitor, lastBeat) => {
+  const beatState = lastBeat ? String(lastBeat.state || '').trim().toLowerCase() : '';
+  if (beatState && UPTIME_STATUS_BY_STATE[beatState]) {
+    return UPTIME_STATUS_BY_STATE[beatState];
+  }
+  const monitorState = monitor ? String(monitor.state || '').trim().toLowerCase() : '';
+  if (monitorState && UPTIME_STATUS_BY_STATE[monitorState]) {
+    return UPTIME_STATUS_BY_STATE[monitorState];
+  }
+  if (lastBeat && (lastBeat.status === 'up' || lastBeat.status === 'down')) {
+    return lastBeat.status;
+  }
+  return 'unknown';
 };
 
 export const getUptimeChartColor = (isDarkMode) => ChartPalette.semantic('Success', isDarkMode);

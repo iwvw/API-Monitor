@@ -26,6 +26,7 @@ const (
 	ResponseStream    ResponseMode = "stream"
 	ResponseWebSocket ResponseMode = "websocket"
 	ResponseProxy     ResponseMode = "proxy"
+	ResponseText      ResponseMode = "text"
 
 	MatchPrefix  MatchMode = "prefix"
 	MatchExact   MatchMode = "exact"
@@ -73,6 +74,7 @@ func Routes() []Route {
 func buildRoutes() []Route {
 	return []Route{
 		{Prefix: "/health", Module: "health", Owner: OwnerGo, Auth: AuthPublic, ResponseMode: ResponseJSON, Description: "Go shell health check"},
+		{Prefix: "/metrics", Module: "prometheus-metrics", Owner: OwnerGo, Auth: AuthPublic, ResponseMode: ResponseText, Description: "Prometheus exposition of managed host metrics (disabled unless enabled in settings; optional Bearer token)", MatchMode: MatchExact},
 		{Prefix: "/api/migration/status", Module: "migration", Owner: OwnerGo, Auth: AuthPublic, ResponseMode: ResponseJSON, Description: "Go migration status and route ownership"},
 		{Prefix: "/api/auth/2fa/status", Module: "auth-2fa-status", Owner: OwnerGo, Auth: AuthPublic, ResponseMode: ResponseJSON, Description: "Public 2FA login status route"},
 		{Prefix: "/api/auth/login-options", Module: "auth-login-options", Owner: OwnerGo, Auth: AuthPublic, ResponseMode: ResponseJSON, Description: "Public login method availability", MatchMode: MatchExact},
@@ -117,7 +119,6 @@ func buildRoutes() []Route {
 		{Prefix: "/api/system/ai-access/skills/{id}", Module: "system-ai-access", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "AI Skill update/delete", MatchMode: MatchPattern},
 		{Prefix: "/api/system/ai-access/skills", Module: "system-ai-access", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "AI Skill list/create", MatchMode: MatchExact},
 		{Prefix: "/api/system/ai-access/audit", Module: "system-ai-access", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Paginated AI access audit entries", MatchMode: MatchExact},
-		{Prefix: "/api/system/ai-access/audit", Module: "system-ai-access", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Paginated AI access audit", MatchMode: MatchExact},
 		{Prefix: "/api/system/ai-access/audit/clear", Module: "system-ai-access", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Clear AI access audit entries", MatchMode: MatchExact},
 		{Prefix: "/api/system/ai-access/policy", Module: "system-ai-access", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "AI agent access policy (minimal/sensitive/standard/full)", MatchMode: MatchExact},
 		{Prefix: "/api/system/ai-access", Module: "system-ai-access", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "AI access management", MatchMode: MatchExact},
@@ -127,7 +128,6 @@ func buildRoutes() []Route {
 		{Prefix: "/api/ai-access/skills/{id}", Module: "system-ai-access", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "AI Skill update/delete", MatchMode: MatchPattern},
 		{Prefix: "/api/ai-access/skills", Module: "system-ai-access", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "AI Skill list/create", MatchMode: MatchExact},
 		{Prefix: "/api/ai-access/audit", Module: "system-ai-access", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Paginated AI access audit entries", MatchMode: MatchExact},
-		{Prefix: "/api/ai-access/audit", Module: "system-ai-access", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Paginated AI access audit", MatchMode: MatchExact},
 		{Prefix: "/api/ai-access/audit/clear", Module: "system-ai-access", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Clear AI access audit entries", MatchMode: MatchExact},
 		{Prefix: "/api/ai-access/policy", Module: "system-ai-access", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "AI agent access policy (minimal/sensitive/standard/full)", MatchMode: MatchExact},
 		{Prefix: "/api/ai-access", Module: "system-ai-access", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "AI access management", MatchMode: MatchExact},
@@ -376,26 +376,19 @@ func buildRoutes() []Route {
 		{Prefix: "/api/bookmarks/public/all", Module: "bookmarks-public", Owner: OwnerGo, Auth: AuthPublic, ResponseMode: ResponseJSON, Description: "Public bookmarks aggregate page: every public group", MatchMode: MatchExact},
 		{Prefix: "/api/bookmarks/public/page-by-domain", Module: "bookmarks-public", Owner: OwnerGo, Auth: AuthPublic, ResponseMode: ResponseJSON, Description: "Public bookmarks group by custom domain", MatchMode: MatchExact},
 
-		{Prefix: "/api/openai", Module: "openai", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "OpenAI endpoint manager and proxy"},
+		{Prefix: "/api/modelhub", Module: "modelhub", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "ModelHub endpoint manager and proxy"},
 		{Prefix: "/api/proxypool", Module: "proxypool", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "独立出口代理池管理（端点与插件可复用）"},
 		{Prefix: "/api/antigravity", Module: "antigravity", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Antigravity 插件（Claude 订阅转 API）管理"},
 		{Prefix: "/api/antigravity/v1", Module: "antigravity-compatible", Owner: OwnerGo, Auth: AuthInternal, ResponseMode: ResponseStream, Description: "Antigravity 插件 Anthropic 兼容中继（仅本机内部网关调用）"},
-		{Prefix: "/api/ds2api", Module: "ds2api", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "DS2API 插件（DeepSeek 网页版免费池）管理"},
-		{Prefix: "/api/ds2api/v1", Module: "ds2api-compatible", Owner: OwnerGo, Auth: AuthInternal, ResponseMode: ResponseStream, Description: "DS2API 插件 OpenAI 兼容中继（仅本机内部网关调用）"},
 		{Prefix: "/api/workbuddy", Module: "workbuddy", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "WorkBuddy 插件（腾讯 CodeBuddy 转 OpenAI 兼容 API）管理"},
 		{Prefix: "/api/workbuddy/v1", Module: "workbuddy-compatible", Owner: OwnerGo, Auth: AuthInternal, ResponseMode: ResponseStream, Description: "WorkBuddy 插件 OpenAI 兼容中继（仅本机内部网关调用）"},
-		{Prefix: "/api/geminicli", Module: "geminicli", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Gemini CLI 插件（Google Gemini CLI 反代）管理"},
-		{Prefix: "/api/geminicli/v1", Module: "geminicli-compatible", Owner: OwnerGo, Auth: AuthInternal, ResponseMode: ResponseStream, Description: "Gemini CLI 插件 OpenAI 兼容中继（仅本机内部网关调用）"},
-		{Prefix: "/api/lobsterai", Module: "lobsterai", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "LobsterAI 插件（网易有道龙虾转 OpenAI 兼容 API）管理"},
-		{Prefix: "/api/lobsterai/v1", Module: "lobsterai-compatible", Owner: OwnerGo, Auth: AuthInternal, ResponseMode: ResponseStream, Description: "LobsterAI 插件 OpenAI 兼容中继（仅本机内部网关调用）"},
-		{Prefix: "/api/posthogcode", Module: "posthogcode", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "PostHog Code 插件（PostHog LLM Gateway 转 OpenAI 兼容 API）管理"},
-		{Prefix: "/api/posthogcode/v1", Module: "posthogcode-compatible", Owner: OwnerGo, Auth: AuthInternal, ResponseMode: ResponseStream, Description: "PostHog Code 插件 OpenAI 兼容中继（仅本机内部网关调用）"},
 		{Prefix: "/api/qoder", Module: "qoder", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Qoder 插件（qoder.cn / qoder.com 转 OpenAI 兼容 API）管理"},
 		{Prefix: "/api/qoder/v1", Module: "qoder-compatible", Owner: OwnerGo, Auth: AuthInternal, ResponseMode: ResponseStream, Description: "Qoder 插件 OpenAI 兼容中继（仅本机内部网关调用）"},
-		{Prefix: "/api/opencode", Module: "opencode", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "OpenCode 插件（OpenCode Zen 免费模型转 OpenAI 兼容 API）管理"},
-		{Prefix: "/api/opencode/v1", Module: "opencode-compatible", Owner: OwnerGo, Auth: AuthInternal, ResponseMode: ResponseStream, Description: "OpenCode 插件 OpenAI 兼容中继（仅本机内部网关调用）"},
-
-		{Prefix: "/api/emailcode", Module: "emailcode", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "通用邮箱验证码收件箱（列表、详情、等待、取用、统计、清理）"},
+		{Prefix: "/api/raccoon", Module: "raccoon", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "小浣熊插件（商汤 xiaohuanxiong.com 转 OpenAI 兼容 API）管理"},
+		{Prefix: "/api/raccoon/v1", Module: "raccoon-compatible", Owner: OwnerGo, Auth: AuthInternal, ResponseMode: ResponseStream, Description: "小浣熊插件 OpenAI 兼容中继（仅本机内部网关调用）"},
+		{Prefix: "/api/cline", Module: "cline", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Cline 插件（cline.bot 转 OpenAI 兼容 API）管理"},
+		{Prefix: "/api/cline/v1", Module: "cline-compatible", Owner: OwnerGo, Auth: AuthInternal, ResponseMode: ResponseStream, Description: "Cline 插件 OpenAI 兼容中继（仅本机内部网关调用）"},
+		{Prefix: "/api/emailcode", Module: "emailcode", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "通用邮箱验证码收件箱（列表、详情、等待、取用、清理）"},
 		{Prefix: "/api/emailcode/ingest", Module: "emailcode-worker-callback", Owner: OwnerGo, Auth: AuthPublic, ResponseMode: ResponseJSON, Description: "邮件 Worker 投递回调（共享密钥校验，非会话鉴权）", MatchMode: MatchExact},
 		{Prefix: "/api/subscription", Module: "subscription", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Subscription distribution, nodes, templates, logs, and settings"},
 		{Prefix: "/api/subscription/public/{token}", Module: "subscription-public", Owner: OwnerGo, Auth: AuthPublic, ResponseMode: ResponseJSON, Description: "Public subscription info page payload (no credentials)", MatchMode: MatchPattern},
@@ -668,12 +661,13 @@ func literalSpecificity(prefix string) (segments, chars int) {
 }
 
 func routeScore(route Route) int {
-	score := len(route.Prefix)
+	segments, chars := literalSpecificity(route.Prefix)
+	score := segments*10000 + chars
 	switch route.MatchMode {
 	case MatchExact:
-		score += 2000
+		score += 100000000
 	case MatchPattern:
-		score += 1000
+		score += 1000000
 	}
 	return score
 }

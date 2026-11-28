@@ -41,7 +41,8 @@ func (s *Service) newPublicRegister(w http.ResponseWriter, r *http.Request) {
 
 	payload, err := readObject(r)
 	if err != nil {
-		response.Error(w, http.StatusBadRequest, err.Error())
+		// 不回显 encoding/json 原始错误(类型名、EOF 等),避免泄露后端实现细节。
+		response.Error(w, http.StatusBadRequest, "请求格式无效")
 		return
 	}
 	code := strings.TrimSpace(stringValue(payload["code"], ""))
@@ -77,6 +78,14 @@ func (s *Service) newPublicRegister(w http.ResponseWriter, r *http.Request) {
 			response.Error(w, http.StatusBadRequest, "invite code unavailable: "+reason)
 			return
 		}
+		if reserveErr := reserveInviteCode(r.Context(), db, inviteCode.ID); reserveErr != nil {
+			if errors.Is(reserveErr, errInviteCodeExhausted) {
+				response.Error(w, http.StatusConflict, "邀请码已被使用")
+				return
+			}
+			response.Error(w, http.StatusInternalServerError, reserveErr.Error())
+			return
+		}
 	case batchID != "":
 		items, batchErr := loadInviteCodesByBatch(r.Context(), db, batchID)
 		if batchErr != nil {
@@ -87,9 +96,13 @@ func (s *Service) newPublicRegister(w http.ResponseWriter, r *http.Request) {
 			response.Error(w, http.StatusInternalServerError, batchErr.Error())
 			return
 		}
-		selected, available, reason := pickInviteCodeFromBatch(items, now)
-		if !available {
-			response.Error(w, http.StatusBadRequest, "invite batch unavailable: "+reason)
+		selected, reserveErr := reserveInviteCodeFromBatch(r.Context(), db, items, now)
+		if reserveErr != nil {
+			if errors.Is(reserveErr, errInviteCodeExhausted) {
+				response.Error(w, http.StatusBadRequest, "invite batch unavailable: used")
+				return
+			}
+			response.Error(w, http.StatusInternalServerError, reserveErr.Error())
 			return
 		}
 		inviteCode = selected
@@ -97,12 +110,14 @@ func (s *Service) newPublicRegister(w http.ResponseWriter, r *http.Request) {
 
 	target, err := resolveInviteRegistrationTarget(r.Context(), db, inviteCodeToInviteRecord(inviteCode), payload)
 	if err != nil {
+		releaseInviteCode(r.Context(), db, inviteCode.ID)
 		response.Error(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
 	account, err := s.loadDecryptedAccount(r.Context(), strconv.FormatInt(target.ID, 10))
 	if err != nil {
+		releaseInviteCode(r.Context(), db, inviteCode.ID)
 		response.Error(w, http.StatusBadGateway, err.Error())
 		return
 	}
@@ -117,6 +132,7 @@ func (s *Service) newPublicRegister(w http.ResponseWriter, r *http.Request) {
 	for attempt := 0; attempt < maxPasswordAttempts; attempt++ {
 		generatedPassword, err = generateTemporaryPassword()
 		if err != nil {
+			releaseInviteCode(r.Context(), db, inviteCode.ID)
 			response.Error(w, http.StatusInternalServerError, "generate temporary password: "+err.Error())
 			return
 		}
@@ -155,13 +171,11 @@ func (s *Service) newPublicRegister(w http.ResponseWriter, r *http.Request) {
 			warning = err.Error()
 		}
 	}
+	if createErr != nil {
+		releaseInviteCode(r.Context(), db, inviteCode.ID)
+	}
 
 	if persistErr := persistPublicPageRegistration(r.Context(), db, inviteCode, target.ID, target.Name, displayName, userPrincipalName, graphUserID, status, errorMessage); persistErr != nil {
-		if errors.Is(persistErr, errInviteCodeExhausted) {
-			// 并发竞争的第二个注册：邀请码额度已被对方占用
-			response.Error(w, http.StatusConflict, "邀请码已被使用")
-			return
-		}
 		if warning != "" {
 			warning += "; "
 		}

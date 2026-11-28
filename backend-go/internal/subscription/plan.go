@@ -166,7 +166,10 @@ func (s *Service) handlePlans(w http.ResponseWriter, r *http.Request, db *sql.DB
 			return
 		}
 		var count int
-		_ = db.QueryRowContext(r.Context(), `SELECT COUNT(*) FROM subscription_subscriptions WHERE plan_id=?`, id).Scan(&count)
+		if err := db.QueryRowContext(r.Context(), `SELECT COUNT(*) FROM subscription_subscriptions WHERE plan_id=?`, id).Scan(&count); err != nil {
+			response.Error(w, 500, err.Error())
+			return
+		}
 		if count > 0 {
 			response.Error(w, 409, "套餐仍有订阅使用，无法删除")
 			return
@@ -322,6 +325,33 @@ func replacePlanNodeRelations(ctx context.Context, db *sql.DB, tx *sql.Tx, planI
 		containsExternal = containsExternal || source == "external"
 	}
 	return containsInternal, containsExternal, nil
+}
+
+// validatePlanNodeIDs 在写入前校验节点存在性。replacePlanNodeRelations 会先
+// DELETE 全部关联再逐条校验+INSERT,若中途遇到失效 node_id 就直接报错,导致
+// 已有授权被删、只部分回填。局部更新路径没有事务包裹,因此必须在破坏性写入前
+// 先做一次只读校验,把「节点不存在」挡在 DELETE 之前。
+func validatePlanNodeIDs(ctx context.Context, db *sql.DB, nodeIDs []string) error {
+	seen := map[string]struct{}{}
+	for _, rawID := range nodeIDs {
+		nodeID := strings.TrimSpace(rawID)
+		if nodeID == "" {
+			continue
+		}
+		if _, duplicate := seen[nodeID]; duplicate {
+			continue
+		}
+		seen[nodeID] = struct{}{}
+		var exists int
+		if err := db.QueryRowContext(ctx, `SELECT 1 FROM managed_proxy_nodes WHERE id=?`, nodeID).Scan(&exists); err == nil {
+			continue
+		}
+		if err := db.QueryRowContext(ctx, `SELECT 1 FROM subscription_nodes WHERE id=?`, nodeID).Scan(&exists); err == nil {
+			continue
+		}
+		return fmt.Errorf("节点 %s 不存在或已被删除", nodeID)
+	}
+	return nil
 }
 
 func applyPlanToSubscription(ctx context.Context, db *sql.DB, sub *Subscription) {

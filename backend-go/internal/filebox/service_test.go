@@ -1438,6 +1438,31 @@ func (f *fakeIncapableUploader) SupportsAgentFileUpload(serverID string) bool {
 	return false
 }
 
+// 修复:IPv6 存储节点地址必须加方括号,否则拼出 http://2603::5:61208 这种非法直链
+// (url.Parse 会把 ":5" 后的部分当端口而报错,见线上 502「invalid port」)。
+func TestBuildSignedURLBracketsIPv6Host(t *testing.T) {
+	v6 := "2603:c024:c021:2e00::5"
+	u, err := BuildSignedURL("PUT", v6, 61208, "ABC123", "f.bin", 1024, time.Minute, "secret")
+	if err != nil {
+		t.Fatalf("BuildSignedURL err: %v", err)
+	}
+	if !strings.HasPrefix(u, "http://["+v6+"]:61208/storage/") {
+		t.Fatalf("IPv6 主机未被 [] 包住: %s", u)
+	}
+	if _, err := http.NewRequest(http.MethodPut, u, nil); err != nil {
+		t.Fatalf("生成的直链无法解析: %v (%s)", err, u)
+	}
+	// IPv4 / 域名必须保持原样(不能因为加括号而回归)。
+	u4, err := BuildSignedURL("PUT", "1.2.3.4", 61208, "ABC123", "f.bin", 1024, time.Minute, "secret")
+	if err != nil || !strings.HasPrefix(u4, "http://1.2.3.4:61208/storage/") {
+		t.Fatalf("IPv4 地址被破坏: %s err=%v", u4, err)
+	}
+	host, err := BuildSignedURL("PUT", "node.example.com", 61208, "ABC123", "f.bin", 1024, time.Minute, "secret")
+	if err != nil || !strings.HasPrefix(host, "http://node.example.com:61208/storage/") {
+		t.Fatalf("域名被破坏: %s err=%v", host, err)
+	}
+}
+
 func TestShareFromAgentFallsBackWhenAgentLacksDirectUpload(t *testing.T) {
 	service := newTestService(t, fakeAuth{ok: true})
 	uploader := &fakeIncapableUploader{content: []byte("legacy-agent-bytes"), exists: true}
@@ -1469,5 +1494,67 @@ func TestShareFromAgentFallsBackWhenAgentLacksDirectUpload(t *testing.T) {
 	}
 	if gotBody != "legacy-agent-bytes" {
 		t.Fatalf("panel relay fallback did not deliver bytes, got %q", gotBody)
+	}
+}
+
+func TestVerifyPublicShareLocksOutAfterRepeatedFailures(t *testing.T) {
+	service := newTestService(t, fakeAuth{ok: true})
+	body, contentType := multipartBody(t, map[string]string{
+		"type":            "text",
+		"text":            "locked content",
+		"expiry":          "1",
+		"access_password": "correct-horse",
+	}, nil)
+	res := performFileboxRequest(service, http.MethodPost, "/api/filebox/share", body, contentType)
+	var created struct {
+		Code string `json:"code"`
+	}
+	mustDecodeFilebox(t, res, &created)
+
+	for i := 0; i < publicAuthMaxFailures; i++ {
+		res = performFileboxRequest(service, http.MethodPost, "/api/filebox/public/"+created.Code+"/verify", strings.NewReader(`{"password":"wrong"}`), "application/json")
+		if res.Code != http.StatusForbidden {
+			t.Fatalf("failure %d verify status = %d body=%s", i, res.Code, res.Body.String())
+		}
+	}
+	res = performFileboxRequest(service, http.MethodPost, "/api/filebox/public/"+created.Code+"/verify", strings.NewReader(`{"password":"correct-horse"}`), "application/json")
+	if res.Code != http.StatusTooManyRequests {
+		t.Fatalf("expected lockout 429, got %d body=%s", res.Code, res.Body.String())
+	}
+}
+
+func TestProtectedShareMetadataHiddenBeforePassword(t *testing.T) {
+	service := newTestService(t, fakeAuth{ok: true})
+	body, contentType := multipartBody(t, map[string]string{
+		"type":            "text",
+		"text":            "hidden text",
+		"expiry":          "1",
+		"access_password": "pw",
+	}, nil)
+	res := performFileboxRequest(service, http.MethodPost, "/api/filebox/share", body, contentType)
+	var created struct {
+		Code string `json:"code"`
+	}
+	mustDecodeFilebox(t, res, &created)
+
+	res = performFileboxRequest(service, http.MethodGet, "/api/filebox/public/"+created.Code, nil, "")
+	if res.Code != http.StatusOK {
+		t.Fatalf("metadata status = %d body=%s", res.Code, res.Body.String())
+	}
+	var envelope map[string]json.RawMessage
+	if err := json.Unmarshal(res.Body.Bytes(), &envelope); err != nil {
+		t.Fatal(err)
+	}
+	var data map[string]json.RawMessage
+	if err := json.Unmarshal(envelope["data"], &data); err != nil {
+		t.Fatal(err)
+	}
+	if string(data["requiresPassword"]) != "true" {
+		t.Fatalf("expected requiresPassword true, got %s", data["requiresPassword"])
+	}
+	for _, field := range []string{"originalName", "textFormat", "preview", "serverId", "storageType"} {
+		if _, ok := data[field]; ok {
+			t.Fatalf("protected metadata leaked %s: %s", field, data[field])
+		}
 	}
 }

@@ -3,6 +3,7 @@ package emailcode
 import (
 	"crypto/subtle"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -24,14 +25,20 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.handleDomains(w, r)
 	case path == "/messages":
 		s.handleMessages(w, r)
-	case path == "/stats":
-		s.handleStats(w, r)
+	case path == "/messages/batch":
+		s.handleBatchList(w, r)
+	case path == "/messages/fetch":
+		s.handleBatchFetch(w, r)
+	case path == "/messages/consume":
+		s.handleBatchConsume(w, r)
 	case strings.HasPrefix(path, "/messages/"):
 		s.handleMessageItem(w, r, strings.TrimPrefix(path, "/messages/"))
 	case path == "/wait":
 		s.handleWait(w, r)
 	case path == "/clear":
 		s.handleClear(w, r)
+	case path == "/settings":
+		s.handleSettings(w, r)
 	default:
 		response.Error(w, http.StatusNotFound, "emailcode route not found")
 	}
@@ -48,8 +55,6 @@ type ingestPayload struct {
 	Subject   string `json:"subject"`
 	MessageID string `json:"messageId"`
 	Raw       string `json:"raw"`
-	Code      string `json:"code"`
-	Link      string `json:"link"`
 	Snippet   string `json:"snippet"`
 	Received  string `json:"receivedAt"`
 }
@@ -92,13 +97,13 @@ func (s *Service) handleIngest(w http.ResponseWriter, r *http.Request) {
 		Sender:     sender,
 		Subject:    strings.TrimSpace(body.Subject),
 		MessageID:  strings.TrimSpace(body.MessageID),
-		Code:       strings.TrimSpace(body.Code),
-		Link:       strings.TrimSpace(body.Link),
 		Snippet:    strings.TrimSpace(body.Snippet),
+		Raw:        strings.TrimSpace(body.Raw),
 		ReceivedAt: strings.TrimSpace(body.Received),
 	}
 
-	// 面板侧解析：用标准库 MIME + charset 解码 + 分层提取，比 Worker 内启发式更准。
+	// 面板侧解析:用标准库 MIME + charset 解码,补齐头字段与正文。
+	// 自动提取验证码已移除,邮件只做展示与原文留存。
 	if raw := strings.TrimSpace(body.Raw); raw != "" {
 		parsed, err := ParseRaw(raw)
 		if err == nil {
@@ -115,20 +120,6 @@ func (s *Service) handleIngest(w http.ResponseWriter, r *http.Request) {
 				msg.Snippet = truncate(strings.TrimSpace(parsed.Text), 300)
 			}
 			msg.TextBody = parsed.Text
-			res := ExtractFromParsed(parsed, parsed.Text)
-			msg.Code = res.Code
-			msg.ExtractStatus = res.Status
-			if msg.Link == "" {
-				msg.Link = res.Link
-			}
-		} else if msg.ExtractStatus == "" {
-			msg.ExtractStatus = ExtractNone
-		}
-	} else if msg.ExtractStatus == "" {
-		if msg.Code != "" {
-			msg.ExtractStatus = ExtractOK
-		} else {
-			msg.ExtractStatus = ExtractNone
 		}
 	}
 
@@ -138,7 +129,7 @@ func (s *Service) handleIngest(w http.ResponseWriter, r *http.Request) {
 		response.Error(w, http.StatusInternalServerError, "ingest 失败")
 		return
 	}
-	response.OK(w, map[string]interface{}{"id": id, "status": msg.ExtractStatus})
+	response.OK(w, map[string]interface{}{"id": id})
 }
 
 // handleDomains 返回已部署收件箱、可用于生成收件邮箱的域名。
@@ -156,36 +147,23 @@ func (s *Service) handleDomains(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleMessages 查询收件箱列表。
-// GET /api/emailcode/messages?mailbox=&includeConsumed=1&limit=50
+// GET /api/emailcode/messages?mailbox=&domain=&fromDomain=&includeConsumed=1&limit=50
 func (s *Service) handleMessages(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		response.Error(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
 	mailbox := strings.TrimSpace(r.URL.Query().Get("mailbox"))
+	domain := strings.TrimSpace(r.URL.Query().Get("domain"))
+	fromDomain := strings.TrimSpace(r.URL.Query().Get("fromDomain"))
 	includeConsumed := r.URL.Query().Get("includeConsumed") == "1"
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
-	messages, err := s.List(r.Context(), mailbox, includeConsumed, limit)
+	messages, err := s.ListFiltered(r.Context(), mailbox, domain, fromDomain, includeConsumed, limit)
 	if err != nil {
 		response.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	response.OK(w, map[string]interface{}{"messages": messages})
-}
-
-// handleStats 返回提取统计。
-func (s *Service) handleStats(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		response.Error(w, http.StatusMethodNotAllowed, "method not allowed")
-		return
-	}
-	days, _ := strconv.Atoi(r.URL.Query().Get("days"))
-	stats, err := s.Stats(r.Context(), days)
-	if err != nil {
-		response.Error(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	response.OK(w, stats)
 }
 
 // handleClear 清理邮件：onlyConsumed=1 只删已消费的。
@@ -201,6 +179,36 @@ func (s *Service) handleClear(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	response.OK(w, map[string]interface{}{"deleted": n})
+}
+
+// handleSettings 读写收件箱的保留天数(全域名共用)。
+// GET /api/emailcode/settings
+// PUT /api/emailcode/settings  body: {retentionDays}
+func (s *Service) handleSettings(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		response.OK(w, map[string]interface{}{"retentionDays": s.RetentionDays(r.Context())})
+	case http.MethodPut:
+		var body struct {
+			RetentionDays int `json:"retentionDays"`
+		}
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10)).Decode(&body); err != nil {
+			response.Error(w, http.StatusBadRequest, "请求体解析失败")
+			return
+		}
+		if body.RetentionDays < 1 || body.RetentionDays > maxRetentionDays {
+			response.Error(w, http.StatusBadRequest, fmt.Sprintf("保留天数需在 1-%d 之间", maxRetentionDays))
+			return
+		}
+		days, err := s.SetRetentionDays(r.Context(), body.RetentionDays)
+		if err != nil {
+			response.Error(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		response.OK(w, map[string]interface{}{"retentionDays": days})
+	default:
+		response.Error(w, http.StatusMethodNotAllowed, "method not allowed")
+	}
 }
 
 // handleMessageItem 处理单条邮件的详情、取用与删除。
@@ -270,7 +278,6 @@ func (s *Service) handleWait(w http.ResponseWriter, r *http.Request) {
 		Since           string `json:"since"`
 		TimeoutSec      int    `json:"timeoutSec"`
 		Consumer        string `json:"consumer"`
-		RequireCode     *bool  `json:"requireCode"`
 	}
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 256<<10)).Decode(&body); err != nil {
 		response.Error(w, http.StatusBadRequest, "请求体解析失败")
@@ -287,17 +294,12 @@ func (s *Service) handleWait(w http.ResponseWriter, r *http.Request) {
 			since = ts
 		}
 	}
-	requireCode := true
-	if body.RequireCode != nil {
-		requireCode = *body.RequireCode
-	}
 	sel := Selector{
 		Mailbox:         mailbox,
 		Domain:          strings.TrimSpace(body.Domain),
 		FromDomain:      strings.TrimSpace(body.FromDomain),
 		SubjectContains: strings.TrimSpace(body.SubjectContains),
 		Since:           since,
-		RequireCode:     requireCode,
 	}
 	consumer := strings.TrimSpace(body.Consumer)
 	if consumer == "" {
@@ -319,6 +321,118 @@ func (s *Service) handleWait(w http.ResponseWriter, r *http.Request) {
 }
 
 // verifyWorkerSecret 校验邮件 Worker 的共享密钥。
+// emailcodeBatchMax 是批量接口单次允许的最大收件人/邮件数。
+const emailcodeBatchMax = 50
+
+// handleBatchList 批量按 mailbox 列出收件箱(一次最多 emailcodeBatchMax 个收件人)。
+// POST /api/emailcode/messages/batch
+// body: {mailboxes:[...], domain?, fromDomain?, includeConsumed?, limit?}
+func (s *Service) handleBatchList(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		response.Error(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	var body struct {
+		Mailboxes       []string `json:"mailboxes"`
+		Domain          string   `json:"domain"`
+		FromDomain      string   `json:"fromDomain"`
+		IncludeConsumed bool     `json:"includeConsumed"`
+		Limit           int      `json:"limit"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 256<<10)).Decode(&body); err != nil {
+		response.Error(w, http.StatusBadRequest, "请求体解析失败")
+		return
+	}
+	if len(body.Mailboxes) == 0 {
+		response.Error(w, http.StatusBadRequest, "mailboxes 不能为空")
+		return
+	}
+	if len(body.Mailboxes) > emailcodeBatchMax {
+		response.Error(w, http.StatusBadRequest, fmt.Sprintf("mailboxes 最多 %d 个", emailcodeBatchMax))
+		return
+	}
+	results := make([]map[string]interface{}, 0, len(body.Mailboxes))
+	for _, mb := range body.Mailboxes {
+		mailbox := strings.TrimSpace(mb)
+		if mailbox == "" {
+			results = append(results, map[string]interface{}{"mailbox": mb, "messages": []Message{}})
+			continue
+		}
+		msgs, err := s.ListFiltered(r.Context(), mailbox, body.Domain, body.FromDomain, body.IncludeConsumed, body.Limit)
+		if err != nil {
+			results = append(results, map[string]interface{}{"mailbox": mailbox, "error": err.Error()})
+			continue
+		}
+		results = append(results, map[string]interface{}{"mailbox": mailbox, "messages": msgs})
+	}
+	response.OK(w, map[string]interface{}{"results": results})
+}
+
+// handleBatchFetch 按 id 批量取邮件详情(含 MIME 原文 raw)。顺序与请求 ids 一致。
+// POST /api/emailcode/messages/fetch  body: {ids:[...]}
+func (s *Service) handleBatchFetch(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		response.Error(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	var body struct {
+		IDs []int64 `json:"ids"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 256<<10)).Decode(&body); err != nil {
+		response.Error(w, http.StatusBadRequest, "请求体解析失败")
+		return
+	}
+	if len(body.IDs) == 0 {
+		response.Error(w, http.StatusBadRequest, "ids 不能为空")
+		return
+	}
+	if len(body.IDs) > emailcodeBatchMax {
+		response.Error(w, http.StatusBadRequest, fmt.Sprintf("ids 最多 %d 个", emailcodeBatchMax))
+		return
+	}
+	msgs, err := s.GetMany(r.Context(), body.IDs)
+	if err != nil {
+		response.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	response.OK(w, map[string]interface{}{"messages": msgs})
+}
+
+// handleBatchConsume 按 id 批量标记已消费。
+// POST /api/emailcode/messages/consume  body: {ids:[...], consumer?}
+func (s *Service) handleBatchConsume(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		response.Error(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	var body struct {
+		IDs      []int64 `json:"ids"`
+		Consumer string  `json:"consumer"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 256<<10)).Decode(&body); err != nil {
+		response.Error(w, http.StatusBadRequest, "请求体解析失败")
+		return
+	}
+	if len(body.IDs) == 0 {
+		response.Error(w, http.StatusBadRequest, "ids 不能为空")
+		return
+	}
+	if len(body.IDs) > emailcodeBatchMax {
+		response.Error(w, http.StatusBadRequest, fmt.Sprintf("ids 最多 %d 个", emailcodeBatchMax))
+		return
+	}
+	consumer := strings.TrimSpace(body.Consumer)
+	if consumer == "" {
+		consumer = "batch"
+	}
+	n, err := s.ConsumeMany(r.Context(), body.IDs, consumer)
+	if err != nil {
+		response.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	response.OK(w, map[string]interface{}{"consumed": n})
+}
+
 func verifyWorkerSecret(r *http.Request) bool {
 	expected := WorkerSecret()
 	got := strings.TrimSpace(r.Header.Get("X-Worker-Secret"))

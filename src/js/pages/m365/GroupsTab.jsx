@@ -44,6 +44,7 @@ export default function GroupsTab({
         bodyClassName={panelBodyClass}
         title="组管理"
         icon={<Folder className="h-4 w-4" />}
+        description={groups.length >= 100 ? '最多显示 100 个组' : undefined}
         action={
           <div className="flex items-center gap-2">
             <Button

@@ -120,16 +120,12 @@ export default function RouteDetail({ route, openapiRoute }) {
             </div>
           </div>
         ) : null}
-        <SnippetBox label="cURL 示例" value={curl} onCopy={copyText} />
+        <SnippetBox label="cURL 示例" value={curl} />
         {route.requestExample ? (
-          <SnippetBox label="请求示例" value={formatJSON(route.requestExample)} onCopy={copyText} />
+          <SnippetBox label="请求示例" value={formatJSON(route.requestExample)} />
         ) : null}
         {route.responseExample ? (
-          <SnippetBox
-            label="响应示例"
-            value={formatJSON(route.responseExample)}
-            onCopy={copyText}
-          />
+          <SnippetBox label="响应示例" value={formatJSON(route.responseExample)} />
         ) : null}
         {openapiRoute && (
           <div>

@@ -96,6 +96,8 @@ func (s *Service) recordUsage(accountID, model string, prompt, completion, cache
 	if strings.TrimSpace(model) == "" {
 		model = "(未知模型)"
 	}
+	// 记账存对外模型名（内部短 key 会复用、改名，直接存用户看不懂）。
+	model = s.displayModelName(model)
 	delta := &usageDelta{
 		requests:         1,
 		promptTokens:     prompt,

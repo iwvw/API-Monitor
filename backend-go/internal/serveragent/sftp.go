@@ -6,9 +6,11 @@ import (
 	"database/sql"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"mime"
+	"net"
 	"net/http"
 	"os"
 	pathpkg "path"
@@ -21,6 +23,7 @@ import (
 	"github.com/iwvw/api-monitor/backend-go/internal/secure"
 	"github.com/pkg/sftp"
 	"golang.org/x/crypto/ssh"
+	"golang.org/x/crypto/ssh/knownhosts"
 )
 
 // ==========================================
@@ -468,6 +471,10 @@ func (s *Service) handleSFTPRename(w http.ResponseWriter, r *http.Request, db *s
 			})
 			return
 		}
+		// 与其他文件操作一致：Agent 白名单拒绝时回退 SSH。
+		if s.canFallbackToSSH(db, req.ServerID) {
+			break
+		}
 		writeSFTPError(w, err)
 		return
 	case agentFileUnavailable:
@@ -515,6 +522,15 @@ func (s *Service) handleSFTPDelete(w http.ResponseWriter, r *http.Request, db *s
 				"message":   firstNonEmpty(result, "file deleted"),
 			})
 			return
+		}
+		// 与 list/write/mkdir 保持一致：Agent 因白名单拒绝该路径时，
+		// 配置了 SSH 凭据的主机仍应能删除真实文件系统上的文件。
+		//
+		// 历史缺陷：这里直接 writeSFTPError 返回，导致同一个目录
+		// 「能写入、能新建、能浏览，却删不掉」—— 因为 write/mkdir/list
+		// 都会回退到 SSH，只有 delete 不会，用户看到的就是本条错误。
+		if s.canFallbackToSSH(db, req.ServerID) {
+			break
 		}
 		writeSFTPError(w, err)
 		return
@@ -564,6 +580,10 @@ func (s *Service) handleSFTPRmdir(w http.ResponseWriter, r *http.Request, db *sq
 				"message":   firstNonEmpty(result, "directory deleted"),
 			})
 			return
+		}
+		// 与 list/write/mkdir 一致：Agent 白名单拒绝时回退 SSH。
+		if s.canFallbackToSSH(db, req.ServerID) {
+			break
 		}
 		writeSFTPError(w, err)
 		return
@@ -625,6 +645,10 @@ func (s *Service) handleSFTPChmod(w http.ResponseWriter, r *http.Request, db *sq
 			})
 			return
 		}
+		// 与其他文件操作一致：Agent 白名单拒绝时回退 SSH。
+		if s.canFallbackToSSH(db, req.ServerID) {
+			break
+		}
 		writeSFTPError(w, agentErr)
 		return
 	case agentFileUnavailable:
@@ -649,7 +673,10 @@ func (s *Service) handleSFTPChmod(w http.ResponseWriter, r *http.Request, db *sq
 }
 
 func (s *Service) handleSFTPUpload(w http.ResponseWriter, r *http.Request, db *sql.DB) {
-	if err := r.ParseMultipartForm(64 << 20); err != nil {
+	// 上限与 Agent 二进制直传一致,避免单请求耗尽磁盘;multipart 解析只保留约
+	// 1MiB 在内存,其余落临时文件,配合下面的分块/流式写入不再把整文件读入 []byte。
+	r.Body = http.MaxBytesReader(w, r.Body, agentUploadMaxBytes)
+	if err := r.ParseMultipartForm(agentFileChunkSize); err != nil {
 		response.Error(w, http.StatusBadRequest, "invalid multipart form")
 		return
 	}
@@ -663,21 +690,21 @@ func (s *Service) handleSFTPUpload(w http.ResponseWriter, r *http.Request, db *s
 	}
 	defer file.Close()
 
-	target := pathpkg.Join(remoteDir, header.Filename)
+	uploadName := header.Filename
 	if relativePath != "" {
-		target = pathpkg.Join(remoteDir, relativePath)
+		uploadName = relativePath
+	}
+	target, err := safeJoinRemoteDir(remoteDir, uploadName)
+	if err != nil {
+		writeSFTPError(w, err)
+		return
 	}
 	switch s.resolveAgentFileMode(db, serverID) {
 	case agentFileViaAgent:
 		// 必须走分块 base64 写入，不能把字节塞进 string：Go string 里的非法
 		// UTF-8 序列在 json.Marshal 时会被替换成 U+FFFD，二进制文件（zip/图片/
 		// 可执行文件）会静默损坏。同时分块也避开单帧体积上限。
-		var buf bytes.Buffer
-		if _, err := io.Copy(&buf, file); err != nil {
-			writeSFTPError(w, err)
-			return
-		}
-		written, werr := s.WriteAgentFileBytesDetailedMode(r.Context(), serverID, target, buf.Bytes(), 5*time.Minute, true)
+		written, werr := s.streamAgentFileUpload(r.Context(), serverID, target, file, 5*time.Minute, true)
 		if werr != nil {
 			writeSFTPError(w, werr)
 			return
@@ -706,12 +733,7 @@ func (s *Service) handleSFTPUpload(w http.ResponseWriter, r *http.Request, db *s
 		writeSFTPError(w, err)
 		return
 	}
-	var buf bytes.Buffer
-	if _, err := io.Copy(&buf, file); err != nil {
-		writeSFTPError(w, err)
-		return
-	}
-	if err := writeRemoteFile(client, target, buf.Bytes()); err != nil {
+	if err := writeRemoteFileFromReader(client, target, file); err != nil {
 		writeSFTPError(w, err)
 		return
 	}
@@ -779,13 +801,14 @@ const (
 	agentFileFetchURLTask      = 41
 	agentFileWriteBase64Task   = 42
 	agentFileRootsTask         = 43
+	agentFileWalkTask          = 44
 	agentFileTimeout           = 30 * time.Second
 	agentFileChunkSize         = 1024 * 1024
 )
 
 // FetchURLToAgentFile 让指定 Agent 主机从 URL 拉取文件并写入本地路径。
 // 字节由主机直接下载，不经面板中转；适合把已有的可访问地址落到主机上。
-func (s *Service) FetchURLToAgentFile(ctx context.Context, serverID, url, remotePath string, timeout time.Duration) (string, error) {
+func (s *Service) FetchURLToAgentFile(ctx context.Context, serverID, url, remotePath string, realPath bool, timeout time.Duration) (string, error) {
 	serverID = strings.TrimSpace(serverID)
 	url = strings.TrimSpace(url)
 	remotePath = strings.TrimSpace(remotePath)
@@ -804,10 +827,14 @@ func (s *Service) FetchURLToAgentFile(ctx context.Context, serverID, url, remote
 	if timeout <= 0 {
 		timeout = 10 * time.Minute
 	}
-	payload, err := json.Marshal(map[string]interface{}{
+	payloadMap := map[string]interface{}{
 		"url":  url,
 		"path": normalizeRemotePath(remotePath),
-	})
+	}
+	if realPath {
+		payloadMap["realPath"] = true
+	}
+	payload, err := json.Marshal(payloadMap)
 	if err != nil {
 		return "", fmt.Errorf("AGENT_FILE_ERROR: %w", err)
 	}
@@ -817,6 +844,12 @@ func (s *Service) FetchURLToAgentFile(ctx context.Context, serverID, url, remote
 // WriteAgentFileBase64 把一块 base64 字节写入主机文件（支持 offset 续写与首块截断）。
 func (s *Service) WriteAgentFileBase64(ctx context.Context, serverID, remotePath, data string, offset int64, truncate bool, timeout time.Duration) (string, error) {
 	return s.writeAgentFileBase64Raw(ctx, serverID, remotePath, data, offset, truncate, timeout)
+}
+
+// WriteAgentFileBase64Mode 与 WriteAgentFileBase64 相同,但可指定 realPath:
+// true 时按主机真实绝对路径写(必须落在 API_MONITOR_FILE_ROOTS 白名单内,否则 Agent 硬报错)。
+func (s *Service) WriteAgentFileBase64Mode(ctx context.Context, serverID, remotePath, data string, offset int64, truncate bool, timeout time.Duration, realPath bool) (string, error) {
+	return s.writeAgentFileBase64RawMode(ctx, serverID, remotePath, data, offset, truncate, timeout, realPath)
 }
 
 // writeAgentFileBase64Raw 与 WriteAgentFileBase64 相同，但原始返回 Agent 的 JSON。
@@ -943,7 +976,60 @@ func (s *Service) WriteAgentFileBytesDetailedMode(ctx context.Context, serverID,
 // WriteAgentFileChunk 写入单个分块（按 offset 续写），供 AI 侧大文件分块上传。
 // 客户端自己读文件切片、自己算 sha256，模型只传 offset/长度这类元数据，
 // 因此不受模型输出长度限制。
+// streamAgentFileUpload 以固定大小分块把 reader 流式写入 Agent 主机文件,返回
+// 最后一次写入结果。全程只在内存保留一个 agentFileChunkSize 分块,避免把整个
+// 上传文件读入 []byte 造成内存放大。空输入也会写一次截断块以创建/清空目标。
+func (s *Service) streamAgentFileUpload(ctx context.Context, serverID, remotePath string, reader io.Reader, timeout time.Duration, realPath bool) (AgentFileWriteResult, error) {
+	serverID = strings.TrimSpace(serverID)
+	if serverID == "" {
+		return AgentFileWriteResult{}, fmt.Errorf("server id is required")
+	}
+	if !s.hasAgentConnection(serverID) {
+		return AgentFileWriteResult{}, fmt.Errorf("agent offline")
+	}
+	if timeout <= 0 {
+		timeout = 10 * time.Minute
+	}
+	var result AgentFileWriteResult
+	var offset int64
+	buf := make([]byte, agentFileChunkSize)
+	for {
+		n, readErr := io.ReadFull(reader, buf)
+		if n > 0 {
+			encoded := base64.StdEncoding.EncodeToString(buf[:n])
+			raw, err := s.writeAgentFileBase64RawMode(ctx, serverID, remotePath, encoded, offset, offset == 0, timeout, realPath)
+			if err != nil {
+				return result, err
+			}
+			result = parseAgentFileWriteResult(raw)
+			offset += int64(n)
+		}
+		if readErr == io.EOF || readErr == io.ErrUnexpectedEOF {
+			break
+		}
+		if readErr != nil {
+			return result, readErr
+		}
+	}
+	if offset == 0 {
+		raw, err := s.writeAgentFileBase64RawMode(ctx, serverID, remotePath, "", 0, true, timeout, realPath)
+		if err != nil {
+			return result, err
+		}
+		result = parseAgentFileWriteResult(raw)
+	}
+	if result.Size <= 0 {
+		result.Size = offset
+	}
+	return result, nil
+}
+
 func (s *Service) WriteAgentFileChunk(ctx context.Context, serverID, remotePath string, data []byte, offset int64, truncate bool, timeout time.Duration) (AgentFileWriteResult, error) {
+	return s.WriteAgentFileChunkMode(ctx, serverID, remotePath, data, offset, truncate, timeout, false)
+}
+
+// WriteAgentFileChunkMode 与 WriteAgentFileChunk 相同,但可指定 realPath。
+func (s *Service) WriteAgentFileChunkMode(ctx context.Context, serverID, remotePath string, data []byte, offset int64, truncate bool, timeout time.Duration, realPath bool) (AgentFileWriteResult, error) {
 	serverID = strings.TrimSpace(serverID)
 	if serverID == "" {
 		return AgentFileWriteResult{}, fmt.Errorf("server id is required")
@@ -958,7 +1044,7 @@ func (s *Service) WriteAgentFileChunk(ctx context.Context, serverID, remotePath 
 		timeout = 2 * time.Minute
 	}
 	encoded := base64.StdEncoding.EncodeToString(data)
-	raw, err := s.writeAgentFileBase64Raw(ctx, serverID, remotePath, encoded, offset, truncate, timeout)
+	raw, err := s.writeAgentFileBase64RawMode(ctx, serverID, remotePath, encoded, offset, truncate, timeout, realPath)
 	if err != nil {
 		return AgentFileWriteResult{}, err
 	}
@@ -994,6 +1080,13 @@ func (s *Service) AgentFileRoots(ctx context.Context, serverID string) (map[stri
 
 // AgentFileStat 返回目标主机上某个路径的信息（含真实路径）。
 func (s *Service) AgentFileStat(ctx context.Context, serverID, remotePath string) (map[string]interface{}, error) {
+	return s.AgentFileStatMode(ctx, serverID, remotePath, false)
+}
+
+// AgentFileStatMode 与 AgentFileStat 相同,但可指定 realPath:true 时按主机真实绝对路径查询。
+// 分块续写(offset>0)前的连续性校验必须用它,否则会落到沙箱路径,与首块按真实路径写入的
+// 位置不一致,导致「续写需要文件已存在」的误判。
+func (s *Service) AgentFileStatMode(ctx context.Context, serverID, remotePath string, realPath bool) (map[string]interface{}, error) {
 	serverID = strings.TrimSpace(serverID)
 	if serverID == "" {
 		return nil, fmt.Errorf("server id is required")
@@ -1001,9 +1094,13 @@ func (s *Service) AgentFileStat(ctx context.Context, serverID, remotePath string
 	if !s.hasAgentConnection(serverID) {
 		return nil, fmt.Errorf("agent offline")
 	}
-	raw, err := s.runAgentTransientFileTask(serverID, agentFileStatTask, map[string]interface{}{
+	payload := map[string]interface{}{
 		"path": normalizeRemotePath(remotePath),
-	}, agentFileTimeout)
+	}
+	if realPath {
+		payload["realPath"] = true
+	}
+	raw, err := s.runAgentTransientFileTask(serverID, agentFileStatTask, payload, agentFileTimeout)
 	if err != nil {
 		return nil, err
 	}
@@ -1163,7 +1260,7 @@ func (s *Service) openSFTPClient(r *http.Request, db *sql.DB, serverID string) (
 	sshConfig := &ssh.ClientConfig{
 		User:            cfg.Username,
 		Auth:            authMethods,
-		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+		HostKeyCallback: s.sshHostKeyCallback(),
 		Timeout:         20 * time.Second,
 	}
 	addr := fmt.Sprintf("%s:%d", cfg.Host, cfg.Port)
@@ -1181,6 +1278,61 @@ func (s *Service) openSFTPClient(r *http.Request, db *sql.DB, serverID string) (
 		_ = sshClient.Close()
 	}
 	return client, cleanup, nil
+}
+
+func (s *Service) sshHostKeyCallback() ssh.HostKeyCallback {
+	path := ""
+	if dir := strings.TrimSpace(s.cfg.DataDir); dir != "" {
+		path = filepath.Join(dir, "ssh_known_hosts")
+	}
+	return func(hostname string, remote net.Addr, key ssh.PublicKey) error {
+		return verifySSHHostKey(path, hostname, remote, key)
+	}
+}
+
+func verifySSHHostKey(path, hostname string, remote net.Addr, key ssh.PublicKey) error {
+	if path == "" {
+		return nil
+	}
+	callback, err := knownhosts.New(path)
+	if err == nil {
+		checkErr := callback(hostname, remote, key)
+		if checkErr == nil {
+			return nil
+		}
+		var keyErr *knownhosts.KeyError
+		if !errors.As(checkErr, &keyErr) {
+			return checkErr
+		}
+		if len(keyErr.Want) > 0 {
+			return fmt.Errorf("HOST_KEY_MISMATCH: SSH 主机键与已记录不一致,可能存在中间人攻击(%s)", hostname)
+		}
+	} else if !os.IsNotExist(err) {
+		// knownhosts 记录存在但无法解析/读取:不能退化成「接受任意主机键」,
+		// 否则中间人可借文件损坏或权限问题绕过校验。按失败关闭处理。
+		return fmt.Errorf("KNOWN_HOSTS_ERROR: 读取 SSH 主机键记录失败(%s): %w", path, err)
+	}
+	return appendSSHHostKey(path, hostname, remote, key)
+}
+
+func appendSSHHostKey(path, hostname string, remote net.Addr, key ssh.PublicKey) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return fmt.Errorf("KNOWN_HOSTS_ERROR: 创建主机键目录失败: %w", err)
+	}
+	addresses := []string{hostname}
+	if remote != nil && strings.TrimSpace(remote.String()) != "" {
+		addresses = append(addresses, remote.String())
+	}
+	line := knownhosts.Line(addresses, key)
+	file, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	if err != nil {
+		return fmt.Errorf("KNOWN_HOSTS_ERROR: 打开主机键记录文件失败: %w", err)
+	}
+	defer file.Close()
+	if _, err := file.WriteString(line + "\n"); err != nil {
+		return fmt.Errorf("KNOWN_HOSTS_ERROR: 写入主机键失败: %w", err)
+	}
+	return nil
 }
 
 func (s *Service) getSFTPServerConfig(r *http.Request, db *sql.DB, serverID string) (sftpServerConfig, error) {
@@ -1214,6 +1366,19 @@ func normalizeRemotePath(remotePath string) string {
 		return "."
 	}
 	return pathpkg.Clean(strings.ReplaceAll(text, "\\", "/"))
+}
+
+func safeJoinRemoteDir(remoteDir, name string) (string, error) {
+	cleaned := pathpkg.Clean(strings.ReplaceAll(strings.TrimSpace(name), "\\", "/"))
+	if cleaned == "" || cleaned == "." {
+		return "", fmt.Errorf("INVALID_PATH: 非法的文件名")
+	}
+	if pathpkg.IsAbs(cleaned) || cleaned == ".." || strings.HasPrefix(cleaned, "../") {
+		return "", fmt.Errorf("INVALID_PATH: 目标路径越界")
+	}
+	base := normalizeRemotePath(remoteDir)
+	target := pathpkg.Join(base, cleaned)
+	return target, nil
 }
 
 func fileInfoPayload(parent string, info os.FileInfo) map[string]interface{} {
@@ -1251,24 +1416,37 @@ func readRemoteFile(client *sftp.Client, remotePath string, maxSize int64) (stri
 	if err != nil {
 		return "", err
 	}
+	if !stat.Mode().IsRegular() {
+		return "", fmt.Errorf("UNSUPPORTED_FILE: 仅支持读取常规文件")
+	}
 	if stat.Size() > maxSize {
 		return "", fmt.Errorf("FILE_TOO_LARGE: 文件过大，最大支持 %d 字节", maxSize)
 	}
-	data, err := io.ReadAll(file)
+	data, err := io.ReadAll(io.LimitReader(file, maxSize+1))
 	if err != nil {
 		return "", err
+	}
+	if int64(len(data)) > maxSize {
+		return "", fmt.Errorf("FILE_TOO_LARGE: 文件过大，最大支持 %d 字节", maxSize)
 	}
 	return string(data), nil
 }
 
 func writeRemoteFile(client *sftp.Client, remotePath string, data []byte) error {
+	return writeRemoteFileFromReader(client, remotePath, bytes.NewReader(data))
+}
+
+// writeRemoteFileFromReader 从 reader 流式写入远端文件,全程不把内容整块读入内存。
+func writeRemoteFileFromReader(client *sftp.Client, remotePath string, reader io.Reader) error {
 	file, err := client.Create(remotePath)
 	if err != nil {
 		return err
 	}
-	defer file.Close()
-	_, err = file.Write(data)
-	return err
+	if _, err := io.Copy(file, reader); err != nil {
+		_ = file.Close()
+		return err
+	}
+	return file.Close()
 }
 
 func removeRemoteDirRecursive(client *sftp.Client, remotePath string) error {
@@ -1314,6 +1492,10 @@ func writeSFTPError(w http.ResponseWriter, err error) {
 		status = http.StatusBadGateway
 	case "FILE_TOO_LARGE":
 		status = http.StatusRequestEntityTooLarge
+	case "UNSUPPORTED_FILE":
+		status = http.StatusBadRequest
+	case "INVALID_PATH":
+		status = http.StatusBadRequest
 	}
 	response.JSON(w, status, map[string]interface{}{
 		"success": false,

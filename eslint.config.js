@@ -147,6 +147,15 @@ module.exports = [
       sourceType: 'commonjs', // 后端使用 CommonJS
     },
   },
+  // 构建期生成的图标子集产物（tools/generate-iconify-subset.mjs 输出）。
+  // 它们被 Vite 当作 ESM 处理，但路径在 src/assets/ 下会被上面的
+  // `src/**/*.js` 规则判成 CommonJS，导致 `import`/`export` 解析报错。
+  {
+    files: ['src/assets/**/*.js'],
+    languageOptions: {
+      sourceType: 'module',
+    },
+  },
   // 前端文件特定配置
   {
     files: ['src/js/**/*.js', 'src/js/**/*.jsx'],

@@ -3,12 +3,15 @@ package notification
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
 	"time"
-
 )
+
+// triggerBudget 是单次 Trigger 的整体时间预算上限。
+const triggerBudget = 90 * time.Second
 
 func (s *Service) DryRun(ctx context.Context, rule Rule, eventData map[string]interface{}) (map[string]interface{}, error) {
 	loc, timeZoneName := s.systemLocation(ctx)
@@ -62,6 +65,10 @@ func (s *Service) DryRun(ctx context.Context, rule Rule, eventData map[string]in
 }
 
 func (s *Service) Trigger(ctx context.Context, sourceModule, eventType string, eventData map[string]interface{}) error {
+	// 单次触发的整体时间预算:多渠道 × 多重试最坏可达数分钟,
+	// 而 Trigger 跑在 uptime/presence/cronjobs 同步检查链上,必须硬性封顶。
+	ctx, cancel := context.WithTimeout(ctx, triggerBudget)
+	defer cancel()
 	rules, err := s.loadEnabledRulesByEvent(ctx, sourceModule, eventType)
 	if err != nil {
 		return err
@@ -79,9 +86,16 @@ func (s *Service) Trigger(ctx context.Context, sourceModule, eventType string, e
 	var loadNotifyCfg = func() GlobalConfig {
 		cfg, err := s.LoadConfig(ctx)
 		if err != nil {
-			cfg = GlobalConfig{MaxRetryTimes: 3, RetryIntervalSeconds: 60, GlobalRateLimitPerHr: 100}
+			cfg = GlobalConfig{MaxRetryTimes: 3, RetryIntervalSeconds: 60, GlobalRateLimitPerHr: 100, EnableBatch: true, BatchIntervalSeconds: 30}
 		}
 		return cfg
+	}
+	cfg := loadNotifyCfg()
+	if cfg.EnableBatch && s.aggregator != nil {
+		s.aggregator.SetWindow(time.Duration(cfg.BatchIntervalSeconds) * time.Second)
+	}
+	if cfg.BaseURL != "" {
+		eventData = withDashboardURL(eventData, cfg.BaseURL)
 	}
 	for _, rule := range rules {
 		dryRun, err := s.DryRun(ctx, rule, eventData)
@@ -94,6 +108,18 @@ func (s *Service) Trigger(ctx context.Context, sourceModule, eventType string, e
 		// quiet_until 静默：未到期的时间窗内整条规则跳过
 		if quietUntilActive(rule.QuietUntil, time.Now()) {
 			continue
+		}
+		// 聚合：配置了 group_by 的规则，同一分组在窗口期内只发首条（或升级条）。
+		// 恢复事件永不聚合 —— 漏掉恢复通知会让告警永远悬着。
+		if cfg.EnableBatch && !(hasLifecycle && lifecycle.Phase == "resolve") {
+			if groupBy := ruleGroupBy(rule); len(groupBy) > 0 {
+				if key := groupKeyOf(groupBy, eventData); key != "" {
+					decision := s.decisionForGroup(rule, key, eventData, time.Now())
+					if !decision {
+						continue
+					}
+				}
+			}
 		}
 		// 恢复（resolve）阶段跳过重复抑制，避免恢复通知被吞导致告警永远悬着
 		trackSuppression := !(hasLifecycle && lifecycle.Phase == "resolve")
@@ -109,27 +135,28 @@ func (s *Service) Trigger(ctx context.Context, sourceModule, eventType string, e
 				continue
 			}
 		}
-		cfg := loadNotifyCfg()
 		sentAny := false
-		for _, channelID := range rule.Channels {
+		sendChannel := func(channelID string) (bool, error) {
 			channel, ok, err := s.loadStoredChannel(ctx, channelID)
 			if err != nil {
-				return err
+				return false, err
 			}
 			if !ok || channel.Enabled == 0 {
-				continue
+				return false, nil
 			}
+			title := formatTitle(rule, eventData)
+			message := formatMessage(rule, eventData, loc)
 			if allowed, firstReject := s.rateLimiter.Allow(time.Now(), cfg.GlobalRateLimitPerHr); !allowed {
 				if firstReject {
 					slog.Warn("notification-global-rate-limit", "rule", rule.Name, "channel", channel.Name, "limit", cfg.GlobalRateLimitPerHr)
 				}
-				continue
+				skipReason := fmt.Sprintf("global rate limit exceeded (%d/hour)", cfg.GlobalRateLimitPerHr)
+				_, _ = s.createHistory(ctx, rule.ID, channelID, "failed", title, message, eventData, &skipReason)
+				return false, nil
 			}
-			title := formatTitle(rule, eventData)
-			message := formatMessage(rule, eventData, loc)
 			logID, err := s.createHistory(ctx, rule.ID, channelID, "pending", title, message, eventData, nil)
 			if err != nil {
-				return err
+				return false, err
 			}
 			channelConfig := decryptConfig(channel.ConfigRaw)
 			send := func() (deliveryResult, error) {
@@ -141,9 +168,8 @@ func (s *Service) Trigger(ctx context.Context, sourceModule, eventType string, e
 			delivery, retries, sendErr := s.sendWithRetry(ctx, send, cfg.MaxRetryTimes, cfg.RetryIntervalSeconds)
 			if sendErr != nil {
 				_ = s.updateHistoryRetry(ctx, logID, retries, sendErr.Error())
-				continue
+				return false, nil
 			}
-			sentAny = true
 			if retries > 0 {
 				_ = s.updateHistoryRetryCount(ctx, logID, retries)
 			}
@@ -155,6 +181,28 @@ func (s *Service) Trigger(ctx context.Context, sourceModule, eventType string, e
 			}
 			now := time.Now().In(loc).Format(time.RFC3339)
 			_ = s.updateHistoryStatus(ctx, logID, "sent", &now, nil)
+			return true, nil
+		}
+		for _, channelID := range rule.Channels {
+			sent, err := sendChannel(channelID)
+			if err != nil {
+				return err
+			}
+			if sent {
+				sentAny = true
+			}
+		}
+		// 主渠道全部失败时降级到规则配置的备用渠道。
+		if !sentAny {
+			for _, channelID := range rule.BackupChannels {
+				sent, err := sendChannel(channelID)
+				if err != nil {
+					return err
+				}
+				if sent {
+					sentAny = true
+				}
+			}
 		}
 		if trackSuppression && sentAny {
 			_ = s.recordSuppressionSent(ctx, rule.ID, fingerprint, time.Now())
@@ -164,6 +212,98 @@ func (s *Service) Trigger(ctx context.Context, sourceModule, eventType string, e
 		_ = s.deleteTelegramMessageStates(ctx, sourceModule, lifecycle.ResourceKey, lifecycle.Kind)
 	}
 	return nil
+}
+
+// FlushGroupSummaries 把窗口期结束、且合并过内容的告警补发一条汇总。
+//
+// 由后台定时器调用（见 RunAggregationFlusher）。只处理「合并过至少一条」的
+// 窗口：没有合并就没有汇总，避免给正常单条告警补发无意义的消息。
+func (s *Service) FlushGroupSummaries(ctx context.Context, now time.Time) {
+	if s.aggregator == nil {
+		return
+	}
+	summaries := s.aggregator.Flush(now)
+	if len(summaries) == 0 {
+		return
+	}
+	cfg, err := s.LoadConfig(ctx)
+	if err != nil {
+		cfg = GlobalConfig{MaxRetryTimes: 3, RetryIntervalSeconds: 60, GlobalRateLimitPerHr: 100}
+	}
+	for _, summary := range summaries {
+		rule, ok, err := s.loadRuleByID(ctx, summary.RuleID)
+		if err != nil || !ok {
+			continue
+		}
+		for _, channelID := range rule.Channels {
+			channel, found, err := s.loadStoredChannel(ctx, channelID)
+			if err != nil || !found || channel.Enabled == 0 {
+				continue
+			}
+			if allowed, _ := s.rateLimiter.Allow(time.Now(), cfg.GlobalRateLimitPerHr); !allowed {
+				continue
+			}
+			channelConfig := decryptConfig(channel.ConfigRaw)
+			send := func() (deliveryResult, error) {
+				return s.sendToChannel(ctx, channel, channelConfig, summary.Title, summary.Body)
+			}
+			// 汇总通知失败不重试到影响后续窗口：它是补充信息，不是关键告警。
+			_, _, _ = s.sendWithRetry(ctx, send, cfg.MaxRetryTimes, cfg.RetryIntervalSeconds)
+		}
+	}
+}
+
+// RunAggregationFlusher 启动后台汇总循环。ctx 取消即退出。
+//
+// 间隔取窗口的一半：既不至于让汇总迟到太久，也不会空转太频繁。
+func (s *Service) RunAggregationFlusher(ctx context.Context) {
+	if s.aggregator == nil {
+		return
+	}
+	interval := s.aggregator.window / 2
+	if interval < time.Second {
+		interval = time.Second
+	}
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	var lastPrune time.Time
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case now := <-ticker.C:
+			s.FlushGroupSummaries(ctx, now)
+			// 通知历史 TTL:每小时按 history_retention_days 清理一次,避免无限增长。
+			if lastPrune.IsZero() || now.Sub(lastPrune) >= time.Hour {
+				lastPrune = now
+				if cfg, err := s.LoadConfig(ctx); err == nil {
+					_, _ = s.PruneHistory(ctx, cfg.HistoryRetentionDays)
+				}
+			}
+		}
+	}
+}
+
+func (s *Service) loadRuleByID(ctx context.Context, ruleID string) (Rule, bool, error) {
+	db, err := s.open(ctx)
+	if err != nil {
+		return Rule{}, false, err
+	}
+	defer db.Close()
+	row := db.QueryRowContext(ctx, `
+		SELECT id, name, source_module, event_type, severity, enabled, channels,
+			conditions, suppression, time_window, description, title_template,
+			message_template, backup_channels, quiet_until, created_at, updated_at
+		FROM alert_rules WHERE id = ?
+	`, ruleID)
+	rule, err := scanRule(row)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return Rule{}, false, nil
+		}
+		return Rule{}, false, err
+	}
+	return rule, true, nil
 }
 
 // RefreshLifecycle updates an active Telegram lifecycle message without re-sending other channels.
@@ -292,19 +432,111 @@ func (s *Service) enrichLifecycleEventData(ctx context.Context, sourceModule, ev
 		}
 		previousData = parseObject(state.LastData)
 		result["lifecyclePreviousEvent"] = state.EventType
-		if stringValue(result["downDuration"]) == "" {
-			result["downDuration"] = formatNotificationDuration(now.Sub(startedAt))
-		}
 	}
 	result["lifecycleKind"] = lifecycle.Kind
 	result["lifecyclePhase"] = lifecycle.Phase
 	result["lifecycleMutation"] = lifecycle.Phase
 	result["lifecycleResourceKey"] = lifecycle.ResourceKey
 	result["lifecycleStartedAt"] = startedAt.Format(time.RFC3339)
+	// 可用性事件的持续时间以真实断开时间为起点，避免把离线判定延迟也算进故障时长。
+	durationStart := startedAt
+	if lifecycle.Kind == "availability" {
+		disconnectedAt := resolveNotificationDisconnectTime(result, previousData, startedAt, now, lifecycle.Phase == "resolve")
+		result["disconnectedAt"] = disconnectedAt.UTC().Format(time.RFC3339)
+		durationStart = disconnectedAt
+		if lifecycle.Phase == "resolve" {
+			result["recoveredAt"] = now.UTC().Format(time.RFC3339)
+		}
+	}
+	if found && stringValue(result["downDuration"]) == "" {
+		result["downDuration"] = formatNotificationDuration(now.Sub(durationStart))
+	}
 	if len(previousData) > 0 {
 		result["lifecycleChanges"] = notificationDataChanges(previousData, eventData)
 	}
 	return result, nil
+}
+
+// resolveNotificationDisconnectTime 推断主机/监控项的断开时间：
+//  1. 事件自带 downDurationMs（如 uptime 故障时长）时，用 now - 时长还原故障起点；
+//  2. 恢复（resolve）阶段优先沿用上一段 open 消息已记录的断开时间/最后活跃时间；
+//     恢复事件自身的 lastActive 基本等于恢复时刻，不能拿来当断开时间；
+//  3. open 阶段取事件里的断开时间/最后活跃时间；
+//  4. 都缺失时退回生命周期开始时间。
+func resolveNotificationDisconnectTime(current, previous map[string]interface{}, startedAt, now time.Time, resolve bool) time.Time {
+	if durationMs := intValue(current["downDurationMs"], 0); durationMs > 0 {
+		return now.Add(-time.Duration(durationMs) * time.Millisecond)
+	}
+	pick := func(data map[string]interface{}) (time.Time, bool) {
+		if parsed, ok := parseLifecycleStateTime(stringValue(data["disconnectedAt"])); ok {
+			return parsed, true
+		}
+		parsed, ok := parseLifecycleStateTime(stringValue(data["lastActive"]))
+		return parsed, ok
+	}
+	if resolve && len(previous) > 0 {
+		if parsed, ok := pick(previous); ok {
+			return parsed
+		}
+		// 上一段状态没留下时间时，仍可用本次事件携带的真实断开时间。
+		if parsed, ok := parseLifecycleStateTime(stringValue(current["disconnectedAt"])); ok {
+			return parsed
+		}
+		return startedAt
+	}
+	if parsed, ok := pick(current); ok {
+		return parsed
+	}
+	return startedAt
+}
+
+// previewAvailabilityData 为模板预览补齐可用性事件的时间字段，口径与线上
+// enrichLifecycleEventData 一致，让用户保存规则前就能看到断开/恢复时间。
+func previewAvailabilityData(data map[string]interface{}, sourceModule, eventType string, now time.Time) map[string]interface{} {
+	if len(data) == 0 {
+		return data
+	}
+	phase, ok := notificationAvailabilityPhase(sourceModule, eventType)
+	if !ok {
+		return data
+	}
+	result := cloneNotificationData(data)
+	startedAt := now.UTC()
+	if parsed, ok := parseLifecycleStateTime(stringValue(result["lastActive"])); ok {
+		startedAt = parsed
+	}
+	if stringValue(result["disconnectedAt"]) == "" {
+		result["disconnectedAt"] = resolveNotificationDisconnectTime(result, nil, startedAt, now, false).UTC().Format(time.RFC3339)
+	}
+	if phase == "resolve" && stringValue(result["recoveredAt"]) == "" {
+		result["recoveredAt"] = now.UTC().Format(time.RFC3339)
+	}
+	return result
+}
+
+// notificationAvailabilityPhase 判断事件是否属于可用性生命周期及其阶段。
+// 与 notificationMessageLifecycle 的可用性分支保持一致，但不要求资源 ID，
+// 供模板预览这类没有真实资源记录的场合复用。
+func notificationAvailabilityPhase(sourceModule, eventType string) (string, bool) {
+	sourceModule = strings.ToLower(strings.TrimSpace(sourceModule))
+	eventType = strings.ToLower(strings.TrimSpace(eventType))
+	switch sourceModule {
+	case "uptime":
+		switch eventType {
+		case "down":
+			return "open", true
+		case "up":
+			return "resolve", true
+		}
+	case "server":
+		switch eventType {
+		case "interrupted", "offline", "degraded":
+			return "open", true
+		case "online":
+			return "resolve", true
+		}
+	}
+	return "", false
 }
 
 func (s *Service) recordLifecycleRefreshHistory(ctx context.Context, rule Rule, channelID, title, message string, eventData map[string]interface{}, loc *time.Location) error {
@@ -318,6 +550,64 @@ func (s *Service) recordLifecycleRefreshHistory(ctx context.Context, rule Rule, 
 	}
 	formatted := now.Format(time.RFC3339)
 	return s.updateHistoryStatus(ctx, logID, "sent", &formatted, nil)
+}
+
+// ruleGroupBy 从规则配置里读 group_by（字符串数组）；未配置返回 nil。
+//
+// 放在 suppression 字段里而不是新增列：`suppression` 本就是自由结构的
+// JSON（前端已经在往里写 repeat_count/silence_minutes），新增键不需要
+// 数据库迁移，老数据读出来自然为空 —— 也就自然保持「不聚合」的旧行为。
+func ruleGroupBy(rule Rule) []string {
+	if rule.Suppression == nil {
+		return nil
+	}
+	raw, ok := rule.Suppression["group_by"]
+	if !ok {
+		return nil
+	}
+	switch typed := raw.(type) {
+	case []string:
+		return typed
+	case []interface{}:
+		out := make([]string, 0, len(typed))
+		for _, item := range typed {
+			if text, ok := item.(string); ok && strings.TrimSpace(text) != "" {
+				out = append(out, text)
+			}
+		}
+		return out
+	case string:
+		if strings.TrimSpace(typed) == "" {
+			return nil
+		}
+		return []string{typed}
+	default:
+		return nil
+	}
+}
+
+// decisionForGroup 交给聚合器判定这条是否要发。
+//
+// 聚合器为 nil（测试里直接构造 Service 的场景）时一律放行，保持向后兼容。
+// withDashboardURL 把全局 base_url 注入模板数据({{baseUrl}} / {{dashboardUrl}}),
+// 使通知模板可以附带面板看板链接;事件自带同名字段时保留事件值。
+func withDashboardURL(eventData map[string]interface{}, baseURL string) map[string]interface{} {
+	if _, ok := eventData["baseUrl"]; ok {
+		return eventData
+	}
+	result := cloneNotificationData(eventData)
+	base := strings.TrimRight(baseURL, "/")
+	result["baseUrl"] = base
+	result["dashboardUrl"] = base
+	return result
+}
+
+func (s *Service) decisionForGroup(rule Rule, key string, eventData map[string]interface{}, now time.Time) bool {
+	if s.aggregator == nil {
+		return true
+	}
+	title := formatTitle(rule, eventData)
+	return s.aggregator.Offer(rule.ID, key, rule.Severity, title, now).Send
 }
 
 func (s *Service) loadEnabledRulesByEvent(ctx context.Context, sourceModule, eventType string) ([]Rule, error) {
@@ -393,22 +683,16 @@ func notificationMessageLifecycle(sourceModule, eventType string, eventData map[
 	switch sourceModule {
 	case "uptime":
 		lifecycle.ResourceKey = stringValue(eventData["monitorId"])
-		lifecycle.Kind = "availability"
-		switch eventType {
-		case "down":
-			lifecycle.Phase = "open"
-		case "up":
-			lifecycle.Phase = "resolve"
+		if phase, ok := notificationAvailabilityPhase(sourceModule, eventType); ok {
+			lifecycle.Kind, lifecycle.Phase = "availability", phase
 		}
 	case "server":
 		lifecycle.ResourceKey = stringValue(eventData["serverId"])
+		if phase, ok := notificationAvailabilityPhase(sourceModule, eventType); ok {
+			lifecycle.Kind, lifecycle.Phase = "availability", phase
+			break
+		}
 		switch eventType {
-		case "interrupted", "offline", "degraded":
-			lifecycle.Kind = "availability"
-			lifecycle.Phase = "open"
-		case "online":
-			lifecycle.Kind = "availability"
-			lifecycle.Phase = "resolve"
 		case "traffic_high":
 			lifecycle.Kind = "traffic"
 			lifecycle.Phase = "open"

@@ -33,6 +33,7 @@ export function HistoryPanel({
               { value: 'sent', label: '已发送' },
               { value: 'failed', label: '失败' },
               { value: 'pending', label: '队列中' },
+              { value: 'retrying', label: '重试中' },
             ]}
           />
 
@@ -130,7 +131,7 @@ export function HistoryPanel({
                           ? 'bg-kumo-danger/10 text-kumo-danger border-kumo-danger/20'
                           : 'bg-kumo-warning/10 text-kumo-warning border-kumo-warning/20'
                     }`}>
-                      {log.status === 'sent' ? '发送成功' : log.status === 'failed' ? '发送失败' : '队列处理中'}
+                      {log.status === 'sent' ? '发送成功' : log.status === 'failed' ? '发送失败' : log.status === 'retrying' ? '重试中' : '队列处理中'}
                     </Badge>
                   </div>
 

@@ -3,6 +3,7 @@ package cloudflare
 import (
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 
 	"github.com/iwvw/api-monitor/backend-go/internal/response"
@@ -22,13 +23,27 @@ func (s *Service) pages(w http.ResponseWriter, r *http.Request, accountID string
 		response.JSON(w, http.StatusInternalServerError, map[string]interface{}{"error": err.Error()})
 		return
 	}
-	payload, err := s.cfRequest(r.Context(), http.MethodGet, "/accounts/"+url.PathEscape(cfAccountID)+"/pages/projects", auth, nil)
+	basePath := "/accounts/" + url.PathEscape(cfAccountID) + "/pages/projects?per_page=100"
+	payload, err := s.cfRequest(r.Context(), http.MethodGet, basePath, auth, nil)
 	if err != nil {
 		response.JSON(w, http.StatusInternalServerError, map[string]interface{}{"error": err.Error()})
 		return
 	}
+	projectList := arrayValue(payload["result"])
+	totalPages := intValue(objectValue(payload["result_info"])["total_pages"], 1)
+	for page := 2; page <= totalPages; page++ {
+		pagePayload, perr := s.cfRequest(r.Context(), http.MethodGet, basePath+"&page="+strconv.Itoa(page), auth, nil)
+		if perr != nil {
+			break
+		}
+		before := len(projectList)
+		projectList = append(projectList, arrayValue(pagePayload["result"])...)
+		if len(projectList) == before {
+			break
+		}
+	}
 	projects := []map[string]interface{}{}
-	for _, item := range arrayValue(payload["result"]) {
+	for _, item := range projectList {
 		projects = append(projects, mapPagesProject(objectValue(item)))
 	}
 	response.JSON(w, http.StatusOK, map[string]interface{}{"projects": projects, "cfAccountId": cfAccountID})
@@ -43,7 +58,7 @@ func (s *Service) pagesProject(w http.ResponseWriter, r *http.Request, accountID
 	if !ok {
 		return
 	}
-	cfAccountID, err := s.cloudflareAccountID(r.Context(), auth)
+	cfAccountID, err := s.cloudflareAccountIDStrict(r.Context(), auth)
 	if err != nil {
 		response.JSON(w, http.StatusInternalServerError, map[string]interface{}{"error": err.Error()})
 		return
@@ -95,7 +110,7 @@ func (s *Service) deletePagesDeployment(w http.ResponseWriter, r *http.Request, 
 	if !ok {
 		return
 	}
-	cfAccountID, err := s.cloudflareAccountID(r.Context(), auth)
+	cfAccountID, err := s.cloudflareAccountIDStrict(r.Context(), auth)
 	if err != nil {
 		response.JSON(w, http.StatusInternalServerError, map[string]interface{}{"error": err.Error()})
 		return
@@ -113,7 +128,7 @@ func (s *Service) pagesDomains(w http.ResponseWriter, r *http.Request, accountID
 	if !ok {
 		return
 	}
-	cfAccountID, err := s.cloudflareAccountID(r.Context(), auth)
+	cfAccountID, err := s.cloudflareAccountIDForWrite(r.Context(), auth, r.Method)
 	if err != nil {
 		response.JSON(w, http.StatusInternalServerError, map[string]interface{}{"error": err.Error()})
 		return
@@ -162,7 +177,7 @@ func (s *Service) deletePagesDomain(w http.ResponseWriter, r *http.Request, acco
 	if !ok {
 		return
 	}
-	cfAccountID, err := s.cloudflareAccountID(r.Context(), auth)
+	cfAccountID, err := s.cloudflareAccountIDStrict(r.Context(), auth)
 	if err != nil {
 		response.JSON(w, http.StatusInternalServerError, map[string]interface{}{"error": err.Error()})
 		return

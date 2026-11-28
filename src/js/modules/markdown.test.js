@@ -1,4 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
+import { marked } from 'marked';
+import DOMPurify from 'dompurify';
 import { ALLOWED_URI_REGEXP, renderMarkdown } from './markdown.js';
 
 vi.mock('dompurify', () => ({
@@ -135,5 +137,27 @@ describe('renderMarkdown', () => {
     const out = renderMarkdown('<script>alert(1)</script>');
     expect(out).not.toContain('<script');
     expect(out).not.toContain('alert(1)');
+  });
+});
+describe('renderMarkdown fallback', () => {
+  it('净化原始文本,即使 marked 解析抛错', () => {
+    const parseSpy = vi.spyOn(marked, 'parse').mockImplementationOnce(() => {
+      throw new Error('parse boom');
+    });
+    const sanitizeSpy = vi.spyOn(DOMPurify, 'sanitize').mockReturnValue('SANITIZED_HTML');
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    try {
+      const out = renderMarkdown('<img src=x onerror=alert(1)>');
+      expect(out).toBe('SANITIZED_HTML');
+      expect(sanitizeSpy).toHaveBeenCalledWith(
+        '<img src=x onerror=alert(1)>',
+        expect.any(Object)
+      );
+    } finally {
+      parseSpy.mockRestore();
+      sanitizeSpy.mockRestore();
+      errorSpy.mockRestore();
+    }
   });
 });

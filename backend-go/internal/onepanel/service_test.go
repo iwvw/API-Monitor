@@ -175,6 +175,10 @@ func (r *recordingRunner) RunCommandTaskAndWait(serverID string, command string,
 	return `{"code":200,"message":"success","data":[]}`, nil
 }
 
+func (r *recordingRunner) RunOnePanelProbe(serverID string, timeout time.Duration) (string, error) {
+	return "cmd=0\ndir=0\nproc=0\nport=0\n", nil
+}
+
 func TestProxyListSendsDefaultBodyForSearch(t *testing.T) {
 	service := newTestService(t)
 	runner := &recordingRunner{}

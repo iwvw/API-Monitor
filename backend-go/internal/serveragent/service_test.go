@@ -1200,7 +1200,7 @@ func TestListAccountsQueuesMissingAgentLocationRefresh(t *testing.T) {
 		if command != "curl -fsSL https://64.ipcheck.ing/geo" {
 			t.Fatalf("unexpected command: %s", command)
 		}
-		return `IP: 64.181.246.5
+		return `IP: 192.0.2.10
 City: San Jose
 Region: California
 Country: US
@@ -1886,7 +1886,7 @@ func TestRefreshAccountLocationsQueriesOnlineAgentIPCheck(t *testing.T) {
 		if !strings.Contains(data, "curl -fsSL https://64.ipcheck.ing/geo") {
 			t.Fatalf("unexpected command: %s", data)
 		}
-		return `IP: 64.181.246.5
+		return `IP: 192.0.2.10
 City: San Jose
 Region: California
 Country: US
@@ -1940,7 +1940,7 @@ func TestInitialAgentConnectRefreshesMissingLocationOnce(t *testing.T) {
 		if !strings.Contains(data, "curl -fsSL https://64.ipcheck.ing/geo") {
 			t.Fatalf("unexpected command: %s", data)
 		}
-		return `IP: 64.181.246.5
+		return `IP: 192.0.2.10
 City: San Jose
 Region: California
 Country: US
@@ -2536,8 +2536,13 @@ func TestProxyTrafficHTTPBatchValidatesScopeAndQuota(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer "+otherKey)
 	res := httptest.NewRecorder()
 	service.ServeHTTP(res, req)
-	if res.Code != http.StatusBadRequest || !strings.Contains(res.Body.String(), "does not belong") {
+	if res.Code != http.StatusOK {
 		t.Fatalf("cross-server node status=%d body=%s", res.Code, res.Body.String())
+	}
+	payload = decodePayload(t, res)
+	data = payload["data"].(map[string]interface{})
+	if data["ignored"] != float64(1) || data["accepted"] != float64(0) {
+		t.Fatalf("cross-server node must be ignored without aborting the batch, body=%s", res.Body.String())
 	}
 }
 
@@ -2838,7 +2843,7 @@ func TestAgentQuickInstallCreatesHostFromName(t *testing.T) {
 	}
 
 	req := httptest.NewRequest(http.MethodGet, "/api/server/agent/command/"+serverID+"?protocol=http", nil)
-	req.Host = "189.1.217.109:3010"
+	req.Host = "192.0.2.11:3010"
 	resCmd := httptest.NewRecorder()
 	service.ServeHTTP(resCmd, req)
 	if resCmd.Code != http.StatusOK {
@@ -2846,7 +2851,7 @@ func TestAgentQuickInstallCreatesHostFromName(t *testing.T) {
 	}
 	cmdPayload := decodePayload(t, resCmd)
 	cmdData := cmdPayload["data"].(map[string]interface{})
-	if !strings.Contains(cmdData["installCommand"].(string), "http://189.1.217.109:3010/api/server/agent/install/linux/"+serverID+"/") {
+	if !strings.Contains(cmdData["installCommand"].(string), "http://192.0.2.11:3010/api/server/agent/install/linux/"+serverID+"/") {
 		t.Fatalf("http install command mismatch: %#v", cmdData["installCommand"])
 	}
 	if !strings.Contains(cmdData["installCommand"].(string), "protocol=http") {
@@ -2854,13 +2859,13 @@ func TestAgentQuickInstallCreatesHostFromName(t *testing.T) {
 	}
 
 	req = httptest.NewRequest(http.MethodGet, "/api/server/agent/install/linux/"+serverID+"/"+agentKey+"?protocol=http", nil)
-	req.Host = "189.1.217.109:3010"
+	req.Host = "192.0.2.11:3010"
 	resLinux := httptest.NewRecorder()
 	service.ServeHTTP(resLinux, req)
 	if resLinux.Code != http.StatusOK {
 		t.Fatalf("http keyed linux install status=%d body=%s", resLinux.Code, resLinux.Body.String())
 	}
-	if !strings.Contains(resLinux.Body.String(), `SERVER_URL="http://189.1.217.109:3010"`) {
+	if !strings.Contains(resLinux.Body.String(), `SERVER_URL="http://192.0.2.11:3010"`) {
 		t.Fatalf("linux install script should use http server url: %s", resLinux.Body.String())
 	}
 	if !strings.Contains(resLinux.Body.String(), `TARGET_HOST_NAME="edge-agent"`) || !strings.Contains(resLinux.Body.String(), `cat >/dev/null || true`) {
@@ -2871,13 +2876,13 @@ func TestAgentQuickInstallCreatesHostFromName(t *testing.T) {
 	}
 
 	req = httptest.NewRequest(http.MethodGet, "/api/server/agent/install/win/"+serverID+"/"+agentKey+"?protocol=http", nil)
-	req.Host = "189.1.217.109:3010"
+	req.Host = "192.0.2.11:3010"
 	resWin := httptest.NewRecorder()
 	service.ServeHTTP(resWin, req)
 	if resWin.Code != http.StatusOK {
 		t.Fatalf("http keyed windows install status=%d body=%s", resWin.Code, resWin.Body.String())
 	}
-	if !strings.Contains(resWin.Body.String(), `$SERVER_URL = "http://189.1.217.109:3010"`) {
+	if !strings.Contains(resWin.Body.String(), `$SERVER_URL = "http://192.0.2.11:3010"`) {
 		t.Fatalf("windows install script should use http server url: %s", resWin.Body.String())
 	}
 	if !strings.Contains(resWin.Body.String(), `$AGENT_PATH = "$INSTALL_DIR\api-monitor-agent.exe"`) {
@@ -2897,6 +2902,20 @@ func TestAgentQuickInstallCreatesHostFromName(t *testing.T) {
 		!strings.Contains(resWin.Body.String(), `installation will continue in the background`) {
 		t.Fatalf("windows install script should detach before replacing a running Agent: %s", resWin.Body.String())
 	}
+	// 静默失败防护：后台安装必须写日志，且停进程失败要有 taskkill 兜底，否则升级失败用户完全无感。
+	if !strings.Contains(resWin.Body.String(), `Start-Transcript -Path $INSTALL_LOG`) ||
+		!strings.Contains(resWin.Body.String(), `$INSTALL_LOG = "$LOG_DIR\install.log"`) ||
+		!strings.Contains(resWin.Body.String(), `Install log: $INSTALL_LOG`) {
+		t.Fatalf("windows install script should tee the detached installer into a log file: %s", resWin.Body.String())
+	}
+	// 分离进程连不上服务器时脚本主体根本不会执行，因此父进程调度阶段就要重定向输出。
+	if !strings.Contains(resWin.Body.String(), `-RedirectStandardOutput $DISPATCH_LOG`) ||
+		!strings.Contains(resWin.Body.String(), `$DISPATCH_LOG = "$LOG_DIR\detached.log"`) {
+		t.Fatalf("windows install script should redirect detached process output so early failures are logged: %s", resWin.Body.String())
+	}
+	if !strings.Contains(resWin.Body.String(), `taskkill.exe /F /T /PID`) {
+		t.Fatalf("windows install script should fall back to taskkill when Stop-Process fails: %s", resWin.Body.String())
+	}
 	if !strings.Contains(resWin.Body.String(), `Move-Item -Path $TEMP_AGENT_PATH -Destination $AGENT_PATH -Force`) {
 		t.Fatalf("windows install script should atomically replace the agent binary: %s", resWin.Body.String())
 	}
@@ -2913,7 +2932,7 @@ func TestAgentQuickInstallCreatesHostFromName(t *testing.T) {
 		t.Fatalf("set custom agent download url: %v", err)
 	}
 	req = httptest.NewRequest(http.MethodGet, "/api/server/agent/install/linux/"+serverID+"/"+agentKey+"?protocol=http", nil)
-	req.Host = "189.1.217.109:3010"
+	req.Host = "192.0.2.11:3010"
 	resLinux = httptest.NewRecorder()
 	service.ServeHTTP(resLinux, req)
 	if resLinux.Code != http.StatusOK {
@@ -2938,7 +2957,24 @@ func TestAgentQuickInstallCreatesHostFromName(t *testing.T) {
 
 func TestAgentUpgradeTaskUsesSelfUpdateDownloadURL(t *testing.T) {
 	service, db := testService(t)
-	_, err := db.ExecContext(context.Background(), `UPDATE user_settings SET agent_download_url = 'https://cdn.example.com/agent' WHERE id = 1`)
+
+	// 面板会同时下发 sha256：Agent 执行前校验，缺失即拒绝升级。
+	// 这里用本地 httptest 提供二进制地址旁的 .sha256 sidecar。
+	const digest = "9f2c1e0b7a4d3c5e6f8091a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6"
+	checksumHits := 0
+	cdn := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, ".sha256") {
+			checksumHits++
+			// 与发布产物同格式：「<hex>  <filename>」
+			_, _ = w.Write([]byte(digest + "  agent-linux-arm64\n"))
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer cdn.Close()
+
+	_, err := db.ExecContext(context.Background(),
+		`UPDATE user_settings SET agent_download_url = ? WHERE id = 1`, cdn.URL+"/agent")
 	if err != nil {
 		t.Fatalf("set custom agent download url: %v", err)
 	}
@@ -2948,11 +2984,19 @@ func TestAgentUpgradeTaskUsesSelfUpdateDownloadURL(t *testing.T) {
 	conn.SetMetadata("platform", "linux")
 	conn.SetMetadata("arch", "arm64")
 
-	downloadURL := service.agentUpgradeDownloadURL(context.Background(), db, conn, agentInstallOrigin{Proto: "https", Host: "panel.example.com"})
-	if downloadURL != "https://cdn.example.com/agent/agent-linux-arm64" {
-		t.Fatalf("downloadURL = %q", downloadURL)
+	downloadURL, sha256 := service.agentUpgradeDownloadURL(context.Background(), db, conn, agentInstallOrigin{Proto: "https", Host: "panel.example.com"})
+	wantURL := cdn.URL + "/agent/agent-linux-arm64"
+	if downloadURL != wantURL {
+		t.Fatalf("downloadURL = %q, want %q", downloadURL, wantURL)
 	}
-	if !service.sendUpgradeTask(conn, downloadURL) {
+	if sha256 != digest {
+		t.Fatalf("sha256 = %q, want %q", sha256, digest)
+	}
+	if checksumHits != 1 {
+		t.Fatalf("checksum sidecar hit %d times, want 1", checksumHits)
+	}
+
+	if !service.sendUpgradeTask(conn, downloadURL, sha256) {
 		t.Fatal("sendUpgradeTask failed")
 	}
 
@@ -2970,6 +3014,67 @@ func TestAgentUpgradeTaskUsesSelfUpdateDownloadURL(t *testing.T) {
 	}
 	if data["download_url"] != downloadURL {
 		t.Fatalf("upgrade task download_url = %#v, want %q", data, downloadURL)
+	}
+	if data["sha256"] != digest {
+		t.Fatalf("upgrade task sha256 = %#v, want %q", data, digest)
+	}
+}
+
+// 取不到 sidecar 时不能悄悄退化成「不校验」：必须下发空串，
+// Agent 侧会明确拒绝升级（而不是安装未校验的二进制）。
+func TestAgentUpgradeTaskOmitsSha256WhenSidecarMissing(t *testing.T) {
+	service, db := testService(t)
+
+	cdn := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.NotFound(w, r)
+	}))
+	defer cdn.Close()
+
+	_, err := db.ExecContext(context.Background(),
+		`UPDATE user_settings SET agent_download_url = ? WHERE id = 1`, cdn.URL+"/agent")
+	if err != nil {
+		t.Fatalf("set custom agent download url: %v", err)
+	}
+
+	conn := service.registry.Register("no-checksum-agent", &terminalCaptureSocket{t: t, service: service})
+	conn.SetMetadata("platform", "linux")
+	conn.SetMetadata("arch", "amd64")
+
+	downloadURL, sha256 := service.agentUpgradeDownloadURL(context.Background(), db, conn, agentInstallOrigin{Proto: "https", Host: "panel.example.com"})
+	if downloadURL == "" {
+		t.Fatal("downloadURL should still be produced")
+	}
+	if sha256 != "" {
+		t.Fatalf("sha256 = %q, want empty when sidecar is unavailable", sha256)
+	}
+}
+
+// sidecar 内容非法（不是 64 位 hex）时同样不下发，避免把垃圾当校验和。
+func TestAgentUpgradeTaskIgnoresMalformedChecksum(t *testing.T) {
+	service, db := testService(t)
+
+	cdn := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, ".sha256") {
+			_, _ = w.Write([]byte("not-a-digest\n"))
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer cdn.Close()
+
+	_, err := db.ExecContext(context.Background(),
+		`UPDATE user_settings SET agent_download_url = ? WHERE id = 1`, cdn.URL+"/agent")
+	if err != nil {
+		t.Fatalf("set custom agent download url: %v", err)
+	}
+
+	conn := service.registry.Register("bad-checksum-agent", &terminalCaptureSocket{t: t, service: service})
+	conn.SetMetadata("platform", "linux")
+	conn.SetMetadata("arch", "amd64")
+
+	_, sha256 := service.agentUpgradeDownloadURL(context.Background(), db, conn, agentInstallOrigin{Proto: "https", Host: "panel.example.com"})
+	if sha256 != "" {
+		t.Fatalf("sha256 = %q, want empty for malformed sidecar", sha256)
 	}
 }
 
@@ -3323,7 +3428,7 @@ func TestBuildCachedInfoPreservesHardwareModelsFromHostInfo(t *testing.T) {
 		},
 	)
 
-	if cached["cpu_model"] != "GenuineIntel Intel(R) Core(TM) i9-14900HX" {
+	if cached["cpu_model"] != "Intel(R) Core(TM) i9-14900HX" {
 		t.Fatalf("cpu_model = %#v", cached["cpu_model"])
 	}
 	if cached["gpu_model"] != "NVIDIA GeForce RTX 4060 Laptop GPU" {
@@ -3335,13 +3440,15 @@ func TestBuildInfoFieldExtractsHardwareModelsFromHostInfoArrays(t *testing.T) {
 	service := &Service{}
 
 	info := service.buildInfoField(map[string]interface{}{
-		"cpu":           []interface{}{"GenuineIntel Intel(R) Core(TM) i9-14900HX"},
-		"gpu":           []interface{}{"NVIDIA GeForce RTX 4060 Laptop GPU"},
-		"agent_version": "0.1.6",
+		"cpu":              []interface{}{"GenuineIntel Intel(R) Core(TM) i9-14900HX"},
+		"gpu":              []interface{}{"NVIDIA GeForce RTX 4060 Laptop GPU"},
+		"agent_version":    "0.1.6",
+		"platform":         "Windows",
+		"platform_version": "10.0.22631.4602",
 	})
 
 	cpu := info["cpu"].(map[string]interface{})
-	if cpu["Model"] != "GenuineIntel Intel(R) Core(TM) i9-14900HX" {
+	if cpu["Model"] != "Intel(R) Core(TM) i9-14900HX" {
 		t.Fatalf("cpu model = %#v", cpu["Model"])
 	}
 
@@ -3354,6 +3461,9 @@ func TestBuildInfoFieldExtractsHardwareModelsFromHostInfoArrays(t *testing.T) {
 	}
 	if info["agentVersion"] != "0.1.6" {
 		t.Fatalf("agentVersion = %#v", info["agentVersion"])
+	}
+	if info["platformVersion"] != "10.0.22631.4602" {
+		t.Fatalf("platformVersion = %#v", info["platformVersion"])
 	}
 }
 
@@ -4010,4 +4120,219 @@ func countDockerStacks(t *testing.T, db *sql.DB, serverID string) int {
 		t.Fatalf("count stacks: %v", err)
 	}
 	return n
+}
+
+// Agent 自监控指标要能从 cached_info 透出到 info.agentSelf。
+//
+// 这些数以前完全不采集：面板上出现数据延迟时，无法判断是 Agent 自己
+// 过载/反复重连还是网络问题。
+func TestBuildInfoStructExposesAgentSelfMetrics(t *testing.T) {
+	service, _ := testService(t)
+
+	cached := map[string]interface{}{
+		"cpu": 12.5,
+		"self_metrics": map[string]interface{}{
+			"rss_bytes":        float64(8 * 1024 * 1024),
+			"cpu_percent":      0.42,
+			"dropped_low":      float64(3),
+			"reconnect_count":  float64(7),
+			"collect_state_us": float64(2500),
+			"outbound_backlog": float64(2),
+		},
+	}
+
+	info := service.buildInfoStruct(cached)
+	if info == nil {
+		t.Fatal("buildInfoStruct returned nil")
+	}
+	raw, ok := info["agentSelf"]
+	if !ok {
+		t.Fatal("info 缺少 agentSelf 字段")
+	}
+	self, ok := raw.(map[string]interface{})
+	if !ok {
+		t.Fatalf("agentSelf 类型 = %T, want map", raw)
+	}
+	if got := self["rssMB"]; got != float64(8) {
+		t.Fatalf("rssMB = %#v, want 8", got)
+	}
+	if got := self["cpuPercent"]; got != 0.42 {
+		t.Fatalf("cpuPercent = %#v, want 0.42", got)
+	}
+	if got := self["droppedLow"]; got != float64(3) {
+		t.Fatalf("droppedLow = %#v, want 3", got)
+	}
+	if got := self["reconnectCount"]; got != float64(7) {
+		t.Fatalf("reconnectCount = %#v, want 7", got)
+	}
+	if got := self["collectStateUs"]; got != float64(2500) {
+		t.Fatalf("collectStateUs = %#v, want 2500", got)
+	}
+	if got := self["outboundBacklog"]; got != float64(2) {
+		t.Fatalf("outboundBacklog = %#v, want 2", got)
+	}
+}
+
+// 老版本 Agent 不上报 self_metrics 时不能凭空造一个零值块，
+// 否则前端会显示「Agent 内存 0MB」这种假数据。
+func TestBuildInfoStructOmitsAgentSelfWhenAbsent(t *testing.T) {
+	service, _ := testService(t)
+
+	cached := map[string]interface{}{"cpu": 5.0}
+	info := service.buildInfoStruct(cached)
+	if _, exists := info["agentSelf"]; exists {
+		t.Fatal("缺少 self_metrics 时不应生成 agentSelf")
+	}
+}
+
+// ---- 离线补发（issue #76）----
+
+// 补发必须按原始采集时刻落库，否则整段离线数据会被压到重连那一刻。
+//
+// 且必须归一化成 recorded_at 的唯一格式（UTC、空格分隔）：历史查询、
+// rollup、保留清理全部用字符串比较，混入 RFC3339 会让这些行既不被聚合
+// 也不被删除。
+func TestPersistMetricsAtUsesProvidedTimestamp(t *testing.T) {
+	service, db := testService(t)
+	ctx := context.Background()
+
+	_, err := db.ExecContext(ctx, `INSERT INTO server_accounts (id, name, host, port, username, auth_type)
+		VALUES ('offline-ts', 'offline', '127.0.0.1', 22, 'root', 'password')`)
+	if err != nil {
+		t.Fatalf("insert account: %v", err)
+	}
+
+	// Agent 侧给的是 RFC3339（带时区），落库必须是统一的空格 UTC 格式
+	if err := service.persistMetricsAt(ctx, db, "offline-ts",
+		map[string]interface{}{"cpu": 42.0}, "2026-11-06T01:02:03Z"); err != nil {
+		t.Fatalf("persistMetricsAt: %v", err)
+	}
+
+	// 必须用 quote() 看**落库字节**：把 DATETIME 列 Scan 到 string 时
+	// database/sql 会把 time.Time 转成 RFC3339，看到的不是真实存储形态。
+	var stored string
+	if err := db.QueryRow(`SELECT quote(recorded_at) FROM server_metrics_history WHERE server_id = 'offline-ts'`).Scan(&stored); err != nil {
+		t.Fatalf("query recorded_at: %v", err)
+	}
+	const want = "'2026-11-06 01:02:03'"
+	if stored != want {
+		t.Fatalf("落库值 = %s, want %s（必须归一化到 UTC 空格格式）", stored, want)
+	}
+
+	// 归一化的意义：字符串比较必须能把它纳入时间范围（rollup / 保留清理都靠这个）。
+	var inRange int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM server_metrics_history
+		WHERE server_id = 'offline-ts' AND recorded_at < '2026-11-07 00:00:00'`).Scan(&inRange); err != nil {
+		t.Fatalf("range query: %v", err)
+	}
+	if inRange != 1 {
+		t.Fatalf("该行未被时间范围过滤纳入（count=%d），会导致永不 rollup、永不被清理", inRange)
+	}
+}
+
+// 非 UTC 时区的输入要换算成 UTC，而不是直接丢弃时区后缀。
+func TestPersistMetricsAtConvertsTimezoneToUTC(t *testing.T) {
+	service, db := testService(t)
+	ctx := context.Background()
+
+	_, err := db.ExecContext(ctx, `INSERT INTO server_accounts (id, name, host, port, username, auth_type)
+		VALUES ('offline-tz', 'offline', '127.0.0.1', 22, 'root', 'password')`)
+	if err != nil {
+		t.Fatalf("insert account: %v", err)
+	}
+
+	// +08:00 的 09:02:03 == UTC 01:02:03
+	if err := service.persistMetricsAt(ctx, db, "offline-tz",
+		map[string]interface{}{"cpu": 1.0}, "2026-11-06T09:02:03+08:00"); err != nil {
+		t.Fatalf("persistMetricsAt: %v", err)
+	}
+
+	var stored string
+	if err := db.QueryRow(`SELECT quote(recorded_at) FROM server_metrics_history WHERE server_id = 'offline-tz'`).Scan(&stored); err != nil {
+		t.Fatalf("query recorded_at: %v", err)
+	}
+	if stored != "'2026-11-06 01:02:03'" {
+		t.Fatalf("落库值 = %s, want '2026-11-06 01:02:03'（UTC 归一化）", stored)
+	}
+}
+
+// 不带时间戳时退回当前时间（老 Agent / 实时路径不受影响）。
+func TestPersistMetricsAtFallsBackToNow(t *testing.T) {
+	service, db := testService(t)
+	ctx := context.Background()
+
+	_, err := db.ExecContext(ctx, `INSERT INTO server_accounts (id, name, host, port, username, auth_type)
+		VALUES ('offline-now', 'offline', '127.0.0.1', 22, 'root', 'password')`)
+	if err != nil {
+		t.Fatalf("insert account: %v", err)
+	}
+
+	// 非法时间戳也必须退回当前时间，而不是把垃圾写进 DATETIME 列
+	if err := service.persistMetricsAt(ctx, db, "offline-now",
+		map[string]interface{}{"cpu": 1.0}, "not-a-timestamp"); err != nil {
+		t.Fatalf("persistMetricsAt: %v", err)
+	}
+
+	var got string
+	if err := db.QueryRow(`SELECT recorded_at FROM server_metrics_history WHERE server_id = 'offline-now'`).Scan(&got); err != nil {
+		t.Fatalf("query recorded_at: %v", err)
+	}
+	if got == "not-a-timestamp" {
+		t.Fatal("非法时间戳不应被写入 recorded_at")
+	}
+	if got == "" {
+		t.Fatal("recorded_at 不应为空")
+	}
+}
+
+func TestNormalizeRecordedAtRejectsGarbage(t *testing.T) {
+	if v := normalizeRecordedAt(""); v != nil {
+		t.Fatalf("空串应返回 nil, got %#v", v)
+	}
+	if v := normalizeRecordedAt("   "); v != nil {
+		t.Fatalf("空白应返回 nil, got %#v", v)
+	}
+	if v := normalizeRecordedAt("2026-13-45"); v != nil {
+		t.Fatalf("非法日期应返回 nil, got %#v", v)
+	}
+	// 已经是 SQLite 格式的输入不是 RFC3339，应按非法处理（绝不会二次写入）
+	if v := normalizeRecordedAt("2026-11-06 01:02:03"); v != nil {
+		t.Fatalf("非 RFC3339 应返回 nil, got %#v", v)
+	}
+	// 合法输入必须归一化成空格格式
+	if v := normalizeRecordedAt("2026-11-06T01:02:03Z"); v != "2026-11-06 01:02:03" {
+		t.Fatalf("归一化结果 = %#v, want 2026-11-06 01:02:03", v)
+	}
+}
+
+// TestAgentDownloadBaseURLFallbackOrder 覆盖 Agent 下载源的优先级:
+// 用户设置 > 构建期 AGENT_DOWNLOAD_URL(镜像不再内置二进制)> 面板自身 /agent。
+func TestAgentDownloadBaseURLFallbackOrder(t *testing.T) {
+	service, db := testService(t)
+	ctx := context.Background()
+	panel := "https://panel.example.com"
+
+	// 1) 未配置时使用构建期注入的公开 release 地址（末尾斜杠应被裁掉）。
+	service.cfg.AgentDownloadURL = "https://github.com/iwvw/api-monitor-agent/releases/download/built-agents/"
+	want := "https://github.com/iwvw/api-monitor-agent/releases/download/built-agents"
+	if got := service.resolveAgentDownloadBaseURL(ctx, db, panel); got != want {
+		t.Fatalf("build-time base = %q, want %q", got, want)
+	}
+
+	// 2) 用户设置优先于构建期默认。
+	if _, err := db.ExecContext(ctx, `UPDATE user_settings SET agent_download_url = 'https://cdn.example.com/agents' WHERE id = 1`); err != nil {
+		t.Fatalf("set agent_download_url: %v", err)
+	}
+	if got := service.resolveAgentDownloadBaseURL(ctx, db, panel); got != "https://cdn.example.com/agents" {
+		t.Fatalf("user setting should win, got %q", got)
+	}
+
+	// 3) 两者都为空时回退到面板自身的 /agent（本地离线/老镜像）。
+	if _, err := db.ExecContext(ctx, `UPDATE user_settings SET agent_download_url = '' WHERE id = 1`); err != nil {
+		t.Fatalf("clear agent_download_url: %v", err)
+	}
+	service.cfg.AgentDownloadURL = ""
+	if got := service.resolveAgentDownloadBaseURL(ctx, db, panel); got != panel+"/agent" {
+		t.Fatalf("fallback = %q, want %q", got, panel+"/agent")
+	}
 }

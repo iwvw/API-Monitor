@@ -307,7 +307,7 @@ func (s *Service) proxyStream(ctx context.Context, w http.ResponseWriter, model 
 		s.recordCall(acc.ID)
 		usage, envErr := s.pipeStreamCounted(ctx, w, rc, replay, acc.ID, model)
 		if usage != nil {
-			s.recordUsageFromOpenAI(acc.ID, model, usage)
+			s.recordUsageMap(acc.ID, model, usage)
 		}
 		if envErr != nil {
 			// 首事件之后才出现的错误（流中途）：此时 200 与部分数据已写出，
@@ -413,10 +413,22 @@ func (s *Service) pipeStreamCounted(ctx context.Context, w http.ResponseWriter, 
 	return lastUsage, nil
 }
 
-// recordUsageFromOpenAI 从聚合后的 OpenAI 响应里取 usage 记账。
+// recordUsageFromOpenAI 从聚合后的 OpenAI 响应里取 usage 记账（非流式路径）。
 func (s *Service) recordUsageFromOpenAI(accountID, model string, resp map[string]interface{}) {
 	usage, ok := resp["usage"].(map[string]interface{})
 	if !ok {
+		return
+	}
+	s.recordUsageMap(accountID, model, usage)
+}
+
+// recordUsageMap 直接用 usage 对象记账（流式路径）。
+//
+// pipeStreamCounted 返回的就是 usage 本身（不是包着 usage 的响应），
+// 因此不能复用 recordUsageFromOpenAI —— 否则 resp["usage"] 恒为 nil，
+// 流式调用（网关的正常路径）永远不会落用量，表现为「用量一直是空的」。
+func (s *Service) recordUsageMap(accountID, model string, usage map[string]interface{}) {
+	if usage == nil {
 		return
 	}
 	prompt := jsonInt(usage["prompt_tokens"])
@@ -425,8 +437,8 @@ func (s *Service) recordUsageFromOpenAI(accountID, model string, resp map[string
 	s.recordUsage(accountID, model, prompt, completion, cached)
 }
 
-// StartAutoRefresh 启动 access token 自动刷新：定期把即将过期/已过期的账号
-// 提前换成新 token，避免转发时才发现失效。ctx 取消时退出。
+// StartAutoRefresh 启动 access token 自动续期：定期检查临期/过期账号，
+// 开关（AutoRefreshToken，缺省开启）关闭时静默跳过。ctx 取消时退出。
 func (s *Service) StartAutoRefresh(ctx context.Context) {
 	go func() {
 		ticker := time.NewTicker(autoRefreshInterval)
@@ -442,15 +454,38 @@ func (s *Service) StartAutoRefresh(ctx context.Context) {
 	}()
 }
 
+// refreshWindowDays 是「提前续期」的触发窗口（天）：token 剩余寿命低于它即续期。
+// Qoder 的 access token 有效期实测约 15 天，留 3 天余量。
+const refreshWindowDays = 3
+
 // RefreshStaleAccounts 刷新所有「未停用、有 refresh token、剩余寿命低于提前量」的账号。
 // 单个账号失败不影响其它账号，失败原因写回 LastError 便于前端排障。
 func (s *Service) RefreshStaleAccounts(ctx context.Context) {
-	for _, a := range s.Settings().Accounts {
+	st := s.Settings()
+	if !st.autoRefreshEnabled() {
+		return
+	}
+	for _, a := range st.Accounts {
 		if a.Disabled || a.RefreshToken == "" {
 			continue
 		}
-		if state := tokenState(a); state == "valid" {
+		// 按「剩余寿命是否进入续期窗口」判定，而不是按 tokenState：
+		// tokenState 的 valid 阈值是 30 分钟，比 3 天续期窗口小得多，
+		// 用它会等到最后半小时才续期，失去「提前换新」的意义。
+		//
+		// 刚续期过的账号必须跳过，否则短有效期 token（如上游只给
+		// expires_in=3600）会永远落在窗口内，每 5 分钟被续期一次。
+		if a.TokenIssuedAt > 0 && time.Since(time.Unix(a.TokenIssuedAt, 0)) < autoRefreshInterval {
 			continue
+		}
+		if a.ExpiresAt > 0 {
+			if time.Until(time.Unix(a.ExpiresAt, 0)) > refreshWindowDays*24*time.Hour {
+				continue
+			}
+		} else if a.TokenIssuedAt > 0 && tokenState(a) != "expired" {
+			if time.Since(time.Unix(a.TokenIssuedAt, 0)) < refreshWindowDays*24*time.Hour {
+				continue
+			}
 		}
 		acc := a
 		before := acc.AccessToken

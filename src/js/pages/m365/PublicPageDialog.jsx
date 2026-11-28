@@ -17,6 +17,9 @@ export default function PublicPageDialog({
   submitPublicPage,
   submittingPublicPage,
 }) {
+  const missingSkuIds = publicPageForm.skuIds.filter(
+    skuId => !skus.some(sku => String(sku.skuId) === String(skuId))
+  );
   return (
     <LayerDialog.Root open={open} onOpenChange={onOpenChange}>
       <LayerDialog.Content size="xl">
@@ -175,7 +178,7 @@ export default function PublicPageDialog({
                 </div>
               </div>
               <div className="text-xs text-kumo-subtle">
-                新注册账号会分配下方许可证。
+                新注册账号会分配下方许可证;模板会应用到全部目标租户,列表来自首个租户目录。
               </div>
               <div className="rounded-lg border border-kumo-line/70 bg-kumo-base/60 px-3 py-2 text-xs text-kumo-subtle">
                 保存后请到“邀请码”页面单独生成注册链接，每次最多生成 5 个一次性邀请码。
@@ -184,11 +187,12 @@ export default function PublicPageDialog({
                 <div className="text-xs text-kumo-subtle">
                   先勾选一个租户，再读取该租户的许可证模板。
                 </div>
-              ) : skus.length === 0 ? (
-                <div className="text-xs text-kumo-subtle">暂无可选订阅</div>
               ) : (
                 <div className="max-h-80 overflow-auto pr-1 scrollbar-thin">
                   <div className="grid gap-1">
+                    {skus.length === 0 && missingSkuIds.length === 0 ? (
+                      <div className="text-xs text-kumo-subtle">暂无可选订阅</div>
+                    ) : null}
                     {skus.map(sku => {
                       const normalizedId = String(sku.skuId);
                       const checked = publicPageForm.skuIds.includes(normalizedId);
@@ -216,6 +220,28 @@ export default function PublicPageDialog({
                         </label>
                       );
                     })}
+                    {missingSkuIds.map(skuId => (
+                      <label
+                        key={skuId}
+                        className="flex min-w-0 items-center gap-2 rounded border border-transparent px-2 py-1.5 hover:border-kumo-line hover:bg-kumo-base/60"
+                      >
+                        <Checkbox
+                          checked
+                          onCheckedChange={value => {
+                            if (value) return;
+                            setPublicPageForm(current => ({
+                              ...current,
+                              skuIds: current.skuIds.filter(item => item !== skuId),
+                            }));
+                          }}
+                          aria-label={`移除 ${getSkuDisplayLabel('', skuId)}`}
+                        />
+                        <span className="min-w-0 flex-1 truncate text-xs text-kumo-strong">
+                          {getSkuDisplayLabel('', skuId)}
+                          <span className="ml-1 text-kumo-subtle">· 其他租户目录</span>
+                        </span>
+                      </label>
+                    ))}
                   </div>
                 </div>
               )}

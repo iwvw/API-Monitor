@@ -2,11 +2,14 @@ package cloudflare
 
 import (
 	"archive/zip"
+	"bytes"
 	"encoding/json"
+	"io"
 	"mime"
 	"net/http"
 	"net/url"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -19,7 +22,11 @@ func (s *Service) r2Buckets(w http.ResponseWriter, r *http.Request, accountID st
 	if !ok {
 		return
 	}
-	cfAccountID, err := s.cloudflareAccountID(r.Context(), auth)
+	resolveAccountID := s.cloudflareAccountID
+	if r.Method == http.MethodPost {
+		resolveAccountID = s.cloudflareAccountIDStrict
+	}
+	cfAccountID, err := resolveAccountID(r.Context(), auth)
 	if err != nil {
 		response.JSON(w, http.StatusInternalServerError, map[string]interface{}{"error": err.Error()})
 		return
@@ -73,7 +80,7 @@ func (s *Service) deleteR2Bucket(w http.ResponseWriter, r *http.Request, account
 	if !ok {
 		return
 	}
-	cfAccountID, err := s.cloudflareAccountID(r.Context(), auth)
+	cfAccountID, err := s.cloudflareAccountIDStrict(r.Context(), auth)
 	if err != nil {
 		response.JSON(w, http.StatusInternalServerError, map[string]interface{}{"error": err.Error()})
 		return
@@ -183,7 +190,7 @@ func (s *Service) deleteR2Object(w http.ResponseWriter, r *http.Request, account
 	if !ok {
 		return
 	}
-	cfAccountID, err := s.cloudflareAccountID(r.Context(), auth)
+	cfAccountID, err := s.cloudflareAccountIDStrict(r.Context(), auth)
 	if err != nil {
 		response.JSON(w, http.StatusInternalServerError, map[string]interface{}{"error": err.Error()})
 		return
@@ -206,7 +213,7 @@ func (s *Service) uploadR2Object(w http.ResponseWriter, r *http.Request, account
 	if !ok {
 		return
 	}
-	cfAccountID, err := s.cloudflareAccountID(r.Context(), auth)
+	cfAccountID, err := s.cloudflareAccountIDStrict(r.Context(), auth)
 	if err != nil {
 		response.JSON(w, http.StatusInternalServerError, map[string]interface{}{"error": err.Error()})
 		return
@@ -216,7 +223,7 @@ func (s *Service) uploadR2Object(w http.ResponseWriter, r *http.Request, account
 		contentType = "application/octet-stream"
 	}
 	path := "/accounts/" + url.PathEscape(cfAccountID) + "/r2/buckets/" + url.PathEscape(bucketName) + "/objects/" + url.PathEscape(objectKey)
-	_, _, err = s.cfRawRequest(r.Context(), http.MethodPut, path, auth, "application/json", contentType, r.Body)
+	_, _, err = s.cfRawRequestWithClient(r.Context(), s.streamClient, http.MethodPut, path, auth, "application/json", contentType, r.Body)
 	if err != nil {
 		response.JSON(w, http.StatusInternalServerError, map[string]interface{}{"error": err.Error()})
 		return
@@ -250,12 +257,17 @@ func (s *Service) r2ObjectDownloadInfo(w http.ResponseWriter, r *http.Request, a
 			publicUrl = base + "/" + objectKey
 		}
 	}
-	response.JSON(w, http.StatusOK, map[string]interface{}{
+	payload := map[string]interface{}{
 		"success":    true,
 		"publicUrl":  publicUrl,
 		"objectKey":  objectKey,
 		"bucketName": bucketName,
-	})
+	}
+	if err != nil {
+		payload["partial"] = true
+		payload["error"] = err.Error()
+	}
+	response.JSON(w, http.StatusOK, payload)
 }
 
 func (s *Service) r2ObjectDownload(w http.ResponseWriter, r *http.Request, accountID, bucketName, objectKey string) {
@@ -273,11 +285,12 @@ func (s *Service) r2ObjectDownload(w http.ResponseWriter, r *http.Request, accou
 		return
 	}
 	path := "/accounts/" + url.PathEscape(cfAccountID) + "/r2/buckets/" + url.PathEscape(bucketName) + "/objects/" + url.PathEscape(objectKey)
-	raw, contentType, err := s.cfRawRequest(r.Context(), http.MethodGet, path, auth, "*/*", "", nil)
+	reader, contentLength, contentType, err := s.cfStreamRequest(r.Context(), http.MethodGet, path, auth, "*/*", "", nil)
 	if err != nil {
 		response.JSON(w, http.StatusInternalServerError, map[string]interface{}{"error": err.Error()})
 		return
 	}
+	defer reader.Close()
 	if contentType == "" {
 		contentType = "application/octet-stream"
 	}
@@ -285,8 +298,11 @@ func (s *Service) r2ObjectDownload(w http.ResponseWriter, r *http.Request, accou
 	w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": objectFileName(objectKey)}))
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Cache-Control", "private, max-age=60")
+	if contentLength >= 0 {
+		w.Header().Set("Content-Length", strconv.FormatInt(contentLength, 10))
+	}
 	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write(raw)
+	_, _ = io.Copy(w, reader)
 }
 
 func (s *Service) r2FolderDownload(w http.ResponseWriter, r *http.Request, accountID, bucketName string) {
@@ -304,16 +320,26 @@ func (s *Service) r2FolderDownload(w http.ResponseWriter, r *http.Request, accou
 		return
 	}
 	prefix := r.URL.Query().Get("prefix")
-	// 打包时每个对象全量读入内存再写入 zip，内存占用与最大单对象成正比；
-	// 超过上限的对象跳过并记录，避免超大对象拖垮进程。
-	const maxObjectBytes = 512 << 20
+	// 对象逐个流式写入 zip；仍设上限跳过超大对象，避免异常大的对象长时间占用连接。
+	const (
+		maxObjectBytes   = 512 << 20
+		maxFolderPages   = 2000
+		maxFolderObjects = 100000
+		maxFolderBytes   = 8 << 30
+	)
 	type objectEntry struct {
 		key  string
 		size int64
 	}
 	var objects []objectEntry
+	var totalBytes int64
 	cursor := ""
-	for {
+	truncated := false
+	for page := 0; ; page++ {
+		if page >= maxFolderPages {
+			truncated = true
+			break
+		}
 		query := url.Values{"limit": {"1000"}}
 		if prefix != "" {
 			query.Set("prefix", prefix)
@@ -333,15 +359,27 @@ func (s *Service) r2FolderDownload(w http.ResponseWriter, r *http.Request, accou
 		for _, item := range arrayValue(payload["result"]) {
 			if obj, ok := item.(map[string]interface{}); ok {
 				if key, ok := obj["key"].(string); ok && key != "" {
-					objects = append(objects, objectEntry{key: key, size: int64(numberValue(obj["size"]))})
+					size := int64(numberValue(obj["size"]))
+					objects = append(objects, objectEntry{key: key, size: size})
+					totalBytes += size
 				}
 			}
 		}
-		resInfo := objectValue(payload["result_info"])
-		cursor, _ = resInfo["cursor"].(string)
-		if cursor == "" {
+		if len(objects) >= maxFolderObjects || totalBytes > maxFolderBytes {
+			truncated = true
 			break
 		}
+		resInfo := objectValue(payload["result_info"])
+		nextCursor, _ := resInfo["cursor"].(string)
+		// cursor 未推进(上游异常重复返回同一 cursor)时终止,避免死循环。
+		if nextCursor == "" || nextCursor == cursor {
+			break
+		}
+		cursor = nextCursor
+	}
+	if truncated {
+		response.JSON(w, http.StatusRequestEntityTooLarge, map[string]interface{}{"error": "目录对象过多或总大小超限,无法一次性打包下载,请缩小前缀范围或分批下载"})
+		return
 	}
 	sort.Slice(objects, func(i, j int) bool { return objects[i].key < objects[j].key })
 
@@ -369,13 +407,6 @@ func (s *Service) r2FolderDownload(w http.ResponseWriter, r *http.Request, accou
 			applog.Warn(ctx, "cloudflare", "r2 folder download skipped oversized object", "bucket", bucketName, "key", object.key, "size_bytes", object.size, "max_bytes", maxObjectBytes)
 			continue
 		}
-		path := "/accounts/" + url.PathEscape(cfAccountID) + "/r2/buckets/" + url.PathEscape(bucketName) + "/objects/" + url.PathEscape(object.key)
-		raw, _, err := s.cfRawRequest(ctx, http.MethodGet, path, auth, "*/*", "", nil)
-		if err != nil {
-			failed++
-			applog.Warn(ctx, "cloudflare", "r2 folder download object failed", "bucket", bucketName, "key", object.key, "error", err.Error())
-			continue
-		}
 		rel := object.key
 		if prefix != "" {
 			rel = strings.TrimPrefix(object.key, prefix)
@@ -392,15 +423,25 @@ func (s *Service) r2FolderDownload(w http.ResponseWriter, r *http.Request, accou
 			applog.Warn(ctx, "cloudflare", "r2 folder download skipped unsafe entry name", "bucket", bucketName, "key", object.key, "entry", rel)
 			continue
 		}
+		path := "/accounts/" + url.PathEscape(cfAccountID) + "/r2/buckets/" + url.PathEscape(bucketName) + "/objects/" + url.PathEscape(object.key)
+		reader, _, _, err := s.cfStreamRequest(ctx, http.MethodGet, path, auth, "*/*", "", nil)
+		if err != nil {
+			failed++
+			applog.Warn(ctx, "cloudflare", "r2 folder download object failed", "bucket", bucketName, "key", object.key, "error", err.Error())
+			continue
+		}
 		header := &zip.FileHeader{Name: rel, Method: zip.Deflate}
 		header.SetModTime(time.Now())
 		entry, err := zw.CreateHeader(header)
 		if err != nil {
+			reader.Close()
 			return
 		}
-		if _, err := entry.Write(raw); err != nil {
+		if _, err := io.Copy(entry, reader); err != nil {
+			reader.Close()
 			return
 		}
+		reader.Close()
 		downloaded++
 	}
 	if skipped > 0 || failed > 0 {
@@ -424,6 +465,29 @@ func zipEntryNameSafe(rel string) bool {
 	return true
 }
 
+var r2InlinePreviewTypes = map[string]bool{
+	"image/png":                true,
+	"image/jpeg":               true,
+	"image/gif":                true,
+	"image/webp":               true,
+	"image/bmp":                true,
+	"image/x-icon":             true,
+	"image/vnd.microsoft.icon": true,
+	"image/avif":               true,
+	"image/apng":               true,
+	"image/tiff":               true,
+	"text/plain":               true,
+	"application/pdf":          true,
+}
+
+func r2PreviewInlineAllowed(contentType string) bool {
+	lower := strings.ToLower(strings.TrimSpace(contentType))
+	if index := strings.IndexByte(lower, ';'); index >= 0 {
+		lower = strings.TrimSpace(lower[:index])
+	}
+	return r2InlinePreviewTypes[lower]
+}
+
 func (s *Service) r2ObjectPreview(w http.ResponseWriter, r *http.Request, accountID, bucketName, objectKey string) {
 	if r.Method != http.MethodGet {
 		response.Error(w, http.StatusMethodNotAllowed, "method not allowed")
@@ -439,26 +503,41 @@ func (s *Service) r2ObjectPreview(w http.ResponseWriter, r *http.Request, accoun
 		return
 	}
 	path := "/accounts/" + url.PathEscape(cfAccountID) + "/r2/buckets/" + url.PathEscape(bucketName) + "/objects/" + url.PathEscape(objectKey)
-	raw, contentType, err := s.cfRawRequest(r.Context(), http.MethodGet, path, auth, "*/*", "", nil)
+	reader, contentLength, contentType, err := s.cfStreamRequest(r.Context(), http.MethodGet, path, auth, "*/*", "", nil)
 	if err != nil {
 		response.JSON(w, http.StatusInternalServerError, map[string]interface{}{"error": err.Error()})
 		return
 	}
+	defer reader.Close()
+	const maxPreviewBytes = 16 << 20
+	if contentLength > maxPreviewBytes {
+		response.JSON(w, http.StatusRequestEntityTooLarge, map[string]interface{}{"error": "对象过大,无法内嵌预览,请使用下载"})
+		return
+	}
+	prefix := make([]byte, 512)
+	n, _ := io.ReadFull(reader, prefix)
+	prefix = prefix[:n]
 	if contentType == "" || strings.HasPrefix(strings.ToLower(contentType), "application/octet-stream") {
 		if detected := mime.TypeByExtension(strings.ToLower(pathExt(objectKey))); detected != "" {
 			contentType = detected
-		} else if len(raw) > 0 {
-			contentType = http.DetectContentType(raw)
+		} else if n > 0 {
+			contentType = http.DetectContentType(prefix)
 		} else {
 			contentType = "application/octet-stream"
 		}
 	}
-	w.Header().Set("Content-Type", contentType)
-	w.Header().Set("Content-Disposition", mime.FormatMediaType("inline", map[string]string{"filename": objectFileName(objectKey)}))
 	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("Content-Security-Policy", "sandbox")
 	w.Header().Set("Cache-Control", "private, max-age=60")
+	if r2PreviewInlineAllowed(contentType) {
+		w.Header().Set("Content-Type", contentType)
+		w.Header().Set("Content-Disposition", mime.FormatMediaType("inline", map[string]string{"filename": objectFileName(objectKey)}))
+	} else {
+		w.Header().Set("Content-Type", "application/octet-stream")
+		w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": objectFileName(objectKey)}))
+	}
 	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write(raw)
+	_, _ = io.Copy(w, io.MultiReader(bytes.NewReader(prefix), reader))
 }
 
 func pathExt(value string) string {

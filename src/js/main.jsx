@@ -2,9 +2,11 @@ import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { Toasty } from '@cloudflare/kumo/components/toast';
 import { ShikiProvider } from '@cloudflare/kumo/code';
+import { KumoPortalProvider } from '@cloudflare/kumo/utils';
 import App from './App.jsx';
 import GlobalDialogHost from './components/GlobalDialogHost.jsx';
 import { setupPwa } from './modules/pwa.js';
+import { useOverlayPortalContainer } from './modules/overlayPortal.js';
 import { kumoToastManager } from './modules/toast.js';
 import { ensureSiteChartFont } from './chartFont.js';
 import '../css/app.css';
@@ -15,22 +17,34 @@ import 'flag-icons/css/flag-icons.min.css';
 setupPwa();
 ensureSiteChartFont();
 
+// 顶层浮层容器:Kumo 浮层默认 portal 到 document.body,会被 portal 到 body 的高 z-index
+// 全屏层盖住(编辑弹窗、全局确认弹窗、Toast)。这里把「当前最上层全屏容器」下发给所有
+// Kumo 浮层,使其落到全屏层内部;无全屏层时容器为 undefined,回落 body 默认行为。
+function RootShell() {
+  const overlayPortalContainer = useOverlayPortalContainer();
+  return (
+    <ShikiProvider
+      engine="javascript"
+      languages={['javascript', 'typescript', 'jsx', 'tsx', 'json', 'jsonc', 'html', 'css', 'python', 'yaml', 'markdown', 'graphql', 'sql', 'bash', 'diff', 'hcl', 'toml']}
+      labels={{ copy: '复制代码', copied: '已复制' }}
+    >
+      <KumoPortalProvider container={overlayPortalContainer ?? undefined}>
+        <Toasty toastManager={kumoToastManager}>
+          <App />
+          <GlobalDialogHost />
+        </Toasty>
+      </KumoPortalProvider>
+    </ShikiProvider>
+  );
+}
+
 const container = document.getElementById('root');
 if (container) {
   try {
     const root = createRoot(container);
     root.render(
       <React.StrictMode>
-        <ShikiProvider
-          engine="javascript"
-          languages={['javascript', 'typescript', 'jsx', 'tsx', 'json', 'jsonc', 'html', 'css', 'python', 'yaml', 'markdown', 'graphql', 'sql', 'bash', 'diff', 'hcl', 'toml']}
-          labels={{ copy: '复制代码', copied: '已复制' }}
-        >
-          <Toasty toastManager={kumoToastManager}>
-            <App />
-            <GlobalDialogHost />
-          </Toasty>
-        </ShikiProvider>
+        <RootShell />
       </React.StrictMode>
     );
     window.__API_MONITOR_BOOTED = true;

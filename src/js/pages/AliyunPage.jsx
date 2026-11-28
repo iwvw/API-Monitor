@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Button } from '@cloudflare/kumo/components/button';
 import { LayerDialog } from '@cloudflare/kumo/components/layer-dialog';
 import { Input, Textarea } from '@cloudflare/kumo/components/input';
+import { SensitiveInput } from '@cloudflare/kumo/components/sensitive-input';
 import { Select } from '@cloudflare/kumo/components/select';
 import { Table } from '@cloudflare/kumo/components/table';
 import { Tabs, Toolbar } from '@cloudflare/kumo';
@@ -40,7 +41,6 @@ const ALIYUN_DNS_COLUMNS = [
   { id: 'records', role: 'count' },
   { id: 'status', role: 'status' },
   { id: 'remark', role: 'content', minWidth: 200, verticalAlign: 'middle' },
-  { id: 'actions', role: 'actions-md' },
 ];
 
 // 账号表：同样配合拖拽调宽。
@@ -146,7 +146,7 @@ function AliyunPage() {
   const [editingAccount, setEditingAccount] = useState(null);
   const [accountForm, setAccountForm] = useState(emptyAccountForm);
   const [submittingAccount, setSubmittingAccount] = useState(false);
-  const [dnsColWidths, startDnsResize] = useTableResize([240, 100, 100, 320, 120]);
+  const [dnsColWidths, startDnsResize] = useTableResize([240, 100, 100, 320]);
   const [accountsColWidths, startAccountsResize] = useTableResize([180, 240, 150, 280, 120]);
 
   const loadAccounts = useCallback(async () => {
@@ -163,6 +163,7 @@ function AliyunPage() {
   }, [selectedAccountId]);
 
   const accountImportInputRef = useRef(null);
+  const loadSeqRef = useRef(0);
   const [accountImporting, setAccountImporting] = useState(false);
 
   const exportAccounts = async () => {
@@ -207,38 +208,47 @@ function AliyunPage() {
   };
 
   const loadDnsData = useCallback(async (accountId) => {
+    const seq = ++loadSeqRef.current;
     setLoadingData(true);
     try {
       const result = await get(`/api/aliyun/accounts/${accountId}/domains`);
+      if (seq !== loadSeqRef.current) return;
       setDomains(result.Domains?.Domain || []);
     } catch {
+      if (seq !== loadSeqRef.current) return;
       toast.error('加载域名列表失败');
     } finally {
-      setLoadingData(false);
+      if (seq === loadSeqRef.current) setLoadingData(false);
     }
   }, []);
 
   const loadEcsData = useCallback(async (accountId) => {
+    const seq = ++loadSeqRef.current;
     setLoadingData(true);
     try {
       const result = await get(`/api/aliyun/accounts/${accountId}/instances`);
+      if (seq !== loadSeqRef.current) return;
       setInstances(result.instances || []);
     } catch {
+      if (seq !== loadSeqRef.current) return;
       toast.error('加载 ECS 实例失败');
     } finally {
-      setLoadingData(false);
+      if (seq === loadSeqRef.current) setLoadingData(false);
     }
   }, []);
 
   const loadSwasData = useCallback(async (accountId) => {
+    const seq = ++loadSeqRef.current;
     setLoadingData(true);
     try {
       const result = await get(`/api/aliyun/accounts/${accountId}/swas`);
+      if (seq !== loadSeqRef.current) return;
       setSwasInstances(result.instances || []);
     } catch {
+      if (seq !== loadSeqRef.current) return;
       toast.error('加载轻量服务器失败');
     } finally {
-      setLoadingData(false);
+      if (seq === loadSeqRef.current) setLoadingData(false);
     }
   }, []);
 
@@ -342,19 +352,17 @@ function AliyunPage() {
               <Table.Head className="relative pr-6">记录数<Table.ResizeHandle onMouseDown={(event) => startDnsResize(1, event)} /></Table.Head>
               <Table.Head className="relative pr-6">状态<Table.ResizeHandle onMouseDown={(event) => startDnsResize(2, event)} /></Table.Head>
               <Table.Head className="relative pr-6">备注<Table.ResizeHandle onMouseDown={(event) => startDnsResize(3, event)} /></Table.Head>
-              <Table.Head className="app-table-action">操作</Table.Head>
             </Table.Row>
           </Table.Header>
           <Table.Body>
-            {loadingData ? <LoadingRows columns={5} /> : domains.length === 0 ? (
-              <Table.Row><Table.Cell colSpan={5}><EmptyState card={false} title="暂无域名数据" description="添加账号并选择后刷新数据。" /></Table.Cell></Table.Row>
+            {loadingData ? <LoadingRows columns={4} /> : domains.length === 0 ? (
+              <Table.Row><Table.Cell colSpan={4}><EmptyState card={false} title="暂无域名数据" description="添加账号并选择后刷新数据。" /></Table.Cell></Table.Row>
             ) : domains.map((domain) => (
               <Table.Row key={domain.DomainId}>
                 <Table.Cell className="font-semibold text-kumo-strong">{domain.DomainName}</Table.Cell>
                 <Table.Cell className="tabular-nums">{domain.RecordCount || '-'}</Table.Cell>
                 <Table.Cell><StatusBadge tone="success">正常</StatusBadge></Table.Cell>
                 <Table.Cell className="truncate text-kumo-subtle">{domain.Remark || '-'}</Table.Cell>
-                <Table.Cell><div className="flex w-full justify-end"><Button size="sm" variant="secondary">管理解析</Button></div></Table.Cell>
               </Table.Row>
             ))}
           </Table.Body>
@@ -505,7 +513,7 @@ function AliyunPage() {
               <Input size="sm" label="AccessKey ID" value={accountForm.accessKeyId} onChange={(event) => setAccountForm((prev) => ({ ...prev, accessKeyId: event.target.value }))} className="font-mono" placeholder="LTAI..." />
               <Input size="sm" label="默认地域 ID" value={accountForm.regionId} onChange={(event) => setAccountForm((prev) => ({ ...prev, regionId: event.target.value }))} className="font-mono" placeholder="cn-hangzhou" />
             </div>
-            <Input size="sm" label="AccessKey Secret" value={accountForm.accessKeySecret} onChange={(event) => setAccountForm((prev) => ({ ...prev, accessKeySecret: event.target.value }))} placeholder={editingAccount ? '不修改请留空' : undefined} autoComplete="off" spellCheck={false} className="font-mono" />
+            <SensitiveInput size="sm" label="AccessKey Secret" value={accountForm.accessKeySecret} onValueChange={(accessKeySecret) => setAccountForm((prev) => ({ ...prev, accessKeySecret }))} placeholder={editingAccount ? '不修改请留空' : undefined} autoComplete="off" spellCheck={false} className="font-mono" />
             <Textarea size="sm" label="账号描述" value={accountForm.description} onChange={(event) => setAccountForm((prev) => ({ ...prev, description: event.target.value }))} className="min-h-20" />
           </div>
           </LayerDialog.Body>

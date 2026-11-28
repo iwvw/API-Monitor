@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/iwvw/api-monitor/backend-go/internal/config"
@@ -310,12 +311,12 @@ func (s *Store) UpdateEntry(ctx context.Context, id int64, req UpdateEntryReques
 	now := time.Now().UTC().Format(time.RFC3339)
 	_, err = db.ExecContext(ctx,
 		`UPDATE prompt_entries SET title = ?, collection_id = ?, tags_json = ?,
-		starred = CASE WHEN ? THEN 1 ELSE 0 END,
-		archived = CASE WHEN ? THEN 1 ELSE 0 END,
+		starred = CASE WHEN ? THEN (CASE WHEN ? THEN 1 ELSE 0 END) ELSE starred END,
+		archived = CASE WHEN ? THEN (CASE WHEN ? THEN 1 ELSE 0 END) ELSE archived END,
 		visibility = ?, updated_at = ? WHERE id = ?`,
 		req.Title, req.CollectionID, req.TagsJSON,
-		req.Starred != nil && *req.Starred,
-		req.Archived != nil && *req.Archived,
+		req.Starred != nil, req.Starred != nil && *req.Starred,
+		req.Archived != nil, req.Archived != nil && *req.Archived,
 		req.Visibility, now, id)
 	return err
 }
@@ -483,31 +484,35 @@ func (s *Store) PublishVersion(ctx context.Context, entryID int64, req PublishRe
 		return nil, fmt.Errorf("draft not found")
 	}
 
-	var lastVersionNo int
-	db.QueryRowContext(ctx, `SELECT COALESCE(MAX(version_no), 0) FROM prompt_versions WHERE entry_id = ?`, entryID).Scan(&lastVersionNo)
-	nextVersionNo := lastVersionNo + 1
-
 	now := time.Now().UTC().Format(time.RFC3339)
 	checksum := ComputeChecksum(draft.ContentMD)
 
+	// 版本号在单条 INSERT ... SELECT 内基于 MAX(version_no)+1 原子分配,
+	// 避免「先查 MAX 再 INSERT」的读改写竞态;并发发布由唯一索引兜底为冲突。
 	result, err := db.ExecContext(ctx,
 		`INSERT INTO prompt_versions (entry_id, version_no, content_md, content_text, outline_json,
 		variables_json, excerpt_text, checksum, char_count, word_count, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		entryID, nextVersionNo, draft.ContentMD, draft.ContentText, draft.OutlineJSON,
+		SELECT ?, COALESCE(MAX(version_no), 0) + 1, ?, ?, ?, ?, ?, ?, ?, ?, ? FROM prompt_versions WHERE entry_id = ?`,
+		entryID, draft.ContentMD, draft.ContentText, draft.OutlineJSON,
 		draft.VariablesJSON, draft.ExcerptText, checksum,
-		len(draft.ContentText), CountWords(draft.ContentText), now)
+		len(draft.ContentText), CountWords(draft.ContentText), now, entryID)
 	if err != nil {
+		if strings.Contains(strings.ToLower(err.Error()), "unique") {
+			return nil, fmt.Errorf("conflict: version number already allocated")
+		}
 		return nil, err
 	}
 
 	versionID, _ := result.LastInsertId()
+	var nextVersionNo int
+	db.QueryRowContext(ctx, `SELECT version_no FROM prompt_versions WHERE id = ?`, versionID).Scan(&nextVersionNo)
 
+	// 仅在分配到的版本号更大时推进 latest,避免并发发布把最新版本回退到旧号。
 	db.ExecContext(ctx,
 		`UPDATE prompt_entries SET latest_published_version_id = ?, latest_published_version_no = ?,
 		latest_published_at = ?, published_char_count = ?, published_word_count = ?, updated_at = ?
-		WHERE id = ?`,
-		versionID, nextVersionNo, now, len(draft.ContentText), CountWords(draft.ContentText), now, entryID)
+		WHERE id = ? AND COALESCE(latest_published_version_no, 0) < ?`,
+		versionID, nextVersionNo, now, len(draft.ContentText), CountWords(draft.ContentText), now, entryID, nextVersionNo)
 
 	return &VersionPayload{
 		ID:          versionID,

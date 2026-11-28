@@ -197,6 +197,14 @@ func (s *Service) handleAgentTerminalStream(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	defer conn.Close()
+	configureTerminalWebSocket(conn)
+	// 这条链路承载真正的终端数据，必须自带存活检测：
+	// Agent 现在是长连接直连，网络闪断时 TCP 可能长期处于半开状态，
+	// 双方 ReadJSON 都不返回，表现为「终端卡住但没提示」。
+	// 心跳 goroutine 用同一个写锁，ping 写失败即判定链路已死。
+	heartbeatDone := make(chan struct{})
+	defer close(heartbeatDone)
+	go startTerminalWebSocketHeartbeat(conn, &stream.agentWriteMu, heartbeatDone)
 	stream.attachAgent(conn)
 
 	for {
@@ -205,7 +213,13 @@ func (s *Service) handleAgentTerminalStream(w http.ResponseWriter, r *http.Reque
 			stream.close("terminal_agent_closed")
 			return
 		}
-		if msg.Type == "" {
+		// 应用层存活探测：部分反向代理/隧道会吞掉 WS 控制帧（ping/pong），
+		// 前端因此改用 JSON 消息做探活，这里原样回应。
+		if msg.Type == "ping" {
+			stream.sendToAgent(terminalWSMessage{Type: "pong"})
+			continue
+		}
+		if msg.Type == "pong" || msg.Type == "" {
 			continue
 		}
 		if msg.Transport == "" {
@@ -322,6 +336,10 @@ func (s *Service) runAgentTerminalSessionV2(
 			continue
 		}
 		switch msg.Type {
+		case "ping":
+			writeJSON(terminalWSMessage{Type: "pong", Transport: "agent"})
+		case "pong":
+			// 前端对服务端 ping 的回应。
 		case "input", "resize", "stop":
 			_ = stream.sendToAgent(msg)
 		case "disconnect":

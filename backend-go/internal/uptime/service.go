@@ -52,12 +52,17 @@ type Service struct {
 	mu            sync.Mutex
 	timers        map[int64]*time.Timer
 	stopped       bool
-	lastSslAlerts sync.Map // monitorID -> time.Time (expiry)
+	lastSslAlerts sync.Map // monitorID -> sslAlertCursor（已告警的到期时间 + 阈值档位）
 
 	// per-monitor 检查互斥：同一 monitor 的定时检查、checkNow、state 迁移
 	// 必须串行执行，防止并发 processState 的读-改-写产生重复 incident。
 	checkMux   sync.Mutex
 	checkLocks map[int64]*sync.Mutex
+}
+
+type sslAlertCursor struct {
+	Expiry    time.Time
+	Threshold int
 }
 
 type probeResult struct {
@@ -287,6 +292,12 @@ func (s *Service) servePublic(w http.ResponseWriter, r *http.Request, parts []st
 }
 
 func (s *Service) requireAuth(w http.ResponseWriter, r *http.Request) bool {
+	// 管理 AI 内部调用由服务端注入 context 标记（见 server/ai_caller.go）。
+	// AI 调用会剥离 Cookie/Authorization，无法通过会话校验，因此内部标记
+	// 等价于面板管理员身份；context 值不可由外部 HTTP 请求伪造。
+	if isInternalAICall(r.Context()) {
+		return true
+	}
 	if s.auth == nil {
 		return true
 	}

@@ -1,8 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Button } from '@cloudflare/kumo/components/button';
 import { LayerDialog } from '@cloudflare/kumo/components/layer-dialog';
-import { cx } from '../ui/AppPrimitives.jsx';
-import { Check, RefreshCw, Trash, Upload } from '../Icons.jsx';
+import { cx } from '../ui/CardPrimitives.jsx';
+import { Check, RefreshCw, Trash, Upload } from '../PublicIcons.jsx';
 import { dialog } from '../../modules/dialog.js';
 import { toast } from '../../modules/toast.js';
 import {

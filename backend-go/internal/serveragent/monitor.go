@@ -286,11 +286,19 @@ func (s *Service) startMetricsCollectorLoop(ctx context.Context) {
 			s.runPeriodicCollection(loopCtx, db)
 			lastCollected = now
 
+			// 顺带把上一个完整小时的指标固化成小时级 rollup（幂等）。
+			// 放在清理之前：先聚合再删原始行，避免删掉后无法回算。
+			if err := s.RollupMetrics(loopCtx, db); err != nil {
+				applog.Warn(loopCtx, "serveragent", "metrics rollup failed", "error", err.Error())
+			}
+
 			// 分批清理过期数据：单批上限避免大表上单次 DELETE 持写锁过久
 			// 阻塞其它模块写入（含检查循环自身的后续写入）。
 			if retentionDays > 0 {
 				clearExpiredHistory(loopCtx, db, "server_metrics_history", "recorded_at", retentionDays)
 				clearExpiredHistory(loopCtx, db, "server_network_quality_samples", "checked_at", retentionDays)
+				// rollup 表与原始表同保留期：它只是聚合，不该比源数据活得更久。
+				clearExpiredHistory(loopCtx, db, rollupTable, "bucket_hour", retentionDays)
 			}
 			if logRetentionDays > 0 {
 				clearExpiredHistory(loopCtx, db, "server_monitor_logs", "checked_at", logRetentionDays)

@@ -506,12 +506,12 @@ func TestReconcileLinkedEndpointSyncsModels(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := ensureOpenAIEndpointsTable(ctx, db); err != nil {
+	if err := ensureModelHubEndpointsTable(ctx, db); err != nil {
 		t.Fatal(err)
 	}
 	// 预置一行旧端点，models 停在过期的 2 个。
 	if _, err := db.ExecContext(ctx, `
-		INSERT INTO openai_endpoints (id, name, base_url, api_key, enabled, models, disabled_models, plugin_id)
+		INSERT INTO modelhub_endpoints (id, name, base_url, api_key, enabled, models, disabled_models, plugin_id)
 		VALUES (?, 'Qoder', 'http://127.0.0.1:3000/api/qoder/v1', 'sk', 1, '["DeepSeek-Flash","Qwen3.8-Flash"]', '[]', 'qoder')`,
 		linkedEndpointID); err != nil {
 		t.Fatal(err)
@@ -527,7 +527,7 @@ func TestReconcileLinkedEndpointSyncsModels(t *testing.T) {
 	}
 	defer db2.Close()
 	var raw string
-	if err := db2.QueryRowContext(ctx, `SELECT models FROM openai_endpoints WHERE id = ?`, linkedEndpointID).Scan(&raw); err != nil {
+	if err := db2.QueryRowContext(ctx, `SELECT models FROM modelhub_endpoints WHERE id = ?`, linkedEndpointID).Scan(&raw); err != nil {
 		t.Fatal(err)
 	}
 	var models []string

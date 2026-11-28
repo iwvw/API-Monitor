@@ -19,6 +19,7 @@ import {
   RANGE_STORAGE_KEY,
   TILE_DEFS,
   TILE_DEFS_BY_ID,
+  LEGACY_TILE_ID_MAP,
   cacheGet,
   cacheSet,
   loadRangeFromStorage,
@@ -29,9 +30,9 @@ import {
 import { fetchWithTimeout, normalizeServerStatus, parseCfTime, toArray } from './utils.js';
 import ApiTrendMultiTile from './ApiTrendMultiTile.jsx';
 import ApiTokensTile from './ApiTokensTile.jsx';
-import OpenaiRequestsTile from './OpenaiRequestsTile.jsx';
-import OpenaiLatencyTile from './OpenaiLatencyTile.jsx';
-import OpenaiErrorsTile from './OpenaiErrorsTile.jsx';
+import ModelHubRequestsTile from './ModelHubRequestsTile.jsx';
+import ModelHubLatencyTile from './ModelHubLatencyTile.jsx';
+import ModelHubErrorsTile from './ModelHubErrorsTile.jsx';
 import HostCpuTile from './HostCpuTile.jsx';
 import UptimeTile from './UptimeTile.jsx';
 import CfZoneTile from './CfZoneTile.jsx';
@@ -70,8 +71,8 @@ export default function TilesBoard() {
 
   const [apiStats, setApiStats] = useState(null);
   const [apiStatsLoading, setApiStatsLoading] = useState(false);
-  const [openaiData, setOpenaiData] = useState(null);
-  const [openaiLoading, setOpenaiLoading] = useState(false);
+  const [modelhubData, setModelhubData] = useState(null);
+  const [modelhubLoading, setModelhubLoading] = useState(false);
   const [host, setHost] = useState(null);
   const [uptime, setUptime] = useState(null);
   const [dash, setDash] = useState(null);
@@ -105,25 +106,25 @@ export default function TilesBoard() {
     }
   }, [rangeDays, rangeMinutes]);
 
-  const loadOpenai = useCallback(async () => {
-    const cacheKey = `openai:${rangeDays}${rangeMinutes ? `:${rangeMinutes}` : ''}`;
+  const loadModelhub = useCallback(async () => {
+    const cacheKey = `modelhub:${rangeDays}${rangeMinutes ? `:${rangeMinutes}` : ''}`;
     const cached = cacheGet(cacheKey);
-    if (cached) setOpenaiData(cached);
-    if (!cached) setOpenaiLoading(true);
+    if (cached) setModelhubData(cached);
+    if (!cached) setModelhubLoading(true);
     try {
       const gran = rangeMinutes ? 'hour' : rangeDays <= 1 ? 'hour' : 'day';
       const q = new URLSearchParams({ days: String(Math.max(1, rangeDays)), granularity: gran });
       if (rangeMinutes) q.set('minutes', String(rangeMinutes));
-      const res = await fetchWithTimeout(`/api/openai/analytics/charts?${q.toString()}`);
+      const res = await fetchWithTimeout(`/api/modelhub/analytics/charts?${q.toString()}`);
       const json = await res.json().catch(() => null);
       if (json && Array.isArray(json.daily)) {
-        setOpenaiData(json);
-        cacheSet(cacheKey, json, CACHE_TTL.openai);
+        setModelhubData(json);
+        cacheSet(cacheKey, json, CACHE_TTL.modelhub);
       }
     } catch (err) {
-      console.error('[TilesDemo] openai charts', err);
+      console.error('[TilesDemo] modelhub charts', err);
     } finally {
-      setOpenaiLoading(false);
+      setModelhubLoading(false);
     }
   }, [rangeDays, rangeMinutes]);
 
@@ -282,15 +283,22 @@ export default function TilesBoard() {
 
   // 云端布局：读 /api/settings 的 tileLayout 字段（存于 data.db，跨设备）。
   // 兼容三种格式：旧数组（= 桌面 5 列）、旧断点桶（{ mobile, tablet, desktop, wide }）、新列数桶（{ '2'..'8' }）。
+  // 只有成功读取云端布局后才允许自动保存:否则一次瞬时读取失败会用默认布局
+  // 覆盖云端,造成用户布局丢失。
+  const layoutLoadOkRef = useRef(false);
   useEffect(() => {
     let stopped = false;
     (async () => {
       try {
         const res = await fetchWithTimeout('/api/settings');
         const json = await res.json().catch(() => null);
+        // 成功拿到 JSON 才视为「已读取云端状态」(含明确为空),允许后续自动保存。
+        if (!stopped && res.ok && json !== null) layoutLoadOkRef.current = true;
         const saved = json?.data?.tileLayout ?? json?.tileLayout ?? null;
         const valid = (arr) => (Array.isArray(arr)
-          ? arr.filter((it) => it && TILE_DEFS_BY_ID[it.i] && Number.isFinite(it.x) && Number.isFinite(it.w) && Number.isFinite(it.h))
+          ? arr
+              .map((it) => (it && LEGACY_TILE_ID_MAP[it.i] ? { ...it, i: LEGACY_TILE_ID_MAP[it.i] } : it))
+              .filter((it) => it && TILE_DEFS_BY_ID[it.i] && Number.isFinite(it.x) && Number.isFinite(it.w) && Number.isFinite(it.h))
           : null);
         let loaded = null;
         if (Array.isArray(saved)) {
@@ -316,7 +324,7 @@ export default function TilesBoard() {
             const merged = { ...(prev || {}) };
             let changed = false;
             Object.entries(loaded).forEach(([key, val]) => {
-              if (val && val.length) {
+              if (Array.isArray(val)) {
                 merged[key] = val;
                 changed = true;
               }
@@ -389,8 +397,8 @@ export default function TilesBoard() {
 
   useEffect(() => {
     loadApiStats();
-    loadOpenai();
-  }, [loadApiStats, loadOpenai]);
+    loadModelhub();
+  }, [loadApiStats, loadModelhub]);
 
   useEffect(() => {
     loadUptime();
@@ -519,7 +527,7 @@ export default function TilesBoard() {
   // 布局每次修改立即自动保存到云端（/api/settings PATCH，四断点对象 merge 进用户设置）；相同内容去重避免冗余写入
   const lastSavedLayoutRef = useRef(null);
   useEffect(() => {
-    if (!cloudReady) return;
+    if (!cloudReady || !layoutLoadOkRef.current) return;
     const json = JSON.stringify(layouts);
     if (lastSavedLayoutRef.current === json) return;
     lastSavedLayoutRef.current = json;
@@ -561,22 +569,22 @@ export default function TilesBoard() {
             <ApiTokensTile data={apiStats} loading={apiStatsLoading} isDarkMode={isDarkMode} density={density} w={item.w} />
           </TileFrame>
         );
-      case 'openaiRequests':
+      case 'modelhubRequests':
         return (
           <TileFrame title="模型网关请求">
-            <OpenaiRequestsTile data={openaiData} loading={openaiLoading} isDarkMode={isDarkMode} density={density} w={item.w} />
+            <ModelHubRequestsTile data={modelhubData} loading={modelhubLoading} isDarkMode={isDarkMode} density={density} w={item.w} />
           </TileFrame>
         );
-      case 'openaiLatency':
+      case 'modelhubLatency':
         return (
           <TileFrame title="模型网关延迟">
-            <OpenaiLatencyTile data={openaiData} loading={openaiLoading} isDarkMode={isDarkMode} density={density} w={item.w} />
+            <ModelHubLatencyTile data={modelhubData} loading={modelhubLoading} isDarkMode={isDarkMode} density={density} w={item.w} />
           </TileFrame>
         );
-      case 'openaiErrors':
+      case 'modelhubErrors':
         return (
           <TileFrame title="模型网关错误数">
-            <OpenaiErrorsTile data={openaiData} loading={openaiLoading} isDarkMode={isDarkMode} density={density} w={item.w} />
+            <ModelHubErrorsTile data={modelhubData} loading={modelhubLoading} isDarkMode={isDarkMode} density={density} w={item.w} />
           </TileFrame>
         );
       case 'hostCpu':

@@ -243,3 +243,26 @@ func TestNativeImportMergeAppendsAfterExistingItems(t *testing.T) {
 		}
 	}
 }
+
+// 导入时,指向本实例并不存在的本地图标引用必须被清空:
+// 导出不含图标二进制,换实例导入后引用必然失效;保留只会让卡片 404,
+// 而且 icon_src 非空会让「抓取缺少图标」把它当成已有图标跳过。
+func TestNativeImportClearsDanglingLocalIconRef(t *testing.T) {
+	service := New(config.Config{DataDir: t.TempDir(), DBName: "test.db"})
+	const dangling = "/api/bookmarks/favicons/eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee.png"
+	payload := `{"format":"` + exportFormatName + `","version":1,"groups":[
+		{"title":"导入组","items":[{"title":"X","url":"https://x.com","iconType":2,"iconSrc":"` + dangling + `"}]}
+	]}`
+	if rec, _ := doJSON(service, http.MethodPost, "/api/bookmarks/import-native", `{"payload":`+payload+`}`); rec.Code != http.StatusOK {
+		t.Fatalf("import status=%d", rec.Code)
+	}
+
+	_, listing := doJSON(service, http.MethodGet, "/api/bookmarks/items", "")
+	items, _ := listing["items"].([]interface{})
+	if len(items) != 1 {
+		t.Fatalf("expected 1 item, got %d", len(items))
+	}
+	if src := items[0].(map[string]interface{})["icon_src"]; src != "" {
+		t.Errorf("dangling local icon ref should be cleared on import, got %v", src)
+	}
+}

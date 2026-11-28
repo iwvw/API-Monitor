@@ -410,7 +410,7 @@ func (s *Service) refreshLinkedEndpointModels(ctx context.Context, oldPrefix str
 	// 读取当前模型映射与禁用列表，做前缀迁移（别名 value 不受前缀影响，保留不动）。
 	var modelsRaw, mappingsRaw, disabledRaw sql.NullString
 	_ = db.QueryRowContext(ctx, `
-		SELECT models, model_mappings, disabled_models FROM openai_endpoints WHERE id = ?`,
+		SELECT models, model_mappings, disabled_models FROM modelhub_endpoints WHERE id = ?`,
 		linkedEndpointID).Scan(&modelsRaw, &mappingsRaw, &disabledRaw)
 
 	// 拉取失败且当前已有模型时：保留旧列表并迁移前缀，不清空也不写兜底。
@@ -446,7 +446,7 @@ func (s *Service) refreshLinkedEndpointModels(ctx context.Context, oldPrefix str
 	disabledJSON, _ := json.Marshal(migratedDisabled)
 
 	_, _ = db.ExecContext(ctx, `
-		UPDATE openai_endpoints SET models = ?, model_mappings = ?, disabled_models = ?, last_checked = ? WHERE id = ?`,
+		UPDATE modelhub_endpoints SET models = ?, model_mappings = ?, disabled_models = ?, last_checked = ? WHERE id = ?`,
 		string(modelsJSON), string(mappingsJSON), string(disabledJSON),
 		time.Now().UTC().Format(time.RFC3339), linkedEndpointID)
 }
@@ -459,16 +459,25 @@ func (s *Service) externalSelector() ProxyPoolSelector {
 }
 
 // resolveProxy 从设置解析出口代理；空表示直连。
-func (s *Service) resolveProxy(ctx context.Context) string {
+func (s *Service) resolveProxy(ctx context.Context) (string, error) {
 	st := s.Settings()
 	if st.ProxyPoolID == "" {
-		return ""
+		return "", nil
 	}
-	if sel := s.externalSelector(); sel != nil {
-		p, _ := sel.SelectProxy(ctx, st.ProxyPoolID, "")
-		return p
+	sel := s.externalSelector()
+	if sel == nil {
+		return "", fmt.Errorf("代理池已配置但未初始化选择器")
 	}
-	return ""
+	p, err := sel.SelectProxy(ctx, st.ProxyPoolID, "")
+	if err != nil {
+		applog.Warn(ctx, "antigravity", "proxy pool select failed, refusing direct fallback", "pool", st.ProxyPoolID, "error", err.Error())
+		return "", fmt.Errorf("代理池无可用出口: %w", err)
+	}
+	if strings.TrimSpace(p) == "" {
+		applog.Warn(ctx, "antigravity", "proxy pool returned empty exit, refusing direct fallback", "pool", st.ProxyPoolID)
+		return "", fmt.Errorf("代理池无可用出口")
+	}
+	return p, nil
 }
 
 // incrementCall 记录一次账号被选中处理推理请求（计入未落盘增量，定期合并落库）。
@@ -657,7 +666,10 @@ func (s *Service) ForwardClaude(ctx context.Context, w http.ResponseWriter, body
 	originalModel := claudeReq.Model
 	mappedModel := s.resolveUpstreamModel(claudeReq.Model)
 
-	proxyURI := s.resolveProxy(ctx)
+	proxyURI, err := s.resolveProxy(ctx)
+	if err != nil {
+		return err
+	}
 	agClient, err := engineag.NewClient(proxyURI)
 	if err != nil {
 		return fmt.Errorf("构造客户端失败: %w", err)
@@ -730,7 +742,7 @@ func (s *Service) attemptClaudeForward(ctx context.Context, w http.ResponseWrite
 	if !stream {
 		full, err := io.ReadAll(resp.Body)
 		if err != nil {
-			return attemptResult{retryable: true, err: fmt.Errorf("读取上游响应失败: %w", err)}
+			return attemptResult{err: fmt.Errorf("读取上游响应失败: %w", err)}
 		}
 		claudeOut, usage, err := engineag.TransformGeminiToClaude(full, originalModel)
 		if err != nil {
@@ -815,7 +827,10 @@ func (s *Service) FetchModels(ctx context.Context, email string) (map[string]eng
 	if err != nil {
 		return nil, err
 	}
-	proxyURI := s.resolveProxy(ctx)
+	proxyURI, err := s.resolveProxy(ctx)
+	if err != nil {
+		return nil, err
+	}
 	agClient, err := engineag.NewClient(proxyURI)
 	if err != nil {
 		return nil, err
@@ -846,7 +861,10 @@ func (s *Service) FetchQuota(ctx context.Context, email string) (*QuotaView, err
 	if err != nil {
 		return nil, err
 	}
-	proxyURI := s.resolveProxy(ctx)
+	proxyURI, err := s.resolveProxy(ctx)
+	if err != nil {
+		return nil, err
+	}
 	agClient, err := engineag.NewClient(proxyURI)
 	if err != nil {
 		return nil, err
@@ -1162,7 +1180,7 @@ func (s *Service) syncEndpointModels() {
 	modelsJSON, _ := json.Marshal(prefixed)
 	// 只更新 models 列，不动映射/禁用
 	_, _ = db.ExecContext(ctx, `
-		UPDATE openai_endpoints SET models = ?, last_checked = ? WHERE id = ?`,
+		UPDATE modelhub_endpoints SET models = ?, last_checked = ? WHERE id = ?`,
 		string(modelsJSON), time.Now().UTC().Format(time.RFC3339), linkedEndpointID)
 }
 

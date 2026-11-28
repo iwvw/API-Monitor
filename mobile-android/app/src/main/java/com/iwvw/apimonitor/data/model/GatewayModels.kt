@@ -90,7 +90,7 @@ data class GatewayKey(
         get() = apiKey.ifBlank { maskedKey }
 }
 
-/** 端点健康状态（`GET /api/openai/endpoints/{id}/health`）。 */
+/** 端点健康状态（`GET /api/modelhub/endpoints/{id}/health`）。 */
 @Serializable
 data class EndpointHealth(
     @SerialName("endpointId") val endpointId: String = "",
@@ -132,14 +132,14 @@ data class EndpointHealthPoint(
     @SerialName("errorMessage") val errorMessage: String? = null,
 )
 
-/** 端点可用模型（`GET /api/openai/endpoints/{id}/models` 返回 `{models:[...], success}`）。 */
+/** 端点可用模型（`GET /api/modelhub/endpoints/{id}/models` 返回 `{models:[...], success}`）。 */
 @Serializable
 data class EndpointModelList(
     val models: List<String> = emptyList(),
     val success: Boolean = false,
 )
 
-/** 密钥轮换结果（`POST /api/openai/keys/{id}/rotate` 返回明文新 Key）。 */
+/** 密钥轮换结果（`POST /api/modelhub/keys/{id}/rotate` 返回明文新 Key）。 */
 @Serializable
 data class GatewayKeyRotateResult(
     val success: Boolean = false,

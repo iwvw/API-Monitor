@@ -43,7 +43,7 @@ func seedSourceTables(t *testing.T, service *Service) {
 		`CREATE TABLE IF NOT EXISTS uptime_monitor_states (
 			monitor_id INTEGER PRIMARY KEY, ssl_expiry DATETIME
 		)`,
-		`CREATE TABLE IF NOT EXISTS openai_gateway_keys (
+		`CREATE TABLE IF NOT EXISTS modelhub_gateway_keys (
 			id TEXT PRIMARY KEY, name TEXT, expires_at DATETIME, enabled INTEGER
 		)`,
 		`CREATE TABLE IF NOT EXISTS api_access_keys (
@@ -69,7 +69,7 @@ func seedSourceTables(t *testing.T, service *Service) {
 			('sub2', '订阅停用', '2026-10-01', '', 0)`,
 		`INSERT INTO uptime_monitors (id, name, url, active) VALUES (1, '站点一', 'https://example.com', 1)`,
 		`INSERT INTO uptime_monitor_states (monitor_id, ssl_expiry) VALUES (1, '2026-11-01T00:00:00Z')`,
-		`INSERT INTO openai_gateway_keys (id, name, expires_at, enabled) VALUES ('key1', '网关Key', '2026-12-01T00:00:00Z', 1)`,
+		`INSERT INTO modelhub_gateway_keys (id, name, expires_at, enabled) VALUES ('key1', '网关Key', '2026-12-01T00:00:00Z', 1)`,
 		`INSERT INTO api_access_keys (id, name, expires_at, enabled, revoked_at) VALUES
 			('ak1', '访问密钥', '2026-12-15T00:00:00Z', 1, ''),
 			('ak2', '已吊销', '2026-12-15T00:00:00Z', 1, '2026-01-01T00:00:00Z')`,
@@ -101,7 +101,7 @@ func TestLoadCandidates(t *testing.T) {
 		"server_accounts":            1,
 		"subscription_subscriptions": 1,
 		"uptime_monitor_states":      1,
-		"openai_gateway_keys":        1,
+		"modelhub_gateway_keys":        1,
 		"api_access_keys":            1,
 		"aiagent_tokens":             1,
 		"managed_proxy_nodes":        1,

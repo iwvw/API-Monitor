@@ -22,6 +22,7 @@ import { formatDateTime, formatFileSize } from '../modules/utils.js';
 
 const VOID_CHUNK_SIZE = 64 * 1024;
 const VOID_BUFFER_LIMIT = 4 * 1024 * 1024;
+const VOID_MAX_INBOUND_BYTES = 512 * 1024 * 1024;
 const VOID_SIGNAL_POLL_MS = 350;
 const VOID_READY_RETRY_MS = 2500;
 const VOID_CONNECT_TIMEOUT_MS = 12000;
@@ -80,7 +81,7 @@ function saveBlob(blob, filename) {
   document.body.appendChild(link);
   link.click();
   document.body.removeChild(link);
-  URL.revokeObjectURL(url);
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 function deviceName() {
@@ -325,6 +326,12 @@ function VoidRoomPage() {
         return;
       }
       if (payload.kind === 'file.meta') {
+        if (Number(payload.size) > VOID_MAX_INBOUND_BYTES) {
+          entry.incoming = null;
+          sendJSON(entry.channel, { kind: 'file.error', id: payload.id, error: '文件超过接收上限' });
+          upsertMessage({ id: payload.id, status: 'failed', error: '文件超过接收上限' });
+          return;
+        }
         entry.incoming = { meta: payload, chunks: [], received: 0 };
         upsertMessage({
           id: payload.id,
@@ -371,6 +378,13 @@ function VoidRoomPage() {
     }
 
     if (event.data instanceof ArrayBuffer && entry.incoming) {
+      if (entry.incoming.received + event.data.byteLength > VOID_MAX_INBOUND_BYTES) {
+        const meta = entry.incoming.meta;
+        entry.incoming = null;
+        sendJSON(entry.channel, { kind: 'file.error', id: meta.id, error: '文件超过接收上限' });
+        upsertMessage({ id: meta.id, status: 'failed', error: '文件超过接收上限' });
+        return;
+      }
       entry.incoming.chunks.push(event.data);
       entry.incoming.received += event.data.byteLength;
       const meta = entry.incoming.meta;
@@ -529,7 +543,9 @@ function VoidRoomPage() {
 
   useEffect(() => {
     let timer;
+    let disposed = false;
     const startPolling = () => {
+      if (disposed) return; // 初始化含多个 await:卸载清理后不得再新建 interval
       timer = window.setInterval(pollSignals, VOID_SIGNAL_POLL_MS);
       pollSignals();
     };
@@ -541,6 +557,7 @@ function VoidRoomPage() {
       }
       try {
         const roomRes = await axios.get(`/api/filebox/void/rooms/${encodeURIComponent(roomId)}`);
+        if (disposed) return;
         const roomData = roomRes.data?.data;
         setRoom(roomData);
         lastSignalIDRef.current = Number(roomData?.lastSignalId) || 0;
@@ -569,10 +586,12 @@ function VoidRoomPage() {
           participantRef.current = guest;
           setStatus('等待房主连接');
           await postSignal('owner', 'participant.ready', { name: guest.name, createdAt: Date.now() }).catch(() => {});
+          if (disposed) return;
           startPolling();
           return;
         }
         const joinRes = await axios.post(`/api/filebox/void/rooms/${encodeURIComponent(roomId)}/participants`, { name: deviceName(), clientId });
+        if (disposed) return;
         const joined = joinRes.data?.data;
         const guest = { id: joined.participantId, token: joined.participantToken, name: deviceName() };
         writeJSONStorage(guestKey, {
@@ -587,6 +606,7 @@ function VoidRoomPage() {
         lastSignalIDRef.current = Number(joined.room?.lastSignalId) || lastSignalIDRef.current;
         setStatus('等待房主连接');
         await postSignal('owner', 'participant.ready', { name: guest.name, createdAt: Date.now() }).catch(() => {});
+        if (disposed) return;
         startPolling();
       } catch (err) {
         setError(err.response?.data?.error || '进入房间失败');
@@ -595,6 +615,7 @@ function VoidRoomPage() {
     };
     init();
     return () => {
+      disposed = true;
       stoppedRef.current = true;
       if (timer) window.clearInterval(timer);
       for (const entry of peersRef.current.values()) {

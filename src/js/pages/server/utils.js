@@ -1,4 +1,4 @@
-import { SERVER_FAST_CHART_ANIMATION_OPTIONS, SERVER_LIST_VIEW_STORAGE_KEY, SERVER_COMPACT_COLUMNS_STORAGE_KEY, HOST_COMPACT_COLUMN_IDS, HOST_COMPACT_COLUMNS, HOST_COMPACT_DEFAULT_VISIBLE_COLUMNS, LOCATION_COUNTRY_CODE_MAP } from './constants.js';
+import { SERVER_FAST_CHART_ANIMATION_OPTIONS, SERVER_LIST_VIEW_STORAGE_KEY, SERVER_COMPACT_COLUMNS_STORAGE_KEY, SERVER_CARD_DRAG_STORAGE_KEY, SERVER_CARD_WIDE_MIN_REM, SERVER_CARD_ROW_HEIGHT_REM, HOST_COMPACT_COLUMN_IDS, HOST_COMPACT_COLUMNS, HOST_COMPACT_DEFAULT_VISIBLE_COLUMNS, LOCATION_COUNTRY_CODE_MAP } from './constants.js';
 import { normalizeChartMetricRecords, normalizeMetricRecords } from '../../modules/serverChartMetrics.js';
 import { areRealtimeValuesEqual } from '../../modules/serverRealtime.js';
 
@@ -102,7 +102,12 @@ export const getInitialServerListViewMode = () => {
   if (typeof window === 'undefined') return 'cards';
   const saved = window.localStorage.getItem(SERVER_LIST_VIEW_STORAGE_KEY);
   if (saved === 'compact' || saved === 'cards') return saved;
-  return window.matchMedia?.('(min-width: 768px)').matches ? 'compact' : 'cards';
+  return 'compact';
+};
+
+export const getInitialServerCardDragEnabled = () => {
+  if (typeof window === 'undefined') return false;
+  return window.localStorage.getItem(SERVER_CARD_DRAG_STORAGE_KEY) === '1';
 };
 
 export const getInitialCompactVisibleColumns = () => {
@@ -147,6 +152,23 @@ export const toNumber = (value, fallback = 0) => {
 
 export const clampPercent = (value) => Math.max(0, Math.min(100, value));
 
+export const getRootFontSizePx = () => {
+  if (typeof window === 'undefined' || typeof document === 'undefined') return 16;
+  const inlineSize = Number.parseFloat(document.documentElement.style.fontSize);
+  if (Number.isFinite(inlineSize) && inlineSize > 0) return inlineSize;
+  return 16;
+};
+
+// 主机卡片行高：头部在卡片宽度 < 46rem（=cq-card-wide）时改为两行紧凑布局（名称行 + 指标行），
+// 行高必须同步放大，否则内容被裁。阈值与 cq-card-wide 同一套 rem，随全局字号缩放。
+// RGL 的 colWidth 是列宽，卡片有 1px 左右边框，容器查询量的是内容盒，故先减 2。
+export const getServerCardRowHeight = ({ colWidth }) => {
+  const rootFontSize = getRootFontSizePx();
+  const narrow = colWidth - 2 < SERVER_CARD_WIDE_MIN_REM * rootFontSize;
+  const rowHeightRem = narrow ? SERVER_CARD_ROW_HEIGHT_REM.narrow : SERVER_CARD_ROW_HEIGHT_REM.wide;
+  return Math.round(rowHeightRem * rootFontSize);
+};
+
 export const formatDenseFlowValue = (value) => {
   const numericValue = Number.parseFloat(String(value ?? '0').replace(/,/g, ''));
   return Number.isFinite(numericValue) ? numericValue.toFixed(1) : '0.0';
@@ -161,6 +183,17 @@ export const getSystemOverviewChipClassName = (kind = 'default') => {
     default:
       return '';
   }
+};
+
+export const SERVER_TAG_BADGE_VARIANTS = ['blue', 'green', 'orange', 'purple', 'teal', 'red'];
+
+export const getServerTagBadgeVariant = (tag) => {
+  const text = String(tag ?? '');
+  let hash = 0;
+  for (let i = 0; i < text.length; i += 1) {
+    hash = (hash * 31 + text.charCodeAt(i)) % 1000003;
+  }
+  return SERVER_TAG_BADGE_VARIANTS[hash % SERVER_TAG_BADGE_VARIANTS.length];
 };
 
 export const getExpandedInfoGridClassName = (dense = false) => (

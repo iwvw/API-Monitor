@@ -38,7 +38,7 @@ import SshCredentialDialog from './SshCredentialDialog.jsx';
 import BucketDialog from './BucketDialog.jsx';
 import { tabs } from './tabs.jsx';
 import { emptyAccountForm } from './constants.js';
-import { currentBillCycle, unwrap } from './utils.js';
+import { billCycleMonths, currentBillCycle, unwrap } from './utils.js';
 
 export default function HuaweiPage() {
   const activeTabInit = useStore((state) => state.activeTab?.['huawei']) || 'compute';
@@ -86,6 +86,22 @@ export default function HuaweiPage() {
   const objectFileRef = useRef(null);
 
   const cacheRef = useRef({});
+  const scopeRef = useRef(`${selectedAccountId}/${selectedProjectId}`);
+  useEffect(() => {
+    scopeRef.current = `${selectedAccountId}/${selectedProjectId}`;
+  }, [selectedAccountId, selectedProjectId]);
+  const timersRef = useRef(new Set());
+  const scheduleRefresh = useCallback((fn, delay) => {
+    const id = setTimeout(() => {
+      timersRef.current.delete(id);
+      fn();
+    }, delay);
+    timersRef.current.add(id);
+  }, []);
+  useEffect(() => () => {
+    timersRef.current.forEach((id) => clearTimeout(id));
+    timersRef.current.clear();
+  }, [selectedAccountId, selectedProjectId]);
 
   const apiFetch = useCallback(async (path, options = {}) => {
     const response = await fetch(path, { ...options, headers: { 'Content-Type': 'application/json', ...(options.headers || {}) } });
@@ -146,58 +162,59 @@ export default function HuaweiPage() {
 
   const loadScopeData = useCallback(async ({ force = false } = {}) => {
     if (!selectedAccountId || !selectedProjectId) return;
+    const startedScope = `${selectedAccountId}/${selectedProjectId}`;
     if (force) setLoadingScope(true);
     const requests = [];
     if (activeTab === 'compute') {
       requests.push(
         apiFetch(`/api/huawei/accounts/${selectedAccountId}/projects/${selectedProjectId}/instances`)
-          .then((r) => setInstances(Array.isArray(unwrap(r)) ? unwrap(r) : []))
-          .catch((e) => toast.error(e.message || '加载实例失败')),
+          .then((r) => { if (scopeRef.current === startedScope) setInstances(Array.isArray(unwrap(r)) ? unwrap(r) : []); })
+          .catch((e) => { if (scopeRef.current === startedScope) toast.error(e.message || '加载实例失败'); }),
       );
     }
     if (activeTab === 'flexus') {
       requests.push(
         apiFetch(`/api/huawei/accounts/${selectedAccountId}/flexus-instances`)
-          .then((r) => setFlexusInstances(Array.isArray(unwrap(r)) ? unwrap(r) : []))
-          .catch((e) => toast.error(e.message || '加载 Flexus L 实例失败')),
+          .then((r) => { if (scopeRef.current === startedScope) setFlexusInstances(Array.isArray(unwrap(r)) ? unwrap(r) : []); })
+          .catch((e) => { if (scopeRef.current === startedScope) toast.error(e.message || '加载 Flexus L 实例失败'); }),
       );
     }
     if (activeTab === 'dns') {
       requests.push(
         apiFetch(`/api/huawei/accounts/${selectedAccountId}/projects/${selectedProjectId}/dns/zones`)
-          .then((r) => setZones(Array.isArray(unwrap(r)) ? unwrap(r) : []))
-          .catch((e) => toast.error(e.message || '加载 DNS zone 失败')),
+          .then((r) => { if (scopeRef.current === startedScope) setZones(Array.isArray(unwrap(r)) ? unwrap(r) : []); })
+          .catch((e) => { if (scopeRef.current === startedScope) toast.error(e.message || '加载 DNS zone 失败'); }),
       );
     }
     if (activeTab === 'network') {
       requests.push(
         apiFetch(`/api/huawei/accounts/${selectedAccountId}/projects/${selectedProjectId}/eips`)
-          .then((r) => setEips(Array.isArray(unwrap(r)) ? unwrap(r) : []))
-          .catch((e) => toast.error(e.message || '加载弹性公网 IP 失败')),
+          .then((r) => { if (scopeRef.current === startedScope) setEips(Array.isArray(unwrap(r)) ? unwrap(r) : []); })
+          .catch((e) => { if (scopeRef.current === startedScope) toast.error(e.message || '加载弹性公网 IP 失败'); }),
       );
     }
     if (activeTab === 'storage') {
       requests.push(
         apiFetch(`/api/huawei/accounts/${selectedAccountId}/projects/${selectedProjectId}/buckets`)
-          .then((r) => setBuckets(Array.isArray(unwrap(r)) ? unwrap(r) : []))
-          .catch((e) => toast.error(e.message || '加载 OBS 桶失败')),
+          .then((r) => { if (scopeRef.current === startedScope) setBuckets(Array.isArray(unwrap(r)) ? unwrap(r) : []); })
+          .catch((e) => { if (scopeRef.current === startedScope) toast.error(e.message || '加载 OBS 桶失败'); }),
       );
     }
     if (activeTab === 'billing') {
       const cycle = billingCycle || currentBillCycle();
       requests.push(
         apiFetch(`/api/huawei/accounts/${selectedAccountId}/billing/overview?cycle=${cycle}`)
-          .then((r) => setBillingData(unwrap(r)))
-          .catch((e) => toast.error(e.message || '加载费用概览失败')),
+          .then((r) => { if (scopeRef.current === startedScope) setBillingData(unwrap(r)); })
+          .catch((e) => { if (scopeRef.current === startedScope) toast.error(e.message || '加载费用概览失败'); }),
       );
       requests.push(
         apiFetch(`/api/huawei/accounts/${selectedAccountId}/billing/free-resources`)
-          .then((r) => setFreeResources(Array.isArray(unwrap(r)) ? unwrap(r) : []))
-          .catch((e) => toast.error(e.message || '加载资源包用量失败')),
+          .then((r) => { if (scopeRef.current === startedScope) setFreeResources(Array.isArray(unwrap(r)) ? unwrap(r) : []); })
+          .catch((e) => { if (scopeRef.current === startedScope) toast.error(e.message || '加载资源包用量失败'); }),
       );
     }
     await Promise.all(requests);
-    if (force) setLoadingScope(false);
+    if (force && scopeRef.current === startedScope) setLoadingScope(false);
   }, [selectedAccountId, selectedProjectId, activeTab, apiFetch, billingCycle]);
 
   useEffect(() => {
@@ -217,10 +234,8 @@ export default function HuaweiPage() {
     setActiveTabState?.('huawei', value);
   };
 
-  const handleAccountChange = (value) => {
-    setSelectedAccountId(value);
-    setSelectedProjectId('all');
-    setProjects([]);
+  const resetScopeData = () => {
+    setLoadingScope(false);
     setInstances([]);
     setFlexusInstances([]);
     setZones([]);
@@ -231,7 +246,19 @@ export default function HuaweiPage() {
     setBucketPrefix('');
     setBillingData(null);
     setFreeResources([]);
+  };
+
+  const handleAccountChange = (value) => {
+    setSelectedAccountId(value);
+    setSelectedProjectId('all');
+    setProjects([]);
+    resetScopeData();
     cacheRef.current[`projects_${value}`] = null;
+  };
+
+  const handleProjectChange = (value) => {
+    setSelectedProjectId(value);
+    resetScopeData();
   };
 
   const refresh = () => {
@@ -253,7 +280,7 @@ export default function HuaweiPage() {
         body: JSON.stringify({ action, serverIds }),
       });
       toast.success('指令已下发，请稍后刷新确认');
-      setTimeout(() => loadScopeData(), 1500);
+      scheduleRefresh(() => loadScopeData(), 1500);
     } catch (error) {
       toast.error(error.message || '执行实例动作失败');
     }
@@ -267,7 +294,7 @@ export default function HuaweiPage() {
         body: JSON.stringify({ action }),
       });
       toast.success('指令已下发，请稍后刷新确认');
-      setTimeout(() => loadScopeData(), 1500);
+      scheduleRefresh(() => loadScopeData(), 1500);
     } catch (error) {
       toast.error(error.message || '执行 Flexus L 动作失败');
     }
@@ -297,7 +324,7 @@ export default function HuaweiPage() {
         toast.success('密码已重置');
       }
       setFlexusOps((cur) => ({ ...cur, open: false }));
-      setTimeout(() => loadScopeData(), 1200);
+      scheduleRefresh(() => loadScopeData(), 1200);
     } catch (error) {
       toast.error(error.message || '操作失败');
     }
@@ -621,16 +648,7 @@ export default function HuaweiPage() {
 
   const scopeReady = Boolean(selectedAccountId);
 
-  const cycleOptions = useMemo(() => {
-    const options = [];
-    const now = new Date(Date.now() + 8 * 3600 * 1000);
-    for (let i = 0; i < 6; i += 1) {
-      const m = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - i, 1));
-      const value = `${m.getUTCFullYear()}-${String(m.getUTCMonth() + 1).padStart(2, '0')}`;
-      options.push({ value, label: value });
-    }
-    return options;
-  }, []);
+  const cycleOptions = useMemo(() => billCycleMonths(6), []);
 
   const renderInstanceActions = (instance) => {
     const projectId = instance.projectId || selectedProjectId;
@@ -680,7 +698,7 @@ export default function HuaweiPage() {
               <Select alignItemWithTrigger size="sm" aria-label="账单月份" value={billingCycle} onValueChange={setBillingCycle} items={cycleOptions} placeholder="选择月份" />
             )}
             <Select alignItemWithTrigger size="sm" aria-label="华为云账号" value={selectedAccountId} onValueChange={handleAccountChange} items={accountOptions} placeholder="选择账号" />
-            <Select alignItemWithTrigger size="sm" aria-label="区域/项目" value={selectedProjectId} onValueChange={setSelectedProjectId} items={projectOptions} placeholder="选择项目" />
+            <Select alignItemWithTrigger size="sm" aria-label="区域/项目" value={selectedProjectId} onValueChange={handleProjectChange} items={projectOptions} placeholder="选择项目" />
             <Button type="button" size="sm" variant="secondary" onClick={refresh} title="刷新">
               <RefreshCw className="h-4 w-4" />
             </Button>

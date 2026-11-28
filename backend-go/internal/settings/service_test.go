@@ -90,7 +90,7 @@ func TestUserSettingsReadPatchAndPost(t *testing.T) {
 	res = performSettingsRequest(service, http.MethodPost, "/api/settings", `{
 		"agentDownloadUrl":"https://example.com/agent",
 		"koyebRefreshInterval":45000,
-		"channelEnabled":{"openai":false}
+		"channelEnabled":{"modelhub":false}
 	}`)
 	if res.Code != http.StatusOK {
 		t.Fatalf("post settings status = %d body=%s", res.Code, res.Body.String())
@@ -105,7 +105,7 @@ func TestUserSettingsReadPatchAndPost(t *testing.T) {
 		t.Fatalf("post settings not persisted: %#v", payload.Data)
 	}
 	channelEnabled := payload.Data["channelEnabled"].(map[string]interface{})
-	if channelEnabled["openai"] != false {
+	if channelEnabled["modelhub"] != false {
 		t.Fatalf("channelEnabled not persisted: %#v", channelEnabled)
 	}
 }
@@ -1453,4 +1453,64 @@ func findAnalysisTable(tables []struct {
 		}
 	}
 	return nil
+}
+
+// admin_ai_messages / admin_ai_tool_calls 必须纳入日志清理范围。
+//
+// 回归背景：这两张表既不以 _logs 结尾也不在显式列表里，长期不受保留策略
+// 约束，实测分别涨到 9.94MB / 7.94MB，成为库内最大的两张表。
+func TestListLogTablesIncludesAdminAIStreams(t *testing.T) {
+	service := New(config.Config{
+		Version: "test",
+		Host:    "127.0.0.1",
+		Port:    0,
+		DataDir: t.TempDir(),
+		DBName:  "data.db",
+	})
+
+	ctx := context.Background()
+	db, err := service.store.Open(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	_, err = db.ExecContext(ctx, `
+		CREATE TABLE admin_ai_messages (id TEXT PRIMARY KEY, session_id TEXT, content TEXT, created_at TEXT);
+		CREATE TABLE admin_ai_tool_calls (id TEXT PRIMARY KEY, execution_id TEXT, started_at TEXT);
+		CREATE TABLE admin_ai_memories (id TEXT PRIMARY KEY, content TEXT, created_at TEXT);
+		CREATE TABLE admin_ai_settings (key TEXT PRIMARY KEY, value TEXT);
+	`)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	tables, err := listLogTables(ctx, db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]bool{}
+	for _, table := range tables {
+		got[table] = true
+	}
+
+	for _, want := range []string{"admin_ai_messages", "admin_ai_tool_calls"} {
+		if !got[want] {
+			t.Fatalf("listLogTables 应包含 %q, got %v", want, tables)
+		}
+	}
+	// 长期记忆与配置不能按日志清理
+	for _, protected := range []string{"admin_ai_memories", "admin_ai_settings"} {
+		if got[protected] {
+			t.Fatalf("listLogTables 不应包含 %q, got %v", protected, tables)
+		}
+	}
+
+	// 时间列也要能识别，否则清理会被跳过（logTimeColumn 返回空串）。
+	if col, err := logTimeColumn(ctx, db, "admin_ai_messages"); err != nil || col != "created_at" {
+		t.Fatalf("admin_ai_messages 时间列 = %q err=%v, want created_at", col, err)
+	}
+	if col, err := logTimeColumn(ctx, db, "admin_ai_tool_calls"); err != nil || col != "started_at" {
+		t.Fatalf("admin_ai_tool_calls 时间列 = %q err=%v, want started_at", col, err)
+	}
 }

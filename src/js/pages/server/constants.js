@@ -2,6 +2,7 @@ import { sectionCardHeaderClass } from '../../components/ui/AppPrimitives.jsx';
 
 export const SERVER_LIST_VIEW_STORAGE_KEY = 'server_list_view_mode_v2';
 export const SERVER_COMPACT_COLUMNS_STORAGE_KEY = 'server_compact_visible_columns';
+export const SERVER_CARD_DRAG_STORAGE_KEY = 'server_card_drag_enabled';
 export const SERVER_STATUS_SYNC_INTERVAL_MS = 15000;
 
 export const HOST_COMPACT_COLUMNS = [
@@ -27,9 +28,9 @@ export const HOST_COMPACT_DEFAULT_VISIBLE_COLUMNS = Array.from(new Set([
 export const HOST_COMPACT_COLUMN_WIDTHS = {
   status: 74,
   name: 112,
-  country: 71,
-  uptime: 71,
-  load: 71,
+  country: 80,
+  uptime: 80,
+  load: 80,
   speed: 228,
   traffic: 228,
   cpu: 112,
@@ -40,12 +41,19 @@ export const HOST_COMPACT_COLUMN_WIDTHS = {
   actions: 40,
 };
 export const HOST_COMPACT_ADAPTIVE_COLUMNS = new Set(['cpu', 'memory', 'disk', 'remaining', 'quotaRemaining']);
+// 负载标签按档位着色(只用 Kumo 语义色 token,不硬编码):绿色=低、黄色=接近饱和、红色=过载。
+export const LOAD_TONE_BG_CLASS = {
+  neutral: 'bg-kumo-recessed/50',
+  success: 'bg-kumo-success/15',
+  warning: 'bg-kumo-warning/15',
+  danger: 'bg-kumo-danger/15',
+};
 export const HOST_COMPACT_HEADER_BOX_CLASS = {
-  status: 'w-[58px] justify-center',
-  name: 'w-[96px] justify-center',
-  country: 'w-[55px] justify-center',
-  uptime: 'w-[55px] justify-center',
-  load: 'w-[55px] justify-center',
+  status: 'w-[16px] justify-center',
+  name: 'w-full justify-center',
+  country: 'justify-center',
+  uptime: 'justify-center',
+  load: 'justify-center',
   speed: 'w-full min-w-[208px] justify-center',
   traffic: 'w-full min-w-[208px] justify-center',
   cpu: 'w-full min-w-[96px] justify-center',
@@ -57,7 +65,6 @@ export const HOST_COMPACT_HEADER_BOX_CLASS = {
 };
 export const COMPACT_INLINE_BOX_CLASS = 'border border-kumo-interact/70 shadow-none';
 export const COMPACT_INLINE_SUBBOX_CLASS = 'border border-kumo-interact/70 shadow-none';
-export const COMPACT_STICKY_ACTION_CLASS = 'border-l border-kumo-interact/60 before:!w-1 before:!-left-1';
 export const COMPACT_ACTION_BUTTON_CLASS = '!shadow-none';
 export const SERVER_SECTION_HEADER_CLASS = sectionCardHeaderClass;
 export const SERVER_SECONDARY_BAR_CLASS = 'flex min-h-[46px] flex-wrap items-center gap-2 rounded-md border border-kumo-line/90 bg-kumo-base px-3 py-2 cq-lg:justify-between';
@@ -66,6 +73,8 @@ export const MANAGEMENT_CARD_ICON_CLASS = 'h-3.5 w-3.5 shrink-0 text-brand';
 export const SERVER_MODULE_TAB_ICON_CLASS = 'h-3.5 w-3.5 shrink-0';
 export const COMPACT_EXPAND_EXIT_MS = 230;
 export const SERVER_CHART_SERIES_DEFER_MS = 44;
+export const SERVER_CARD_WIDE_MIN_REM = 46;
+export const SERVER_CARD_ROW_HEIGHT_REM = { narrow: 5.3125, wide: 3.125 };
 export const SERVER_CHART_RENDER_DEFER_MS = 88;
 export const SERVER_CHART_ANIMATION_MS = 90;
 export const SERVER_CHART_UPDATE_ANIMATION_MS = 70;

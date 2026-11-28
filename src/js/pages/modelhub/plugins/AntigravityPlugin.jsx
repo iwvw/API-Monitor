@@ -1,0 +1,967 @@
+import { useEffect, useRef, useState } from 'react';
+import { Button, Switch, Select, Loader, Input, Dialog, Table, Badge, Toolbar, LayerCard } from '@cloudflare/kumo';
+import { SectionCard, FieldRow, EmptyState, AppTable } from '../../../components/ui/AppPrimitives.jsx';
+import { AntigravityBrand, Plus, Upload, Download, Trash, RefreshCw, Edit, Rocket, TrendingUp, Users } from '../../../components/Icons.jsx';
+import { toast } from '../../../modules/toast.js';
+import { dialog } from '../../../modules/dialog.js';
+import { getAuthHeaders, formatCompact } from '../utils.js';
+
+const API = '/api/antigravity';
+
+const ANTIGRAVITY_ACCOUNT_COLUMNS = [
+  { id: 'enabled', role: 'control' },
+  { id: 'account', role: 'primary', grow: 1 },
+  { id: 'calls', role: 'count', align: 'center' },
+  { id: 'plan', role: 'type' },
+  { id: 'status', role: 'status' },
+  { id: 'actions', role: 'actions-md' },
+];
+
+const ANTIGRAVITY_USAGE_ACCOUNT_COLUMNS = [
+  { id: 'account', role: 'primary', grow: 1 },
+  { id: 'calls', role: 'count', align: 'center' },
+  { id: 'prompt', role: 'count', align: 'center' },
+  { id: 'completion', role: 'count', align: 'center' },
+  { id: 'cached', role: 'count', align: 'center' },
+];
+
+const ANTIGRAVITY_USAGE_MODEL_COLUMNS = [
+  { id: 'model', role: 'primary', grow: 1 },
+  { id: 'calls', role: 'count', align: 'center' },
+  { id: 'prompt', role: 'count', align: 'center' },
+  { id: 'completion', role: 'count', align: 'center' },
+  { id: 'cached', role: 'count', align: 'center' },
+];
+
+// 配额标签中文化：上游返回的英文标签映射为中文，未命中时原样返回。
+const QUOTA_LABEL_ZH = {
+  // creditType
+  'GOOGLE_ONE_AI': 'AI 积分',
+  'AI Credits': 'AI 积分',
+  'AI credits': 'AI 积分',
+  credits: '积分',
+  // 档位
+  'Paid Tier': '付费档位',
+  'Free Tier': '免费档位',
+  Pro: '专业版',
+  Ultra: '至尊版',
+  // 窗口/限额短语
+  'Weekly Limit Remaining': '本周剩余额度',
+  'Daily Limit Remaining': '今日剩余额度',
+  'Monthly Limit Remaining': '本月剩余额度',
+  'Hourly Limit Remaining': '本小时剩余额度',
+  'Five Hour Limit Remaining': '五小时剩余额度',
+  'Weekly': '每周',
+  'Daily': '每日',
+  'Monthly': '每月',
+  'Hourly': '每小时',
+  'Requests': '请求数',
+  requests: '请求数',
+  'Tokens': 'Token',
+  tokens: 'Token',
+  'Search': '搜索',
+  search: '搜索',
+  // 模型档位
+  'Standard': '标准',
+  'Extended': '扩展',
+  'Flash': 'Flash',
+  'Pro High': '专业高',
+  'Pro Low': '专业低',
+  'Flash High': 'Flash 高',
+  'Flash Medium': 'Flash 中',
+  'Flash Low': 'Flash 低',
+};
+const zhLabel = (value) => (value ? (QUOTA_LABEL_ZH[value] || value) : value);
+
+// tokenStateMeta 把后端下发的凭据状态映射为徽标样式与文案。
+const tokenStateMeta = state => {
+  switch (state) {
+    case 'valid':
+      return { variant: 'success', label: '正常' };
+    case 'expiring':
+      return { variant: 'warning', label: '即将过期' };
+    case 'expired':
+      return { variant: 'danger', label: '已过期' };
+    default:
+      return { variant: 'neutral', label: '未知' };
+  }
+};
+
+// fmtLeft 把剩余秒数压成紧凑的「Nh Nm」，用于徽标内的续期倒计时。
+const fmtLeft = seconds => {
+  const left = Number(seconds) || 0;
+  if (left <= 0) return '';
+  const h = Math.floor(left / 3600);
+  const m = Math.floor((left % 3600) / 60);
+  return h > 0 ? `${h}h${m}m` : `${Math.max(1, m)}m`;
+};
+
+// AntigravityPlugin：模型网关「插件中心」详情——Claude 订阅转 API。
+// Google 账号授权后，对外提供 Anthropic Messages 兼容端点。
+export function AntigravityPlugin() {
+  const [settings, setSettings] = useState(null);
+  const [status, setStatus] = useState(null);
+  const [accounts, setAccounts] = useState([]);
+  const [linkState, setLinkState] = useState(null);
+  const [usage, setUsage] = useState(null);
+  const [usageDays, setUsageDays] = useState(7);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [proxypoolPools, setProxypoolPools] = useState([]);
+  const [oauthOpen, setOauthOpen] = useState(false);
+  const [oauthAuthUrl, setOauthAuthUrl] = useState('');
+  const [oauthCallback, setOauthCallback] = useState('');
+  const [oauthName, setOauthName] = useState('');
+  const [oauthVerifier, setOauthVerifier] = useState('');
+  const [oauthState, setOauthState] = useState('');
+  const [oauthBusy, setOauthBusy] = useState(false);
+  const [linkBusy, setLinkBusy] = useState(false);
+  const [editAccount, setEditAccount] = useState(null);
+  const [editForm, setEditForm] = useState({ name: '', planType: '' });
+  const [quota, setQuota] = useState(null);
+  const [quotaLoading, setQuotaLoading] = useState(false);
+  const [accountsRefreshing, setAccountsRefreshing] = useState(false);
+  const quotaPrevRef = useRef(null); // 上次 remainingFraction 快照，用于检测窗口是否在消耗
+  const fileInputRef = useRef(null);
+  const settingsSeqRef = useRef(0);
+  const [prefixDraft, setPrefixDraft] = useState(null);
+
+  const load = async () => {
+    try {
+      const res = await fetch(`${API}/settings`, { headers: getAuthHeaders() });
+      const data = await res.json();
+      if (!res.ok || !data?.success) throw new Error(data?.error || '加载失败');
+      setSettings(data.settings);
+    } catch (e) {
+      toast.error(`插件设置加载失败：${e.message}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const loadAccounts = async () => {
+    try {
+      const res = await fetch(`${API}/accounts`, { headers: getAuthHeaders() });
+      const data = await res.json();
+      if (res.ok && data?.success) setAccounts(data.accounts || []);
+    } catch {
+      /* 静默 */
+    }
+  };
+
+  // refreshAccounts 同时重拉账号列表与状态：后台自动续期会改动凭据状态，
+  // 只刷账号列表会留下过期的 authorized/enabledCount。
+  const refreshAccounts = async () => {
+    setAccountsRefreshing(true);
+    try {
+      await Promise.all([loadAccounts(), loadStatus()]);
+    } finally {
+      setAccountsRefreshing(false);
+    }
+  };
+
+  const loadQuota = async () => {
+    setQuotaLoading(true);
+    try {
+      // 多账号：为每个账号单独拉配额；无账号时拉默认（轮询）账号。
+      const targets = accounts.length ? accounts.map(a => a.email) : [''];
+      const results = await Promise.all(
+        targets.map(async email => {
+          const q = email ? `?email=${encodeURIComponent(email)}` : '';
+          const res = await fetch(`${API}/quota${q}`, { headers: getAuthHeaders() });
+          const data = await res.json();
+          if (!res.ok || !data?.success) return { email, quota: null, error: data?.error };
+          return { email, quota: data.quota || null, error: null };
+        })
+      );
+      setQuota(results);
+    } catch {
+      setQuota([]);
+    } finally {
+      setQuotaLoading(false);
+    }
+  };
+
+  const loadLink = async () => {
+    try {
+      const res = await fetch(`${API}/link`, { headers: getAuthHeaders() });
+      const data = await res.json();
+      if (res.ok) setLinkState(data);
+    } catch {
+      setLinkState(null);
+    }
+  };
+
+  const loadUsage = async () => {
+    try {
+      const res = await fetch(`${API}/usage?days=${usageDays}`, { headers: getAuthHeaders() });
+      const data = await res.json();
+      if (res.ok && data?.success) setUsage(data);
+    } catch {
+      /* 保留上一次数据 */
+    }
+  };
+
+  const loadStatus = async () => {
+    try {
+      const res = await fetch(`${API}/status`, { headers: getAuthHeaders() });
+      const data = await res.json();
+      if (res.ok) setStatus(data);
+    } catch {
+      setStatus(null);
+    }
+  };
+
+  useEffect(() => {
+    load();
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`${API}/status`, { headers: getAuthHeaders() });
+        const data = await res.json();
+        if (res.ok && !cancelled) setStatus(data);
+      } catch {
+        if (!cancelled) setStatus(null);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [settings?.enabled, settings?.proxyPoolId]);
+
+  useEffect(() => {
+    loadAccounts();
+    loadLink();
+    loadUsage();
+  }, []);
+
+  useEffect(() => {
+    loadUsage();
+  }, [usageDays]);
+
+  useEffect(() => {
+    if (status?.authorized) {
+      loadQuota();
+    }
+  }, [status?.authorized]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch('/api/proxypool', { headers: getAuthHeaders() });
+        const data = await res.json();
+        if (res.ok && data?.success && !cancelled) setProxypoolPools(data.pools || []);
+      } catch {
+        if (!cancelled) setProxypoolPools([]);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  const save = async (next, msg = '设置已保存', snapshot) => {
+    if (!next) {
+      toast.error('插件设置尚未加载,无法保存');
+      return false;
+    }
+    const seq = ++settingsSeqRef.current;
+    setSaving(true);
+    try {
+      const res = await fetch(`${API}/settings`, {
+        method: 'PUT',
+        headers: getAuthHeaders(),
+        body: JSON.stringify(next),
+      });
+      const data = await res.json();
+      if (!res.ok || !data?.success) throw new Error(data?.error || '保存失败');
+      if (seq === settingsSeqRef.current) setSettings(data.settings);
+      toast.success(msg);
+      return true;
+    } catch (e) {
+      if (seq === settingsSeqRef.current) {
+        if (snapshot !== undefined) setSettings(snapshot);
+        toast.error(`保存失败：${e.message}`);
+      }
+      return false;
+    } finally {
+      if (seq === settingsSeqRef.current) setSaving(false);
+    }
+  };
+
+  const update = (patch, silent = false) => {
+    if (!settings) {
+      toast.error('插件设置尚未加载,暂不能修改');
+      return;
+    }
+    const snapshot = settings;
+    const next = { ...settings, ...patch };
+    setSettings(next);
+    if (!silent) void save(next, '设置已保存', snapshot);
+  };
+
+  // 启用开关:先落库设置,成功后再接入/移除网关端点。
+  const toggleEnabled = async enabled => {
+    if (!settings) {
+      toast.error('插件设置尚未加载,暂不能修改');
+      return;
+    }
+    const ok = await save({ ...settings, enabled }, '设置已保存', settings);
+    if (ok) await linkPlugin(enabled ? 'link' : 'unlink');
+  };
+
+  const startOAuth = async () => {
+    setOauthBusy(true);
+    try {
+      const res = await fetch(`${API}/oauth/auth-url`, { method: 'POST', headers: getAuthHeaders(), body: '{}' });
+      const data = await res.json();
+      if (!res.ok || !data?.success) throw new Error(data?.error || '生成授权链接失败');
+      setOauthAuthUrl(data.authUrl);
+      setOauthVerifier(data.verifier || '');
+      setOauthState(data.state || '');
+      setOauthCallback('');
+      setOauthOpen(true);
+    } catch (e) {
+      toast.error(e.message);
+    } finally {
+      setOauthBusy(false);
+    }
+  };
+
+  const finishOAuth = async () => {
+    setOauthBusy(true);
+    try {
+      const res = await fetch(`${API}/oauth/exchange`, {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({
+          callbackUrl: oauthCallback.trim(),
+          name: oauthName.trim(),
+          verifier: oauthVerifier.trim(),
+          state: oauthState.trim(),
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data?.success) throw new Error(data?.error || '授权失败');
+      toast.success(`授权成功：${data.email}（${data.planType}）`);
+      setOauthOpen(false);
+      await loadAccounts();
+      setStatus(prev => ({ ...prev, authorized: true, accountCount: (prev?.accountCount || 0) + 1 }));
+    } catch (e) {
+      toast.error(`授权失败：${e.message}`);
+    } finally {
+      setOauthBusy(false);
+    }
+  };
+
+  const deleteAccount = async email => {
+    if (!(await dialog.deleteResource({ message: `确定删除账号 ${email} 吗?该账号凭据将从本机移除。` }))) return;
+    try {
+      const res = await fetch(`${API}/accounts/${encodeURIComponent(email)}`, { method: 'DELETE', headers: getAuthHeaders() });
+      const data = await res.json();
+      if (!res.ok || !data?.success) throw new Error(data?.error || '删除失败');
+      toast.success('账号已删除');
+      await loadAccounts();
+    } catch (e) {
+      toast.error(`删除失败：${e.message}`);
+    }
+  };
+
+  const toggleAccount = async (email, disabled) => {
+    try {
+      const res = await fetch(`${API}/accounts/${encodeURIComponent(email)}/toggle`, {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ disabled }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data?.success) throw new Error(data?.error || '操作失败');
+      await loadAccounts();
+    } catch (e) {
+      toast.error(e.message);
+    }
+  };
+
+  const openEditAccount = account => {
+    setEditForm({ name: account.name || '', planType: account.planType || '' });
+    setEditAccount(account);
+  };
+
+  const saveEditAccount = async () => {
+    if (!editAccount) return;
+    try {
+      const res = await fetch(`${API}/accounts/${encodeURIComponent(editAccount.email)}`, {
+        method: 'PUT',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ name: editForm.name.trim(), planType: editForm.planType.trim() }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data?.success) throw new Error(data?.error || '保存失败');
+      toast.success('账号已更新');
+      setEditAccount(null);
+      await loadAccounts();
+    } catch (e) {
+      toast.error(`保存失败：${e.message}`);
+    }
+  };
+
+  const importAuthFile = file => {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = async () => {
+      try {
+        const parsed = JSON.parse(String(reader.result || '{}'));
+        const list = Array.isArray(parsed) ? parsed : parsed?.accounts || [];
+        if (!list.length) throw new Error('文件中没有账号');
+        const res = await fetch(`${API}/accounts`, {
+          method: 'POST',
+          headers: getAuthHeaders(),
+          body: JSON.stringify({ accounts: list }),
+        });
+        const data = await res.json();
+        if (!res.ok || !data?.success) throw new Error(data?.error || '导入失败');
+        toast.success(`已导入 ${data.added || 0} 个账号`);
+        await loadAccounts();
+        await loadStatus();
+      } catch (e) {
+        toast.error(`导入失败：${e.message}`);
+      }
+    };
+    reader.readAsText(file);
+  };
+
+  const exportAuthFile = () => {
+    window.open(`${API}/accounts/export`, '_blank');
+  };
+
+  const linkPlugin = async action => {
+    setLinkBusy(true);
+    try {
+      const res = await fetch(`${API}/link`, {
+        method: action === 'link' ? 'POST' : 'DELETE',
+        headers: getAuthHeaders(),
+        body: '{}',
+      });
+      const data = await res.json();
+      if (!res.ok || !data?.success) throw new Error(data?.error || (action === 'link' ? '接入失败' : '断开失败'));
+      setLinkState(data);
+      toast.success(action === 'link' ? '已接入模型网关端点列表' : '已从端点列表移除');
+    } catch (e) {
+      toast.error(e.message);
+    } finally {
+      setLinkBusy(false);
+    }
+  };
+
+  const field = (label, desc, control) => (
+    <FieldRow title={<span title={desc}>{label}</span>}>
+      {control}
+    </FieldRow>
+  );
+
+  // 模型前缀：输入过程用本地草稿，失焦才提交（避免每次击键 PUT）。
+  const commitModelPrefix = () => {
+    const v = String(prefixDraft ?? '').trim();
+    setPrefixDraft(null);
+    if (v !== (settings?.modelPrefix || '')) update({ modelPrefix: v });
+  };
+
+  if (loading) {
+    return (
+      <div className="flex h-full min-w-0 items-center justify-center">
+        <Loader size="lg" />
+      </div>
+    );
+  }
+
+  const authorized = !!status?.authorized;
+
+  return (
+    <div className="flex min-h-0 flex-1 flex-col gap-3">
+      <div className="flex items-center justify-between gap-2">
+        {linkState?.linked && linkState?.baseUrl ? (
+          <div className="flex min-w-0 flex-wrap items-center gap-2 text-xs">
+            <Rocket className="h-3.5 w-3.5 text-brand" />
+            <span className="text-kumo-strong">已接入网关端点</span>
+            <span className="truncate font-mono text-kumo-subtle" title="本插件在网关端点列表中的 base_url">
+              {linkState.baseUrl}
+            </span>
+            <span className="text-kumo-subtle">· {linkState.models?.length || 0} 个模型</span>
+          </div>
+        ) : (
+          <span />
+        )}
+        <Button size="sm" variant="primary" disabled={saving} onClick={() => save(settings)}>
+          {saving ? '保存中...' : '保存设置'}
+        </Button>
+      </div>
+
+      <div className="flex min-w-0 flex-col gap-3">
+        <SectionCard title="Antigravity" icon={<AntigravityBrand className="h-4 w-4 text-brand" />} bodyPadding="none">
+          {field(
+            '启用中继',
+            '总开关：同时控制中继与模型网关接入。打开后启用中继并注册为网关端点；关闭后中继拒服并移除端点',
+            <Switch
+              checked={!!settings?.enabled}
+              disabled={saving || linkBusy}
+              onCheckedChange={toggleEnabled}
+            />
+          )}
+          {field(
+            '代理池',
+            '引用「代理池」插件管理的池，按请求轮询出口并共享冷却/429 禁用状态',
+            <Select alignItemWithTrigger
+              size="sm"
+              className="w-full max-w-md"
+              value={settings?.proxyPoolId || ''}
+              onValueChange={v => update({ proxyPoolId: v || '' })}
+              placeholder="不使用"
+            >
+              <Select.Option value="">不使用</Select.Option>
+              {proxypoolPools.map(p => (
+                <Select.Option key={p.id} value={p.id}>
+                  {p.name || p.id}（{p.proxies?.length || 0} 个出口）
+                </Select.Option>
+              ))}
+            </Select>
+          )}
+          {field(
+            '模型前缀',
+            '给本插件对外暴露的所有模型名统一加前缀（如 agy-），便于在网关端点列表区分来源；请求转发时自动剥掉前缀还原到原模型。建议自定义每个插件使用的前缀并互不重复。',
+            <div className="flex items-center gap-2">
+              <Input
+                size="sm"
+                className="w-40"
+                placeholder="agy-"
+                aria-label="模型前缀"
+                value={prefixDraft ?? settings?.modelPrefix ?? ''}
+                onChange={e => setPrefixDraft(e.target.value)}
+                onBlur={commitModelPrefix}
+                disabled={saving}
+              />
+            </div>
+          )}
+          {field(
+            '配额刷新检测',
+            '后台每 15 分钟检测各账号配额窗口，剩余比例回升（窗口刷新）时通知；拉取失败记录到系统日志；消耗中、不变不通知。需在通知中心为 Antigravity 配置规则',
+            <Switch checked={!!settings?.quotaMonitorEnabled} onCheckedChange={v => update({ quotaMonitorEnabled: v })} />
+          )}
+          {field(
+            '选号策略',
+            '多账号时的选号策略。固定首个：始终用列表第一个可用账号，其余作主备，行为最可预期。轮询：依次轮流，请求均匀分摊。按剩余额度：优先用剩余额度最多的账号，避免某个账号先撞上限。三种都自动跳过已停用、token 过期与失败冷却中的账号',
+            <Select
+              alignItemWithTrigger
+              size="sm"
+              className="w-44"
+              value={settings?.accountStrategy || 'first'}
+              onValueChange={v => update({ accountStrategy: v })}
+              items={[
+                { value: 'first', label: '固定首个可用' },
+                { value: 'round-robin', label: '轮询' },
+                { value: 'least-used', label: '按剩余额度' },
+              ]}
+              disabled={saving || accounts.length < 2}
+            />
+          )}
+        </SectionCard>
+
+        <SectionCard
+          title="Google 账号"
+          icon={<Users className="h-4 w-4 text-brand" />}
+          bodyPadding="none"
+          actions={
+            <div className="flex items-center gap-1.5">
+              <Toolbar size="sm" aria-label="账号导出导入" className="shrink-0">
+                <Toolbar.Button onClick={exportAuthFile} icon={<Upload className="h-3.5 w-3.5" />}>
+                  <span className="hidden cq-sm:inline">导出</span>
+                </Toolbar.Button>
+                <Toolbar.Button onClick={() => fileInputRef.current?.click()} icon={<Download className="h-3.5 w-3.5" />}>
+                  <span className="hidden cq-sm:inline">导入</span>
+                </Toolbar.Button>
+              </Toolbar>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".json,application/json"
+                className="hidden"
+                onChange={e => {
+                  importAuthFile(e.target.files?.[0]);
+                  e.target.value = '';
+                }}
+              />
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={accountsRefreshing}
+                onClick={refreshAccounts}
+                title="重新拉取账号列表与凭据状态"
+              >
+                <RefreshCw className={`h-3.5 w-3.5 ${accountsRefreshing ? 'animate-spin' : ''}`} />
+                <span className="hidden cq-sm:inline">刷新</span>
+              </Button>
+              <Button size="sm" variant="primary" onClick={startOAuth} disabled={oauthBusy}>
+                <Plus className="h-3.5 w-3.5" /> 添加账号
+              </Button>
+            </div>
+          }
+        >
+          {accounts.length ? (
+            <div className="overflow-x-auto">
+            <AppTable tableId="antigravity-accounts" columns={ANTIGRAVITY_ACCOUNT_COLUMNS} className="w-full min-w-[42rem] text-xs">
+              <Table.Header variant="compact">
+                <Table.Row className="h-8">
+                  <Table.Head className="!px-2 !py-1.5 text-center">启用</Table.Head>
+                  <Table.Head className="!px-2.5 !py-1.5">账号</Table.Head>
+                  <Table.Head className="!px-2 !py-1.5 text-center">调用</Table.Head>
+                  <Table.Head className="!px-2 !py-1.5 text-center">套餐</Table.Head>
+                  <Table.Head className="!px-2 !py-1.5 text-center">状态</Table.Head>
+                  <Table.Head className="!px-2 !py-1.5 text-center">操作</Table.Head>
+                </Table.Row>
+              </Table.Header>
+              <Table.Body>
+                {accounts.map(a => (
+                  <Table.Row key={a.email} className="h-10">
+                    <Table.Cell className="!px-2 !py-1.5 text-center">
+                      <div className="flex justify-center">
+                        <Switch size="sm" checked={!a.disabled} onCheckedChange={v => toggleAccount(a.email, !v)} aria-label={`${a.disabled ? '启用' : '停用'} ${a.email}`} />
+                      </div>
+                    </Table.Cell>
+                    <Table.Cell className="!px-2.5 !py-1.5">
+                      <div className="min-w-0">
+                        <div className="truncate text-sm font-medium text-kumo-strong">
+                          {a.name ? `${a.name}（${a.email}）` : a.email}
+                        </div>
+                        <div className="truncate font-mono text-kumo-subtle" title={a.projectId}>
+                          {a.projectId}
+                        </div>
+                      </div>
+                    </Table.Cell>
+                    <Table.Cell className="!px-2 !py-1.5 text-center">
+                      <span className="font-mono text-xs text-kumo-strong" title="该账号被选中处理推理请求的累计次数">{a.callCount ?? 0}</span>
+                    </Table.Cell>
+                    <Table.Cell className="!px-2 !py-1.5 text-center">
+                      <span className="truncate text-sm text-kumo-subtle" title={a.planType}>{a.planType || '-'}</span>
+                    </Table.Cell>
+                    <Table.Cell className="!px-2 !py-1.5 text-center">
+                      {(() => {
+                        const meta = tokenStateMeta(a.tokenState);
+                        const label = a.disabled ? '停用' : meta.label;
+                        const variant = a.disabled ? 'neutral' : meta.variant;
+                        const tip = a.disabled
+                          ? '已手动停用'
+                          : a.lastError || (a.tokenState === 'expired' ? '凭据已过期，需要重新授权' : '');
+                        return (
+                          <Badge variant={variant} className="text-xs" title={tip || undefined}>
+                            {label}
+                            {!a.disabled && a.tokenState === 'expiring' && a.expiresInSeconds
+                              ? ` ${fmtLeft(a.expiresInSeconds)}`
+                              : ''}
+                          </Badge>
+                        );
+                      })()}
+                    </Table.Cell>
+                    <Table.Cell className="!px-2 !py-1.5 text-center">
+                      <div className="flex items-center justify-center gap-1">
+                        <Button size="sm" shape="square" variant="outline" aria-label={`编辑 ${a.email}`} onClick={() => openEditAccount(a)}>
+                          <Edit className="h-3 w-3" />
+                        </Button>
+                        <Button
+                          size="sm"
+                          shape="square"
+                          variant="secondary-destructive"
+                          aria-label={`删除 ${a.email}`}
+                          title={`删除 ${a.email}`}
+                          onClick={() => deleteAccount(a.email)}
+                        >
+                          <Trash className="h-3 w-3" />
+                        </Button>
+                      </div>
+                    </Table.Cell>
+                  </Table.Row>
+                ))}
+              </Table.Body>
+            </AppTable>
+            </div>
+          ) : (
+            <div className="p-4">
+              <EmptyState title="暂无账号" description="添加 Google 账号后即可使用 Claude 订阅能力。" />
+            </div>
+          )}
+        </SectionCard>
+
+        <SectionCard
+          title="用量"
+          icon={<TrendingUp className="h-4 w-4 text-brand" />}
+          bodyPadding="none"
+          actions={
+            <div className="flex items-center gap-2">
+              <Select
+                size="sm"
+                className="w-28"
+                value={String(usageDays)}
+                onValueChange={v => setUsageDays(Number(v))}
+                items={[
+                  { value: '1', label: '今天' },
+                  { value: '7', label: '近 7 天' },
+                  { value: '30', label: '近 30 天' },
+                  { value: '90', label: '近 90 天' },
+                ]}
+              />
+              <Button size="sm" variant="outline" onClick={loadUsage}>
+                刷新
+              </Button>
+            </div>
+          }
+        >
+          {usage?.totals?.requests ? (
+            <>
+              <div className="grid grid-cols-2 gap-2 p-3 cq-sm:grid-cols-4">
+                <div className="rounded border border-kumo-line px-2 py-1.5 text-center">
+                  <div className="text-base font-semibold text-kumo-strong">{usage.totals.requests}</div>
+                  <div className="text-[10px] text-kumo-subtle">调用次数</div>
+                </div>
+                <div className="rounded border border-kumo-line px-2 py-1.5 text-center">
+                  <div className="text-base font-semibold text-kumo-strong">{formatCompact(usage.totals.promptTokens)}</div>
+                  <div className="text-[10px] text-kumo-subtle">
+                    输入词元（缓存 {formatCompact(usage.totals.cachedTokens)}）
+                  </div>
+                </div>
+                <div className="rounded border border-kumo-line px-2 py-1.5 text-center">
+                  <div className="text-base font-semibold text-kumo-strong">{formatCompact(usage.totals.completionTokens)}</div>
+                  <div className="text-[10px] text-kumo-subtle">输出词元</div>
+                </div>
+                <div className="rounded border border-kumo-line px-2 py-1.5 text-center">
+                  <div className="text-base font-semibold text-kumo-strong">
+                    {usage.totals.cacheHitRate > 0 ? `${(usage.totals.cacheHitRate * 100).toFixed(1)}%` : '—'}
+                  </div>
+                  <div className="text-[10px] text-kumo-subtle">缓存命中率</div>
+                </div>
+              </div>
+
+              <div className="overflow-x-auto border-t border-kumo-line">
+                <AppTable tableId="antigravity-usage-accounts" columns={ANTIGRAVITY_USAGE_ACCOUNT_COLUMNS} className="w-full min-w-[40rem] text-xs">
+                  <Table.Header variant="compact">
+                    <Table.Row className="h-8">
+                      <Table.Head className="!px-2.5 !py-1.5">账号</Table.Head>
+                      <Table.Head className="!px-2 !py-1.5 text-center">调用</Table.Head>
+                      <Table.Head className="!px-2 !py-1.5 text-center">输入</Table.Head>
+                      <Table.Head className="!px-2 !py-1.5 text-center">输出</Table.Head>
+                      <Table.Head className="!px-2 !py-1.5 text-center">缓存命中</Table.Head>
+                    </Table.Row>
+                  </Table.Header>
+                  <Table.Body>
+                    {usage.byAccount.map(row => (
+                      <Table.Row key={row.accountId} className="h-9">
+                        <Table.Cell className="!px-2.5 !py-1.5">
+                          <div className="truncate text-kumo-strong" title={row.accountId}>
+                            {row.accountName || row.accountId}
+                          </div>
+                        </Table.Cell>
+                        <Table.Cell className="!px-2 !py-1.5 text-center font-mono text-kumo-strong">
+                          {row.requests}
+                        </Table.Cell>
+                        <Table.Cell className="!px-2 !py-1.5 text-center font-mono text-kumo-subtle">
+                          {formatCompact(row.promptTokens)}
+                        </Table.Cell>
+                        <Table.Cell className="!px-2 !py-1.5 text-center font-mono text-kumo-subtle">
+                          {formatCompact(row.completionTokens)}
+                        </Table.Cell>
+                        <Table.Cell className="!px-2 !py-1.5 text-center font-mono text-kumo-subtle">
+                          {formatCompact(row.cachedTokens)}
+                        </Table.Cell>
+                      </Table.Row>
+                    ))}
+                  </Table.Body>
+                </AppTable>
+              </div>
+
+              <div className="overflow-x-auto border-t border-kumo-line">
+                <AppTable tableId="antigravity-usage-models" columns={ANTIGRAVITY_USAGE_MODEL_COLUMNS} className="w-full min-w-[40rem] text-xs">
+                  <Table.Header variant="compact">
+                    <Table.Row className="h-8">
+                      <Table.Head className="!px-2.5 !py-1.5">模型</Table.Head>
+                      <Table.Head className="!px-2 !py-1.5 text-center">调用</Table.Head>
+                      <Table.Head className="!px-2 !py-1.5 text-center">输入</Table.Head>
+                      <Table.Head className="!px-2 !py-1.5 text-center">输出</Table.Head>
+                      <Table.Head className="!px-2 !py-1.5 text-center">缓存命中</Table.Head>
+                    </Table.Row>
+                  </Table.Header>
+                  <Table.Body>
+                    {usage.byModel.map(row => (
+                      <Table.Row key={row.model} className="h-9">
+                        <Table.Cell className="!px-2.5 !py-1.5">
+                          <div className="truncate font-mono text-kumo-strong" title={row.model}>
+                            {row.model}
+                          </div>
+                        </Table.Cell>
+                        <Table.Cell className="!px-2 !py-1.5 text-center font-mono text-kumo-strong">
+                          {row.requests}
+                        </Table.Cell>
+                        <Table.Cell className="!px-2 !py-1.5 text-center font-mono text-kumo-subtle">
+                          {formatCompact(row.promptTokens)}
+                        </Table.Cell>
+                        <Table.Cell className="!px-2 !py-1.5 text-center font-mono text-kumo-subtle">
+                          {formatCompact(row.completionTokens)}
+                        </Table.Cell>
+                        <Table.Cell className="!px-2 !py-1.5 text-center font-mono text-kumo-subtle">
+                          {formatCompact(row.cachedTokens)}
+                        </Table.Cell>
+                      </Table.Row>
+                    ))}
+                  </Table.Body>
+                </AppTable>
+              </div>
+            </>
+          ) : (
+            <div className="p-4">
+              <EmptyState
+                title="暂无用量"
+                description={`近 ${usageDays} 天没有经本插件转发的调用记录。`}
+              />
+            </div>
+          )}
+        </SectionCard>
+
+        <SectionCard
+          title="配额"
+          icon={<RefreshCw className="h-4 w-4 text-brand" />}
+          bodyPadding="none"
+          actions={
+            <Button size="sm" variant="outline" disabled={quotaLoading || !authorized} onClick={loadQuota}>
+              <RefreshCw className={`h-3 w-3 ${quotaLoading ? 'animate-spin' : ''}`} /> 刷新
+            </Button>
+          }
+        >
+          {Array.isArray(quota) && quota.length ? (
+            <div className={`grid gap-3 p-3 ${quota.length > 1 ? 'grid-cols-2' : 'grid-cols-1'}`}>
+              {quota.map((item, ai) => {
+                const q = item.quota;
+                const hasData = q && ((q.credits?.length) || (q.groups?.length));
+                return (
+                  <div key={ai} className="rounded-lg border border-kumo-line bg-kumo-base px-3 py-2.5">
+                    <div className="mb-2 flex items-center justify-between gap-2">
+                      <Badge variant="neutral" className="text-xs">{item.email || '默认账号'}</Badge>
+                      {item.error && <span className="shrink-0 text-xs text-kumo-subtle">{item.error}</span>}
+                    </div>
+                    {hasData ? (
+                      <div className="space-y-2">
+                        {q.credits?.filter(c => c.creditType && c.creditAmount).map((c, i) => (
+                          <div key={`credit-${i}`} className="flex items-center justify-between rounded border border-kumo-line px-3 py-2 text-sm">
+                            <span className="text-kumo-subtle">{zhLabel(c.creditType)}</span>
+                            <span className="font-medium text-kumo-strong">{Number(c.creditAmount).toLocaleString()}</span>
+                          </div>
+                        ))}
+                        {q.groups?.map((g, gi) => (
+                          <div key={`group-${gi}`}>
+                            <div className="mb-1.5 text-sm font-medium text-kumo-strong" title={g.description || undefined}>
+                              {zhLabel(g.displayName) || `分组 ${gi + 1}`}
+                            </div>
+                            <div className="space-y-2">
+                              {g.buckets?.map((b, bi) => {
+                                const pct = b.remainingFraction == null ? null : Math.max(0, Math.min(100, Math.round(b.remainingFraction * 100)));
+                                const barColor = pct == null ? 'bg-kumo-line' : pct >= 50 ? 'bg-kumo-success' : pct >= 20 ? 'bg-kumo-warning' : 'bg-kumo-danger';
+                                return (
+                                  <div key={`bucket-${gi}-${bi}`}>
+                                    <div className="flex items-center justify-between text-sm">
+                                      <span className="truncate text-kumo-subtle" title={b.description || undefined}>{zhLabel(b.displayName) || zhLabel(b.window) || '额度'}</span>
+                                      <span className="ml-2 shrink-0 font-medium text-kumo-strong">{pct == null ? '—' : `${pct}%`}</span>
+                                    </div>
+                                    <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-kumo-line">
+                                      <div
+                                        className={`h-full rounded-full ${barColor}`}
+                                        style={{ width: `${Math.max(0, Math.min(100, pct ?? 0))}%` }}
+                                      />
+                                    </div>
+                                    {b.resetTime && (
+                                      <div className="mt-0.5 text-xs text-kumo-subtle">
+                                        重置：{new Date(b.resetTime).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false })}
+                                      </div>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="text-sm text-kumo-subtle">{item.error || '暂无配额数据'}</div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="p-4">
+              <EmptyState
+                title={authorized ? '暂无配额' : '未授权'}
+                description={authorized ? '点击刷新从上游拉取配额信息。' : '添加并授权账号后显示配额。'}
+                action={authorized ? (
+                  <Button size="sm" variant="secondary" disabled={quotaLoading} onClick={loadQuota}>
+                    <RefreshCw className={`h-3 w-3 ${quotaLoading ? 'animate-spin' : ''}`} /> 刷新配额
+                  </Button>
+                ) : undefined}
+              />
+            </div>
+          )}
+        </SectionCard>
+      </div>
+
+      <Dialog.Root open={oauthOpen} onOpenChange={setOauthOpen}>
+        <Dialog className="flex max-h-[min(calc(100dvh-2rem),44rem)] !w-[min(46rem,calc(100vw-2rem))] !max-w-[min(46rem,calc(100vw-2rem))] flex-col overflow-hidden !p-0">
+          <div className="shrink-0 px-6 pt-5">
+            <Dialog.Title className="mb-1 text-sm font-semibold text-kumo-strong">Google 账号授权</Dialog.Title>
+          </div>
+          <div className="min-h-0 flex-1 overflow-y-auto px-6 py-3 scrollbar-thin">
+            <div className="space-y-4">
+              <Input size="sm" label="名称（可选）" type="text" value={oauthName} onChange={e => setOauthName(e.target.value)} className="w-full" />
+              <Input size="sm" type="text" readOnly aria-label="授权链接" className="w-full font-mono text-[0.8em]" value={oauthAuthUrl} />
+              <div className="flex items-center gap-2">
+                <Button size="sm" variant="secondary" onClick={() => window.open(oauthAuthUrl, '_blank')} disabled={!oauthAuthUrl}>
+                  打开授权链接
+                </Button>
+                <Button size="sm" variant="outline" onClick={() => navigator.clipboard?.writeText(oauthAuthUrl)}>复制链接</Button>
+              </div>
+              <Input
+                size="sm"
+                label="回调地址"
+                type="text"
+                value={oauthCallback}
+                onChange={e => setOauthCallback(e.target.value)}
+                placeholder="http://localhost:8085/callback?state=...&code=..."
+                className="w-full font-mono text-[0.8em]"
+              />
+            </div>
+          </div>
+          <div className="flex shrink-0 items-center justify-end gap-3 border-t border-kumo-line px-6 py-4">
+            <Dialog.Close render={props => <Button size="sm" variant="secondary" {...props}>取消</Button>} />
+            <Button size="sm" variant="primary" disabled={oauthBusy || !oauthCallback.trim()} onClick={finishOAuth}>
+              {oauthBusy ? '授权中...' : '完成授权'}
+            </Button>
+          </div>
+        </Dialog>
+      </Dialog.Root>
+
+      <Dialog.Root open={!!editAccount} onOpenChange={open => !open && setEditAccount(null)}>
+        <Dialog className="flex max-h-[min(calc(100dvh-2rem),44rem)] !w-[min(40rem,calc(100vw-2rem))] !max-w-[min(40rem,calc(100vw-2rem))] flex-col overflow-hidden !p-0">
+          <div className="shrink-0 px-6 pt-5">
+            <Dialog.Title className="mb-1 text-sm font-semibold text-kumo-strong">编辑账号</Dialog.Title>
+            <Dialog.Description className="mb-4 text-sm text-kumo-subtle">
+              {editAccount ? `更新 ${editAccount.email} 的显示信息。` : ''}
+            </Dialog.Description>
+          </div>
+          <div className="min-h-0 flex-1 overflow-y-auto px-6 py-3 scrollbar-thin">
+            <div className="space-y-4">
+              <Input size="sm" label="名称（可选）" type="text" value={editForm.name} onChange={e => setEditForm(f => ({ ...f, name: e.target.value }))} className="w-full" placeholder="显示名" />
+              <Input size="sm" label="套餐（可选）" type="text" value={editForm.planType} onChange={e => setEditForm(f => ({ ...f, planType: e.target.value }))} className="w-full" placeholder="如 pro / ultra" />
+            </div>
+          </div>
+          <div className="flex shrink-0 items-center justify-end gap-3 border-t border-kumo-line px-6 py-4">
+            <Dialog.Close render={props => <Button size="sm" variant="secondary" {...props}>取消</Button>} />
+            <Button size="sm" variant="primary" onClick={saveEditAccount}>保存</Button>
+          </div>
+        </Dialog>
+      </Dialog.Root>
+    </div>
+  );
+}

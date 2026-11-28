@@ -567,7 +567,7 @@ func TestRouteGroupsFollowSidebarModules(t *testing.T) {
 		prefix string
 		group  string
 	}{
-		{"/api/openai/endpoints", "模型网关"},
+		{"/api/modelhub/endpoints", "模型网关"},
 		{"/v1/chat/completions", "模型网关"},
 		{"/api/subscription/accounts", "订阅分发"},
 		{"/sub/{token}", "订阅分发"},
@@ -578,7 +578,7 @@ func TestRouteGroupsFollowSidebarModules(t *testing.T) {
 		{"/api/m365/accounts", "Microsoft 365"},
 		{"/api/github/tokens", "GitHub"},
 		{"/api/server/accounts", "主机实例"},
-		{"/api/onepanel/config", "主机实例"},
+		{"/api/onepanel/config", "1Panel"},
 		{"/api/koyeb/accounts", "PaaS"},
 		{"/api/flyio/accounts", "PaaS"},
 		{"/api/scheduler/tasks", "定时任务"},
@@ -1248,23 +1248,22 @@ func TestApiStatsTrafficCycleMatchesPanel(t *testing.T) {
 	if got := stats["traffic"].(int64); got != 30 {
 		t.Fatalf("top-level traffic = %d, want cycle total 30", got)
 	}
-	// trend 逐日仍来自 hourly：今天桶 = 12。
+	// trend 逐日来自 hourly:当天桶合计应为 12。按站点时区分桶,这里用「合计」
+	// 断言而非固定日期字符串,避免 UTC 与站点时区跨天时(time-dependent)误判。
 	trend, ok := stats["trend"].([]map[string]interface{})
 	if !ok {
 		t.Fatalf("trend type = %T", stats["trend"])
 	}
-	foundToday := false
+	var trendTraffic int64
 	for _, item := range trend {
-		if item["bucket"] == nowUTC.Format("2006-01-02") {
-			foundToday = true
-			if got := item["traffic"].(int64); got != 12 {
-				t.Fatalf("today trend traffic = %d, want hourly 12", got)
-			}
+		if v, ok := item["traffic"].(int64); ok {
+			trendTraffic += v
 		}
 	}
-	if !foundToday {
-		t.Fatal("today bucket missing from trend")
+	if trendTraffic != 12 {
+		t.Fatalf("trend hourly total = %d, want 12", trendTraffic)
 	}
+
 }
 
 // TestValidateAIAgentBearerKey 验证 Bearer 密钥校验的接受与拒绝路径：
@@ -1391,22 +1390,8 @@ func TestAgentTransferFileTool(t *testing.T) {
 	service := New(cfg)
 	defer service.Shutdown()
 
-	var calls []AICallRequest
-	service.SetAICaller(func(ctx context.Context, req AICallRequest) (AICallResponse, error) {
-		calls = append(calls, req)
-		switch {
-		case req.Path == "/api/filebox/share-from-agent":
-			return AICallResponse{StatusCode: 200, Body: map[string]interface{}{
-				"success":   true,
-				"code":      "ABC123",
-				"directUrl": "https://node.example.com/api/filebox/d/ABC123",
-			}}, nil
-		case req.Path == "/api/server/agent/fetch-url":
-			return AICallResponse{StatusCode: 200, Body: map[string]interface{}{"success": true}}, nil
-		default:
-			return AICallResponse{StatusCode: 200, Body: map[string]interface{}{"success": true}}, nil
-		}
-	})
+	var gotSrc, gotDst string
+	service.agentFileOps = fakeFileOperator{onCopy: func(src, dst string) { gotSrc, gotDst = src, dst }}
 
 	// 必填缺失必须报错
 	if _, err := service.agentTransferFile(context.Background(), map[string]interface{}{
@@ -1428,37 +1413,8 @@ func TestAgentTransferFileTool(t *testing.T) {
 	if !ok || payload["success"] != true || payload["transport"] != "agent-to-agent" {
 		t.Fatalf("unexpected result: %#v", result)
 	}
-
-	// 期望调用序列：share-from-agent -> fetch-url -> DELETE 清理临时分享
-	if len(calls) != 3 {
-		t.Fatalf("expected 3 calls, got %d: %#v", len(calls), calls)
-	}
-	if calls[0].Path != "/api/filebox/share-from-agent" || calls[0].Method != http.MethodPost {
-		t.Fatalf("first call should be share-from-agent: %#v", calls[0])
-	}
-	if calls[1].Path != "/api/server/agent/fetch-url" || calls[1].Method != http.MethodPost {
-		t.Fatalf("second call should be fetch-url: %#v", calls[1])
-	}
-	var fetchBody map[string]interface{}
-	if err := json.Unmarshal(calls[1].Body, &fetchBody); err != nil {
-		t.Fatalf("decode fetch body: %v", err)
-	}
-	if fetchBody["url"] != "https://node.example.com/api/filebox/d/ABC123" ||
-		fetchBody["serverId"] != "srv-b" || fetchBody["path"] != "/opt/a.sh" {
-		t.Fatalf("fetch-url not wired from share result: %#v", fetchBody)
-	}
-	if calls[2].Method != http.MethodDelete || calls[2].Path != "/api/filebox/ABC123" {
-		t.Fatalf("third call should clean up share: %#v", calls[2])
-	}
-
-	found := false
-	for _, tool := range service.aiTools() {
-		if tool["name"] == "agent_transfer_file" {
-			found = true
-		}
-	}
-	if !found {
-		t.Fatal("agent_transfer_file not present in aiTools()")
+	if gotSrc != "srv-a:/tmp/a.sh" || gotDst != "srv-b:/opt/a.sh" {
+		t.Fatalf("panel-relay 参数错误: src=%s dst=%s", gotSrc, gotDst)
 	}
 }
 
@@ -1609,6 +1565,35 @@ func TestAgentUploadChunkRejectsDiscontinuousOffset(t *testing.T) {
 	}
 }
 
+// 续写(offset>0)前的连续性校验必须携带 realPath:首块按真实路径写、这里退回沙箱路径时,
+// 会误判「文件不存在」,真实路径下的分块上传永远续不上(实测 offset=262144 必失败)。
+func TestAgentUploadChunkContinuationPassesRealPath(t *testing.T) {
+	cfg := config.Config{DataDir: t.TempDir(), DBName: "data.db"}
+	service := New(cfg)
+	defer service.Shutdown()
+
+	var statRealPath bool
+	service.agentFileOps = fakeFileOperator{
+		statSize:     262144,
+		realPath:     "D:/x.bin",
+		statRealPath: &statRealPath,
+	}
+
+	_, err := service.agentUploadChunk(context.Background(), map[string]interface{}{
+		"serverId":       "srv-1",
+		"path":           "D:/x.bin",
+		"offset":         float64(262144),
+		"content_base64": base64.StdEncoding.EncodeToString([]byte("abc")),
+		"realPath":       true,
+	})
+	if err != nil {
+		t.Fatalf("agentUploadChunk 续写 err: %v", err)
+	}
+	if !statRealPath {
+		t.Fatal("续写前的 stat 必须带 realPath=true,否则真实路径下永远续不上")
+	}
+}
+
 // 分块上传首块（offset=0）不校验前序状态，并应回传 realPath。
 func TestAgentUploadChunkFirstBlockReturnsRealPath(t *testing.T) {
 	cfg := config.Config{DataDir: t.TempDir(), DBName: "data.db"}
@@ -1644,6 +1629,53 @@ func TestAgentUploadChunkFirstBlockReturnsRealPath(t *testing.T) {
 }
 
 // 新工具必须出现在 MCP 工具清单里，否则客户端永远发现不了它们。
+// realPath 开关:显式 true 时写入必须按主机真实路径透传给 Agent 层;缺省仍为沙箱语义。
+// 这是「直接更新 /opt/... 真实路径」的关键——否则文件只会落进沙箱。
+func TestAgentUploadRealPathOptIn(t *testing.T) {
+	cfg := config.Config{DataDir: t.TempDir(), DBName: "data.db"}
+	service := New(cfg)
+	defer service.Shutdown()
+
+	var gotRealPath bool
+	service.agentFileOps = fakeFileOperator{
+		realPath:    "/opt/1panel/www/sites/x/index/ships.json",
+		gotRealPath: &gotRealPath,
+	}
+	result, err := service.agentUploadFile(context.Background(), map[string]interface{}{
+		"serverId":       "srv-1",
+		"path":           "/opt/1panel/www/sites/x/index/ships.json",
+		"content_base64": base64.StdEncoding.EncodeToString([]byte("{}")),
+		"realPath":       true,
+	})
+	if err != nil {
+		t.Fatalf("agentUploadFile err: %v", err)
+	}
+	if !gotRealPath {
+		t.Fatal("realPath=true 应透传到 Agent 写入层")
+	}
+	out := result.(map[string]interface{})
+	if out["realPathMode"] != true {
+		t.Fatalf("响应应标注 realPathMode=true: %#v", out)
+	}
+	if out["realPath"] != "/opt/1panel/www/sites/x/index/ships.json" {
+		t.Fatalf("realPath 应为目标真实路径: %#v", out)
+	}
+
+	// 缺省(不传 realPath)必须仍走沙箱语义,不改变既有行为。
+	gotRealPath = true
+	service.agentFileOps = fakeFileOperator{realPath: "/var/lib/api-monitor/agent/files/opt/a.json", gotRealPath: &gotRealPath}
+	if _, err := service.agentUploadFile(context.Background(), map[string]interface{}{
+		"serverId":       "srv-1",
+		"path":           "/opt/a.json",
+		"content_base64": base64.StdEncoding.EncodeToString([]byte("{}")),
+	}); err != nil {
+		t.Fatalf("agentUploadFile(默认) err: %v", err)
+	}
+	if gotRealPath {
+		t.Fatal("缺省应保持沙箱语义(realPath=false)")
+	}
+}
+
 func TestAgentFileToolsRegistered(t *testing.T) {
 	cfg := config.Config{DataDir: t.TempDir(), DBName: "data.db"}
 	service := New(cfg)
@@ -1659,6 +1691,9 @@ func TestAgentFileToolsRegistered(t *testing.T) {
 		"agent_run_command", "agent_task_result",
 		"agent_upload_file", "agent_upload_chunk",
 		"agent_file_roots", "agent_file_stat", "agent_file_chmod",
+		"agent_file_list", "agent_file_read", "agent_file_write",
+		"agent_file_mkdir", "agent_file_rename", "agent_file_delete", "agent_file_rmdir",
+		"host_file_copy",
 	} {
 		if !names[want] {
 			t.Fatalf("工具 %s 未注册", want)
@@ -1668,6 +1703,114 @@ func TestAgentFileToolsRegistered(t *testing.T) {
 
 // 分块上传必须显式提供 offset：缺省按 0 处理会带 truncate=true，
 // 把调用方本意的「续写」静默变成「覆盖」，是真实的数据丢失路径。
+// SFTP 复刻工具:应把主机标识与路径正确组装成对 /api/server/sftp/* 的调用。
+// fetch-url 的 realPath 开关必须透传到 HTTP 请求体(否则目标永远写沙箱)。
+func TestAgentFetchURLPassesRealPath(t *testing.T) {
+	cfg := config.Config{DataDir: t.TempDir(), DBName: "data.db"}
+	service := New(cfg)
+	defer service.Shutdown()
+
+	var gotBody map[string]interface{}
+	service.SetAICaller(func(_ context.Context, req AICallRequest) (AICallResponse, error) {
+		if req.Path == "/api/server/agent/fetch-url" {
+			_ = json.Unmarshal(req.Body, &gotBody)
+		}
+		return AICallResponse{StatusCode: 200, Body: map[string]interface{}{"success": true}}, nil
+	})
+
+	if _, err := service.agentFetchURL(context.Background(), map[string]interface{}{
+		"serverId": "srv-1",
+		"url":      "https://example.com/a.bin",
+		"path":     "/opt/1panel/a.bin",
+		"realPath": true,
+	}); err != nil {
+		t.Fatalf("agentFetchURL err: %v", err)
+	}
+	if gotBody["realPath"] != true {
+		t.Fatalf("realPath 未透传到 fetch-url: %#v", gotBody)
+	}
+}
+
+func TestAgentFileListBuildsSFTPCall(t *testing.T) {
+	cfg := config.Config{DataDir: t.TempDir(), DBName: "data.db"}
+	service := New(cfg)
+	defer service.Shutdown()
+
+	var gotPath string
+	var gotBody map[string]interface{}
+	service.SetAICaller(func(_ context.Context, req AICallRequest) (AICallResponse, error) {
+		gotPath = req.Path
+		_ = json.Unmarshal(req.Body, &gotBody)
+		return AICallResponse{StatusCode: 200, Body: map[string]interface{}{"success": true}}, nil
+	})
+
+	if _, err := service.agentFileList(context.Background(), map[string]interface{}{
+		"serverId": "srv-1",
+		"path":     "/opt/1panel/www",
+	}); err != nil {
+		t.Fatalf("agentFileList err: %v", err)
+	}
+	if gotPath != "/api/server/sftp/list" {
+		t.Fatalf("应调用 sftp/list,实际 %s", gotPath)
+	}
+	if gotBody["serverId"] != "srv-1" || gotBody["path"] != "/opt/1panel/www" {
+		t.Fatalf("请求体组装错误: %#v", gotBody)
+	}
+}
+
+// agent_file_rename 需要 oldPath/newPath,且不需要 path。
+func TestAgentFileRenameBuildsSFTPCall(t *testing.T) {
+	cfg := config.Config{DataDir: t.TempDir(), DBName: "data.db"}
+	service := New(cfg)
+	defer service.Shutdown()
+
+	var gotPath string
+	var gotBody map[string]interface{}
+	service.SetAICaller(func(_ context.Context, req AICallRequest) (AICallResponse, error) {
+		gotPath = req.Path
+		_ = json.Unmarshal(req.Body, &gotBody)
+		return AICallResponse{StatusCode: 200, Body: map[string]interface{}{"success": true}}, nil
+	})
+
+	if _, err := service.agentFileRename(context.Background(), map[string]interface{}{
+		"serverId": "srv-1",
+		"oldPath":  "/opt/a.txt",
+		"newPath":  "/opt/b.txt",
+	}); err != nil {
+		t.Fatalf("agentFileRename err: %v", err)
+	}
+	if gotPath != "/api/server/sftp/rename" {
+		t.Fatalf("应调用 sftp/rename,实际 %s", gotPath)
+	}
+	if gotBody["oldPath"] != "/opt/a.txt" || gotBody["newPath"] != "/opt/b.txt" {
+		t.Fatalf("请求体组装错误: %#v", gotBody)
+	}
+	if _, hasPath := gotBody["path"]; hasPath {
+		t.Fatalf("rename 不应携带 path: %#v", gotBody)
+	}
+}
+
+func TestHostFileCopyBuildsRelayCall(t *testing.T) {
+	cfg := config.Config{DataDir: t.TempDir(), DBName: "data.db"}
+	service := New(cfg)
+	defer service.Shutdown()
+
+	var gotSrc, gotDst string
+	service.agentFileOps = fakeFileOperator{onCopy: func(src, dst string) { gotSrc, gotDst = src, dst }}
+
+	if _, err := service.hostFileCopy(context.Background(), map[string]interface{}{
+		"sourceServerId": "srv-a",
+		"sourcePath":     "/data/a.bin",
+		"targetServerId": "srv-b",
+		"targetPath":     "/data/b.bin",
+	}); err != nil {
+		t.Fatalf("hostFileCopy err: %v", err)
+	}
+	if gotSrc != "srv-a:/data/a.bin" || gotDst != "srv-b:/data/b.bin" {
+		t.Fatalf("copy 参数错误: src=%s dst=%s", gotSrc, gotDst)
+	}
+}
+
 func TestAgentUploadChunkRequiresExplicitOffset(t *testing.T) {
 	cfg := config.Config{DataDir: t.TempDir(), DBName: "data.db"}
 	service := New(cfg)
@@ -1732,9 +1875,33 @@ func TestEnsureAIAccessSchemaRebuildsAfterPoolReset(t *testing.T) {
 
 // fakeFileOperator 是 AgentFileOperator 的测试替身。
 type fakeFileOperator struct {
-	statSize int64
-	realPath string
-	onChunk  func(offset int64, truncate bool)
+	statSize     int64
+	realPath     string
+	onChunk      func(offset int64, truncate bool)
+	gotRealPath  *bool
+	statRealPath *bool
+	onCopy       func(src, dst string)
+}
+
+func (f fakeFileOperator) CopyAgentFile(_ context.Context, srcID, srcPath string, _ bool, dstID, dstPath string, _ bool, _ time.Duration) (int64, error) {
+	if f.onCopy != nil {
+		f.onCopy(srcID+":"+srcPath, dstID+":"+dstPath)
+	}
+	return 0, nil
+}
+
+func (f fakeFileOperator) CopyAgentPath(_ context.Context, srcID, srcPath string, _ bool, dstID, dstPath string, _ bool, _ time.Duration) (int64, int64, error) {
+	if f.onCopy != nil {
+		f.onCopy(srcID+":"+srcPath, dstID+":"+dstPath)
+	}
+	return 1, 0, nil
+}
+
+func (f fakeFileOperator) CopyAgentPathEx(_ context.Context, srcID, srcPath, dstID, dstPath string, _ AgentCopyOptions, _ time.Duration) (int64, int64, error) {
+	if f.onCopy != nil {
+		f.onCopy(srcID+":"+srcPath, dstID+":"+dstPath)
+	}
+	return 1, 0, nil
 }
 
 func (f fakeFileOperator) WriteAgentFileChunk(_ context.Context, _, _ string, data []byte, offset int64, truncate bool, _ time.Duration) (AgentFileWriteResult, error) {
@@ -1744,7 +1911,24 @@ func (f fakeFileOperator) WriteAgentFileChunk(_ context.Context, _, _ string, da
 	return AgentFileWriteResult{Size: offset + int64(len(data)), RealPath: f.realPath}, nil
 }
 
+func (f fakeFileOperator) WriteAgentFileChunkMode(_ context.Context, _, _ string, data []byte, offset int64, truncate bool, _ time.Duration, realPath bool) (AgentFileWriteResult, error) {
+	if f.gotRealPath != nil {
+		*f.gotRealPath = realPath
+	}
+	if f.onChunk != nil {
+		f.onChunk(offset, truncate)
+	}
+	return AgentFileWriteResult{Size: offset + int64(len(data)), RealPath: f.realPath}, nil
+}
+
 func (f fakeFileOperator) WriteAgentFileBytesDetailed(_ context.Context, _, _ string, data []byte, _ time.Duration) (AgentFileWriteResult, error) {
+	return AgentFileWriteResult{Size: int64(len(data)), RealPath: f.realPath}, nil
+}
+
+func (f fakeFileOperator) WriteAgentFileBytesDetailedMode(_ context.Context, _, _ string, data []byte, _ time.Duration, realPath bool) (AgentFileWriteResult, error) {
+	if f.gotRealPath != nil {
+		*f.gotRealPath = realPath
+	}
 	return AgentFileWriteResult{Size: int64(len(data)), RealPath: f.realPath}, nil
 }
 
@@ -1756,6 +1940,13 @@ func (f fakeFileOperator) AgentFileRoots(_ context.Context, _ string) (map[strin
 }
 
 func (f fakeFileOperator) AgentFileStat(_ context.Context, _, _ string) (map[string]interface{}, error) {
+	return f.AgentFileStatMode(context.Background(), "", "", false)
+}
+
+func (f fakeFileOperator) AgentFileStatMode(_ context.Context, _, _ string, realPath bool) (map[string]interface{}, error) {
+	if f.statRealPath != nil {
+		*f.statRealPath = realPath
+	}
 	return map[string]interface{}{"size": float64(f.statSize), "realPath": f.realPath, "isFile": true}, nil
 }
 

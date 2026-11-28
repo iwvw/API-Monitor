@@ -55,7 +55,7 @@ func TestManagedSubscriptionNodesApplyPreferredAddress(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.ExecContext(ctx, `INSERT INTO managed_proxy_preferences(id,name,address,port,enabled,is_default) VALUES('pref','优选','saas.sin.fan',443,1,1)`); err != nil {
+	if _, err := db.ExecContext(ctx, `INSERT INTO managed_proxy_preferences(id,name,address,port,enabled,is_default) VALUES('pref','优选','node.example.com',443,1,1)`); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := db.ExecContext(ctx, `INSERT INTO managed_proxy_nodes(id,server_id,name,protocol,public_host,assigned_port,transport,config_encrypted,client_uri_encrypted,enabled,publishable,apply_status,access_mode,tunnel_hostname) VALUES('managed-one','server-one','节点一','vless-reality','origin.example.com',45654,'tcp','',?,1,1,'running','cloudflare_tunnel','origin.example.com')`, encrypted); err != nil {
@@ -65,7 +65,7 @@ func TestManagedSubscriptionNodesApplyPreferredAddress(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(nodes) != 1 || !strings.Contains(nodes[0].Raw, "@saas.sin.fan:443") {
+	if len(nodes) != 1 || !strings.Contains(nodes[0].Raw, "@node.example.com:443") {
 		t.Fatalf("preferred address was not published: %#v", nodes)
 	}
 	if nodes[0].TrafficServerID != "server-one" {
@@ -343,17 +343,17 @@ func TestMihomoOutputFallsBackToRawURIWhenStoredConfigIsIncomplete(t *testing.T)
 	nodes := []Node{{
 		Name:       "🇯🇵 CF ET",
 		Type:       "vless",
-		Server:     "saas.sin.fan",
+		Server:     "node.example.com",
 		Port:       443,
-		Raw:        "vless://0119068b-0148-47bf-875b-2145040b8174@saas.sin.fan:443?security=tls&type=ws&path=%2Fvless-argo%3Fed%3D2560#%F0%9F%87%AF%F0%9F%87%B5%20CF%20ET",
-		ConfigJSON: `{"name":"🇯🇵 CF ET","type":"vless","server":"saas.sin.fan","port":443}`,
+		Raw:        "vless://11111111-1111-4111-8111-111111111111@node.example.com:443?security=tls&type=ws&path=%2Fvless-argo%3Fed%3D2560#%F0%9F%87%AF%F0%9F%87%B5%20CF%20ET",
+		ConfigJSON: `{"name":"🇯🇵 CF ET","type":"vless","server":"node.example.com","port":443}`,
 		Enabled:    true,
 	}}
 	body, _, err := renderOutput(ctx, db, Subscription{Name: "测试"}, nodes, "clash", false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(body, "0119068b-0148-47bf-875b-2145040b8174") {
+	if !strings.Contains(body, "11111111-1111-4111-8111-111111111111") {
 		t.Fatalf("raw URI credentials were not used for incomplete config:\n%s", body)
 	}
 	if err := validateMihomoOutput(body); err != nil {
@@ -695,9 +695,9 @@ func TestParseImportTextDecodesBase64Subscription(t *testing.T) {
 
 func TestParseImportTextPreservesURIClientFields(t *testing.T) {
 	raw := strings.Join([]string{
-		"vless://0119068b-0148-47bf-875b-2145040b8174@saas.sin.fan:443?security=tls&type=ws&fp=chrome&path=/group/live/intro&encryption=none&headerType=none&sni=egtu.pages.dev#JP%20CF%20ET",
-		"hysteria2://3Aq8A2om3bNPoY7C@189.1.217.109:1005/?insecure=1&sni=cdn.jsdelivr.net#HK%20香港",
-		"trojan://YPMVpLJMZxDHoMChEzY5-nU3xQPALdyV@tjw.rois.eu.org:56501?type=tcp&sni=tjw.rois.eu.orgh3,h2,http/1.1#US%20洛杉矶",
+		"vless://11111111-1111-4111-8111-111111111111@node.example.com:443?security=tls&type=ws&fp=chrome&path=/group/live/intro&encryption=none&headerType=none&sni=egtu.pages.dev#JP%20CF%20ET",
+		"hysteria2://test-hy2-password@192.0.2.11:1005/?insecure=1&sni=cdn.jsdelivr.net#HK%20香港",
+		"trojan://test-trojan-password@node.example.com:56501?type=tcp&sni=node.example.comh3,h2,http/1.1#US%20洛杉矶",
 	}, "\n")
 
 	nodes := parseImportText(raw)
@@ -715,7 +715,7 @@ func TestParseImportTextPreservesURIClientFields(t *testing.T) {
 	if err := json.Unmarshal([]byte(nodes[0].ConfigJSON), &vless); err != nil {
 		t.Fatalf("vless config json: %v", err)
 	}
-	if vless["uuid"] != "0119068b-0148-47bf-875b-2145040b8174" || vless["network"] != "ws" || vless["tls"] != true || vless["servername"] != "egtu.pages.dev" || vless["sni"] != "egtu.pages.dev" {
+	if vless["uuid"] != "11111111-1111-4111-8111-111111111111" || vless["network"] != "ws" || vless["tls"] != true || vless["servername"] != "egtu.pages.dev" || vless["sni"] != "egtu.pages.dev" {
 		t.Fatalf("vless config lost fields: %#v", vless)
 	}
 	wsOpts, ok := vless["ws-opts"].(map[string]interface{})
@@ -731,7 +731,7 @@ func TestParseImportTextPreservesURIClientFields(t *testing.T) {
 	if err := json.Unmarshal([]byte(nodes[1].ConfigJSON), &hy2); err != nil {
 		t.Fatalf("hysteria2 config json: %v", err)
 	}
-	if hy2["password"] != "3Aq8A2om3bNPoY7C" || hy2["sni"] != "cdn.jsdelivr.net" || hy2["skip-cert-verify"] != true {
+	if hy2["password"] != "test-hy2-password" || hy2["sni"] != "cdn.jsdelivr.net" || hy2["skip-cert-verify"] != true {
 		t.Fatalf("hysteria2 config lost fields: %#v", hy2)
 	}
 
@@ -739,7 +739,7 @@ func TestParseImportTextPreservesURIClientFields(t *testing.T) {
 	if err := json.Unmarshal([]byte(nodes[2].ConfigJSON), &trojan); err != nil {
 		t.Fatalf("trojan config json: %v", err)
 	}
-	if trojan["password"] != "YPMVpLJMZxDHoMChEzY5-nU3xQPALdyV" || trojan["sni"] != "tjw.rois.eu.org" || trojan["tls"] != true || trojan["network"] != "tcp" {
+	if trojan["password"] != "test-trojan-password" || trojan["sni"] != "node.example.com" || trojan["tls"] != true || trojan["network"] != "tcp" {
 		t.Fatalf("trojan config lost fields: %#v", trojan)
 	}
 	if alpn, ok := trojan["alpn"].([]interface{}); !ok || len(alpn) != 3 {
@@ -749,9 +749,9 @@ func TestParseImportTextPreservesURIClientFields(t *testing.T) {
 
 func TestParseImportTextPreservesUnescapedFragmentNames(t *testing.T) {
 	raw := strings.Join([]string{
-		"hysteria2://3Aq8A2om3bNPoY7C@189.1.217.109:1005/?insecure=1&sni=cdn.jsdelivr.net#🇭🇰 香港",
-		"hysteria2://yNbE8RV2zdIojLVS@45.32.157.55:4534/?insecure=1&sni=cdn.jsdelivr.net#🇩🇪 法兰克福",
-		"vless://65f52614-1632-45c6-9809-72c30c4e16bd@saas.sin.fan:443?security=tls&type=ws&fp=chrome&path=/vless-argo?ed=2560&encryption=none&headerType=none#🇯🇵 日本",
+		"hysteria2://test-hy2-password@192.0.2.11:1005/?insecure=1&sni=cdn.jsdelivr.net#🇭🇰 香港",
+		"hysteria2://test-hy2-password@192.0.2.10:4534/?insecure=1&sni=cdn.jsdelivr.net#🇩🇪 法兰克福",
+		"vless://11111111-1111-4111-8111-111111111111@node.example.com:443?security=tls&type=ws&fp=chrome&path=/vless-argo?ed=2560&encryption=none&headerType=none#🇯🇵 日本",
 	}, "\n")
 
 	nodes := parseImportText(raw)
@@ -776,11 +776,11 @@ func TestParseImportTextPreservesUnescapedFragmentNames(t *testing.T) {
 func TestParseImportTextReadsClashProxiesOnly(t *testing.T) {
 	raw := `
 proxies:
-  - {"name":"JP CF","type":"vless","server":"saas.example.com","port":443,"uuid":"0119068b-0148-47bf-875b-2145040b8174","network":"ws","ws-opts":{"path":"/group/live/intro","headers":{"Host":"edge.example.com"}}}
+  - {"name":"JP CF","type":"vless","server":"saas.example.com","port":443,"uuid":"11111111-1111-4111-8111-111111111111","network":"ws","ws-opts":{"path":"/group/live/intro","headers":{"Host":"edge.example.com"}}}
   # - {"name":"Disabled","type":"trojan","server":"disabled.example.com","port":443,"password":"secret"}
   - name: London
     type: hysteria2
-    server: 185.168.194.90
+    server: 198.51.100.20
     port: 5427
     password: secret
 rule-providers:
@@ -796,7 +796,7 @@ rule-providers:
 	if nodes[0].Name != "JP CF" || nodes[0].Type != "vless" || nodes[0].Server != "saas.example.com" || nodes[0].Port != 443 {
 		t.Fatalf("first node = %#v", nodes[0])
 	}
-	if nodes[1].Name != "London" || nodes[1].Type != "hysteria2" || nodes[1].Server != "185.168.194.90" || nodes[1].Port != 5427 {
+	if nodes[1].Name != "London" || nodes[1].Type != "hysteria2" || nodes[1].Server != "198.51.100.20" || nodes[1].Port != 5427 {
 		t.Fatalf("second node = %#v", nodes[1])
 	}
 	for _, node := range nodes {
@@ -812,8 +812,8 @@ rule-providers:
 func TestParseClashProxyNodesPreservesEmojiNamesAndClientFields(t *testing.T) {
 	raw := `
 proxies:
-  - {"name":"🇯🇵 CF ET","type":"vless","server":"saas.sin.fan","port":443,"uuid":"0119068b-0148-47bf-875b-2145040b8174","encryption":"none","tls":true,"sni":"egtu.pages.dev","client-fingerprint":"chrome","network":"ws","ws-opts":{"path":"/group/live/intro","headers":{"Host":"egtu.pages.dev"}}}
-  - {"name":"🇺🇸 洛杉矶","type":"trojan","server":"tjw.rois.eu.org","port":56501,"network":"tcp","udp":true,"password":"secret","tls":true,"sni":"tjw.rois.eu.org","alpn":["h3","h2","http/1.1"],"client-fingerprint":"chrome"}
+  - {"name":"🇯🇵 CF ET","type":"vless","server":"node.example.com","port":443,"uuid":"11111111-1111-4111-8111-111111111111","encryption":"none","tls":true,"sni":"egtu.pages.dev","client-fingerprint":"chrome","network":"ws","ws-opts":{"path":"/group/live/intro","headers":{"Host":"egtu.pages.dev"}}}
+  - {"name":"🇺🇸 洛杉矶","type":"trojan","server":"node.example.com","port":56501,"network":"tcp","udp":true,"password":"secret","tls":true,"sni":"node.example.com","alpn":["h3","h2","http/1.1"],"client-fingerprint":"chrome"}
 `
 
 	nodes := parseImportText(raw)
@@ -875,7 +875,7 @@ func TestProxyNamesFallsBackToDirect(t *testing.T) {
 }
 
 func TestProxiesYAMLRendersClientCompatibleList(t *testing.T) {
-	nodes := parseImportText("vless://0119068b-0148-47bf-875b-2145040b8174@saas.sin.fan:443?security=tls&type=ws&fp=chrome&path=/group/live/intro&encryption=none&sni=egtu.pages.dev#JP%20CF%20ET")
+	nodes := parseImportText("vless://11111111-1111-4111-8111-111111111111@node.example.com:443?security=tls&type=ws&fp=chrome&path=/group/live/intro&encryption=none&sni=egtu.pages.dev#JP%20CF%20ET")
 	if len(nodes) != 1 {
 		t.Fatalf("len(nodes) = %d, want 1", len(nodes))
 	}
@@ -889,7 +889,7 @@ func TestProxiesYAMLRendersClientCompatibleList(t *testing.T) {
 		t.Fatalf("proxies = %#v", parsed["proxies"])
 	}
 	proxy := normalizeStringMap(proxies[0]).(map[string]interface{})
-	if proxy["uuid"] != "0119068b-0148-47bf-875b-2145040b8174" || proxy["network"] != "ws" {
+	if proxy["uuid"] != "11111111-1111-4111-8111-111111111111" || proxy["network"] != "ws" {
 		t.Fatalf("rendered proxy lost fields: %#v", proxy)
 	}
 }
@@ -2022,7 +2022,7 @@ func TestRefreshUpstreamPreservesBoundNodeProperties(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	upstreamRaw := "vless://0119068b-0148-47bf-875b-2145040b8174@saas.sin.fan:443?security=tls&type=ws&path=/group/live/intro&encryption=none#%F0%9F%87%AD%F0%9F%87%B0%20%E9%A6%99%E6%B8%AF"
+	upstreamRaw := "vless://11111111-1111-4111-8111-111111111111@node.example.com:443?security=tls&type=ws&path=/group/live/intro&encryption=none#%F0%9F%87%AD%F0%9F%87%B0%20%E9%A6%99%E6%B8%AF"
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Subscription-Userinfo", "upload=1; download=2; total=3; expire=4")
 		_, _ = w.Write([]byte(upstreamRaw))
@@ -2088,7 +2088,7 @@ func TestRefreshUpstreamPreservesBoundNodeProperties(t *testing.T) {
 	if node.CountryCode != "SG" || node.Location != "自定义地区" || node.Tags != "stable,premium" {
 		t.Fatalf("node custom labels not preserved: %#v", node)
 	}
-	if node.Type != "vless" || node.Server != "saas.sin.fan" || node.Port != 443 || !strings.Contains(node.Raw, "vless://") {
+	if node.Type != "vless" || node.Server != "node.example.com" || node.Port != 443 || !strings.Contains(node.Raw, "vless://") {
 		t.Fatalf("node upstream fields not refreshed: %#v", node)
 	}
 }

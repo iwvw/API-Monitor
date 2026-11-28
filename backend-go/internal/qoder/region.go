@@ -39,32 +39,40 @@ type regionConfig struct {
 	redirectURI  string
 	// ua 是该区域的默认 User-Agent。
 	ua string
+	// clientVersion 是该区域客户端实际发送的 cosy-version。
+	// 实测（2026-11-15 本机客户端日志）：国际版 0.4.3、国内版 0.4.8，均为
+	// clienttype=10。上游按 (clienttype, version) 决定下发哪些模型与活动，
+	// 因此这里取「与真实客户端一致的版本」而不是某个文档里的固定值。
+	// 配了指纹的账号可以用嗅探器里填的 version 覆盖它。
+	clientVersion string
 }
 
 var regionConfigs = map[string]regionConfig{
 	regionCN: {
-		name:         "国内版",
-		loginBase:    "https://qoder.cn/device/selectAccounts",
-		openAPI:      "https://openapi.qoder.com.cn",
-		gateway:      "https://gateway.qoder.com.cn",
-		modelAPI:     "https://gateway.qoder.com.cn",
-		website:      "https://qoder.cn",
-		clientID:     "732aef47-9cf2-46a2-95fe-4cebb5d0d1fa",
-		nonceDashed:  true,
-		sendRedirect: false,
-		ua:           "QoderWork/1.1.64",
+		name:          "国内版",
+		loginBase:     "https://qoder.cn/device/selectAccounts",
+		openAPI:       "https://openapi.qoder.com.cn",
+		gateway:       "https://gateway.qoder.com.cn",
+		modelAPI:      "https://gateway.qoder.com.cn",
+		website:       "https://qoder.cn",
+		clientID:      "732aef47-9cf2-46a2-95fe-4cebb5d0d1fa",
+		nonceDashed:   true,
+		sendRedirect:  false,
+		ua:            "QoderWork/1.1.64",
+		clientVersion: "0.4.8",
 	},
 	regionIntl: {
-		name:         "国际版",
-		loginBase:    "https://qoder.com/device/selectAccounts",
-		openAPI:      "https://openapi.qoder.sh",
-		gateway:      "https://api3.qoder.sh",
-		modelAPI:     "https://api1.qoder.sh",
-		website:      "https://qoder.com",
-		clientID:     "e883ade2-e6e3-4d6d-adf7-f92ceff5fdcb",
-		nonceDashed:  false,
-		sendRedirect: false,
-		ua:           "Qoder/1.1.64",
+		name:          "国际版",
+		loginBase:     "https://qoder.com/device/selectAccounts",
+		openAPI:       "https://openapi.qoder.sh",
+		gateway:       "https://api3.qoder.sh",
+		modelAPI:      "https://api1.qoder.sh",
+		website:       "https://qoder.com",
+		clientID:      "e883ade2-e6e3-4d6d-adf7-f92ceff5fdcb",
+		nonceDashed:   false,
+		sendRedirect:  false,
+		ua:            "Qoder/1.1.64",
+		clientVersion: "0.4.3",
 	},
 }
 

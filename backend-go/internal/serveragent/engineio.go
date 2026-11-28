@@ -67,6 +67,7 @@ type EngineIOSession struct {
 	Platform        string
 	Arch            string
 	RemoteIP        string
+	UserAgent       string
 	PendingMessages []string
 	wsConn          *websocket.Conn
 	mu              sync.RWMutex
@@ -158,6 +159,7 @@ func (s *EngineIOServer) HandleWebSocket(w http.ResponseWriter, r *http.Request)
 			ID:           sid,
 			Transport:    "websocket",
 			RemoteIP:     requestRemoteIP(r),
+			UserAgent:    r.UserAgent(),
 			LastActivity: time.Now(),
 		}
 
@@ -204,6 +206,23 @@ func (s *EngineIOServer) HandleWebSocket(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	// 重升级必须来自创建该会话的同一客户端:匿名 /socket.io/ 端点无法靠鉴权
+	// 阻止他人复用 sid,至少校验来源 IP 与 User-Agent 与创建时一致。
+	remoteIP := requestRemoteIP(r)
+	userAgent := r.UserAgent()
+	session.mu.RLock()
+	sessionIP := session.RemoteIP
+	sessionUA := session.UserAgent
+	session.mu.RUnlock()
+	if sessionIP != "" && remoteIP != "" && sessionIP != remoteIP {
+		http.Error(w, "Invalid session", http.StatusBadRequest)
+		return
+	}
+	if sessionUA != "" && userAgent != "" && sessionUA != userAgent {
+		http.Error(w, "Invalid session", http.StatusBadRequest)
+		return
+	}
+
 	// WebSocket 升级
 	up := s.engineIOUpgrader()
 	conn, err := up.Upgrade(w, r, nil)
@@ -224,8 +243,15 @@ func (s *EngineIOServer) HandleWebSocket(w http.ResponseWriter, r *http.Request)
 	}
 	session.Transport = "websocket"
 	if session.RemoteIP == "" {
-		session.RemoteIP = requestRemoteIP(r)
+		session.RemoteIP = remoteIP
 	}
+	if session.UserAgent == "" {
+		session.UserAgent = userAgent
+	}
+	// 重升级不继承此前的鉴权结果,必须重新走 agent:connect/authenticate,
+	// 避免旧会话的 Authenticated/ServerID 被复用。
+	session.Authenticated = false
+	session.ServerID = ""
 	session.wsConn = conn
 	session.mu.Unlock()
 	if oldConn != nil {
@@ -486,6 +512,7 @@ func (s *EngineIOServer) handleHandshake(w http.ResponseWriter, r *http.Request)
 		CreatedAt:       time.Now(),
 		LastActivity:    time.Now(),
 		RemoteIP:        requestRemoteIP(r),
+		UserAgent:       r.UserAgent(),
 		PendingMessages: []string{},
 		notify:          make(chan struct{}),
 	}
@@ -704,6 +731,26 @@ func (s *EngineIOServer) handleSocketIOMessage(session *EngineIOSession, payload
 			eventPayload = eventData[1]
 		}
 
+		// 浏览器订阅事件：只作用于 /metrics 命名空间的匿名客户端，
+		// 必须在下面的 Agent 认证门禁**之前**处理 —— 浏览器不是 Agent，
+		// 没有也不需要 agent key。作用范围严格限定在 /metrics 会话，
+		// 避免它成为绕过认证影响 root 命名空间的入口。
+		if eventName == "metrics:subscribe" {
+			session.mu.RLock()
+			namespace := session.Namespace
+			sid := session.ID
+			session.mu.RUnlock()
+			if namespace == "/metrics" && s.metricsHub != nil {
+				var payload struct {
+					ServerIDs []string `json:"serverIds"`
+				}
+				if err := json.Unmarshal(eventPayload, &payload); err == nil {
+					s.metricsHub.Subscribe(sid, payload.ServerIDs)
+				}
+			}
+			return
+		}
+
 		// 会话认证门禁：只有经过 agent:connect/authenticate 密钥校验的会话
 		// 才能处理 Agent 上行事件；未认证会话的任何业务事件一律忽略，
 		// 防止匿名连接伪造 agent:state/agent:heartbeat 等状态与指标。
@@ -778,6 +825,13 @@ func (s *EngineIOServer) handleSocketIOMessage(session *EngineIOSession, payload
 				}
 				if len(targets) > 0 {
 					payload["network_targets"] = targets
+				}
+				// 文件访问根随认证握手实时下发(`*` 表示全开):改面板配置后重启面板,
+				// Agent 重连即生效,免去重装 Agent 才能改 env 的麻烦。
+				if s.service != nil {
+					if roots := s.service.agentFileRootsEnvValue(strings.EqualFold(authData.Platform, "Windows")); roots != "" {
+						payload["fileRoots"] = roots
+					}
 				}
 
 				s.sendEvent(session, "dashboard:auth_ok", payload)
@@ -888,38 +942,52 @@ func (s *EngineIOServer) cleanupLoop() {
 	defer ticker.Stop()
 
 	for range ticker.C {
-		s.mu.Lock()
-		now := time.Now()
-		for sid, session := range s.sessions {
-			session.mu.RLock()
-			lastActivity := session.LastActivity
-			session.mu.RUnlock()
+		s.cleanupStaleSessions(time.Now())
+	}
+}
 
-			if now.Sub(lastActivity) > 60*time.Second {
-				// 清理 /metrics 命名空间的客户端
-				session.mu.RLock()
-				ns := session.Namespace
-				staleConn := session.wsConn
-				session.mu.RUnlock()
-				if ns == "/metrics" && s.metricsHub != nil {
-					s.metricsHub.Unregister(sid)
-				}
-				if s.metricsHub != nil {
-					s.metricsHub.UnregisterRoot(sid)
-				}
-				// 关闭该会话的 WebSocket：仅从 map 删除会让读循环
-				// 永远阻塞在旧连接上，泄漏 goroutine 与 fd。
-				if staleConn != nil {
-					_ = staleConn.Close()
-				}
-
-				delete(s.sessions, sid)
-				if s.onDisconnect != nil {
-					go s.onDisconnect(sid)
-				}
-			}
+// cleanupStaleSessions 清理超过 60s 无活动的会话。
+//
+// 顺序关键:必须先在会话仍在 map 中时回调 onDisconnect,再 removeSession。
+// 回调要 getSession(sessionID) 读取 ServerID/Namespace(触发离线广播与 broker
+// 回收),先 delete 会让回调拿到 nil,整段断线副作用被静默跳过。回调不能在持有
+// s.mu 时调用(会与 getSession 的 RLock 死锁),因此先在锁内收集过期 sid,
+// 释放锁后再逐个处理。
+func (s *EngineIOServer) cleanupStaleSessions(now time.Time) {
+	s.mu.RLock()
+	stale := make([]string, 0)
+	for sid, session := range s.sessions {
+		session.mu.RLock()
+		lastActivity := session.LastActivity
+		session.mu.RUnlock()
+		if now.Sub(lastActivity) > 60*time.Second {
+			stale = append(stale, sid)
 		}
-		s.mu.Unlock()
+	}
+	s.mu.RUnlock()
+
+	for _, sid := range stale {
+		session := s.getSession(sid)
+		if session == nil {
+			continue
+		}
+		session.mu.RLock()
+		ns := session.Namespace
+		staleConn := session.wsConn
+		session.mu.RUnlock()
+		if ns == "/metrics" && s.metricsHub != nil {
+			s.metricsHub.Unregister(sid)
+		}
+		if s.metricsHub != nil {
+			s.metricsHub.UnregisterRoot(sid)
+		}
+		if s.onDisconnect != nil {
+			s.onDisconnect(sid)
+		}
+		if staleConn != nil {
+			_ = staleConn.Close()
+		}
+		s.removeSession(sid)
 	}
 }
 

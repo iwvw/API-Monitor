@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatDockerContainerPorts } from './docker-format.js';
+import { buildDockerContainerPortUrl, formatDockerContainerPorts, getDockerContainerPortLinks } from './docker-format.js';
 
 describe('formatDockerContainerPorts', () => {
   it('splits, trims, and filters string port text', () => {
@@ -65,5 +65,55 @@ describe('formatDockerContainerPorts', () => {
     expect(formatDockerContainerPorts({})).toBe('-');
     expect(formatDockerContainerPorts({ Ports: '1234' })).toBe('1234');
     expect(formatDockerContainerPorts({ portMappings: [{ PrivatePort: 22 }] })).toBe('22/tcp');
+  });
+});
+
+describe('getDockerContainerPortLinks', () => {
+  it('links only published host ports with plain http', () => {
+    const links = getDockerContainerPortLinks({ ports: '5432:5432, 443:443, 80' }, '203.0.113.9');
+    expect(links.map(item => item.label)).toEqual(['5432:5432', '443:443', '80']);
+    expect(links.map(item => item.url)).toEqual([
+      'http://203.0.113.9:5432',
+      'http://203.0.113.9:443',
+      '',
+    ]);
+  });
+
+  it('keeps link labels in sync with formatDockerContainerPorts', () => {
+    const cases = [
+      { ports: '8080, 9090 ,' },
+      { ports: [{ PrivatePort: 80, PublicPort: 8080, Type: 'tcp' }] },
+      { ports: [' 8080 ', { PrivatePort: 80, PublicPort: 8090 }] },
+      { ports: { '80/tcp': [{ HostPort: '49153' }], '22': undefined } },
+      { Ports: '1234' },
+    ];
+    for (const container of cases) {
+      const expected = formatDockerContainerPorts(container);
+      const actual = getDockerContainerPortLinks(container, '1.2.3.4')
+        .map(item => item.label)
+        .join(', ');
+      expect(actual).toBe(expected);
+    }
+  });
+
+  it('returns no link when the server host is unusable', () => {
+    const ports = '8080:80';
+    expect(buildDockerContainerPortUrl('', ports)).toBe('');
+    expect(buildDockerContainerPortUrl('-', ports)).toBe('');
+    expect(buildDockerContainerPortUrl('0.0.0.0', ports)).toBe('');
+    expect(buildDockerContainerPortUrl('1.2.3.4:22', ports)).toBe('');
+    expect(getDockerContainerPortLinks({ ports }, '').every(item => !item.url)).toBe(true);
+  });
+
+  it('brackets ipv6 hosts and ignores optional protocol suffixes', () => {
+    expect(buildDockerContainerPortUrl('2603:c024:c021:2e00::5', '8080:80')).toBe(
+      'http://[2603:c024:c021:2e00::5]:8080'
+    );
+    expect(buildDockerContainerPortUrl('[2603:c024:c021:2e00::5]', '8080:80')).toBe(
+      'http://[2603:c024:c021:2e00::5]:8080'
+    );
+    expect(buildDockerContainerPortUrl('example.com', '8080:80/udp')).toBe(
+      'http://example.com:8080'
+    );
   });
 });

@@ -16,11 +16,25 @@ import (
 
 func decodeJSON(w http.ResponseWriter, r *http.Request, target interface{}) bool {
 	defer r.Body.Close()
-	if err := json.NewDecoder(r.Body).Decode(target); err != nil {
+	if r.Body == nil {
+		response.Error(w, http.StatusBadRequest, "request parameter validation failed")
+		return false
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(target); err != nil {
 		response.Error(w, http.StatusBadRequest, "request parameter validation failed")
 		return false
 	}
 	return true
+}
+
+func clampInt(value, minValue, maxValue int) int {
+	if value < minValue {
+		return minValue
+	}
+	if value > maxValue {
+		return maxValue
+	}
+	return value
 }
 
 func randomID(prefix string) (string, error) {

@@ -4,9 +4,9 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
 /**
- * 模型网关插件（与面板 `OpenAIPluginsPanel` 的注册表一致）。
+ * 模型网关插件（与面板 `ModelHubPluginsPanel` 的注册表一致）。
  *
- * 插件是「账号转 API」的上游适配器：Antigravity / DS2API / Gemini CLI 等。
+ * 插件是「账号转 API」的上游适配器：Antigravity / WorkBuddy / LobsterAI 等。
  * 每个插件有独立的 status / accounts / settings / models 接口，
  * 统一前缀为 `/api/{pluginId}`。
  */
@@ -34,22 +34,6 @@ enum class GatewayPlugin(
         supportsAccounts = true,
         supportsCheckin = false,
     ),
-    DS2API(
-        id = "ds2api",
-        displayName = "DS2API",
-        description = "DeepSeek 网页版转 API。",
-        supportsModels = false,
-        supportsAccounts = true,
-        supportsCheckin = false,
-    ),
-    GEMINI_CLI(
-        id = "geminicli",
-        displayName = "Gemini CLI",
-        description = "Google Gemini CLI 账号转 API。",
-        supportsModels = true,
-        supportsAccounts = true,
-        supportsCheckin = false,
-    ),
     WORK_BUDDY(
         id = "workbuddy",
         displayName = "WorkBuddy",
@@ -66,14 +50,6 @@ enum class GatewayPlugin(
         supportsAccounts = true,
         supportsCheckin = true,
     ),
-    POSTHOG_CODE(
-        id = "posthogcode",
-        displayName = "PostHog Code",
-        description = "PostHog LLM Gateway 转 API。",
-        supportsModels = true,
-        supportsAccounts = true,
-        supportsCheckin = false,
-    ),
     QODER(
         id = "qoder",
         displayName = "Qoder",
@@ -81,14 +57,6 @@ enum class GatewayPlugin(
         supportsModels = true,
         supportsAccounts = true,
         supportsCheckin = true,
-    ),
-    OPENCODE(
-        id = "opencode",
-        displayName = "OpenCode",
-        description = "OpenCode Zen 免费模型转 OpenAI 兼容 API。",
-        supportsModels = true,
-        supportsAccounts = false,
-        supportsCheckin = false,
     ),
 }
 

@@ -146,6 +146,7 @@ func newTestWeComChannel(cfg WeComConfig, reg *Registry) (*WeComChannel, *mockWe
 	mock := newMockWeComServer(true)
 	cfg.WSURL = mock.wsURL()
 	wc := NewWeComChannel("wecom", cfg, reg)
+	wc.SetAuthorize(func(userID, username, chatType string) bool { return true })
 	return wc, mock
 }
 
@@ -442,5 +443,27 @@ func TestWeComDedup(t *testing.T) {
 	case extra := <-count:
 		t.Fatalf("重复消息不应入站: %#v", extra)
 	case <-time.After(500 * time.Millisecond):
+	}
+}
+
+func TestWeComHandleInboundDeniesWithoutAuthorizer(t *testing.T) {
+	reg := NewRegistry()
+	called := false
+	reg.SetOnInbound(func(InboundEnvelope) { called = true })
+
+	wc, mock := newTestWeComChannel(WeComConfig{BotID: "bot", Secret: "sec"}, reg)
+	defer mock.close()
+	wc.authorize = nil
+
+	wc.handleInbound(wecomFrame{
+		Cmd:     "aibot_msg_callback",
+		Headers: wecomFrameHeaders{ReqID: "cb_1"},
+		Body: mustJSON(map[string]interface{}{
+			"msgid": "m1", "msgtype": "text", "chattype": "single",
+			"from": map[string]interface{}{"userid": "zhangsan"}, "text": map[string]interface{}{"content": "hi"},
+		}),
+	})
+	if called {
+		t.Fatal("未注入 authorizer 时应默认拒绝入站")
 	}
 }

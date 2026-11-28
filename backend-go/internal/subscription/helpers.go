@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"strconv"
@@ -137,8 +138,26 @@ func normalizeCycleType(value string) string {
 	}
 }
 
-func isExplicitFalse(r *http.Request, field string) bool {
-	return false
+func decodeJSONFields(w http.ResponseWriter, r *http.Request, target interface{}) (map[string]json.RawMessage, bool) {
+	defer r.Body.Close()
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		if w != nil {
+			response.Error(w, http.StatusBadRequest, "request parameter validation failed")
+		}
+		return nil, false
+	}
+	if err := json.Unmarshal(body, target); err != nil {
+		if w != nil {
+			response.Error(w, http.StatusBadRequest, "request parameter validation failed")
+		}
+		return nil, false
+	}
+	fields := map[string]json.RawMessage{}
+	if err := json.Unmarshal(body, &fields); err != nil {
+		fields = map[string]json.RawMessage{}
+	}
+	return fields, true
 }
 
 func getFloatFromMap(m map[string]interface{}, key string) float64 {

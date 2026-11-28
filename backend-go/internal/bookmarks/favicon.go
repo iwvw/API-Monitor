@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/md5"
+	"database/sql"
 	"encoding/hex"
 	"fmt"
 	"io"
@@ -24,6 +25,15 @@ import (
 const (
 	faviconMaxBytes = 2 * 1024 * 1024
 	faviconUA       = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36"
+
+	// faviconSrcPrefix 是本地图标在书签 icon_src 里的存储前缀,
+	// 与落盘返回值及 serveFaviconFile 的路由保持一致。
+	faviconSrcPrefix = "/api/bookmarks/favicons/"
+
+	// faviconGCGrace 是孤儿回收的宽限期:下载是「先原子落盘、再写回数据库」
+	// 两步,两步之间文件已存在但尚无任何书签引用。刚写入的文件先放过,
+	// 避免把正在写回的图标当成孤儿删掉。
+	faviconGCGrace = 10 * time.Minute
 )
 
 // validateFetchURL 校验抓取目标：仅允许 http/https，且必须是可公开访问的主机。
@@ -200,7 +210,8 @@ func portOf(address string) string {
 }
 
 // resolveFaviconCandidates 返回按优先级排序的全部候选图标地址（绝对 URL）。
-// 页面上没有可用 <link rel="icon"> 时回退到 /favicon.ico。
+// 优先用页面声明的 <link rel="icon">;没有(或全部失效)时回退到站点根的
+// 常见图标路径(/favicon.ico、/favicon.png、/apple-touch-icon.png、/favicon.svg)。
 // 候选已按「位图优先、SVG 最后」排好序，调用方逐个尝试即可
 // （见 downloadFaviconFromCandidates）。
 func resolveFaviconCandidates(pageURL string) ([]string, error) {
@@ -248,13 +259,47 @@ func resolveFaviconCandidates(pageURL string) ([]string, error) {
 		out = append(out, resolved.String())
 	}
 
-	// 页面上没有任何可用图标时回退到站点根 favicon.ico
-	fallback := *base
-	fallback.Path = "/favicon.ico"
-	if fb := fallback.String(); len(out) == 0 || out[len(out)-1] != fb {
-		out = append(out, fb)
-	}
+	// 页面上没有可用图标时回退到站点根的常见图标路径(位图优先、SVG 最后)。
+	out = appendFallbackCandidates(out, base)
 	return out, nil
+}
+
+// commonFaviconPaths 是页面未声明图标时探测的站点根常见图标路径。
+// 顺序保持「位图优先、SVG 最后」,与 iconPreference 一致。
+var commonFaviconPaths = []string{
+	"/favicon.ico",
+	"/favicon.png",
+	"/apple-touch-icon.png",
+	"/favicon.svg",
+}
+
+// appendFallbackCandidates 把站点根的常见图标路径追加到 out,
+// 去掉继承自页面 URL 的 query/fragment,并按完整地址去重。
+//
+// 这些候选只会在前面的候选都失败时才真正被下载(下载按顺序短路),
+// 因此正常声明了图标的站点不会因为这里多出几条而多发请求。
+func appendFallbackCandidates(out []string, base *url.URL) []string {
+	if base == nil {
+		return out
+	}
+	seen := make(map[string]bool, len(out)+len(commonFaviconPaths))
+	for _, c := range out {
+		seen[c] = true
+	}
+	for _, p := range commonFaviconPaths {
+		u := *base
+		u.Path = p
+		u.RawPath = ""
+		u.RawQuery = ""
+		u.Fragment = ""
+		s := u.String()
+		if seen[s] {
+			continue
+		}
+		seen[s] = true
+		out = append(out, s)
+	}
+	return out
 }
 
 // iconHref 是一个候选图标的地址与声明的类型（type 属性，可能为空）。
@@ -343,23 +388,43 @@ func sortedIconHrefs(n *html.Node) []iconHref {
 // 为什么必须回退而不是只试第一个：页面声明的图标里第一个经常是坏的
 // （404、非图片、体积超限），只试一个会让整站抓取直接判失败 ——
 // 而 resolveFaviconCandidates 已经把可用候选按位图优先排好序了。
-func (s *Service) downloadFaviconFromCandidates(candidates []string) (string, error) {
+// force 为 true 时穿透「已存在即命中」的缓存短路,强制重新下载并覆盖
+// (用于「重新抓取/覆盖图标」;否则同一图标 URL 永远返回首次的结果)。
+func (s *Service) downloadFaviconFromCandidates(candidates []string, force bool) (string, error) {
 	if len(candidates) == 0 {
 		return "", fmt.Errorf("no favicon candidate found")
 	}
 	var lastErr error
 	for _, candidate := range candidates {
-		localPath, err := s.downloadFavicon(candidate)
+		localPath, err := s.downloadFavicon(candidate, force)
 		if err == nil {
 			return localPath, nil
 		}
 		lastErr = err
 	}
+
+	// 所有候选都失败时的补充路径:有些静态服务器把图标放在 /favicon.ico/
+	// 目录里(直接请求 /favicon.ico 会 301 到目录页),或 SPA 对 /favicon.ico
+	// 回退成 index.html —— 两种情况拿到的都是 HTML 而不是图片。此时解析该
+	// HTML 里指向图片的链接再试一次。只在失败路径触发,成功时不会多发请求。
+	for _, candidate := range candidates {
+		name := strings.TrimSuffix(candidate, "/")
+		if !strings.HasSuffix(name, "/favicon.ico") {
+			continue
+		}
+		for _, discovered := range discoverImageLinks(candidate) {
+			localPath, err := s.downloadFavicon(discovered, force)
+			if err == nil {
+				return localPath, nil
+			}
+			lastErr = err
+		}
+	}
 	return "", lastErr
 }
 
 // downloadFavicon 下载图标到本地 favicon 目录，返回 HTTP 可访问的相对路径。
-func (s *Service) downloadFavicon(iconURL string) (string, error) {
+func (s *Service) downloadFavicon(iconURL string, force bool) (string, error) {
 	target, err := validateFetchURL(iconURL)
 	if err != nil {
 		return "", err
@@ -426,9 +491,12 @@ func (s *Service) downloadFavicon(iconURL string) (string, error) {
 	sum := md5.Sum([]byte(iconURL))
 	filename := hex.EncodeToString(sum[:]) + ext
 	dest := filepath.Join(s.faviconDir(), filename)
-	if _, err := os.Stat(dest); err == nil {
-		return "/api/bookmarks/favicons/" + filename, nil
+	if !force {
+		if _, err := os.Stat(dest); err == nil {
+			return faviconSrcPrefix + filename, nil
+		}
 	}
+	// force(「重新抓取/覆盖」)时跳过上面这条缓存短路,让内容真的被刷新。
 
 	if err := os.MkdirAll(s.faviconDir(), 0o755); err != nil {
 		return "", err
@@ -447,10 +515,15 @@ func (s *Service) downloadFavicon(iconURL string) (string, error) {
 	if err := tmp.Close(); err != nil {
 		return "", err
 	}
+	// force 覆盖时目标文件可能已存在:Windows 上 os.Rename 拒绝覆盖,
+	// 先移除旧文件再改名(缓存文件,短暂空窗可接受,下一次请求会重新命中)。
+	if force {
+		_ = os.Remove(dest)
+	}
 	if err := os.Rename(tmpName, dest); err != nil {
 		return "", err
 	}
-	return "/api/bookmarks/favicons/" + filename, nil
+	return faviconSrcPrefix + filename, nil
 }
 
 // sniffImageExt 通过魔数判断内容格式，返回对应扩展名（无法识别时返回空）。
@@ -581,4 +654,196 @@ func extensionFor(contentType, iconURL string) (string, error) {
 	}
 	// 不再默认 .png：调用方会再做魔数校验。
 	return "", nil
+}
+
+// faviconIconMissing 判断图标引用是否指向本站本地 favicon 但文件已不存在。
+//
+// 仅当引用是本站本地路径且文件名合法时返回 true;远端 URL、文字图标、
+// 非标准文件名一律返回 false(无从判定,保持原有「视为已有图标」的行为)。
+//
+// 用于两个场景:
+//   - 导入:导出不含二进制(见 export.go 文件头),换实例导入后本地引用必然失效。
+//     导入时清空这类引用,让它回归「缺少图标」,由抓取流程补齐。
+//   - 批量抓取:把「引用存在但文件丢失」也算作缺少图标,避免 only_missing
+//     把它们永久跳过。
+func (s *Service) faviconIconMissing(iconSrc string) bool {
+	raw := strings.TrimSpace(iconSrc)
+	if !strings.HasPrefix(raw, faviconSrcPrefix) {
+		return false
+	}
+	name := strings.TrimPrefix(raw, faviconSrcPrefix)
+	if !faviconFilenameRe.MatchString(name) {
+		return false
+	}
+	_, err := os.Stat(filepath.Join(s.faviconDir(), name))
+	return os.IsNotExist(err)
+}
+
+// gcFaviconFiles 删除 favicon 目录里已不被任何书签引用的文件。
+//
+// 图标按 md5(iconURL) 命名并永久缓存,但删除书签、改网址后重抓、导入 replace
+// 都会让旧文件失去引用。此前没有任何回收路径,data/bookmarks-favicons 只会
+// 单调增长。删除类操作后调用本函数回收孤儿文件。
+//
+// 宽限期见 faviconGCGrace:刚写入、尚未写回数据库的文件不会被误删。
+func (s *Service) gcFaviconFiles(ctx context.Context, db *sql.DB) {
+	referenced, err := s.referencedFaviconNames(ctx, db)
+	if err != nil {
+		return
+	}
+	entries, err := os.ReadDir(s.faviconDir())
+	if err != nil {
+		return
+	}
+	cutoff := time.Now().Add(-faviconGCGrace)
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		if !faviconFilenameRe.MatchString(name) {
+			// 跳过 dl-*.tmp 等临时文件:它们可能在写入中。
+			continue
+		}
+		if referenced[name] {
+			continue
+		}
+		info, err := entry.Info()
+		if err != nil || info.ModTime().After(cutoff) {
+			continue
+		}
+		_ = os.Remove(filepath.Join(s.faviconDir(), name))
+	}
+}
+
+// referencedFaviconNames 返回仍被书签引用的本地 favicon 文件名集合。
+func (s *Service) referencedFaviconNames(ctx context.Context, db *sql.DB) (map[string]bool, error) {
+	rows, err := db.QueryContext(ctx,
+		`SELECT icon_src FROM bookmarks WHERE icon_src LIKE ?`, faviconSrcPrefix+"%")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]bool{}
+	for rows.Next() {
+		var src sql.NullString
+		if err := rows.Scan(&src); err != nil {
+			return nil, err
+		}
+		name := strings.TrimPrefix(strings.TrimSpace(src.String), faviconSrcPrefix)
+		if faviconFilenameRe.MatchString(name) {
+			out[name] = true
+		}
+	}
+	return out, rows.Err()
+}
+
+// maxIconDiscovery 是一次 HTML 发现最多采纳的图片链接数,避免把导航图当图标。
+const maxIconDiscovery = 3
+
+// discoverImageLinks 请求 rawURL;不是 HTML(或请求失败)时返回 nil。
+// 若是 HTML(目录页/SPA 回退页),解析其中指向图片的 <a>/<link> 链接,
+// 按重定向后的最终地址解析成绝对 URL,并逐个过 SSRF 校验。
+func discoverImageLinks(rawURL string) []string {
+	base, err := validateFetchURL(rawURL)
+	if err != nil {
+		return nil
+	}
+	client := safeHTTPClient(8 * time.Second)
+	req, err := http.NewRequest(http.MethodGet, base.String(), nil)
+	if err != nil {
+		return nil
+	}
+	req.Header.Set("User-Agent", faviconUA)
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil
+	}
+	if !strings.Contains(strings.ToLower(resp.Header.Get("Content-Type")), "html") {
+		return nil
+	}
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 512*1024))
+	if err != nil {
+		return nil
+	}
+	doc, err := html.Parse(strings.NewReader(string(body)))
+	if err != nil {
+		return nil
+	}
+	raw := imageLinksFromHTML(doc, resp.Request.URL)
+	out := make([]string, 0, len(raw))
+	for _, link := range raw {
+		if _, verr := validateFetchURL(link); verr != nil {
+			continue
+		}
+		out = append(out, link)
+	}
+	return out
+}
+
+// imageLinksFromHTML 收集文档里指向图片资源的 href,并基于 base 解析为绝对地址。
+// 纯函数(不发请求、不做 SSRF 校验),便于单测;校验由调用方完成。
+func imageLinksFromHTML(doc *html.Node, base *url.URL) []string {
+	if doc == nil || base == nil {
+		return nil
+	}
+	out := make([]string, 0, maxIconDiscovery)
+	seen := map[string]bool{}
+	var walk func(*html.Node)
+	walk = func(n *html.Node) {
+		if len(out) >= maxIconDiscovery {
+			return
+		}
+		if n.Type == html.ElementNode && (n.Data == "a" || n.Data == "link") {
+			for _, attr := range n.Attr {
+				if attr.Key != "href" {
+					continue
+				}
+				href := strings.TrimSpace(attr.Val)
+				if !isImageHref(href) {
+					continue
+				}
+				ref, perr := url.Parse(href)
+				if perr != nil {
+					continue
+				}
+				resolved := base.ResolveReference(ref)
+				if resolved == nil {
+					continue
+				}
+				s := resolved.String()
+				if seen[s] {
+					continue
+				}
+				seen[s] = true
+				out = append(out, s)
+				break
+			}
+		}
+		for c := n.FirstChild; c != nil; c = c.NextSibling {
+			walk(c)
+		}
+	}
+	walk(doc)
+	return out
+}
+
+// isImageHref 判断 href 去掉 query/fragment 后是否以图片扩展名结尾。
+func isImageHref(href string) bool {
+	if href == "" || strings.HasPrefix(strings.ToLower(href), "javascript:") {
+		return false
+	}
+	u, err := url.Parse(href)
+	if err != nil {
+		return false
+	}
+	switch strings.ToLower(path.Ext(u.Path)) {
+	case ".png", ".jpg", ".jpeg", ".gif", ".webp", ".ico", ".svg":
+		return true
+	}
+	return false
 }

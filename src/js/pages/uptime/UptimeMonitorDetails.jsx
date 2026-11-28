@@ -127,11 +127,11 @@ function UptimeMonitorDetails({
         <div className="grid grid-cols-2 gap-2 cq-lg:grid-cols-1">
           <div className="rounded-md border border-kumo-interact/85 bg-kumo-base p-2">
             <span className="text-[10px] text-kumo-subtle select-none">24小时可用率</span>
-            <span className="mt-1 block text-base font-semibold tabular-nums text-kumo-strong">{uptime24h}%</span>
+            <span className="mt-1 block text-base font-semibold tabular-nums text-kumo-strong">{uptime24h}</span>
           </div>
           <div className="rounded-md border border-kumo-interact/85 bg-kumo-base p-2">
             <span className="text-[10px] text-kumo-subtle select-none">30天可用率</span>
-            <span className="mt-1 block text-base font-semibold tabular-nums text-kumo-strong">{uptime30d}%</span>
+            <span className="mt-1 block text-base font-semibold tabular-nums text-kumo-strong">{uptime30d}</span>
           </div>
         </div>
       </div>

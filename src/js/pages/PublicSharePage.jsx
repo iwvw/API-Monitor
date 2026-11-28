@@ -16,9 +16,9 @@ import {
   LogIn,
   Send,
   TrendingUp,
-} from '../components/Icons.jsx';
+} from '../components/PublicIcons.jsx';
 import useStore from '../store.js';
-import { SectionCard } from '../components/ui/AppPrimitives.jsx';
+import { SectionCard } from '../components/ui/CardPrimitives.jsx';
 import { fileboxDirectURL, fileboxDownloadEndpoint } from '../modules/fileboxLinks.js';
 import { toast } from '../modules/toast.js';
 import { formatDateTime, formatFileSize } from '../modules/utils.js';
@@ -64,7 +64,7 @@ function saveBlob(blob, filename) {
   document.body.appendChild(link);
   link.click();
   document.body.removeChild(link);
-  URL.revokeObjectURL(url);
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 function formatExpiry(value) {
@@ -91,13 +91,6 @@ function PublicSharePage() {
         const res = await axios.get(`/api/filebox/public/${encodeURIComponent(code)}`);
         const nextEntry = res.data?.data || null;
         if (!cancelled) setEntry(nextEntry);
-        if (nextEntry?.type === 'text' && !nextEntry.requiresPassword) {
-          const contentRes = await axios.get(fileboxDownloadEndpoint(nextEntry.code), {
-            responseType: 'blob',
-          });
-          const content = await contentRes.data.text();
-          if (!cancelled) setTextPreview(content);
-        }
       } catch (err) {
         if (!cancelled) setError(err.response?.data?.error || '分享不存在或已过期');
       } finally {
@@ -344,14 +337,16 @@ function PublicSharePage() {
                           labels={{ copyAction: '复制分享链接' }}
                         />
                       </div>
-                      <div className="min-w-0">
-                        <div className="mb-1 text-[11px] text-kumo-subtle">直链（源码）</div>
-                        <ClipboardText
-                          text={fileboxDirectURL(entry.code)}
-                          tooltip={{ text: '复制直链', copiedText: '直链已复制' }}
-                          labels={{ copyAction: '复制直链' }}
-                        />
-                      </div>
+                      {!entry.requiresPassword && (
+                        <div className="min-w-0">
+                          <div className="mb-1 text-[11px] text-kumo-subtle">直链（源码）</div>
+                          <ClipboardText
+                            text={fileboxDirectURL(entry.code)}
+                            tooltip={{ text: '复制直链', copiedText: '直链已复制' }}
+                            labels={{ copyAction: '复制直链' }}
+                          />
+                        </div>
+                      )}
                     </div>
                     {isFile || !textPreview ? (
                       <Button

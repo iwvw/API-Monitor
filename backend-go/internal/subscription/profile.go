@@ -36,8 +36,12 @@ func (s *Service) getProfile(w http.ResponseWriter, r *http.Request, db *sql.DB,
 
 func (s *Service) createProfile(w http.ResponseWriter, r *http.Request, db *sql.DB) {
 	var input NodeLibrary
-	if !decodeJSON(w, r, &input) {
+	fields, ok := decodeJSONFields(w, r, &input)
+	if !ok {
 		return
+	}
+	if _, present := fields["enabled"]; !present {
+		input.Enabled = true
 	}
 	if strings.TrimSpace(input.Name) == "" {
 		response.Error(w, http.StatusBadRequest, "节点库名称不能为空")
@@ -46,7 +50,6 @@ func (s *Service) createProfile(w http.ResponseWriter, r *http.Request, db *sql.
 	settings, _ := loadSettings(r.Context(), db)
 	id := firstNonEmpty(input.ID, randomID("profile"))
 	subInput := subscriptionFromProfile(input)
-	subInput.Enabled = input.Enabled || !isExplicitFalse(r, "enabled")
 	subInput.RateLimitEnabled = input.RateLimitEnabled || settings.DefaultRateLimitEnabled
 	templateID := firstNonEmpty(input.TemplateID, settings.DefaultTemplateID, defaultTemplateID)
 	if err := validateTemplateReference(r.Context(), db, templateID); err != nil {
@@ -67,20 +70,30 @@ func (s *Service) createProfile(w http.ResponseWriter, r *http.Request, db *sql.
 	if limitPerMin <= 0 {
 		limitPerMin = settings.DefaultRateLimitPerMin
 	}
-	if err := upsertProfile(r.Context(), db, id, subInput, templateID, trafficSource, cycleType, cycleDay, limitPerMin, input.SelectionMode, input.IncludeInternalNodes); err != nil {
+	tx, err := db.BeginTx(r.Context(), nil)
+	if err != nil {
+		response.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	defer tx.Rollback()
+	if err := upsertProfile(r.Context(), tx, id, subInput, templateID, trafficSource, cycleType, cycleDay, limitPerMin, input.SelectionMode, input.IncludeInternalNodes); err != nil {
 		response.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	// explicit 清单与套餐共用 subscription_plan_nodes（plan_id 存 profile id），
 	// 写入后立即为涉及节点排队 reconcile，让 Agent 下发新凭据范围。
-	if _, _, err := replacePlanNodeRelations(r.Context(), db, nil, id, input.InternalNodeIDs); err != nil {
+	if _, _, err := replacePlanNodeRelations(r.Context(), db, tx, id, input.InternalNodeIDs); err != nil {
 		response.Error(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if nodeIDs, err := reconcilequeue.NodeIDsForProfile(r.Context(), db, id); err == nil && len(nodeIDs) > 0 {
-		_ = reconcilequeue.EnqueueNodes(r.Context(), db, nodeIDs, "profile policy changed")
+	if nodeIDs, err := reconcilequeue.NodeIDsForProfile(r.Context(), tx, id); err == nil && len(nodeIDs) > 0 {
+		_ = reconcilequeue.EnqueueNodes(r.Context(), tx, nodeIDs, "profile policy changed")
 	}
-	if err := upsertDefaultUpstream(r.Context(), db, id, subInput, refreshHours); err != nil {
+	if err := upsertDefaultUpstream(r.Context(), tx, id, subInput, refreshHours); err != nil {
+		response.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if err := tx.Commit(); err != nil {
 		response.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -122,6 +135,12 @@ func (s *Service) updateProfile(w http.ResponseWriter, r *http.Request, db *sql.
 	cycleType := normalizeCycleType(input.CycleType)
 	refreshHours := intDefault(input.UpstreamRefreshHours, defaultRefreshHours)
 	limitPerMin := intDefault(input.RateLimitPerMinute, defaultLimitPerMin)
+	// 先校验节点存在性:本接口没有事务包裹,replacePlanNodeRelations 会先
+	// DELETE 再校验,若在这里之前不拦住失效节点,已有授权会被删且只部分回填。
+	if err := validatePlanNodeIDs(r.Context(), db, input.InternalNodeIDs); err != nil {
+		response.Error(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	if err := upsertProfile(r.Context(), db, id, subInput, templateID, trafficSource, cycleType, cycleDay, limitPerMin, input.SelectionMode, input.IncludeInternalNodes); err != nil {
 		response.Error(w, http.StatusInternalServerError, err.Error())
 		return
@@ -213,8 +232,12 @@ func (s *Service) getSubscription(w http.ResponseWriter, r *http.Request, db *sq
 
 func (s *Service) createSubscription(w http.ResponseWriter, r *http.Request, db *sql.DB) {
 	var input Subscription
-	if !decodeJSON(w, r, &input) {
+	fields, ok := decodeJSONFields(w, r, &input)
+	if !ok {
 		return
+	}
+	if _, present := fields["enabled"]; !present {
+		input.Enabled = true
 	}
 	if strings.TrimSpace(input.Name) == "" {
 		response.Error(w, http.StatusBadRequest, "订阅名称不能为空")
@@ -238,8 +261,6 @@ func (s *Service) createSubscription(w http.ResponseWriter, r *http.Request, db 
 		response.Error(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	effectiveEnabled := input.Enabled || !isExplicitFalse(r, "enabled")
-	input.Enabled = effectiveEnabled
 	tx, err := db.BeginTx(r.Context(), nil)
 	if err != nil {
 		response.Error(w, http.StatusInternalServerError, err.Error())
@@ -259,7 +280,7 @@ func (s *Service) createSubscription(w http.ResponseWriter, r *http.Request, db 
 		manual_download_bytes, expire_at, cycle_type, cycle_day, cycle_start, cycle_end,
 		rate_limit_enabled, rate_limit_per_minute, node_filter_ids, include_internal_nodes, include_external_nodes, updated_at
 	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
-		id, profileID, input.PlanID, input.Name, input.Remark, boolToInt(effectiveEnabled), token, randomUUID(), randomCredential(), templateID, "panel", nil,
+		id, profileID, input.PlanID, input.Name, input.Remark, boolToInt(input.Enabled), token, randomUUID(), randomCredential(), templateID, "panel", nil,
 		nil, 0, defaultRefreshHours, 0, 0,
 		0, nil, "none", 1, nil, nil,
 		0, 0, "", 0, 0)

@@ -58,7 +58,7 @@ export function cacheSet(key, value, ttlMs) {
 export const CACHE_TTL = {
   dash: 10 * 60 * 1000, // 仪表盘聚合（10 个接口，含 Koyeb/Fly 慢上游）：跨刷新 10 分钟
   apiStats: 2 * 60 * 1000,
-  openai: 2 * 60 * 1000,
+  modelhub: 2 * 60 * 1000,
   uptime: 60 * 1000,
   cfAccounts: 5 * 60 * 1000,
   cfZones: 5 * 60 * 1000,
@@ -73,9 +73,9 @@ export const MAX_COLS = 8;
 export const TILE_DEFS = [
   { id: 'apiTrend', title: 'API 调用趋势', w: 4, h: 2 },
   { id: 'apiTokens', title: 'API 令牌消耗', w: 1, h: 2 },
-  { id: 'openaiRequests', title: '模型网关请求', w: 2, h: 2 },
-  { id: 'openaiLatency', title: '模型网关延迟', w: 2, h: 2 },
-  { id: 'openaiErrors', title: '模型网关错误数', w: 1, h: 2 },
+  { id: 'modelhubRequests', title: '模型网关请求', w: 2, h: 2 },
+  { id: 'modelhubLatency', title: '模型网关延迟', w: 2, h: 2 },
+  { id: 'modelhubErrors', title: '模型网关错误数', w: 1, h: 2 },
   { id: 'hostCpu', title: '主机性能', w: 2, h: 2 },
   { id: 'uptime', title: '监控可用率', w: 1, h: 2 },
   { id: 'cfZone', title: 'Cloudflare Zone 请求', w: 2, h: 2 },
@@ -86,6 +86,14 @@ export const TILE_DEFS = [
   { id: 'statusPages', title: '状态页', w: 1, h: 2, minH: 2 },
 ];
 export const TILE_DEFS_BY_ID = Object.fromEntries(TILE_DEFS.map((d) => [d.id, d]));
+
+// 旧的看板 tile id（模型网关曾用 openai* 前缀）→ 重命名后的新 id。
+// 历史用户 tileLayout 里仍是旧 id，加载时映射到新 id 以保留其布局。
+export const LEGACY_TILE_ID_MAP = {
+  openaiRequests: 'modelhubRequests',
+  openaiLatency: 'modelhubLatency',
+  openaiErrors: 'modelhubErrors',
+};
 
 // 模块间跳转：与侧边栏行为一致（切换激活 tab + 同步地址栏），保证刷新后仍停留在目标模块。
 export const navigateModule = (module, query) => {
@@ -121,12 +129,12 @@ export function widthTier(w) {
 export function packDefaultLayout(cols) {
   const tiles = [
     { i: 'apiTrend', w: 4 },
-    { i: 'openaiRequests', w: 2 },
+    { i: 'modelhubRequests', w: 2 },
     { i: 'hostCpu', w: 2 },
-    { i: 'openaiLatency', w: 2 },
+    { i: 'modelhubLatency', w: 2 },
     { i: 'cfZone', w: 2 },
     { i: 'apiTokens', w: 1 },
-    { i: 'openaiErrors', w: 1 },
+    { i: 'modelhubErrors', w: 1 },
     { i: 'uptime', w: 1 },
     { i: 'servers', w: 2 },
     { i: 'paas', w: 2 },

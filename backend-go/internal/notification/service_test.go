@@ -282,10 +282,79 @@ func TestNotificationMessageLifecyclePairs(t *testing.T) {
 	}
 }
 
+func TestNotificationDisconnectAndRecoveryTime(t *testing.T) {
+	disconnect := time.Date(2026, 11, 4, 18, 1, 50, 0, time.UTC)
+	recoverAt := time.Date(2026, 11, 4, 18, 7, 22, 0, time.UTC)
+	startedAt := time.Date(2026, 11, 4, 18, 4, 52, 0, time.UTC)
+
+	tests := []struct {
+		name     string
+		current  map[string]interface{}
+		previous map[string]interface{}
+		resolve  bool
+		want     time.Time
+	}{
+		{
+			name:    "open uses current lastActive",
+			current: map[string]interface{}{"lastActive": disconnect.Format(time.RFC3339)},
+			want:    disconnect,
+		},
+		{
+			name:     "resolve prefers previous lastActive",
+			current:  map[string]interface{}{"lastActive": recoverAt.Format(time.RFC3339)},
+			previous: map[string]interface{}{"lastActive": disconnect.Format(time.RFC3339)},
+			resolve:  true,
+			want:     disconnect,
+		},
+		{
+			name:    "downDurationMs wins over lastActive",
+			current: map[string]interface{}{"lastActive": recoverAt.Format(time.RFC3339), "downDurationMs": int64(5 * time.Minute / time.Millisecond)},
+			want:    recoverAt.Add(-5 * time.Minute),
+		},
+		{
+			name: "falls back to lifecycle start",
+			want: startedAt,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got := resolveNotificationDisconnectTime(test.current, test.previous, startedAt, recoverAt, test.resolve)
+			if !got.Equal(test.want) {
+				t.Fatalf("disconnect time = %s, want %s", got, test.want)
+			}
+		})
+	}
+
+	message := formatMessage(Rule{Name: "宕机恢复", EventType: "online", Severity: "info"}, map[string]interface{}{
+		"serverName":     "笔电",
+		"status":         "online",
+		"disconnectedAt": disconnect.Format(time.RFC3339),
+		"recoveredAt":    recoverAt.Format(time.RFC3339),
+		"downDuration":   "5 分钟 32 秒",
+	}, time.UTC)
+	for _, want := range []string{"断开时间: 2026/11/04 18:01:50", "恢复时间: 2026/11/04 18:07:22", "持续时间: 5 分钟 32 秒"} {
+		if !strings.Contains(message, want) {
+			t.Fatalf("availability template missing %q: %s", want, message)
+		}
+	}
+
+	templateData := notificationTemplateData(map[string]interface{}{
+		"disconnectedAt": disconnect.Format(time.RFC3339),
+		"recoveredAt":    recoverAt.Format(time.RFC3339),
+	}, time.UTC)
+	if got := stringValue(templateData["disconnectedAtLocal"]); got != "2026/11/04 18:01:50" {
+		t.Fatalf("disconnectedAtLocal = %q", got)
+	}
+	if got := stringValue(templateData["recoveredAtLocal"]); got != "2026/11/04 18:07:22" {
+		t.Fatalf("recoveredAtLocal = %q", got)
+	}
+}
+
 // TestTelegramLifecycleRecoversAfterRestartAndDeletion 验证两个自愈场景：
 // (1) 服务器重启后 state 从 SQLite 持久恢复，RefreshLifecycle 仍编辑原消息而非重发；
 // (2) TG 消息被删除后 editMessageText 失败，RefreshLifecycle 回退重发新消息并更新 state，
-//     后续刷新编辑新消息（不再每次刷新都新建）。
+//
+//	后续刷新编辑新消息（不再每次刷新都新建）。
 func TestTelegramLifecycleRecoversAfterRestartAndDeletion(t *testing.T) {
 	ctx := context.Background()
 	dataDir := t.TempDir()
@@ -327,7 +396,7 @@ func TestTelegramLifecycleRecoversAfterRestartAndDeletion(t *testing.T) {
 			nextMessageID++
 			resultMessageID = nextMessageID
 		}
-return &http.Response{
+		return &http.Response{
 			StatusCode: http.StatusOK,
 			Header:     make(http.Header),
 			Body:       io.NopCloser(strings.NewReader(fmt.Sprintf(`{"ok":true,"result":{"message_id":%d,"chat":{"id":10001}}}`, resultMessageID))),
@@ -739,6 +808,57 @@ func TestHistoryConfigEventCatalogAndPreview(t *testing.T) {
 	}
 	if !payload.Success || payload.Data.Title != "[critical] API Gateway" || !strings.Contains(payload.Data.Message, "timeout") {
 		t.Fatalf("unexpected preview payload: %#v", payload)
+	}
+}
+
+func TestPreviewTemplateInjectsAvailabilityTimes(t *testing.T) {
+	service := testNotificationService(t)
+
+	body := `{
+		"title_template":"{{serverName}} 恢复",
+		"message_template":"断开时间: {{disconnectedAtLocal}}\n恢复时间: {{recoveredAtLocal}}",
+		"data":{"sourceModule":"server","eventType":"online","severity":"info","serverName":"笔电","status":"online","lastActive":"2026-11-04T18:01:50Z"}
+	}`
+	req := httptest.NewRequest(http.MethodPost, "/api/notification/templates/preview", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	res := httptest.NewRecorder()
+	service.ServeHTTP(res, req)
+	if res.Code != http.StatusOK {
+		t.Fatalf("preview status = %d body=%s", res.Code, res.Body.String())
+	}
+	var payload struct {
+		Success bool `json:"success"`
+		Data    struct {
+			Title     string   `json:"title"`
+			Message   string   `json:"message"`
+			Variables []string `json:"variables"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(res.Body.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if !payload.Success || payload.Data.Title != "笔电 恢复" {
+		t.Fatalf("unexpected preview payload: %#v", payload)
+	}
+	loc, _ := service.systemLocation(context.Background())
+	wantDisconnect := "断开时间: " + toLocalTimeStr("2026-11-04T18:01:50Z", loc)
+	if !strings.Contains(payload.Data.Message, wantDisconnect) {
+		t.Fatalf("preview missing %q: %#v", wantDisconnect, payload.Data)
+	}
+	if !strings.Contains(payload.Data.Message, "恢复时间: ") {
+		t.Fatalf("preview missing recover time: %#v", payload.Data)
+	}
+	if strings.Contains(payload.Data.Message, "{{") {
+		t.Fatalf("preview left unresolved placeholder: %#v", payload.Data)
+	}
+	hasDisconnectVar := false
+	for _, name := range payload.Data.Variables {
+		if name == "disconnectedAtLocal" || name == "recoveredAtLocal" {
+			hasDisconnectVar = true
+		}
+	}
+	if !hasDisconnectVar {
+		t.Fatalf("preview variables missing disconnect/recover locals: %#v", payload.Data.Variables)
 	}
 }
 

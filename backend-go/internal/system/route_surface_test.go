@@ -30,8 +30,8 @@ func TestRouteSurfaceLeafRoutesExposed(t *testing.T) {
 		{"/api/server/forward/{id}/deploy", "POST", nil},
 		{"/api/server/forward/preflight", "POST", nil},
 		{"/api/server/forward/available-ports", "GET", []string{"server_id"}},
-		{"/api/openai/analytics/logs", "GET", []string{"page", "pageSize", "status", "model"}},
-		{"/api/openai/analytics/charts", "GET", []string{"granularity", "days"}},
+		{"/api/modelhub/analytics/logs", "GET", []string{"page", "pageSize", "status", "model"}},
+		{"/api/modelhub/analytics/charts", "GET", []string{"granularity", "days"}},
 		{"/api/scheduler/runs", "DELETE", []string{"all", "days"}},
 		{"/api/cron/logs", "GET", []string{"task_id", "all", "days"}},
 		{"/api/server/v2/docker/{serverId}/containers/{containerId}/logs", "GET", []string{"tail", "since"}},
@@ -82,7 +82,7 @@ func TestGetRouteLeafResolvesConcrete(t *testing.T) {
 		{"/api/server/forward/fwd1/deploy", "POST"},
 		{"/api/server/forward/fwd1/status", "GET"},
 		{"/api/server/forward/available-ports?server_id=h1", "GET"},
-		{"/api/openai/analytics/logs?page=1&pageSize=20", "GET"},
+		{"/api/modelhub/analytics/logs?page=1&pageSize=20", "GET"},
 		{"/api/scheduler/runs", "DELETE"},
 	}
 	for _, tc := range cases {
@@ -161,7 +161,7 @@ func TestAggregatePrefixesHaveLeafChildren(t *testing.T) {
 	for _, r := range service.apiDocs()["routes"].([]apiDocRoute) {
 		byPath[r.Prefix] = r
 	}
-	prefixes := []string{"/api/admin-ai", "/api/server/forward", "/api/scheduler", "/api/cron", "/api/openai"}
+	prefixes := []string{"/api/admin-ai", "/api/server/forward", "/api/scheduler", "/api/cron", "/api/modelhub"}
 	for _, p := range prefixes {
 		leaf := false
 		for path := range byPath {
@@ -184,7 +184,7 @@ func TestGetRouteNotFoundSuggestsNearby(t *testing.T) {
 
 	cases := []string{
 		"/api/nonexistent/xyz",       // 无任何前缀命中 → 404 + 邻近建议
-		"/api/openai/analytics/foo",  // 前缀族存在但无叶子 → 聚合前缀提示（含子路由）
+		"/api/modelhub/analytics/foo",  // 前缀族存在但无叶子 → 聚合前缀提示（含子路由）
 	}
 	for _, p := range cases {
 		_, err := service.getRouteContract(map[string]interface{}{"path": p})

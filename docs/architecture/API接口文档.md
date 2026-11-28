@@ -948,7 +948,7 @@ Authorization: Bearer <API_KEY>
 
 **请求**:
 ```http
-GET /api/openai
+GET /api/modelhub
 ```
 
 **响应**:
@@ -971,7 +971,7 @@ GET /api/openai
 
 **请求**:
 ```http
-POST /api/openai
+POST /api/modelhub
 Content-Type: application/json
 
 {

@@ -119,9 +119,31 @@ func (r *ConnectionRegistry) DisconnectIfSocket(serverID string, socket interfac
 
 // disconnectLocked 断开连接（内部使用，需持有锁）
 func (r *ConnectionRegistry) disconnectLocked(conn *AgentConnection) {
+	if conn == nil {
+		return
+	}
+	// Agent 连接注册的是 *EngineIOSession(没有 Close 方法),必须显式关闭其
+	// 底层 WebSocket;否则类型断言永远失败,Disconnect/Register/cleanupStale/Stop
+	// 都关不掉 Agent socket。
+	if session, ok := conn.Socket.(*EngineIOSession); ok {
+		closeEngineIOSessionConn(session)
+		return
+	}
 	// 关闭 WebSocket 连接
 	if ws, ok := conn.Socket.(interface{ Close() error }); ok {
-		ws.Close()
+		_ = ws.Close()
+	}
+}
+
+func closeEngineIOSessionConn(session *EngineIOSession) {
+	if session == nil {
+		return
+	}
+	session.mu.Lock()
+	conn := session.wsConn
+	session.mu.Unlock()
+	if conn != nil {
+		_ = conn.Close()
 	}
 }
 

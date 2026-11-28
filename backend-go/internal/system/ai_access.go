@@ -206,19 +206,27 @@ func (s *Service) aiAccessOverview(r *http.Request) (map[string]interface{}, err
 	if err != nil {
 		return nil, err
 	}
+	maskedKey := maskSecret(key)
+	agentKeyPayload := map[string]interface{}{
+		"value":     key,
+		"masked":    maskedKey,
+		"createdAt": createdAt,
+		"header":    "Authorization: Bearer " + key,
+	}
+	guideKey := key
+	if s.isAISubjectRequest(r) {
+		agentKeyPayload["value"] = maskedKey
+		agentKeyPayload["header"] = "Authorization: Bearer " + maskedKey
+		guideKey = maskedKey
+	}
 	return map[string]interface{}{
-		"agentKey": map[string]interface{}{
-			"value":     key,
-			"masked":    maskSecret(key),
-			"createdAt": createdAt,
-			"header":    "Authorization: Bearer " + key,
-		},
+		"agentKey": agentKeyPayload,
 		"endpoints": map[string]string{
 			"manifest": manifestURL,
 			"mcp":      mcpURL,
 			"openapi":  openAPIURL,
 		},
-		"guide": s.aiAccessGuide(mcpURL, manifestURL, openAPIURL, baseURL, key, tools),
+		"guide": s.aiAccessGuide(mcpURL, manifestURL, openAPIURL, baseURL, guideKey, tools),
 		"tools": tools,
 		"policy": map[string]interface{}{
 			"allowedMethods": []string{http.MethodGet, http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete},
@@ -308,7 +316,26 @@ func (s *Service) getAIAgentAccessPolicy(ctx context.Context, db *sql.DB) (strin
 	return AIAccessPolicyDefault, nil
 }
 
+const aiAgentCallerHeader = "X-AI-Agent"
+
+var errAISubjectForbidden = fmt.Errorf("该操作仅允许管理员会话执行,AI 主体无权调用")
+
+func (s *Service) isAISubjectRequest(r *http.Request) bool {
+	if strings.EqualFold(strings.TrimSpace(r.Header.Get(aiAgentCallerHeader)), "api-monitor") {
+		return true
+	}
+	if s.apiKeys != nil {
+		if _, err := s.apiKeys.Authorize(r.Context(), r, apikeys.ScopeAIMCP); err == nil {
+			return true
+		}
+	}
+	return false
+}
+
 func (s *Service) setAIAgentAccessPolicy(r *http.Request) (map[string]interface{}, error) {
+	if s.isAISubjectRequest(r) {
+		return nil, errAISubjectForbidden
+	}
 	var payload struct {
 		Policy string `json:"policy"`
 	}
@@ -563,6 +590,22 @@ func (s *Service) callAITool(r *http.Request, name string, args map[string]inter
 		return s.agentFileStat(r.Context(), args)
 	case "agent_file_chmod":
 		return s.agentFileChmod(r.Context(), args)
+	case "agent_file_list":
+		return s.agentFileList(r.Context(), args)
+	case "agent_file_read":
+		return s.agentFileRead(r.Context(), args)
+	case "agent_file_write":
+		return s.agentFileWrite(r.Context(), args)
+	case "agent_file_mkdir":
+		return s.agentFileMkdir(r.Context(), args)
+	case "agent_file_rename":
+		return s.agentFileRename(r.Context(), args)
+	case "agent_file_delete":
+		return s.agentFileDelete(r.Context(), args)
+	case "agent_file_rmdir":
+		return s.agentFileRmdir(r.Context(), args)
+	case "host_file_copy":
+		return s.hostFileCopy(r.Context(), args)
 	case "run_batch":
 		return s.aiRunBatch(r, args)
 	default:
@@ -623,7 +666,7 @@ func (s *Service) aiRouteCatalog(args map[string]interface{}) (interface{}, erro
 			continue
 		}
 		if search != "" {
-			haystack := strings.ToLower(item.Prefix + " " + item.Detail + " " + item.Description)
+			haystack := strings.ToLower(item.Prefix + " " + item.Detail + " " + item.Description + " " + schemaSearchWords(item.RequestSchema))
 			if !strings.Contains(haystack, search) {
 				continue
 			}
@@ -809,7 +852,7 @@ func sortedGroupList(groups map[string]bool) []string {
 // 供纠偏提示中使用真实存在的模块代码。
 func providerCodeInIntent(intent string) (string, bool) {
 	lower := strings.ToLower(intent)
-	for _, code := range []string{"cf", "cloudflare", "aliyun", "tencent", "flyio", "koyeb", "github", "openai", "oracle", "m365", "onepanel"} {
+	for _, code := range []string{"cf", "cloudflare", "aliyun", "tencent", "flyio", "koyeb", "github", "modelhub", "oracle", "m365", "onepanel"} {
 		if strings.Contains(lower, code) {
 			return code, true
 		}
@@ -1195,6 +1238,7 @@ func (s *Service) agentFetchURL(ctx context.Context, args map[string]interface{}
 			"serverId": serverID,
 			"url":      strings.TrimSpace(url),
 			"path":     path,
+			"realPath": boolArg(args, "realPath"),
 		},
 	})
 	if err != nil {
@@ -1220,99 +1264,17 @@ func (s *Service) agentFetchURL(ctx context.Context, args map[string]interface{}
 	return result, nil
 }
 
-// agentTransferFile 是 agent_transfer_file 元工具的实现：把一台 Agent 主机上的文件
-// 搬到另一台 Agent 主机，全程字节不经 AI、也不经面板中转。步骤：
-//  1. 对源主机调 /api/filebox/share-from-agent，源主机 Agent 自己 PUT 到存储节点
-//     （storageTarget=auto 优先节点直传），拿到一次性直链 directUrl；
-//  2. 对目标主机调 /api/server/agent/fetch-url，目标主机自己从直链拉取落盘；
-//  3. 删除临时分享，避免直链残留。
-//
-// AI 全程只传两个路径字符串，无 base64、无 1MB 限制、无分块。适合大文件
-// （5~30MB 及以上）主机间搬运；源或目标任一方离线时对应步骤会返回可读错误。
+// agentTransferFile 是 agent_transfer_file 工具的实现:主机↔主机复制。
+// 统一走面板中继(不再经文件柜),支持 realPath 与目录;参数名与 host_file_copy 兼容。
 func (s *Service) agentTransferFile(ctx context.Context, args map[string]interface{}) (interface{}, error) {
-	sourceServerID, _ := args["sourceServerId"].(string)
-	sourcePath, _ := args["sourcePath"].(string)
-	targetServerID, _ := args["targetServerId"].(string)
-	targetPath, _ := args["targetPath"].(string)
-	if strings.TrimSpace(sourceServerID) == "" || strings.TrimSpace(sourcePath) == "" ||
-		strings.TrimSpace(targetServerID) == "" || strings.TrimSpace(targetPath) == "" {
-		return nil, fmt.Errorf("sourceServerId、sourcePath、targetServerId、targetPath 均为必填")
-	}
-	sourceServerID = strings.TrimSpace(sourceServerID)
-	sourcePath = strings.TrimSpace(sourcePath)
-	targetServerID = strings.TrimSpace(targetServerID)
-	targetPath = strings.TrimSpace(targetPath)
-
-	shareBody := map[string]interface{}{
-		"serverId":      sourceServerID,
-		"remotePath":    sourcePath,
-		"storageTarget": "auto",
-	}
-	if target, ok := args["storageTarget"].(string); ok && strings.TrimSpace(target) != "" {
-		shareBody["storageTarget"] = strings.TrimSpace(target)
-	}
-	shareResult, err := s.callAPIFromAI(ctx, map[string]interface{}{
-		"method": http.MethodPost,
-		"path":   "/api/filebox/share-from-agent",
-		"body":   shareBody,
-	})
+	result, err := s.hostFileCopy(ctx, args)
 	if err != nil {
-		return nil, fmt.Errorf("源主机文件分享失败: %w", err)
+		return nil, err
 	}
-	shareResponse, ok := shareResult.(AICallResponse)
-	if !ok {
-		return nil, fmt.Errorf("源主机文件分享返回异常: %v", shareResult)
+	if m, ok := result.(map[string]interface{}); ok {
+		m["transport"] = "agent-to-agent"
 	}
-	directURL, code := transferShareURL(shareResponse)
-	if directURL == "" {
-		return nil, fmt.Errorf("源主机文件分享未返回可下载直链: %v", shareResponse.Body)
-	}
-
-	fetchResult, fetchErr := s.callAPIFromAI(ctx, map[string]interface{}{
-		"method": http.MethodPost,
-		"path":   "/api/server/agent/fetch-url",
-		"body": map[string]interface{}{
-			"serverId": targetServerID,
-			"url":      directURL,
-			"path":     targetPath,
-		},
-	})
-	// 无论成败都清理临时分享，避免直链长期可用。
-	if code != "" {
-		_, _ = s.callAPIFromAI(ctx, map[string]interface{}{
-			"method": http.MethodDelete,
-			"path":   "/api/filebox/" + code,
-		})
-	}
-	if fetchErr != nil {
-		return nil, fmt.Errorf("目标主机拉取文件失败: %w", fetchErr)
-	}
-
-	fetchBody := interface{}(nil)
-	if fetchResponse, ok := fetchResult.(AICallResponse); ok {
-		fetchBody = fetchResponse.Body
-	}
-	// 目标主机落盘后的真实路径：源/目标都在沙箱内时，虚拟路径没法直接执行。
-	realPath := ""
-	if stat, statErr := s.agentFileStat(ctx, map[string]interface{}{
-		"serverId": targetServerID,
-		"path":     targetPath,
-	}); statErr == nil {
-		if statMap, ok := stat.(map[string]interface{}); ok {
-			realPath, _ = statMap["realPath"].(string)
-		}
-	}
-	return map[string]interface{}{
-		"success":        true,
-		"transport":      "agent-to-agent",
-		"sourceServerId": sourceServerID,
-		"sourcePath":     sourcePath,
-		"targetServerId": targetServerID,
-		"targetPath":     targetPath,
-		"realPath":       realPath,
-		"fetch":          fetchBody,
-		"note":           "字节由源主机直传存储节点、目标主机直链拉取，全程未经 AI 与面板中转。" + agentFilePathNote(realPath),
-	}, nil
+	return result, nil
 }
 
 // transferShareURL 从 share-from-agent 的响应体中提取直链与分享 code。
@@ -1380,9 +1342,10 @@ func (s *Service) agentUploadFile(ctx context.Context, args map[string]interface
 		}
 	}
 
+	realPath := boolArg(args, "realPath")
 	result := AgentFileWriteResult{Size: int64(len(data))}
 	if s.agentFileOps != nil {
-		result, err = s.agentFileOps.WriteAgentFileBytesDetailed(ctx, serverID, path, data, 10*time.Minute)
+		result, err = s.agentFileOps.WriteAgentFileBytesDetailedMode(ctx, serverID, path, data, 10*time.Minute, realPath)
 	} else {
 		var written int64
 		written, err = s.agentFiles.WriteAgentFileBytes(ctx, serverID, path, data, 10*time.Minute)
@@ -1395,14 +1358,15 @@ func (s *Service) agentUploadFile(ctx context.Context, args map[string]interface
 		result.Size = int64(len(data))
 	}
 	return map[string]interface{}{
-		"success":   true,
-		"transport": "agent-direct",
-		"serverId":  serverID,
-		"path":      path,
-		"realPath":  result.RealPath,
-		"size":      result.Size,
-		"sha256":    sha256Hex(data),
-		"note":      agentFilePathNote(result.RealPath),
+		"success":      true,
+		"transport":    "agent-direct",
+		"serverId":     serverID,
+		"path":         path,
+		"realPath":     result.RealPath,
+		"realPathMode": realPath,
+		"size":         result.Size,
+		"sha256":       sha256Hex(data),
+		"note":         agentFilePathNote(result.RealPath),
 	}, nil
 }
 
@@ -1475,6 +1439,19 @@ func stringArg(args map[string]interface{}, key string) string {
 	return ""
 }
 
+// boolArg 读取布尔参数(缺省 false)。兼容 JSON 的 true 与字符串 "true"/"1"。
+func boolArg(args map[string]interface{}, key string) bool {
+	switch v := args[key].(type) {
+	case bool:
+		return v
+	case string:
+		s := strings.TrimSpace(v)
+		return s == "1" || strings.EqualFold(s, "true")
+	default:
+		return false
+	}
+}
+
 // agentUploadChunk 是 agent_upload_chunk 元工具的实现：按 offset 逐块上传。
 //
 // 这是「大文件但要经过 MCP」时的正解：客户端自己读文件切片、自己算 sha256，
@@ -1521,7 +1498,8 @@ func (s *Service) agentUploadChunk(ctx context.Context, args map[string]interfac
 	offset := int64(offsetFloat)
 	if offset > 0 {
 		// 续写前确认目标已有内容，避免块序错乱写进空文件。
-		stat, statErr := s.agentFileOps.AgentFileStat(ctx, serverID, path)
+		// 必须带上 realPath:首块按真实路径写时,这里若退回沙箱路径会误判「文件不存在」。
+		stat, statErr := s.agentFileOps.AgentFileStatMode(ctx, serverID, path, boolArg(args, "realPath"))
 		if statErr != nil {
 			return nil, fmt.Errorf("读取目标文件状态失败（续写需要文件已存在）: %w", statErr)
 		}
@@ -1530,26 +1508,132 @@ func (s *Service) agentUploadChunk(ctx context.Context, args map[string]interfac
 			return nil, fmt.Errorf("offset 不连续：目标文件当前 %d 字节，本块 offset=%d。请按实际长度重传该块", int64(existing), offset)
 		}
 	}
-	result, err := s.agentFileOps.WriteAgentFileChunk(ctx, serverID, path, data, offset, offset == 0, 2*time.Minute)
+	realPath := boolArg(args, "realPath")
+	result, err := s.agentFileOps.WriteAgentFileChunkMode(ctx, serverID, path, data, offset, offset == 0, 2*time.Minute, realPath)
 	if err != nil {
 		return nil, fmt.Errorf("写入分块失败: %w", err)
 	}
 	return map[string]interface{}{
-		"success":   true,
-		"transport": "agent-chunk",
-		"serverId":  serverID,
-		"path":      path,
-		"realPath":  result.RealPath,
-		"offset":    offset,
-		"written":   len(data),
-		"size":      result.Size,
-		"sha256":    sha256Hex(data),
-		"note":      agentFilePathNote(result.RealPath),
+		"success":      true,
+		"transport":    "agent-chunk",
+		"serverId":     serverID,
+		"path":         path,
+		"realPath":     result.RealPath,
+		"realPathMode": realPath,
+		"offset":       offset,
+		"written":      len(data),
+		"size":         result.Size,
+		"sha256":       sha256Hex(data),
+		"note":         agentFilePathNote(result.RealPath),
 	}, nil
 }
 
 // agentFileRoots 是 agent_file_roots 元工具的实现：返回文件沙箱的真实根目录。
 // 没有它，调用方无从知道「/opt/a.sh」最终落到哪，只能靠试错。
+// ===== 主机文件管理(SFTP 能力复刻到 AI 面)=====
+// 统一转调面板已有的 /api/server/sftp/* 接口:复用其「Agent 优先、SSH 兜底」的
+// 通道决策、realPath 真实路径语义与 API_MONITOR_FILE_ROOTS 白名单校验,
+// 不再另写一份文件访问逻辑(否则两套语义必然漂移)。
+
+func (s *Service) agentFileList(ctx context.Context, args map[string]interface{}) (interface{}, error) {
+	return s.agentSFTPCall(ctx, args, "/api/server/sftp/list")
+}
+
+func (s *Service) agentFileRead(ctx context.Context, args map[string]interface{}) (interface{}, error) {
+	return s.agentSFTPCall(ctx, args, "/api/server/sftp/read")
+}
+
+func (s *Service) agentFileWrite(ctx context.Context, args map[string]interface{}) (interface{}, error) {
+	return s.agentSFTPCall(ctx, args, "/api/server/sftp/write")
+}
+
+func (s *Service) agentFileMkdir(ctx context.Context, args map[string]interface{}) (interface{}, error) {
+	return s.agentSFTPCall(ctx, args, "/api/server/sftp/mkdir")
+}
+
+func (s *Service) agentFileRename(ctx context.Context, args map[string]interface{}) (interface{}, error) {
+	return s.agentSFTPCall(ctx, args, "/api/server/sftp/rename")
+}
+
+func (s *Service) agentFileDelete(ctx context.Context, args map[string]interface{}) (interface{}, error) {
+	return s.agentSFTPCall(ctx, args, "/api/server/sftp/delete")
+}
+
+func (s *Service) agentFileRmdir(ctx context.Context, args map[string]interface{}) (interface{}, error) {
+	return s.agentSFTPCall(ctx, args, "/api/server/sftp/rmdir")
+}
+
+// agentSFTPCall 解析主机标识并把已知字段透传给对应 SFTP 接口。
+func (s *Service) agentSFTPCall(ctx context.Context, args map[string]interface{}, route string) (interface{}, error) {
+	serverID, err := s.resolveServerID(stringArg(args, "serverId"), stringArg(args, "serverName"), stringArg(args, "host"))
+	if err != nil {
+		return nil, err
+	}
+	body := map[string]interface{}{"serverId": serverID}
+	for _, key := range []string{"path", "oldPath", "newPath", "content", "maxSize", "recursive"} {
+		if value, ok := args[key]; ok && value != nil {
+			body[key] = value
+		}
+	}
+	if _, hasPath := body["path"]; !hasPath {
+		if _, hasOld := body["oldPath"]; !hasOld {
+			return nil, fmt.Errorf("path 为必填")
+		}
+	}
+	return s.callAPIFromAI(ctx, map[string]interface{}{
+		"method": http.MethodPost,
+		"path":   route,
+		"body":   body,
+	})
+}
+
+// hostFileCopy 主机↔主机复制(面板中继)。源/目标各自的 realPath 控制沙箱或真实路径;
+// 两端只需 Agent 在线即可,适合无公网 IP / Windows↔Linux / Windows↔Windows 互传。
+func (s *Service) hostFileCopy(ctx context.Context, args map[string]interface{}) (interface{}, error) {
+	if s.agentFileOps == nil {
+		return nil, fmt.Errorf("主机文件复制能力未配置")
+	}
+	srcID, err := s.resolveServerID(stringArg(args, "sourceServerId"), stringArg(args, "sourceServerName"), stringArg(args, "sourceHost"))
+	if err != nil {
+		return nil, fmt.Errorf("源主机解析失败: %w", err)
+	}
+	dstID, err := s.resolveServerID(stringArg(args, "targetServerId"), stringArg(args, "targetServerName"), stringArg(args, "targetHost"))
+	if err != nil {
+		return nil, fmt.Errorf("目标主机解析失败: %w", err)
+	}
+	srcPath := strings.TrimSpace(stringArg(args, "sourcePath"))
+	dstPath := strings.TrimSpace(stringArg(args, "targetPath"))
+	if srcPath == "" || dstPath == "" {
+		return nil, fmt.Errorf("sourcePath 与 targetPath 均为必填")
+	}
+	if err := s.requireAgentFileWrite(ctx); err != nil {
+		return nil, err
+	}
+	opts := AgentCopyOptions{
+		SourceRealPath: boolArg(args, "sourceRealPath"),
+		TargetRealPath: boolArg(args, "targetRealPath"),
+		Backup:         boolArg(args, "backup"),
+		Verify:         boolArg(args, "verify"),
+	}
+	files, written, err := s.agentFileOps.CopyAgentPathEx(ctx, srcID, srcPath, dstID, dstPath, opts, 30*time.Minute)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]interface{}{
+		"success":        true,
+		"transport":      "panel-relay",
+		"sourceServerId": srcID,
+		"sourcePath":     srcPath,
+		"targetServerId": dstID,
+		"targetPath":     dstPath,
+		"files":          files,
+		"bytes":          written,
+		"backup":         opts.Backup,
+		"verify":         opts.Verify,
+		"note":           "字节由面板中继(源→面板→目标),两端只需 Agent 外拨连接,不要求公网 IP、不经模型;目录会被递归复制(符号链接跳过),文件按临时文件+rename 原子落位。",
+	}, nil
+}
+
 func (s *Service) agentFileRoots(ctx context.Context, args map[string]interface{}) (interface{}, error) {
 	rawServerID, _ := args["serverId"].(string)
 	serverName, _ := args["serverName"].(string)
@@ -1834,14 +1918,22 @@ func (s *Service) aiTools() []map[string]interface{} {
 		{"name": "get_ai_manifest", "description": "读取 AI 接入能力清单", "inputSchema": map[string]interface{}{"type": "object", "properties": map[string]interface{}{}}},
 		{"name": "get_system_status", "description": "读取本机系统运行状态（CPU/内存/磁盘）；displayTime/serverTime 为站点当前时间（本地时区），回答时间/换算 cron 必须用 displayTime 或 serverTime.local，禁止用 timestamp（UTC）", "inputSchema": map[string]interface{}{"type": "object", "properties": map[string]interface{}{}}},
 		{"name": "call_api", "description": "调用 API Monitor 内部接口，支持 GET/POST/PUT/PATCH/DELETE、请求头和 JSON 请求体；请求体结构先用 get_route 获取。强制规则：写操作（POST/PUT/PATCH/DELETE）返回后必须立即用 GET 回读验证真实生效（如列表/详情确认状态、next_run 等），且必须检查响应中的 success/error 字段，发现 success=false 或 error 非空即视为失败，绝不向用户宣称完成", "inputSchema": map[string]interface{}{"type": "object", "properties": map[string]interface{}{"method": map[string]interface{}{"type": "string", "enum": []string{"GET", "POST", "PUT", "PATCH", "DELETE"}}, "path": map[string]interface{}{"type": "string", "description": "以 / 开头的系统接口路径"}, "headers": map[string]interface{}{"type": "object", "additionalProperties": map[string]string{"type": "string"}}, "body": map[string]interface{}{"type": "object", "additionalProperties": true, "description": "JSON 请求体，字段以 get_route 返回的 requestSchema/requestExample 为准"}}, "required": []string{"path"}}},
+		{"name": "agent_file_list", "description": "列出主机上某个目录的条目(单层,非递归)。走面板质量最高的文件通道(Agent 优先、SSH 兜底),按主机真实路径访问(受 API_MONITOR_FILE_ROOTS 白名单)。返回 files[]:name/size/mode/isDir/isSymlink/isFile。要递归遍历目录树请多次调用本工具。", "inputSchema": map[string]interface{}{"type": "object", "properties": map[string]interface{}{"serverId": map[string]interface{}{"type": "string", "description": "Agent 主机 ID(可省略,改用 serverName/host)"}, "serverName": map[string]interface{}{"type": "string", "description": "主机名称(serverId 的替代)"}, "host": map[string]interface{}{"type": "string", "description": "主机地址(serverId 的替代)"}, "path": map[string]interface{}{"type": "string", "description": "要列出的目录真实路径,如 /opt/1panel/www"}}, "required": []string{"path"}}},
+		{"name": "agent_file_read", "description": "读取主机上一个文件的内容(文本)。默认上限 1MB、最大 8MB;超过请改用 filebox_share_from_agent 下载。按主机真实路径访问。", "inputSchema": map[string]interface{}{"type": "object", "properties": map[string]interface{}{"serverId": map[string]interface{}{"type": "string", "description": "Agent 主机 ID(可省略,改用 serverName/host)"}, "serverName": map[string]interface{}{"type": "string", "description": "主机名称(serverId 的替代)"}, "host": map[string]interface{}{"type": "string", "description": "主机地址(serverId 的替代)"}, "path": map[string]interface{}{"type": "string", "description": "文件真实路径"}, "maxSize": map[string]interface{}{"type": "integer", "description": "读取字节上限(默认 1MB,最大 8MB)"}}, "required": []string{"path"}}},
+		{"name": "agent_file_write", "description": "把文本内容覆盖写入主机上一个文件(真实路径)。适合更新配置/脚本/JSON 等文本文件——不必再走沙箱+install。二进制/大文件请用 agent_upload_chunk(可 realPath)或 agent_fetch_url。写操作,需 AI 权限模式非 minimal;路径须在 API_MONITOR_FILE_ROOTS 白名单内。", "inputSchema": map[string]interface{}{"type": "object", "properties": map[string]interface{}{"serverId": map[string]interface{}{"type": "string", "description": "Agent 主机 ID(可省略,改用 serverName/host)"}, "serverName": map[string]interface{}{"type": "string", "description": "主机名称(serverId 的替代)"}, "host": map[string]interface{}{"type": "string", "description": "主机地址(serverId 的替代)"}, "path": map[string]interface{}{"type": "string", "description": "目标文件真实路径"}, "content": map[string]interface{}{"type": "string", "description": "文件文本内容(覆盖写)"}}, "required": []string{"path", "content"}}},
+		{"name": "agent_file_mkdir", "description": "在主机上创建目录。写操作,需非 minimal。", "inputSchema": map[string]interface{}{"type": "object", "properties": map[string]interface{}{"serverId": map[string]interface{}{"type": "string", "description": "Agent 主机 ID(可省略,改用 serverName/host)"}, "serverName": map[string]interface{}{"type": "string", "description": "主机名称(serverId 的替代)"}, "host": map[string]interface{}{"type": "string", "description": "主机地址(serverId 的替代)"}, "path": map[string]interface{}{"type": "string", "description": "要创建的目录真实路径"}}, "required": []string{"path"}}},
+		{"name": "agent_file_rename", "description": "重命名或移动主机上的文件/目录。写操作,需非 minimal。", "inputSchema": map[string]interface{}{"type": "object", "properties": map[string]interface{}{"serverId": map[string]interface{}{"type": "string", "description": "Agent 主机 ID(可省略,改用 serverName/host)"}, "serverName": map[string]interface{}{"type": "string", "description": "主机名称(serverId 的替代)"}, "host": map[string]interface{}{"type": "string", "description": "主机地址(serverId 的替代)"}, "oldPath": map[string]interface{}{"type": "string", "description": "源路径"}, "newPath": map[string]interface{}{"type": "string", "description": "目标路径"}}, "required": []string{"oldPath", "newPath"}}},
+		{"name": "agent_file_delete", "description": "删除主机上的文件(recursive=true 时可删目录)。写操作,需非 minimal;不可恢复,请先 list/stat 确认。", "inputSchema": map[string]interface{}{"type": "object", "properties": map[string]interface{}{"serverId": map[string]interface{}{"type": "string", "description": "Agent 主机 ID(可省略,改用 serverName/host)"}, "serverName": map[string]interface{}{"type": "string", "description": "主机名称(serverId 的替代)"}, "host": map[string]interface{}{"type": "string", "description": "主机地址(serverId 的替代)"}, "path": map[string]interface{}{"type": "string", "description": "要删除的路径"}, "recursive": map[string]interface{}{"type": "boolean", "description": "目录是否递归删除(默认 false)"}}, "required": []string{"path"}}},
+		{"name": "agent_file_rmdir", "description": "删除主机上的目录(recursive=true 递归删除)。写操作,需非 minimal;不可恢复。", "inputSchema": map[string]interface{}{"type": "object", "properties": map[string]interface{}{"serverId": map[string]interface{}{"type": "string", "description": "Agent 主机 ID(可省略,改用 serverName/host)"}, "serverName": map[string]interface{}{"type": "string", "description": "主机名称(serverId 的替代)"}, "host": map[string]interface{}{"type": "string", "description": "主机地址(serverId 的替代)"}, "path": map[string]interface{}{"type": "string", "description": "要删除的目录真实路径"}, "recursive": map[string]interface{}{"type": "boolean", "description": "是否递归删除(默认 false)"}}, "required": []string{"path"}}},
+		{"name": "host_file_copy", "description": "把一台 Agent 主机上的文件复制到另一台 Agent 主机(主机↔主机)。字节由面板中继(源→面板→目标),两端只需能主动连到面板(Agent 外拨),因此【没有公网 IP / NAT 后】以及 Windows↔Linux / Windows↔Windows 都适用;不经模型、不经客户端。sourceRealPath/targetRealPath=true 时按主机真实绝对路径读写(须在 API_MONITOR_FILE_ROOTS 白名单内),否则走沙箱。目录会被递归复制(符号链接跳过)。写操作,需 AI 权限模式非 minimal。", "inputSchema": map[string]interface{}{"type": "object", "properties": map[string]interface{}{"sourceServerId": map[string]interface{}{"type": "string", "description": "源 Agent 主机 ID(可省略,改用 sourceServerName/sourceHost)"}, "sourcePath": map[string]interface{}{"type": "string", "description": "源主机上的文件路径"}, "sourceRealPath": map[string]interface{}{"type": "boolean", "description": "源是否按真实绝对路径读(默认 false=沙箱)"}, "targetServerId": map[string]interface{}{"type": "string", "description": "目标 Agent 主机 ID(可省略,改用 targetServerName/targetHost)"}, "targetPath": map[string]interface{}{"type": "string", "description": "目标主机上的落盘路径"}, "targetRealPath": map[string]interface{}{"type": "boolean", "description": "目标是否按真实绝对路径写(默认 false=沙箱)"}, "backup": map[string]interface{}{"type": "boolean", "description": "可选,覆盖前把已存在的目标备份为 <target>.bak-<unix>(默认 false)"}, "verify": map[string]interface{}{"type": "boolean", "description": "可选,写完后回读目标并比对 sha256(默认 false;大文件会多读一遍)"}}, "required": []string{"sourcePath", "targetPath"}}},
 		{"name": "run_batch", "description": "一次提交 1-20 个接口调用并聚合返回结果（串行或并行），减少多轮往返；每个操作复用 call_api 的鉴权与写权限约束。强制规则：含写操作（POST/PUT/PATCH/DELETE）的批次，完成后必须回读验证真实生效并检查每个子项的 ok/error 字段，任一子项 ok=false 或业务失败即视为整体未完成，绝不宣称完成", "inputSchema": map[string]interface{}{"type": "object", "properties": map[string]interface{}{"operations": map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "object", "properties": map[string]interface{}{"name": map[string]interface{}{"type": "string", "description": "操作名（便于阅读结果）"}, "method": map[string]interface{}{"type": "string", "enum": []string{"GET", "POST", "PUT", "PATCH", "DELETE"}}, "path": map[string]interface{}{"type": "string", "description": "以 / 开头的系统接口路径"}, "headers": map[string]interface{}{"type": "object", "additionalProperties": map[string]string{"type": "string"}}, "body": map[string]interface{}{"type": "object", "additionalProperties": true}}, "required": []string{"path"}}, "description": "要执行的接口调用数组"}, "mode": map[string]interface{}{"type": "string", "enum": []string{"serial", "parallel"}, "description": "执行模式（默认 serial）"}, "stopOnError": map[string]interface{}{"type": "boolean", "description": "serial 模式下遇到失败是否停止后续（默认 false）"}}, "required": []string{"operations"}}},
 		{"name": "filebox_share_from_agent", "description": "把一台 Agent 主机上的文件转成文件柜分享，返回可直接下载的分享链接与直链。这是把「某台主机上的文件给别人下载」的标准工具，无需先 list_apis/find_api。storageTarget=auto（默认）时优先把文件放到公网存储节点并让源主机直传（面板零流量），无可用节点或旧版 Agent 时自动回退为主站本地/面板中转。写操作，需 AI 接入权限模式非 minimal。", "inputSchema": map[string]interface{}{"type": "object", "properties": map[string]interface{}{"serverId": map[string]interface{}{"type": "string", "description": "Agent 主机 ID（先调 /api/server/accounts 获取真实 ID）"}, "remotePath": map[string]interface{}{"type": "string", "description": "主机上的文件路径（受 Agent 文件沙箱约束：默认根或 API_MONITOR_FILE_ROOTS 白名单内）"}, "storageTarget": map[string]interface{}{"type": "string", "description": "auto（默认，优先可用存储节点并让源主机直传）/ local（主站本地）/ 指定存储节点 serverId"}, "expiry": map[string]interface{}{"type": "string", "description": "有效期小时数，如 24；不传用文件柜默认值"}, "burn_after_reading": map[string]interface{}{"type": "boolean", "description": "阅后即焚（下载一次后删除）"}, "max_downloads": map[string]interface{}{"type": "string", "description": "最大下载次数，0 或不传为不限"}, "access_password": map[string]interface{}{"type": "string", "description": "分享访问密码（可选）"}}, "required": []string{"serverId", "remotePath"}}},
 		{"name": "agent_run_command", "description": "在指定 Agent 主机上执行一条 shell 命令并返回 stdout/stderr 输出，无需登录 SSH。这是「在某台主机上跑命令」的标准工具，无需先 list_apis/find_api。主机用 serverId 指定；不确定 ID 时可用 serverName 或 host 代替（面板会自动解析，命中多台会返回候选列表）。也可调 /api/aiagent/servers 取轻量主机列表（只含 id/name/host/online，比 /api/server/accounts 省很多）。仅对已安装 Agent 且在线的主机有效。返回 success=true 表示命令已执行完成（含非零退出码，如 grep 无匹配、test/diff 非零，此时 exitCode 字段给出退出码，输出照常返回），仅 spawn/超时等硬错误才 success=false。输出上限约 256KB（保留首尾，中间省略并标注），需要更多请用 grep/head/tail 缩小或重定向到文件。长任务（apt upgrade、编译、docker pull）请传 wait=false：立即返回 task_id，再用 agent_task_result 取终态，避免同步等待被超时上限掐断。危险命令（rm -rf、dd、mkfs、shutdown/reboot、docker rm/prune、kubectl delete、DROP DATABASE/TABLE、Remove-Item -Recurse 等）会被 commandguard 拦截：standard 模式硬拦截，sensitive 模式返回 requires_confirmation 提示（确认后带 confirm=true 重新调用即可执行），full 模式直接放行。", "inputSchema": map[string]interface{}{"type": "object", "properties": map[string]interface{}{"serverId": map[string]interface{}{"type": "string", "description": "Agent 主机 ID（可省略，改用 serverName/host）"}, "serverName": map[string]interface{}{"type": "string", "description": "主机名称（serverId 的替代，按名称精确匹配）"}, "host": map[string]interface{}{"type": "string", "description": "主机地址/IP（serverId 的替代，按 host 精确匹配）"}, "command": map[string]interface{}{"type": "string", "description": "要执行的 shell 命令（Linux 走 sh，Windows 走 cmd /C；PowerShell 会自动改写为 -EncodedCommand）"}, "cwd": map[string]interface{}{"type": "string", "description": "工作目录（可选）。省去每条命令都写 cd /x && ..."}, "timeout": map[string]interface{}{"type": "integer", "description": "超时秒数，默认 30，上限 300"}, "wait": map[string]interface{}{"type": "boolean", "description": "默认 true 同步等待结果；false 立即返回 task_id（长任务用，之后用 agent_task_result 查询）"}, "confirm": map[string]interface{}{"type": "boolean", "description": "危险命令二次确认：敏感模式下首次返回 requires_confirmation，确认后带 confirm=true 重试"}}, "required": []string{"command"}}},
 		{"name": "agent_task_result", "description": "查询异步命令任务的终态。配合 agent_run_command 的 wait=false 使用：先用 wait=false 拿到 task_id，稍后用本工具查询。返回 status（running/completed/failed）、output（命令输出）与 exit_code；任务仍在执行时 status=running，稍后再查一次即可。", "inputSchema": map[string]interface{}{"type": "object", "properties": map[string]interface{}{"taskId": map[string]interface{}{"type": "string", "description": "任务 ID（agent_run_command 传 wait=false 时的返回）"}}, "required": []string{"taskId"}}},
-		{"name": "agent_fetch_url", "description": "让指定 Agent 主机直接从 URL 拉取文件并写入其本地路径（字节由主机直接下载，不经面板中转，无 base64 与 1MB 请求体限制）。适用于把已有的可访问地址（文件柜直链、GitHub release、软件包等）落到主机上，避免用 base64 经 call_api 传输大文件。写操作，需 AI 接入权限模式非 minimal；目标路径受 Agent 文件沙箱约束（默认根或 API_MONITOR_FILE_ROOTS 白名单内）。仅对已安装 Agent 且在线的主机有效（先调 /api/server/accounts 取 serverId 并确认 agent_online=true）。", "inputSchema": map[string]interface{}{"type": "object", "properties": map[string]interface{}{"serverId": map[string]interface{}{"type": "string", "description": "Agent 主机 ID（先调 /api/server/accounts 获取真实 ID 并确认在线）"}, "url": map[string]interface{}{"type": "string", "description": "文件下载地址（http/https，主机需可访问）"}, "path": map[string]interface{}{"type": "string", "description": "主机上的目标文件路径（受 Agent 文件沙箱约束）"}}, "required": []string{"serverId", "url", "path"}}},
-		{"name": "agent_transfer_file", "description": "把一台 Agent 主机上的文件搬到另一台 Agent 主机（主机↔主机直传，字节由源主机直传存储节点、目标主机直链拉取，全程不经 AI、不经面板中转）。【传输大文件（如 5~30MB 脚本）到主机的首选方式，绝不要用 call_api + base64 分块】。本机若已注册为 Agent 主机（在 /api/server/accounts 中可查到），先在本机把文件放到 Agent 沙箱路径，再用本工具搬运。写操作，需 AI 接入权限模式非 minimal；源与目标路径均受 Agent 文件沙箱约束。仅对两端都已安装 Agent 且在线的主机有效。", "inputSchema": map[string]interface{}{"type": "object", "properties": map[string]interface{}{"sourceServerId": map[string]interface{}{"type": "string", "description": "源 Agent 主机 ID（文件所在主机，先调 /api/server/accounts 确认在线）"}, "sourcePath": map[string]interface{}{"type": "string", "description": "源主机上的文件路径（受 Agent 文件沙箱约束）"}, "targetServerId": map[string]interface{}{"type": "string", "description": "目标 Agent 主机 ID（先调 /api/server/accounts 确认在线）"}, "targetPath": map[string]interface{}{"type": "string", "description": "目标主机上的落盘路径（受 Agent 文件沙箱约束）"}, "storageTarget": map[string]interface{}{"type": "string", "description": "可选，中转存储目标：auto（默认，优先可用存储节点）/ local / 指定存储节点 serverId"}}, "required": []string{"sourceServerId", "sourcePath", "targetServerId", "targetPath"}}},
-		{"name": "agent_upload_file", "description": "【小文件兜底，上限 256KB】把 base64 内容一次性直传到指定 Agent 主机。仅当文件很小（脚本、配置、证书等）且无法用其他通道时使用——字节必须由模型逐 token 生成，长 base64 极易被静默改写，因此超过 256KB 会被直接拒绝并给出替代命令。优先顺序：① 宿主能执行 shell → 用 curl 直传 POST /api/server/agent/upload（字节不进模型，见 get_ai_manifest 的接入指南）；② 文件已在某台 Agent 主机上 → agent_transfer_file；③ 文件有可访问 URL → agent_fetch_url；④ 客户端能自己读文件 → agent_upload_chunk（按 offset 分块，模型只传元数据）。返回 realPath 为真实绝对路径，agent_run_command 里必须用它（path 只是面板虚拟路径）。写操作，需权限模式非 minimal。", "inputSchema": map[string]interface{}{"type": "object", "properties": map[string]interface{}{"serverId": map[string]interface{}{"type": "string", "description": "目标 Agent 主机 ID（可省略，改用 serverName/host）"}, "serverName": map[string]interface{}{"type": "string", "description": "主机名称（serverId 的替代）"}, "host": map[string]interface{}{"type": "string", "description": "主机地址（serverId 的替代）"}, "path": map[string]interface{}{"type": "string", "description": "目标主机上的落盘路径（受 Agent 文件沙箱约束；用 agent_file_roots 查真实根）"}, "content_base64": map[string]interface{}{"type": "string", "description": "文件的 base64 标准编码（含 padding），解码后不得超过 256KB"}, "sha256": map[string]interface{}{"type": "string", "description": "可选，原始字节的 sha256 十六进制；传了就会校验，不一致直接报错"}}, "required": []string{"path", "content_base64"}}},
-		{"name": "agent_upload_chunk", "description": "【大文件正解】按 offset 分块把字节写到指定 Agent 主机。客户端自己读文件切片、自己算 sha256，模型只传 offset 这类元数据，因此不受模型输出长度限制，也不会被复述改写。用法：先 offset=0 传第一块（会自动截断/覆盖目标文件），之后每块 offset 必须等于目标文件当前大小；续写时面板会 stat 校验连续性，错序直接报错。返回 realPath，agent_run_command 里用它执行。写操作，需权限模式非 minimal。", "inputSchema": map[string]interface{}{"type": "object", "properties": map[string]interface{}{"serverId": map[string]interface{}{"type": "string", "description": "目标 Agent 主机 ID（可省略，改用 serverName/host）"}, "serverName": map[string]interface{}{"type": "string", "description": "主机名称（serverId 的替代）"}, "host": map[string]interface{}{"type": "string", "description": "主机地址（serverId 的替代）"}, "path": map[string]interface{}{"type": "string", "description": "目标主机上的落盘路径"}, "offset": map[string]interface{}{"type": "integer", "description": "本块写入起始偏移，首块为 0"}, "content_base64": map[string]interface{}{"type": "string", "description": "本块字节的 base64（单块解码后不超过 256KB）"}, "sha256": map[string]interface{}{"type": "string", "description": "可选，本块原始字节的 sha256；传了就校验"}}, "required": []string{"path", "offset", "content_base64"}}},
+		{"name": "agent_fetch_url", "description": "让指定 Agent 主机直接从 URL 拉取文件并写入其本地路径（字节由主机直接下载，不经面板中转，无 base64 与 1MB 请求体限制）。适用于把已有的可访问地址（文件柜直链、GitHub release、软件包等）落到主机上，避免用 base64 经 call_api 传输大文件。写操作，需 AI 接入权限模式非 minimal；目标路径受 Agent 文件沙箱约束（默认根或 API_MONITOR_FILE_ROOTS 白名单内）。仅对已安装 Agent 且在线的主机有效（先调 /api/server/accounts 取 serverId 并确认 agent_online=true）。", "inputSchema": map[string]interface{}{"type": "object", "properties": map[string]interface{}{"serverId": map[string]interface{}{"type": "string", "description": "Agent 主机 ID（先调 /api/server/accounts 获取真实 ID 并确认在线）"}, "url": map[string]interface{}{"type": "string", "description": "文件下载地址（http/https，主机需可访问）"}, "path": map[string]interface{}{"type": "string", "description": "主机上的目标文件路径（受 Agent 文件沙箱约束）"}, "realPath": map[string]interface{}{"type": "boolean", "description": "可选,默认 false(沙箱)。true=按主机真实绝对路径写(须在 API_MONITOR_FILE_ROOTS 白名单内);需 Agent >= 0.6.57"}}, "required": []string{"serverId", "url", "path"}}},
+		{"name": "agent_transfer_file", "description": "主机↔主机复制:把一台 Agent 主机上的文件/目录搬到另一台(面板中继,不经文件柜)。两端只需 Agent 在线即可——无公网 IP / NAT / Windows↔Linux / Windows↔Windows 全覆盖;字节不经模型、不经客户端。targetRealPath=true 时按目标主机真实路径写(须在 API_MONITOR_FILE_ROOTS 白名单内)。host_file_copy 是本工具的别名。写操作,需 AI 权限模式非 minimal。", "inputSchema": map[string]interface{}{"type": "object", "properties": map[string]interface{}{"sourceServerId": map[string]interface{}{"type": "string", "description": "源 Agent 主机 ID（文件所在主机，先调 /api/server/accounts 确认在线）"}, "sourcePath": map[string]interface{}{"type": "string", "description": "源主机上的文件路径（受 Agent 文件沙箱约束）"}, "targetServerId": map[string]interface{}{"type": "string", "description": "目标 Agent 主机 ID（先调 /api/server/accounts 确认在线）"}, "targetPath": map[string]interface{}{"type": "string", "description": "目标主机上的落盘路径（受 Agent 文件沙箱约束）"}, "storageTarget": map[string]interface{}{"type": "string", "description": "可选，中转存储目标：auto（默认，优先可用存储节点）/ local / 指定存储节点 serverId"}, "targetRealPath": map[string]interface{}{"type": "boolean", "description": "可选,默认 false(目标写沙箱)。true=按目标主机真实绝对路径写(须在 API_MONITOR_FILE_ROOTS 白名单内);需目标 Agent >= 0.6.57"}}, "required": []string{"sourceServerId", "sourcePath", "targetServerId", "targetPath"}}},
+		{"name": "agent_upload_file", "description": "【小文件兜底，上限 256KB】把 base64 内容一次性直传到指定 Agent 主机。仅当文件很小（脚本、配置、证书等）且无法用其他通道时使用——字节必须由模型逐 token 生成，长 base64 极易被静默改写，因此超过 256KB 会被直接拒绝并给出替代命令。优先顺序：① 宿主能执行 shell → 用 curl 直传 POST /api/server/agent/upload（字节不进模型，见 get_ai_manifest 的接入指南）；② 文件已在某台 Agent 主机上 → agent_transfer_file；③ 文件有可访问 URL → agent_fetch_url；④ 客户端能自己读文件 → agent_upload_chunk（按 offset 分块，模型只传元数据）。返回 realPath 为真实绝对路径，agent_run_command 里必须用它（path 只是面板虚拟路径）。写操作，需权限模式非 minimal。", "inputSchema": map[string]interface{}{"type": "object", "properties": map[string]interface{}{"serverId": map[string]interface{}{"type": "string", "description": "目标 Agent 主机 ID（可省略，改用 serverName/host）"}, "serverName": map[string]interface{}{"type": "string", "description": "主机名称（serverId 的替代）"}, "host": map[string]interface{}{"type": "string", "description": "主机地址（serverId 的替代）"}, "path": map[string]interface{}{"type": "string", "description": "目标主机上的落盘路径（受 Agent 文件沙箱约束；用 agent_file_roots 查真实根）"}, "content_base64": map[string]interface{}{"type": "string", "description": "文件的 base64 标准编码（含 padding），解码后不得超过 256KB"}, "sha256": map[string]interface{}{"type": "string", "description": "可选，原始字节的 sha256 十六进制；传了就会校验，不一致直接报错"}, "realPath": map[string]interface{}{"type": "boolean", "description": "可选,默认 false(写 Agent 沙箱)。true=按主机真实绝对路径写(须落在 API_MONITOR_FILE_ROOTS 白名单内,否则 Agent 报错),可直接更新 /opt/... 这类真实路径"}}, "required": []string{"path", "content_base64"}}},
+		{"name": "agent_upload_chunk", "description": "【大文件正解】按 offset 分块把字节写到指定 Agent 主机。客户端自己读文件切片、自己算 sha256，模型只传 offset 这类元数据，因此不受模型输出长度限制，也不会被复述改写。用法：先 offset=0 传第一块（会自动截断/覆盖目标文件），之后每块 offset 必须等于目标文件当前大小；续写时面板会 stat 校验连续性，错序直接报错。返回 realPath，agent_run_command 里用它执行。写操作，需权限模式非 minimal。", "inputSchema": map[string]interface{}{"type": "object", "properties": map[string]interface{}{"serverId": map[string]interface{}{"type": "string", "description": "目标 Agent 主机 ID（可省略，改用 serverName/host）"}, "serverName": map[string]interface{}{"type": "string", "description": "主机名称（serverId 的替代）"}, "host": map[string]interface{}{"type": "string", "description": "主机地址（serverId 的替代）"}, "path": map[string]interface{}{"type": "string", "description": "目标主机上的落盘路径"}, "offset": map[string]interface{}{"type": "integer", "description": "本块写入起始偏移，首块为 0"}, "content_base64": map[string]interface{}{"type": "string", "description": "本块字节的 base64（单块解码后不超过 256KB）"}, "sha256": map[string]interface{}{"type": "string", "description": "可选，本块原始字节的 sha256；传了就校验"}, "realPath": map[string]interface{}{"type": "boolean", "description": "可选,默认 false(写 Agent 沙箱)。true=按主机真实绝对路径写(须落在 API_MONITOR_FILE_ROOTS 白名单内,否则 Agent 报错),可直接更新 /opt/... 这类真实路径"}}, "required": []string{"path", "offset", "content_base64"}}},
 		{"name": "agent_file_roots", "description": "查询指定 Agent 主机的文件沙箱真实根目录与白名单根（API_MONITOR_FILE_ROOTS）。上传文件前先调它，才能知道「/opt/a.sh」这类路径最终落到哪。关键语义：默认沙箱下的绝对路径会被锚定到 sandboxRoot 内（即 /opt/a.sh 实际落盘 sandboxRoot/opt/a.sh），只有 allowedRoots 内的路径才按真实绝对路径访问；而 agent_run_command 执行在真实文件系统上，必须使用文件工具返回的 realPath。", "inputSchema": map[string]interface{}{"type": "object", "properties": map[string]interface{}{"serverId": map[string]interface{}{"type": "string", "description": "Agent 主机 ID（可省略，改用 serverName/host）"}, "serverName": map[string]interface{}{"type": "string", "description": "主机名称（serverId 的替代）"}, "host": map[string]interface{}{"type": "string", "description": "主机地址（serverId 的替代）"}}}},
 		{"name": "agent_file_stat", "description": "查询指定 Agent 主机上某个路径的信息：是否存在、大小、权限、真实绝对路径（realPath）。上传后不确定文件落在哪、或需要确认 offset 续写位置时使用。返回 realPath 可直接用于 agent_run_command。", "inputSchema": map[string]interface{}{"type": "object", "properties": map[string]interface{}{"serverId": map[string]interface{}{"type": "string", "description": "Agent 主机 ID（可省略，改用 serverName/host）"}, "serverName": map[string]interface{}{"type": "string", "description": "主机名称（serverId 的替代）"}, "host": map[string]interface{}{"type": "string", "description": "主机地址（serverId 的替代）"}, "path": map[string]interface{}{"type": "string", "description": "主机上的路径（沙箱虚拟路径或真实绝对路径）"}}, "required": []string{"path"}}},
 		{"name": "agent_file_chmod", "description": "修改指定 Agent 主机上文件的权限（八进制，默认 755），用于让上传的脚本可直接执行。Windows 主机不支持。写操作，需权限模式非 minimal。", "inputSchema": map[string]interface{}{"type": "object", "properties": map[string]interface{}{"serverId": map[string]interface{}{"type": "string", "description": "Agent 主机 ID（可省略，改用 serverName/host）"}, "serverName": map[string]interface{}{"type": "string", "description": "主机名称（serverId 的替代）"}, "host": map[string]interface{}{"type": "string", "description": "主机地址（serverId 的替代）"}, "path": map[string]interface{}{"type": "string", "description": "主机上的文件路径"}, "mode": map[string]interface{}{"type": "string", "description": "八进制权限，如 755 / 644；默认 755"}}, "required": []string{"path"}}},
@@ -2279,6 +2371,9 @@ func (s *Service) listAIAuditPage(r *http.Request) (map[string]interface{}, erro
 }
 
 func (s *Service) clearAIAudit(r *http.Request) (map[string]interface{}, error) {
+	if s.isAISubjectRequest(r) {
+		return nil, errAISubjectForbidden
+	}
 	db, err := s.store.Open(r.Context())
 	if err != nil {
 		return nil, err
@@ -2291,6 +2386,7 @@ func (s *Service) clearAIAudit(r *http.Request) (map[string]interface{}, error) 
 	if err != nil {
 		return nil, err
 	}
+	_ = s.insertAIAudit(r.Context(), db, "admin", "clear_audit", "/api/system/ai-access/audit/clear", "success", 0, "AI 接入审计记录已清空", s.clientIP(r), r.UserAgent())
 	return s.aiAccessOverview(r)
 }
 

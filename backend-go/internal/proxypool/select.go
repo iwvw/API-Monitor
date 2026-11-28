@@ -2,22 +2,31 @@ package proxypool
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"time"
 )
+
+var ErrPoolUnavailable = errors.New("proxypool: 池已配置但无可用出口")
 
 // SelectProxy 按池选择下一个可用出口代理（轮询游标 + 健康过滤）：
 //   - 冷却（cool）/ 429 冻结 / 坏代理沉淀（sunk）中的代理跳过
 //   - 全部不可用时返回 ""（调用方按直连兜底）
 // 供 openai 端点与 openaibeta 等插件复用同一套池与健康数据。
 func (s *Service) SelectProxy(ctx context.Context, poolID, _ string) (string, error) {
+	if strings.TrimSpace(poolID) == "" {
+		return "", nil
+	}
 	pool, err := s.Get(ctx, poolID)
-	if err != nil || pool == nil {
+	if err != nil {
 		return "", err
+	}
+	if pool == nil {
+		return "", ErrPoolUnavailable
 	}
 	pool.Proxies = cleanProxies(pool.Proxies)
 	if len(pool.Proxies) == 0 {
-		return "", nil
+		return "", ErrPoolUnavailable
 	}
 	blocked, err := s.loadBlocked(ctx, poolID)
 	if err != nil {
@@ -30,7 +39,7 @@ func (s *Service) SelectProxy(ctx context.Context, poolID, _ string) (string, er
 		}
 	}
 	if len(available) == 0 {
-		return "", nil
+		return "", ErrPoolUnavailable
 	}
 	idx := s.nextCursor(poolID) % uint64(len(available))
 	return available[idx], nil

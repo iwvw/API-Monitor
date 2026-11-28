@@ -223,3 +223,38 @@ func TestGetVersionRejectsVersionFromOtherDocument(t *testing.T) {
 		t.Fatalf("cross-document version status=%d body=%s", otherDoc.Code, otherDoc.Body.String())
 	}
 }
+
+func TestUpdateDocumentOptimisticLockConflicts(t *testing.T) {
+	service := testService(t)
+	created := httptest.NewRecorder()
+	service.ServeHTTP(created, httptest.NewRequest(http.MethodPost, "/api/drawio/documents", strings.NewReader(`{"title":"lock","tags_json":"[]"}`)))
+	if created.Code != http.StatusCreated {
+		t.Fatalf("create status=%d body=%s", created.Code, created.Body.String())
+	}
+	var payload struct {
+		Document DocumentDetail `json:"document"`
+	}
+	if err := json.Unmarshal(created.Body.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Document.UpdatedAt == "" {
+		t.Fatal("missing updated_at")
+	}
+
+	matching := httptest.NewRecorder()
+	service.ServeHTTP(matching, httptest.NewRequest(http.MethodPut, "/api/drawio/documents/1", strings.NewReader(`{"title":"first","tags_json":"[]","expected_updated_at":`+strconvQuote(payload.Document.UpdatedAt)+`}`)))
+	if matching.Code != http.StatusOK {
+		t.Fatalf("update with matching rev status=%d body=%s", matching.Code, matching.Body.String())
+	}
+
+	conflict := httptest.NewRecorder()
+	service.ServeHTTP(conflict, httptest.NewRequest(http.MethodPut, "/api/drawio/documents/1", strings.NewReader(`{"title":"stale","tags_json":"[]","expected_updated_at":"2000-01-01T00:00:00Z"}`)))
+	if conflict.Code != http.StatusConflict {
+		t.Fatalf("stale update status=%d body=%s", conflict.Code, conflict.Body.String())
+	}
+
+	doc, err := service.store.GetDocument(context.Background(), 1)
+	if err != nil || doc == nil || doc.Title != "first" {
+		t.Fatalf("conflict overwrote metadata: %#v err=%v", doc, err)
+	}
+}

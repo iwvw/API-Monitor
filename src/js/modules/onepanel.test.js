@@ -16,7 +16,18 @@ import {
   proxyOnepanel,
   getOnepanelSpec,
   getOnepanelCatalog,
+  getOnepanelReverseProxyDomains,
+  searchOnepanelWebsites,
+  updateOnepanelWebsite,
+  getOnepanelWebsiteRewrite,
+  getOnepanelWebsiteRedirect,
+  getOnepanelWebsiteLeech,
+  getOnepanelWebsiteAuths,
+  updateOnepanelSsl,
+  deleteOnepanelSsl,
+  getOnepanelWebsiteSsl,
 } from './onepanel.js';
+import * as mod from './onepanel.js';
 
 const okResponse = (payload, ok = true) => ({ ok, json: async () => payload });
 
@@ -101,8 +112,59 @@ describe('onepanel requests', () => {
     expect(calledInit(fetchMock).body).toBe('{"id":"w1","operate":"restart"}');
   });
 
-  it('listOnepanelContainers hits the encoded containers url', async () => {
-    fetchMock.mockResolvedValue(okResponse({ success: true, data: [] }));
+  it('searchOnepanelWebsites posts paging body', async () => {
+    fetchMock.mockResolvedValue(okResponse({ success: true, data: {} }));
+    await searchOnepanelWebsites('srv 1', { page: 2, pageSize: 10 });
+    expect(calledUrl(fetchMock)).toBe('/api/onepanel/srv%201/websites/search');
+    expect(calledInit(fetchMock).body).toBe('{"page":2,"pageSize":10}');
+  });
+
+  it('updateOnepanelWebsite injects the id into the body', async () => {
+    fetchMock.mockResolvedValue(okResponse({ success: true }));
+    await updateOnepanelWebsite('srv 1', 'w1', { remark: '主站' });
+    expect(calledUrl(fetchMock)).toBe('/api/onepanel/srv%201/websites/w1/update');
+    expect(calledInit(fetchMock).body).toBe('{"remark":"主站","id":"w1"}');
+  });
+
+  it('website config helpers hit the right sub-paths', async () => {
+    fetchMock.mockResolvedValue(okResponse({ success: true }));
+    const cases = [
+      ['getOnepanelWebsiteRewrite', '/rewrite'],
+      ['getOnepanelWebsiteRedirect', '/redirect'],
+      ['getOnepanelWebsiteLeech', '/leech'],
+      ['getOnepanelWebsiteAuths', '/auths'],
+    ];
+    for (const [fnName, sub] of cases) {
+      await mod[fnName]('srv 1', 'w1');
+      expect(calledUrl(fetchMock)).toBe(`/api/onepanel/srv%201/websites/w1${sub}`);
+      expect(calledInit(fetchMock).body).toBe('{"id":"w1"}');
+    }
+  });
+
+  it('ssl helpers encode the ssl id', async () => {
+    fetchMock.mockResolvedValue(okResponse({ success: true }));
+    await updateOnepanelSsl('srv 1', 9, { description: 'x' });
+    expect(calledUrl(fetchMock)).toBe('/api/onepanel/srv%201/ssl/9/update');
+    expect(calledInit(fetchMock).body).toBe('{"description":"x","id":9}');
+    await deleteOnepanelSsl('srv 1', 9);
+    expect(calledUrl(fetchMock)).toBe('/api/onepanel/srv%201/ssl/9/delete');
+    expect(calledInit(fetchMock).body).toBe('{"id":9}');
+  });
+
+  it('getOnepanelWebsiteSsl hits the by-website url', async () => {
+    fetchMock.mockResolvedValue(okResponse({ success: true }));
+    await getOnepanelWebsiteSsl('srv 1', 'w1');
+    expect(calledUrl(fetchMock)).toBe('/api/onepanel/srv%201/ssl/website/w1');
+    expect(calledInit(fetchMock).method).toBe('GET');
+  });
+
+  it('getOnepanelReverseProxyDomains hits the encoded reverse-proxy url', async () => {    fetchMock.mockResolvedValue(okResponse({ success: true, data: { targets: [] } }));
+    await getOnepanelReverseProxyDomains('srv 1');
+    expect(calledUrl(fetchMock)).toBe('/api/onepanel/srv%201/reverse-proxy/domains');
+    expect(calledInit(fetchMock).method).toBe('GET');
+  });
+
+  it('listOnepanelContainers hits the encoded containers url', async () => {    fetchMock.mockResolvedValue(okResponse({ success: true, data: [] }));
     await listOnepanelContainers('srv 1');
     expect(calledUrl(fetchMock)).toBe('/api/onepanel/srv%201/containers');
   });

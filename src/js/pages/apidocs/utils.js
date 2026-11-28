@@ -123,7 +123,7 @@ const sortRoutes = routes =>
 const routeGroup = route => {
   const prefix = route.prefix || '';
   if (
-    prefix.startsWith(routePrefixLiteral(API_SEGMENT, 'openai')) ||
+    prefix.startsWith(routePrefixLiteral(API_SEGMENT, 'modelhub')) ||
     prefix.startsWith(routePrefixLiteral(API_SEGMENT, 'chat')) ||
     prefix.startsWith(routePrefixLiteral('v1'))
   )
@@ -284,7 +284,7 @@ const routeDescription = route => {
   )
     return '主机终端和 Agent 实时连接';
   if (
-    prefix.startsWith(routePrefixLiteral(API_SEGMENT, 'openai')) ||
+    prefix.startsWith(routePrefixLiteral(API_SEGMENT, 'modelhub')) ||
     prefix.startsWith(routePrefixLiteral('v1')) ||
     prefix.startsWith(routePrefixLiteral(API_SEGMENT, 'chat'))
   )
@@ -434,6 +434,21 @@ const formatJSON = value => {
   return JSON.stringify(value, null, 2);
 };
 
+// 代码块（``` / ~~~）与行内代码：marked 自己就会正确转义里面的尖括号，保持原样。
+const MARKDOWN_PROTECTED_RE = /((?:```[\s\S]*?(?:```|$))|(?:~~~[\s\S]*?(?:~~~|$))|(?:`[^`\n]*`))/g;
+
+// 页面只做展示：把 Markdown 正文里形如 <意图>、<sandboxRoot>、<path> 的占位符转义，
+// 否则 marked 会把它们当成未知 HTML 标签直接丢弃（AI 接入指南里这类占位符很多）。
+const escapeMarkdownPlaceholders = markdown =>
+  String(markdown ?? '')
+    .split(MARKDOWN_PROTECTED_RE)
+    .map((chunk, index) =>
+      index % 2 === 1
+        ? chunk
+        : chunk.replace(/<(\/?[A-Za-z][\w.-]*|[\u4e00-\u9fa5]+)>/g, '&lt;$1&gt;')
+    )
+    .join('');
+
 const formatAuditDetails = value => {
   if (value == null || value === '') return '—';
   if (typeof value !== 'string') return formatJSON(value);
@@ -494,6 +509,7 @@ export {
   fetchJsonEnvelope,
   apiRequest,
   formatJSON,
+  escapeMarkdownPlaceholders,
   formatAuditDetails,
   buildCurlExample,
   formatDateTime,

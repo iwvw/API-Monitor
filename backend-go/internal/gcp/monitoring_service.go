@@ -11,6 +11,8 @@ import (
 	"github.com/iwvw/api-monitor/backend-go/internal/timeutil"
 )
 
+const gcpMonitoringMaxPages = 20
+
 // normalModelUsage 模型用量汇总（按天序列 + 按模型分组）。
 type normalModelUsage struct {
 	Total   int64                  `json:"total"`
@@ -42,42 +44,56 @@ func (s *Service) queryModelUsage(ctx context.Context, c *client, projectID stri
 	if days <= 0 || days > 90 {
 		days = 30
 	}
-	now := time.Now().UTC()
+	now := time.Now().UTC().Truncate(time.Hour)
 	start := now.Add(-time.Duration(days) * 24 * time.Hour)
 	query := url.Values{}
 	query.Set("filter", modelUsageFilter())
 	query.Set("interval.startTime", start.Format(time.RFC3339))
 	query.Set("interval.endTime", now.Format(time.RFC3339))
-	query.Set("aggregation.alignmentPeriod", "86400s")
+	query.Set("aggregation.alignmentPeriod", "3600s")
 	query.Set("aggregation.perSeriesAligner", "ALIGN_SUM")
 	query.Set("aggregation.crossSeriesReducer", "REDUCE_SUM")
 	query.Set("aggregation.groupByFields", "resource.labels.model_user_id")
 	query.Set("view", "FULL")
 
-	var raw struct {
-		TimeSeries []struct {
-			Resource struct {
-				Labels map[string]string `json:"labels"`
-			} `json:"resource"`
-			Points []struct {
-				Interval struct {
-					StartTime string `json:"startTime"`
-				} `json:"interval"`
-				Value struct {
-					Int64Value  *string  `json:"int64Value"` // GCP 以字符串返回 64 位整数
-					DoubleValue *float64 `json:"doubleValue"`
-				} `json:"value"`
-			} `json:"points"`
-		} `json:"timeSeries"`
+	type monitoringSeries struct {
+		Resource struct {
+			Labels map[string]string `json:"labels"`
+		} `json:"resource"`
+		Points []struct {
+			Interval struct {
+				StartTime string `json:"startTime"`
+			} `json:"interval"`
+			Value struct {
+				Int64Value  *string  `json:"int64Value"` // GCP 以字符串返回 64 位整数
+				DoubleValue *float64 `json:"doubleValue"`
+			} `json:"value"`
+		} `json:"points"`
 	}
-	if err := c.do(ctx, http.MethodGet, "monitoring", "projects/"+projectID+"/timeSeries", query, nil, &raw); err != nil {
-		return normalModelUsage{}, err
+	series := []monitoringSeries{}
+	pageToken := ""
+	for page := 0; page < gcpMonitoringMaxPages; page++ {
+		if pageToken != "" {
+			query.Set("pageToken", pageToken)
+		}
+		var raw struct {
+			TimeSeries    []monitoringSeries `json:"timeSeries"`
+			NextPageToken string             `json:"nextPageToken"`
+		}
+		if err := c.do(ctx, http.MethodGet, "monitoring", "projects/"+projectID+"/timeSeries", query, nil, &raw); err != nil {
+			return normalModelUsage{}, err
+		}
+		series = append(series, raw.TimeSeries...)
+		if raw.NextPageToken == "" {
+			break
+		}
+		pageToken = raw.NextPageToken
 	}
 
 	result := normalModelUsage{Days: days}
 	dailySum := map[string]int64{}
 	var byModel []normalModelUsageGroup
-	for _, ts := range raw.TimeSeries {
+	for _, ts := range series {
 		model := strings.TrimSpace(ts.Resource.Labels["model_user_id"])
 		if model == "" {
 			model = "unknown"

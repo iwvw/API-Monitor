@@ -255,9 +255,9 @@ func TestAcceptedEncodingsParsing(t *testing.T) {
 		{"x-gzip", false, true},
 	}
 	for _, tc := range cases {
-		br, gzip := acceptedEncodings(tc.header)
+		br, gzip := httpcompress.AcceptedEncodings(tc.header)
 		if br != tc.br || gzip != tc.gzip {
-			t.Fatalf("acceptedEncodings(%q) = (%v,%v), want (%v,%v)", tc.header, br, gzip, tc.br, tc.gzip)
+			t.Fatalf("AcceptedEncodings(%q) = (%v,%v), want (%v,%v)", tc.header, br, gzip, tc.br, tc.gzip)
 		}
 	}
 }

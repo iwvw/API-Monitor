@@ -557,3 +557,52 @@ func TestSaveAdminPasswordHashesPlaintext(t *testing.T) {
 		t.Fatal("saved hash should verify against the original password")
 	}
 }
+
+func TestRequestHostnameOnlyTrustsForwardedHostFromTrustedProxy(t *testing.T) {
+	service := New(config.Config{TrustedProxyCIDRs: []string{"203.0.113.0/24"}})
+
+	trusted := httptest.NewRequest(http.MethodGet, "/api/auth/github/callback", nil)
+	trusted.Host = "panel.internal"
+	trusted.RemoteAddr = "203.0.113.5:1234"
+	trusted.Header.Set("X-Forwarded-Host", "panel.example.com")
+	if got := service.requestHostname(trusted); got != "panel.example.com" {
+		t.Fatalf("trusted proxy forwarded host = %q, want panel.example.com", got)
+	}
+
+	untrusted := httptest.NewRequest(http.MethodGet, "/api/auth/github/callback", nil)
+	untrusted.Host = "panel.internal"
+	untrusted.RemoteAddr = "198.51.100.9:1234"
+	untrusted.Header.Set("X-Forwarded-Host", "evil.example.com")
+	if got := service.requestHostname(untrusted); got != "panel.internal" {
+		t.Fatalf("untrusted source forwarded host = %q, want panel.internal", got)
+	}
+}
+
+func TestConsumeTOTPStepRejectsReplay(t *testing.T) {
+	service := New(config.Config{
+		Version: "test",
+		Host:    "127.0.0.1",
+		Port:    0,
+		DataDir: t.TempDir(),
+		DBName:  "data.db",
+	})
+	db, err := service.openDB(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	ok, err := service.consumeTOTPStep(t.Context(), db, 100)
+	if err != nil || !ok {
+		t.Fatalf("first consume should succeed: ok=%v err=%v", ok, err)
+	}
+	if ok, err := service.consumeTOTPStep(t.Context(), db, 100); err != nil || ok {
+		t.Fatalf("replayed step must be rejected: ok=%v err=%v", ok, err)
+	}
+	if ok, err := service.consumeTOTPStep(t.Context(), db, 99); err != nil || ok {
+		t.Fatalf("older step must be rejected: ok=%v err=%v", ok, err)
+	}
+	if ok, err := service.consumeTOTPStep(t.Context(), db, 101); err != nil || !ok {
+		t.Fatalf("newer step should succeed: ok=%v err=%v", ok, err)
+	}
+}

@@ -5,6 +5,7 @@ import {
   TYPE_ITEMS,
   WORKFLOW_CANVAS_SIZES,
 } from './constants.js';
+import { formatDateTime } from '../../modules/utils.js';
 
 export function getCronExpressionFromSimple(form) {
   if (form.useCustom) return form.schedule.trim();
@@ -52,7 +53,7 @@ export function formatTimestamp(value) {
   if (!value) return '-';
   const millis = Number(value) * 1000;
   if (!Number.isFinite(millis)) return '-';
-  return new Date(millis).toLocaleString('zh-CN', { hour12: false });
+  return formatDateTime(new Date(millis));
 }
 
 // tryFormatJson 尝试把文本解析并格式化 JSON；非 JSON 返回 null。
@@ -298,7 +299,7 @@ export function buildWorkflowCanvasLayout(nodes = [], edges = [], size = 'defaul
       const target = rectById.get(edge.to);
       if (!source || !target) return null;
       const { path, midX, midY } = routeWorkflowEdge(source, target, cfg);
-      return { from: edge.from, to: edge.to, condition: edge.condition, path, midX, midY };
+      return { id: edge.id, from: edge.from, to: edge.to, condition: edge.condition, path, midX, midY };
     })
     .filter(Boolean);
   return { width: contentWidth, height: contentHeight, rectById, stages: stageList, edges: edgeList, cfg };

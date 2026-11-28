@@ -15,6 +15,9 @@ import (
 
 const requestTimeout = 30 * time.Second
 
+// maxListPages 限制 marker 分页循环上限,防止服务端持续返回重复 marker 造成死循环。
+const maxListPages = 200
+
 // siteSuffix 返回华为云站点域名后缀：国内站 myhuaweicloud.cn、国际站 myhuaweicloud.com。
 func siteSuffix(site string) string {
 	if siteOrDefault(site) == "intl" {
@@ -129,7 +132,8 @@ func (c *client) do(ctx context.Context, service, method, path string, query url
 
 // listJSON 分页聚合：RMS/DNS 用 marker 分页，其余一次性返回。handle 处理单条资源。
 func (c *client) listJSON(ctx context.Context, service, path string, query url.Values, listField string, markerParam string, handle func(raw json.RawMessage) error) error {
-	for {
+	lastMarker := ""
+	for page := 0; page < maxListPages; page++ {
 		values := url.Values{}
 		for key, items := range query {
 			for _, item := range items {
@@ -159,9 +163,10 @@ func (c *client) listJSON(ctx context.Context, service, path string, query url.V
 		if markerRaw, ok := envelope[markerParam]; ok {
 			_ = json.Unmarshal(markerRaw, &marker)
 		}
-		if marker == "" {
+		if marker == "" || marker == lastMarker {
 			break
 		}
+		lastMarker = marker
 		values.Set("marker", marker)
 		query = values
 	}

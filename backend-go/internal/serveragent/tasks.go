@@ -472,13 +472,9 @@ func (r *TaskRegistry) SubscribeAll() (<-chan TaskEvent, func()) {
 
 func (r *TaskRegistry) broadcast(event TaskEvent) {
 	r.mu.RLock()
-	subscribers := make([]chan TaskEvent, 0, len(r.subscribers))
-	for ch := range r.subscribers {
-		subscribers = append(subscribers, ch)
-	}
-	r.mu.RUnlock()
+	defer r.mu.RUnlock()
 
-	for _, ch := range subscribers {
+	for ch := range r.subscribers {
 		select {
 		case ch <- event:
 		default:

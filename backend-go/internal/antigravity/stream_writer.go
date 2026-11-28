@@ -8,7 +8,7 @@ import (
 )
 
 /**
- * 流式响应加固：与 `internal/openai/relay_chat.go` 的 sseStreamWriter 同一范式。
+ * 流式响应加固：与 `internal/modelhub/relay_chat.go` 的 sseStreamWriter 同一范式。
  *
  * ## 为什么 Antigravity 必须补上这三样
  *
@@ -23,7 +23,7 @@ import (
  * 1. 缺 `X-Accel-Buffering: no`
  *    nginx/openresty 默认会缓冲 proxied 响应。SSE 一旦被缓冲，客户端在缓冲区
  *    填满/请求结束前拿不到任何字节；长时间无字节会触发代理的 read timeout，
- *    返回 504。本仓其它插件（qoder / workbuddy / openai / ds2api …）**全部**
+ *    返回 504。本仓其它插件（qoder / workbuddy / openai …）**全部**
  *    都设了这个头，只有 antigravity 的两条流式路径漏了。
  *
  * 2. 缺写超时延长
@@ -35,7 +35,7 @@ import (
  *    周期性发 `: ping` 注释行（标准 SSE 客户端会忽略）即可穿透空闲超时。
  */
 
-// streamPingInterval 是流式响应期间的 ping 间隔。与 openai 包保持一致。
+// streamPingInterval 是流式响应期间的 ping 间隔。与 modelhub 包保持一致。
 const streamPingInterval = 15 * time.Second
 
 // streamWriteWindow 是单次写入允许的时间窗口；每次写前都会重新延长。

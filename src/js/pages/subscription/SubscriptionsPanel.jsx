@@ -8,7 +8,7 @@ import { Copy, Edit, Plus, RefreshCw, Trash } from '../../components/Icons.jsx';
 import { SUBSCRIPTION_COLUMNS } from './constants.js';
 import { copyText, formatBytes, formatTime, meteringLabel, statusLabel, subscriptionURL } from './utils.js';
 
-export default function SubscriptionsPanel({ subscriptions, visibleNodesCount, createDisabled, publicBase, plans, isArmed, onCreate, onEdit, onToggleEnabled, onDelete, onResetToken, onRotateAddress }) {
+export default function SubscriptionsPanel({ subscriptions, visibleNodesCount, createDisabled, publicBase, plans, onCreate, onEdit, onToggleEnabled, onDelete, onResetToken, onRotateAddress }) {
   const currentSubscriptions = subscriptions;
   return (
     <SectionCard
@@ -108,7 +108,7 @@ export default function SubscriptionsPanel({ subscriptions, visibleNodesCount, c
                           </DropdownMenu.Item>
                         </DropdownMenu.Content>
                       </DropdownMenu>
-                      <Button size="sm" shape="square" variant={isArmed(`subscription-delete:${sub.id}`) ? 'destructive' : 'secondary-destructive'} aria-label="删除订阅链接" title="删除订阅链接" onClick={() => onDelete(sub)} icon={<Trash className="h-3.5 w-3.5" />} />
+                      <Button size="sm" shape="square" variant="secondary-destructive" aria-label="删除订阅链接" title="删除订阅链接" onClick={() => onDelete(sub)} icon={<Trash className="h-3.5 w-3.5" />} />
                     </div>
                   </Table.Cell>
                 </Table.Row>

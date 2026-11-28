@@ -308,7 +308,7 @@ const AccountDialog = ({
                 <Select alignItemWithTrigger
                   size="sm"
                   label="关联分组"
-                  value={accountForm.group_id}
+                  value={String(accountForm.group_id || '')}
                   onValueChange={value =>
                     setAccountForm(prev => ({ ...prev, group_id: String(value) }))
                   }
@@ -360,7 +360,7 @@ const AccountDialog = ({
                         <Select alignItemWithTrigger
                           label="码位长度"
                           size="sm"
-                          value={accountForm.digits}
+                          value={String(accountForm.digits)}
                           onValueChange={value =>
                             setAccountForm(prev => ({ ...prev, digits: String(value) }))
                           }
@@ -375,7 +375,7 @@ const AccountDialog = ({
                           <Select alignItemWithTrigger
                             label="周期数 (s)"
                             size="sm"
-                            value={accountForm.period}
+                            value={String(accountForm.period)}
                             onValueChange={value =>
                               setAccountForm(prev => ({ ...prev, period: String(value) }))
                             }

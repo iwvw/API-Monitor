@@ -14,6 +14,8 @@ type Pattern struct {
 
 var patterns = []Pattern{
 	{regexp.MustCompile(`(?i)\brm\s+-[^\n;|&]*r[^\n;|&]*f\b`), "递归强制删除文件"},
+	// 两个独立短参数 token,f 在前 r 在后(-f -r / -vf -r 等),与上一条的 r→f 顺序互补
+	{regexp.MustCompile(`(?i)\brm\s+-[a-z]*f\b[^\n;|&]*-[a-z]*r\b`), "递归强制删除文件"},
 	// 单参数内 r/f 任意组合（-fr / -rfv / -vfr 等）
 	{regexp.MustCompile(`(?i)\brm\s+(?:-[a-z]*[rR][a-z]*f[a-z]*|-[a-z]*f[a-z]*[rR][a-z]*)`), "递归强制删除文件"},
 	// GNU 长参数形式（--recursive + --force，顺序任意）

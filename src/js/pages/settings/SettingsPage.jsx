@@ -11,7 +11,7 @@ import useStore, {
 import { useShallow } from 'zustand/react/shallow';
 import { MODULE_TABS_PROPS } from '../../modules/kumoTabs.js';
 import { applySiteBrandFaviconHref, getDefaultSiteBrandPreviewUrl } from '../../modules/siteBrand.js';
-import { TabBarOverflowActions, stickyTabsBaseClass } from '../../components/ui/AppPrimitives.jsx';
+import { TabBarOverflowActions, stickyTabsBelowHeaderClass } from '../../components/ui/AppPrimitives.jsx';
 import { browserSupportsWebAuthn, createPasskeyCredential } from '../../modules/webauthn.js';
 import { RefreshCw, Save } from '../../components/Icons.jsx';
 import { SETTINGS_TABS } from './tabs.jsx';
@@ -62,6 +62,7 @@ function SettingsPage() {
 
   const fileInputRef = useRef(null);
   const siteBrandInputRef = useRef(null);
+  const vacuumAbortRef = useRef(null);
   const [activeTab, setActiveTab] = useState('general');
   const [backendOnline, setBackendOnline] = useState(true);
   const [settings, setSettings] = useState(() => normalizeUserSettings());
@@ -100,9 +101,11 @@ function SettingsPage() {
   const [deprecatedTables, setDeprecatedTables] = useState(null);
   const [databaseBusy, setDatabaseBusy] = useState(false);
   const [databaseLoaded, setDatabaseLoaded] = useState(false);
+  const [databaseError, setDatabaseError] = useState('');
   const [dbTablesExpanded, setDbTablesExpanded] = useState(false);
   const [dbImportPreview, setDbImportPreview] = useState(null);
   const [healthInfo, setHealthInfo] = useState(null);
+  const [healthError, setHealthError] = useState('');
 
   const [logSettings, setLogSettings] = useState({
     days: 0,
@@ -118,6 +121,7 @@ function SettingsPage() {
   const [logPreview, setLogPreview] = useState(null);
   const [logsLoaded, setLogsLoaded] = useState(false);
   const [twoFALoaded, setTwoFALoaded] = useState(false);
+  const [twoFAStatusError, setTwoFAStatusError] = useState('');
   const [loginSessions, setLoginSessions] = useState([]);
   const [sessionsLoading, setSessionsLoading] = useState(false);
   const [sessionsLoaded, setSessionsLoaded] = useState(false);
@@ -222,15 +226,26 @@ function SettingsPage() {
         fetch('/api/settings/deprecated-tables', { headers: getAuthHeaders() }),
       ]);
 
+      if (!statsResponse.ok || !analysisResponse.ok || !deprecatedResponse.ok) {
+        throw new Error('加载数据库统计失败');
+      }
+
       const statsResult = await statsResponse.json();
-      if (statsResult.success) setDbStats(statsResult.data);
+      if (!statsResult.success) throw new Error(statsResult.error || '加载数据库统计失败');
+      setDbStats(statsResult.data);
 
       const analysisResult = await analysisResponse.json();
-      if (analysisResult.success) setDbAnalysis(analysisResult.data);
+      if (!analysisResult.success) throw new Error(analysisResult.error || '加载数据库分析失败');
+      setDbAnalysis(analysisResult.data);
 
       const deprecatedResult = await deprecatedResponse.json();
-      if (deprecatedResult.success) setDeprecatedTables(deprecatedResult.data);
+      if (!deprecatedResult.success) throw new Error(deprecatedResult.error || '加载废弃表失败');
+      setDeprecatedTables(deprecatedResult.data);
       setDatabaseLoaded(true);
+      setDatabaseError('');
+    } catch (error) {
+      setDatabaseError(error.message || '加载数据库统计失败');
+      throw error;
     } finally {
       setDatabaseBusy(false);
     }
@@ -285,11 +300,16 @@ function SettingsPage() {
   }, []);
 
   const fetchTwoFAStatus = useCallback(async () => {
-    const response = await fetch('/api/auth/2fa/status', { headers: getAuthHeaders() });
-    const result = await response.json();
-    if (result.success) {
+    try {
+      const response = await fetch('/api/auth/2fa/status', { headers: getAuthHeaders() });
+      const result = await response.json();
+      if (!response.ok || result.success === false) throw new Error(result.error || '加载 2FA 状态失败');
       setTwoFA((prev) => ({ ...prev, enabled: !!result.enabled }));
       setTwoFALoaded(true);
+      setTwoFAStatusError('');
+    } catch (error) {
+      setTwoFAStatusError(error.message || '加载 2FA 状态失败');
+      throw error;
     }
   }, []);
 
@@ -363,9 +383,12 @@ function SettingsPage() {
     try {
       const response = await fetch('/health');
       const result = await response.json();
-      if (response.ok) setHealthInfo(result);
+      if (!response.ok) throw new Error('获取后端健康信息失败');
+      setHealthInfo(result);
+      setHealthError('');
     } catch (error) {
       console.error('获取后端健康信息失败', error);
+      setHealthError(error.message || '获取后端健康信息失败');
     }
   }, []);
 
@@ -427,10 +450,10 @@ function SettingsPage() {
   }, [fetchSettings]);
 
   useEffect(() => {
-    if (activeTab === 'database' && !databaseLoaded && !databaseBusy) {
+    if (activeTab === 'database' && !databaseLoaded && !databaseBusy && !databaseError) {
       fetchDbState().catch((error) => toast.error(error.message || '加载数据库统计失败'));
     }
-  }, [activeTab, databaseBusy, databaseLoaded, fetchDbState]);
+  }, [activeTab, databaseBusy, databaseError, databaseLoaded, fetchDbState]);
 
   useEffect(() => {
     if (activeTab === 'logs' && !logsLoaded && !logsBusy) {
@@ -817,9 +840,12 @@ function SettingsPage() {
     }
   };
 
-  const postSettingsAction = async (path, successMessage, refresh = null, body = undefined) => {
-    setLogsBusy(true);
-    setDatabaseBusy(true);
+  const postSettingsAction = async (path, successMessage, refresh = null, body = undefined, busyScope = 'both') => {
+    const toggleBusy = (value) => {
+      if (busyScope === 'logs' || busyScope === 'both') setLogsBusy(value);
+      if (busyScope === 'database' || busyScope === 'both') setDatabaseBusy(value);
+    };
+    toggleBusy(true);
     try {
       const response = await fetch(path, {
         method: 'POST',
@@ -827,28 +853,32 @@ function SettingsPage() {
         body: body ? JSON.stringify(body) : undefined,
       });
       const result = await response.json();
-      if (!response.ok || !result.success) throw new Error(result.error || '操作失败');
+      if (!response.ok || !result.success) throw new Error(result.error || result.message || '操作失败');
       toast.success(successMessage || result.message || '操作完成');
       if (refresh) await refresh();
     } catch (error) {
       toast.error(error.message || '操作失败');
     } finally {
-      setLogsBusy(false);
-      setDatabaseBusy(false);
+      toggleBusy(false);
     }
   };
 
   // 数据库压缩在后台执行（VACUUM 可能耗时数分钟），提交后轮询任务状态，
   // 避免压缩期间面板无响应。
   const runDatabaseVacuum = async () => {
+    vacuumAbortRef.current?.abort();
+    const controller = new AbortController();
+    vacuumAbortRef.current = controller;
+    const { signal } = controller;
     setDatabaseBusy(true);
     try {
       const response = await fetch('/api/settings/vacuum-database', {
         method: 'POST',
         headers: getAuthHeaders(),
+        signal,
       });
       const result = await response.json();
-      if (!response.ok) throw new Error(result.error || '启动数据库压缩失败');
+      if (!response.ok) throw new Error(result.error || result.message || '启动数据库压缩失败');
       if (result.data?.running) {
         if (result.data?.mode === 'migrate') {
           toast.info('首次压缩需几分钟（数据库迁移到增量回收模式），期间部分请求可能短暂报错，请勿刷新或重启');
@@ -862,8 +892,10 @@ function SettingsPage() {
       const deadline = Date.now() + 10 * 60 * 1000;
       while (Date.now() < deadline) {
         await new Promise((resolve) => setTimeout(resolve, 2000));
+        if (signal.aborted) return;
         const statusResponse = await fetch('/api/settings/vacuum-database', {
           headers: getAuthHeaders(),
+          signal,
         });
         const status = await statusResponse.json();
         if (!statusResponse.ok) break;
@@ -879,13 +911,20 @@ function SettingsPage() {
           break;
         }
       }
+      if (signal.aborted) return;
       await fetchDbState();
     } catch (error) {
+      if (error?.name === 'AbortError') return;
       toast.error(error.message || '数据库压缩失败');
     } finally {
+      if (vacuumAbortRef.current === controller) vacuumAbortRef.current = null;
       setDatabaseBusy(false);
     }
   };
+
+  useEffect(() => () => {
+    vacuumAbortRef.current?.abort();
+  }, []);
 
   const runEnforceLogLimits = async () => {
     setLogsBusy(true);
@@ -913,11 +952,27 @@ function SettingsPage() {
 
   const confirmEnforceLogLimits = async () => {
     setLogPreview(null);
-    await postSettingsAction('/api/settings/enforce-log-limits', '日志限制已执行', fetchLogState);
+    await postSettingsAction('/api/settings/enforce-log-limits', '日志限制已执行', fetchLogState, undefined, 'logs');
   };
 
-  const exportDatabase = () => {
-    window.location.href = '/api/settings/export-database';
+  const exportDatabase = async () => {
+    try {
+      const response = await fetch('/api/settings/export-database', { headers: getAuthHeaders() });
+      if (!response.ok) throw new Error('导出数据库失败');
+      const blob = await response.blob();
+      const disposition = response.headers.get('Content-Disposition') || '';
+      const match = disposition.match(/filename="?([^"]+)"?/);
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = match?.[1] || 'api-monitor-backup.db';
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      toast.error(error.message || '导出数据库失败');
+    }
   };
 
   const importDatabase = () => {
@@ -999,7 +1054,8 @@ function SettingsPage() {
       '/api/settings/cleanup-deprecated-tables',
       '废弃表已清理',
       fetchDbState,
-      { tables: candidates.map((item) => item.table) }
+      { tables: candidates.map((item) => item.table) },
+      'database'
     );
   };
 
@@ -1063,7 +1119,7 @@ function SettingsPage() {
 
   return (
     <div className="flex min-h-full w-full min-w-0 flex-col gap-3 cq-sm:gap-4">
-      <div className={`${stickyTabsBaseClass} justify-between gap-2 border-b border-kumo-line [&>*]:min-w-0`}>
+      <div className={`${stickyTabsBelowHeaderClass} justify-between gap-2 border-b border-kumo-line [&>*]:min-w-0`}>
         <Tabs
           {...MODULE_TABS_PROPS}
           value={activeTab}
@@ -1154,6 +1210,7 @@ function SettingsPage() {
           settings={settings}
           start2FASetup={start2FASetup}
           twoFA={twoFA}
+          twoFAStatusError={twoFAStatusError}
         />
       )}
 
@@ -1162,6 +1219,7 @@ function SettingsPage() {
           cleanupDeprecatedTables={cleanupDeprecatedTables}
           commitDatabaseImport={commitDatabaseImport}
           databaseBusy={databaseBusy}
+          databaseError={databaseError}
           databaseSegments={databaseSegments}
           databaseStorage={databaseStorage}
           dbImportPreview={dbImportPreview}
@@ -1214,6 +1272,7 @@ function SettingsPage() {
       {activeTab === 'about' && (
         <AboutPanel
           currentOrigin={currentOrigin}
+          healthError={healthError}
           healthInfo={healthInfo}
         />
       )}

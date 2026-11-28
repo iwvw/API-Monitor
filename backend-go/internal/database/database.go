@@ -35,7 +35,6 @@ func (s *Store) Open(ctx context.Context) (*sql.DB, error) {
 	// PRAGMA 只在物理连接首次建立时执行。调用方「Open → defer Close」的
 	// 使用方式保持不变。
 	pool := poolFor(dbPath)
-	pool.addRef()
 	db := sql.OpenDB(&poolConnector{pool: pool})
 	db.SetMaxOpenConns(1)
 	// core schema 按数据库路径全局执行一次（此前 per-Store，20 个服务
@@ -212,8 +211,8 @@ func ensureDefaultUserSettings(ctx context.Context, db *sql.DB) error {
 		) VALUES (
 			1,
 			'',
-			'{"openai":true,"dns":true,"server":true}',
-			'["openai","dns","server"]',
+			'{"modelhub":true,"dns":true,"server":true}',
+			'["modelhub","dns","server"]',
 			'{}',
 			'{}'
 		)

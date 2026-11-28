@@ -79,6 +79,16 @@ func performRequest(service *Service, method, path, body string) *httptest.Respo
 	return res
 }
 
+func TestInternalAICallBypassesSessionAuth(t *testing.T) {
+	service, _ := testService(t, false)
+	req := httptest.NewRequest(http.MethodGet, "/api/uptime/monitors", nil).WithContext(WithInternalAICall(context.Background()))
+	res := httptest.NewRecorder()
+	service.ServeHTTP(res, req)
+	if res.Code != http.StatusOK {
+		t.Fatalf("internal AI call status = %d body=%s", res.Code, res.Body.String())
+	}
+}
+
 func TestAuthSplitAndMonitorLifecycle(t *testing.T) {
 	unauthenticated, _ := testService(t, false)
 	res := performRequest(unauthenticated, http.MethodGet, "/api/uptime/monitors", "")

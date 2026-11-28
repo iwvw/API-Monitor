@@ -302,7 +302,7 @@ Small status label for categorizing or highlighting content.
 
 **Colors (kumo tokens used):**
 
-`bg-kumo-badge-blue`, `bg-kumo-badge-green`, `bg-kumo-badge-inverted`, `bg-kumo-badge-neutral`, `bg-kumo-badge-orange`, `bg-kumo-badge-purple`, `bg-kumo-badge-red`, `bg-kumo-badge-teal`, `bg-kumo-badge-teal-subtle`, `bg-kumo-base`, `bg-kumo-danger-tint`, `bg-kumo-fill`, `bg-kumo-info-tint`, `bg-kumo-success`, `bg-kumo-success-tint`, `bg-kumo-warning-tint`, `border-kumo-brand`, `border-kumo-fill`, `ring-kumo-hairline`, `text-kumo-badge-inverted`, `text-kumo-badge-neutral-subtle`, `text-kumo-badge-teal-subtle`, `text-kumo-danger`, `text-kumo-default`, `text-kumo-info`, `text-kumo-link`, `text-kumo-success`, `text-kumo-warning`
+`bg-kumo-badge-blue`, `bg-kumo-badge-green`, `bg-kumo-badge-inverted`, `bg-kumo-badge-neutral`, `bg-kumo-badge-orange`, `bg-kumo-badge-purple`, `bg-kumo-badge-red`, `bg-kumo-badge-secondary`, `bg-kumo-badge-teal`, `bg-kumo-badge-teal-subtle`, `bg-kumo-base`, `bg-kumo-danger-tint`, `bg-kumo-info-tint`, `bg-kumo-success`, `bg-kumo-success-tint`, `bg-kumo-warning-tint`, `border-kumo-brand`, `border-kumo-fill`, `ring-kumo-hairline`, `text-kumo-badge-inverted`, `text-kumo-badge-neutral-subtle`, `text-kumo-badge-teal-subtle`, `text-kumo-danger`, `text-kumo-default`, `text-kumo-info`, `text-kumo-link`, `text-kumo-success`, `text-kumo-warning`
 
 **Examples:**
 
@@ -551,6 +551,29 @@ Action sub-component
         }
       />
     </div>
+```
+
+```tsx
+<Banner
+      icon={<Warning weight="fill" />}
+      variant="alert"
+      title="Review your payment method"
+      description="Add a credit or debit card directly in Billing to continue."
+      action={
+        <>
+          <Banner.Action
+            variant="secondary"
+            href="https://developers.cloudflare.com/billing/"
+            external
+          >
+            View docs
+          </Banner.Action>
+          <Banner.Action href="https://dash.cloudflare.com/">
+            Manage payments
+          </Banner.Action>
+        </>
+      }
+    />
 ```
 
 ```tsx
@@ -1794,6 +1817,8 @@ Read-only text field with a one-click copy-to-clipboard button.
   The text to display and copy to clipboard.
 - `textToCopy`: string
   If provided, this text will be copied to clipboard instead of the `text` prop.
+- `masked`: boolean
+  Masks the text initially and adds a control to reveal or hide it.
 - `className`: string
   Additional CSS classes merged via `cn()`.
 - `tooltip`: object
@@ -1855,6 +1880,12 @@ Read-only text field with a one-click copy-to-clipboard button.
 
 ```tsx
 <ClipboardText text="0c239dd2" />
+```
+
+```tsx
+<div className="w-full max-w-xs">
+      <ClipboardText className="w-full" text="sk_live_51H8_abc123" masked />
+    </div>
 ```
 
 ```tsx
@@ -3338,13 +3369,14 @@ DatePicker — a date selection calendar.
 
 **Colors (kumo tokens used):**
 
-`bg-kumo-base`
+`bg-kumo-base`, `bg-kumo-contrast`, `bg-kumo-fill`, `bg-kumo-interact`, `bg-kumo-tint`, `ring-kumo-brand`, `ring-kumo-line`, `text-kumo-default`, `text-kumo-inactive`, `text-kumo-inverse`, `text-kumo-link`, `text-kumo-subtle`
 
 **Examples:**
 
 ```tsx
 <div className="flex flex-col gap-4">
       <DatePicker
+        className="p-3"
         mode="single"
         selected={date}
         onChange={(d) => {
@@ -3362,6 +3394,7 @@ DatePicker — a date selection calendar.
 ```tsx
 <div className="flex flex-col gap-4">
       <DatePicker
+        className="p-3"
         mode="multiple"
         selected={dates}
         onChange={setDates}
@@ -3376,6 +3409,7 @@ DatePicker — a date selection calendar.
 ```tsx
 <div className="flex flex-col gap-4">
       <DatePicker
+        className="p-3"
         mode="range"
         selected={range}
         onChange={setRange}
@@ -3393,6 +3427,7 @@ DatePicker — a date selection calendar.
 ```tsx
 <div className="flex flex-col gap-4">
       <DatePicker
+        className="p-3"
         mode="range"
         selected={range}
         onChange={setRange}
@@ -3403,6 +3438,18 @@ DatePicker — a date selection calendar.
         }
       />
     </div>
+```
+
+```tsx
+<DatePicker
+      className="p-3"
+      mode="single"
+      selected={date}
+      onChange={setDate}
+      captionLayout="dropdown"
+      startMonth={new Date(2020, 0)}
+      endMonth={new Date(2030, 11)}
+    />
 ```
 
 ```tsx
@@ -3455,7 +3502,7 @@ DatePicker — a date selection calendar.
                   onClick={() => handlePresetClick(preset)}
                   className={`rounded-md px-3 py-1.5 text-left whitespace-nowrap ${
                     isActive
-                      ? "bg-kumo-bg-inverse text-kumo-text-inverse"
+                      ? "bg-kumo-contrast text-kumo-inverse"
                       : "text-kumo-subtle hover:bg-kumo-control"
                   }`}
                 >
@@ -3481,6 +3528,7 @@ DatePicker — a date selection calendar.
 
 ```tsx
 <DatePicker
+      className="p-3"
       mode="multiple"
       selected={dates}
       onChange={setDates}
@@ -3638,7 +3686,7 @@ Close sub-component
             render={(props) => (
               <Button
                 {...props}
-                variant="secondary"
+                variant="ghost"
                 shape="square"
                 icon={<X />}
                 aria-label="Close"
@@ -3656,18 +3704,18 @@ Close sub-component
 
 ```tsx
 <Dialog.Root>
-      <Dialog.Trigger render={(p) => <Button {...p}>Delete</Button>} />
+      <Dialog.Trigger render={(p) => <Button {...p}>Save changes</Button>} />
       <Dialog className="p-8">
         <div className="mb-4 flex items-start justify-between gap-4">
           <Dialog.Title className="text-2xl font-semibold">
-            Modal Title
+            Save changes
           </Dialog.Title>
           <Dialog.Close
             aria-label="Close"
             render={(props) => (
               <Button
                 {...props}
-                variant="secondary"
+                variant="ghost"
                 shape="square"
                 icon={<X />}
                 aria-label="Close"
@@ -3689,8 +3737,8 @@ Close sub-component
           />
           <Dialog.Close
             render={(props) => (
-              <Button variant="destructive" {...props}>
-                Delete
+              <Button variant="primary" {...props}>
+                Save
               </Button>
             )}
           />
@@ -3714,7 +3762,7 @@ Close sub-component
             render={(props) => (
               <Button
                 {...props}
-                variant="secondary"
+                variant="ghost"
                 shape="square"
                 icon={<X />}
                 aria-label="Close"
@@ -3734,7 +3782,7 @@ Close sub-component
 ```
 
 ```tsx
-<Dialog.Root disablePointerDismissal>
+<Dialog.Root role="alertdialog">
       <Dialog.Trigger
         render={(p) => (
           <Button {...p} variant="destructive">
@@ -3830,7 +3878,7 @@ Close sub-component
             render={(props) => (
               <Button
                 {...props}
-                variant="secondary"
+                variant="ghost"
                 shape="square"
                 icon={<X />}
                 aria-label="Close"
@@ -3860,7 +3908,13 @@ Close sub-component
               </Button>
             )}
           />
-          <Button variant="primary">Create</Button>
+          <Dialog.Close
+            render={(props) => (
+              <Button variant="primary" {...props}>
+                Create
+              </Button>
+            )}
+          />
         </div>
       </Dialog>
     </Dialog.Root>
@@ -3879,7 +3933,7 @@ Close sub-component
             render={(props) => (
               <Button
                 {...props}
-                variant="secondary"
+                variant="ghost"
                 shape="square"
                 icon={<X />}
                 aria-label="Close"
@@ -3914,7 +3968,13 @@ Close sub-component
               </Button>
             )}
           />
-          <Button variant="primary">Create</Button>
+          <Dialog.Close
+            render={(props) => (
+              <Button variant="primary" {...props}>
+                Create
+              </Button>
+            )}
+          />
         </div>
       </Dialog>
     </Dialog.Root>
@@ -3941,7 +4001,7 @@ Close sub-component
                 render={(props) => (
                   <Button
                     {...props}
-                    variant="secondary"
+                    variant="ghost"
                     shape="square"
                     icon={<X />}
                     aria-label="Close"
@@ -5742,7 +5802,7 @@ LayerDialog component
 
 **Colors (kumo tokens used):**
 
-`bg-kumo-base`, `bg-kumo-contrast`, `bg-kumo-elevated`, `bg-kumo-fill`, `bg-kumo-recessed`, `border-kumo-hairline`
+`bg-kumo-base`, `bg-kumo-contrast`, `bg-kumo-elevated`, `bg-kumo-fill`, `bg-kumo-hairline`, `bg-kumo-recessed`, `border-kumo-hairline`
 
 **Sub-Components:**
 
@@ -5791,6 +5851,10 @@ Body sub-component
 
 Props:
 - `children`: ReactNode (required)
+
+#### LayerDialog.Separator
+
+Separator sub-component
 
 #### LayerDialog.Action
 
@@ -5931,6 +5995,32 @@ Props:
             )}
           </div>
         </LayerDialog.Body>
+      </LayerDialog.Content>
+    </LayerDialog.Root>
+```
+
+```tsx
+<LayerDialog.Root>
+      <LayerDialog.Trigger
+        render={(props) => <Button {...props}>Review deployment</Button>}
+      />
+      <LayerDialog.Content>
+        <LayerDialog.Title>Deployment summary</LayerDialog.Title>
+        <LayerDialog.Description>
+          Review the configuration before deploying.
+        </LayerDialog.Description>
+        <LayerDialog.Body>
+          <Text variant="secondary">
+            production-api will deploy to the global network.
+          </Text>
+          <LayerDialog.Separator />
+          <Text variant="secondary">
+            The deployment uses compatibility date 2026-10-26.
+          </Text>
+        </LayerDialog.Body>
+        <LayerDialog.Actions>
+          <LayerDialog.Action>Deploy</LayerDialog.Action>
+        </LayerDialog.Actions>
       </LayerDialog.Content>
     </LayerDialog.Root>
 ```
@@ -7863,7 +7953,7 @@ The function takes a `data` object parameter with the following properties:
 - `className`: string
   Additional CSS classes merged via `cn()`.
 - `render`: ReactNode
-  Replaces the trigger element while preserving Select behavior.
+  Replaces the trigger element while preserving Select behavior. Set the trigger's `id` with Select's `id` prop: Base UI does not see an `id` set here, so clicking the label would not focus the trigger.
 - `size`: enum [default: base]
   Size of the select trigger. Matches Input component sizes.
 - `label`: ReactNode
@@ -8619,7 +8709,7 @@ Separator sub-component
 Props:
 - `defaultOpen`: boolean - Initial open state (uncontrolled).
 - `open`: boolean - Controlled open state.
-- `autoScrollOnOpen`: boolean - Scroll the expanded content into view after opening.
+- `autoScrollOnOpen`: boolean - After the section opens, scroll the sidebar vertically so its content is visible. Only the sidebar's own scroll area moves. Sections that are already open when they mount, or when the sidebar expands, don't scroll.
 
 #### Sidebar.Trigger
 
@@ -8628,7 +8718,7 @@ Trigger sub-component
 Props:
 - `defaultOpen`: boolean - Initial open state (uncontrolled).
 - `open`: boolean - Controlled open state.
-- `autoScrollOnOpen`: boolean - Scroll the expanded content into view after opening.
+- `autoScrollOnOpen`: boolean - After the section opens, scroll the sidebar vertically so its content is visible. Only the sidebar's own scroll area moves. Sections that are already open when they mount, or when the sidebar expands, don't scroll.
 
 #### Sidebar.Close
 
@@ -8637,7 +8727,7 @@ Close sub-component
 Props:
 - `defaultOpen`: boolean - Initial open state (uncontrolled).
 - `open`: boolean - Controlled open state.
-- `autoScrollOnOpen`: boolean - Scroll the expanded content into view after opening.
+- `autoScrollOnOpen`: boolean - After the section opens, scroll the sidebar vertically so its content is visible. Only the sidebar's own scroll area moves. Sections that are already open when they mount, or when the sidebar expands, don't scroll.
 
 #### Sidebar.Rail
 
@@ -8646,7 +8736,7 @@ Rail sub-component
 Props:
 - `defaultOpen`: boolean - Initial open state (uncontrolled).
 - `open`: boolean - Controlled open state.
-- `autoScrollOnOpen`: boolean - Scroll the expanded content into view after opening.
+- `autoScrollOnOpen`: boolean - After the section opens, scroll the sidebar vertically so its content is visible. Only the sidebar's own scroll area moves. Sections that are already open when they mount, or when the sidebar expands, don't scroll.
 
 #### Sidebar.ResizeHandle
 
@@ -8655,7 +8745,7 @@ ResizeHandle sub-component
 Props:
 - `defaultOpen`: boolean - Initial open state (uncontrolled).
 - `open`: boolean - Controlled open state.
-- `autoScrollOnOpen`: boolean - Scroll the expanded content into view after opening.
+- `autoScrollOnOpen`: boolean - After the section opens, scroll the sidebar vertically so its content is visible. Only the sidebar's own scroll area moves. Sections that are already open when they mount, or when the sidebar expands, don't scroll.
 
 #### Sidebar.MenuChevron
 
@@ -8671,7 +8761,7 @@ Collapsible sub-component
 Props:
 - `defaultOpen`: boolean - Initial open state (uncontrolled).
 - `open`: boolean - Controlled open state.
-- `autoScrollOnOpen`: boolean - Scroll the expanded content into view after opening.
+- `autoScrollOnOpen`: boolean - After the section opens, scroll the sidebar vertically so its content is visible. Only the sidebar's own scroll area moves. Sections that are already open when they mount, or when the sidebar expands, don't scroll.
 
 #### Sidebar.CollapsibleTrigger
 

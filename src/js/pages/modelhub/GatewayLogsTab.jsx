@@ -1,0 +1,646 @@
+import { useEffect, useMemo, useState } from 'react';
+import { Button } from '@cloudflare/kumo/components/button';
+import { Combobox } from '@cloudflare/kumo/components/combobox';
+import { Select } from '@cloudflare/kumo/components/select';
+import { Loader, LayerCard, Pagination, Popover, Table } from '@cloudflare/kumo';
+import { formatDateTime } from '../../modules/utils.js';
+import { StatusBadge, AppTable } from '../../components/ui/AppPrimitives.jsx';
+import { X } from '../../components/Icons.jsx';
+import {
+  resultTone,
+  ttfbTone,
+  statusCodeTone,
+  logOutputSpeedText,
+  formatCostAmount,
+  formatUnitPrice,
+  costDetailsFor,
+} from './utils.js';
+import { FailoverPathBadge } from './FailoverPathBadge.jsx';
+import { IpCell } from './IpCell.jsx';
+import {
+  MobileCard,
+  MobileCardEmpty,
+  MobileCardList,
+  MobileCardSkeleton,
+} from '../../components/ui/MobileTableCards.jsx';
+import { MobileLogDetailDialog } from './MobileLogDetailDialog.jsx';
+
+const GATEWAY_LOG_COLUMN_PERCENTAGES = [
+  12.6, // 时间
+  12.4, // 端点
+  11.9, // 模型
+  5.3, // 状态
+  8.05, // 出口 IP
+  8.05, // 客户端 IP
+  10, // 流/非 首字 耗时
+  8.9, // 输入 / 输出
+  8.6, // 缓存
+  8.9, // 总消耗
+  5.3, // T/S
+];
+
+export function GatewayLogsTab({ analytics, endpoints }) {
+  const {
+    analyticsLogs,
+    analyticsLoading,
+    analyticsPage, setAnalyticsPage,
+    analyticsPageSize, setAnalyticsPageSize,
+    analyticsTotal,
+    analyticsCharts,
+    logStatusFilter, setLogStatusFilter,
+    logModelFilter, setLogModelFilter,
+    logEndpointFilter, setLogEndpointFilter,
+    setLogDetail,
+    setLogDetailExpanded,
+  } = analytics;
+
+  // 模型候选：当前分析范围内出现过的模型（看板聚合）。端点候选：端点显示名。
+  const modelOptions = useMemo(
+    () => (analyticsCharts?.models || []).map(item => item.model).filter(Boolean),
+    [analyticsCharts]
+  );
+  const endpointOptions = useMemo(
+    () => Array.from(new Set((endpoints || []).map(ep => ep?.name || ep?.id || '').filter(Boolean))),
+    [endpoints]
+  );
+
+  const [logDetailCard, setLogDetailCard] = useState(null);
+
+  // 筛选输入防抖:输入框即时回显,300ms 后才落到查询筛选(避免逐键触发
+  // summary+charts+logs 三连请求的风暴)。外部清空筛选时回同步输入框。
+  const [modelInput, setModelInput] = useState(logModelFilter);
+  const [endpointInput, setEndpointInput] = useState(logEndpointFilter);
+  useEffect(() => { setModelInput(logModelFilter); }, [logModelFilter]);
+  useEffect(() => { setEndpointInput(logEndpointFilter); }, [logEndpointFilter]);
+  useEffect(() => {
+    if (modelInput === logModelFilter) return undefined;
+    const timer = setTimeout(() => {
+      setLogModelFilter(modelInput);
+      setAnalyticsPage(1);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [modelInput, logModelFilter, setLogModelFilter, setAnalyticsPage]);
+  useEffect(() => {
+    if (endpointInput === logEndpointFilter) return undefined;
+    const timer = setTimeout(() => {
+      setLogEndpointFilter(endpointInput);
+      setAnalyticsPage(1);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [endpointInput, logEndpointFilter, setLogEndpointFilter, setAnalyticsPage]);
+
+  const renderLogCard = log => {
+    const detail = costDetailsFor(log, endpoints);
+    const actionable = log.statusCode >= 400 && log.errorResponse;
+    return (
+      <MobileCard
+        key={log.id}
+        clickable
+        role="button"
+        tabIndex={0}
+        aria-label={`查看 ${log.model} 日志详情`}
+        onClick={() => setLogDetailCard(log)}
+        onKeyDown={event => {
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            setLogDetailCard(log);
+          }
+        }}
+      >
+        <div className="flex items-start justify-between gap-2">
+          <div className="flex min-w-0 flex-1 items-center gap-1.5">
+            <StatusBadge tone={statusCodeTone(log.statusCode)}>{log.statusCode}</StatusBadge>
+            {log.statusCode === 503 && (
+              <StatusBadge tone="warning" title="网关无可用渠道">
+                无
+              </StatusBadge>
+            )}
+            <span
+              className={`min-w-0 truncate font-mono text-[11px] font-semibold ${actionable ? 'text-kumo-danger' : 'text-kumo-strong'}`}
+              title={log.model}
+            >
+              {log.model}
+            </span>
+          </div>
+          <span className="shrink-0 font-mono text-[10px] leading-normal text-kumo-subtle">
+            {formatDateTime(log.timestamp)}
+          </span>
+        </div>
+        <div className="mt-1 flex min-w-0 items-center gap-2 text-[11px] leading-normal">
+          <span className="min-w-0 flex-1 truncate text-kumo-strong">
+            <FailoverPathBadge path={log.failoverPath} endpointName={log.endpointName} />
+          </span>
+          <div className="inline-flex shrink-0 items-center gap-1">
+            <StatusBadge tone={log.stream ? 'info' : 'warning'} className="!px-1 !text-[10px]">
+              {log.stream ? '流' : '非'}
+            </StatusBadge>
+            <StatusBadge tone={ttfbTone(log.ttfbMs)} className="!px-1 !text-[10px]">
+              {log.ttfbMs > 0 ? `${(log.ttfbMs / 1000).toFixed(1)}s` : '—'}
+            </StatusBadge>
+            <StatusBadge
+              tone={resultTone(log.statusCode, log.completionTokens, log.latencyMs)}
+              className="!px-1 !text-[10px]"
+            >
+              {(log.latencyMs / 1000).toFixed(1)}s
+            </StatusBadge>
+          </div>
+          <span className="shrink-0 font-mono text-kumo-success">
+            {detail ? formatCostAmount(detail.cost, detail.currency) : log.totalTokens}
+          </span>
+        </div>
+      </MobileCard>
+    );
+  };
+
+  return (
+        <div className="flex w-full min-w-0 flex-col gap-3">
+          {/* 日志筛选区：状态 / 模型 / 端点，均即时生效 */}
+          <div className="grid shrink-0 grid-cols-2 gap-2 cq-sm:flex cq-sm:flex-wrap cq-sm:items-center">
+            <Select alignItemWithTrigger
+              size="sm"
+              className="w-full cq-sm:w-28"
+              value={logStatusFilter || undefined}
+              onValueChange={value => {
+                setLogStatusFilter(value || '');
+                setAnalyticsPage(1);
+              }}
+              placeholder="全部状态"
+              aria-label="状态筛选"
+            >
+              <Select.Option value="">全部状态</Select.Option>
+              <Select.Option value="success">成功</Select.Option>
+              <Select.Option value="error">失败 (≥400)</Select.Option>
+              <Select.Option value="429">限流 429</Select.Option>
+              <Select.Option value="5xx">服务端 5xx</Select.Option>
+            </Select>
+            <Combobox
+              size="sm"
+              items={modelOptions}
+              inputValue={modelInput}
+              onInputValueChange={value => setModelInput(value || '')}
+            >
+              <Combobox.TriggerInput
+                className="w-full cq-sm:w-52"
+                placeholder="按模型筛选"
+                aria-label="按模型筛选"
+                spellCheck={false}
+              />
+              <Combobox.Content>
+                <Combobox.Empty>无匹配模型</Combobox.Empty>
+                <Combobox.List>
+                  {model => (
+                    <Combobox.Item key={model} value={model}>
+                      {model}
+                    </Combobox.Item>
+                  )}
+                </Combobox.List>
+              </Combobox.Content>
+            </Combobox>
+            <Combobox
+              size="sm"
+              items={endpointOptions}
+              inputValue={endpointInput}
+              onInputValueChange={value => setEndpointInput(value || '')}
+            >
+              <Combobox.TriggerInput
+                className="w-full cq-sm:w-52"
+                placeholder="端点名称或 ID"
+                aria-label="按端点筛选"
+                spellCheck={false}
+              />
+              <Combobox.Content>
+                <Combobox.Empty>无匹配端点</Combobox.Empty>
+                <Combobox.List>
+                  {endpoint => (
+                    <Combobox.Item key={endpoint} value={endpoint}>
+                      {endpoint}
+                    </Combobox.Item>
+                  )}
+                </Combobox.List>
+              </Combobox.Content>
+            </Combobox>
+            {(logStatusFilter || logModelFilter || logEndpointFilter) && (
+              <Button
+                size="sm"
+                variant="ghost"
+                className="col-span-2 justify-self-start cq-sm:col-auto"
+                onClick={() => {
+                  setLogStatusFilter('');
+                  setLogModelFilter('');
+                  setLogEndpointFilter('');
+                  setModelInput('');
+                  setEndpointInput('');
+                  setAnalyticsPage(1);
+                }}
+                icon={<X className="h-3.5 w-3.5" />}
+              >
+                清除筛选
+              </Button>
+            )}
+          </div>
+          {/* 表格视口高度：日志 tab 单独做行内部滚动，外层限高让表头吸顶、行在
+              容器内滚动（桌面端）。偏移量 = 顶栏 58 + 吸顶 tab 栏 58 + PageStack
+              间距 16 + 筛选行 28（sm 控件 h-7）+ 卡片间距 12 + 底部 gutter 12 =
+              184。该硬编码按桌面单行筛选估算；移动端筛选区按两列网格排布、会占
+              多行，184 偏移不再可靠，故移动端（max-sm）改用自然高度跟随整页
+              滚动、分页在内容下方，符合「移动端整页滚动」约定。 */}
+          <LayerCard className="flex h-[calc(100dvh-184px)] min-h-64 w-full min-w-0 flex-col overflow-hidden p-0 shadow-none max-sm:h-auto max-sm:min-h-0">
+            <div className="hidden min-h-0 min-w-0 flex-1 overflow-auto scrollbar-thin cq-md:block">
+              <AppTable
+                tableId="gateway-logs"
+                layout="fixed"
+                className="w-full min-w-[1180px] [&_td]:!px-2 [&_td]:!py-2 [&_th]:!px-2 [&_th]:!py-2"
+              >
+                <colgroup>
+                  {GATEWAY_LOG_COLUMN_PERCENTAGES.map((width, index) => (
+                    <col key={index} style={{ width: `${width}%` }} />
+                  ))}
+                </colgroup>
+                <Table.Header sticky variant="compact">
+                  <Table.Row>
+                    <Table.Head className="text-left">时间</Table.Head>
+                    <Table.Head className="text-left">端点</Table.Head>
+                    <Table.Head className="text-left">模型</Table.Head>
+                    <Table.Head className="text-center">状态</Table.Head>
+                    <Table.Head className="text-left">出口 IP</Table.Head>
+                    <Table.Head className="text-left">客户端 IP</Table.Head>
+                    <Table.Head className="text-left">首字/耗时</Table.Head>
+                    <Table.Head className="text-left">输入 / 输出</Table.Head>
+                    <Table.Head className="text-left">缓存</Table.Head>
+                    <Table.Head className="text-left">总消耗</Table.Head>
+                    <Table.Head className="text-left" title="输出速度（输出词元/秒）">T/S</Table.Head>
+                  </Table.Row>
+                </Table.Header>
+                <Table.Body>
+                  {analyticsLoading && analyticsLogs.length === 0 ? (
+                    <Table.Row>
+                      <Table.Cell colSpan={11} className="text-center py-8">
+                        <Loader size={20} className="mx-auto text-kumo-subtle" />
+                      </Table.Cell>
+                    </Table.Row>
+                  ) : analyticsLogs.length === 0 ? (
+                    <Table.Row>
+                      <Table.Cell colSpan={11} className="text-center py-8 text-kumo-subtle text-sm">
+                        暂无网关日志记录
+                      </Table.Cell>
+                    </Table.Row>
+                  ) : (
+                    analyticsLogs.map(log => {
+                      const detail = costDetailsFor(log, endpoints);
+                      return (
+                        <Table.Row key={log.id} className="text-sm">
+                          <Table.Cell className="truncate text-left font-mono text-kumo-subtle" title={formatDateTime(log.timestamp)}>
+                            {formatDateTime(log.timestamp)}
+                          </Table.Cell>
+                          <Table.Cell
+                            className="truncate text-left font-semibold text-kumo-strong"
+                            title={log.endpointName}
+                          >
+                            <span className="inline-flex w-full min-w-0 items-center gap-2">
+                              <span className="min-w-0 flex-1 truncate">
+                                <FailoverPathBadge path={log.failoverPath} endpointName={log.endpointName} />
+                              </span>
+                              {typeof log.keyIndex === 'number' && log.keyIndex >= 0 && (
+                                <StatusBadge tone="info" title={`使用的 API Key 序号（0=主 key）`}>
+                                  K{log.keyIndex + 1}
+                                </StatusBadge>
+                              )}
+                            </span>
+                          </Table.Cell>
+                          <Table.Cell
+                            className={`truncate text-left font-mono font-medium ${log.statusCode >= 400 && log.errorResponse ? 'cursor-pointer text-kumo-danger' : 'text-kumo-strong'}`}
+                            title={log.statusCode >= 400 && log.errorResponse ? '点击查看报错详情' : log.model}
+                            onClick={log.statusCode >= 400 && log.errorResponse ? () => {
+                              setLogDetailExpanded(false);
+                              setLogDetail(log);
+                            } : undefined}
+                          >
+                            <span className="inline-flex min-w-0 items-center gap-1.5">
+                              {log.realModel && log.realModel !== log.model ? (
+                                <Popover>
+                                  <Popover.Trigger
+                                    nativeButton={false}
+                                    render={
+                                      <span
+                                        className="cursor-pointer truncate text-kumo-info hover:text-kumo-strong"
+                                        title="点击查看映射前实际模型"
+                                        onClick={e => e.stopPropagation()}
+                                      >
+                                        {log.model}
+                                      </span>
+                                    }
+                                  />
+                                  <Popover.Content className="p-3 max-w-xs">
+                                    <Popover.Title className="truncate text-sm font-semibold text-kumo-strong">
+                                      实际模型
+                                    </Popover.Title>
+                                    <div className="mt-2 grid gap-1.5 text-xs">
+                                      <div className="flex items-center gap-2">
+                                        <span className="shrink-0 text-kumo-subtle">对外名称</span>
+                                        <code className="truncate rounded bg-kumo-surface-2 px-2 py-0.5 font-mono text-kumo-strong select-all">
+                                          {log.model}
+                                        </code>
+                                      </div>
+                                      <div className="flex items-center gap-2">
+                                        <span className="shrink-0 text-kumo-subtle">实际模型</span>
+                                        <code className="truncate rounded bg-kumo-surface-2 px-2 py-0.5 font-mono text-kumo-strong select-all">
+                                          {log.realModel}
+                                        </code>
+                                      </div>
+                                    </div>
+                                  </Popover.Content>
+                                </Popover>
+                              ) : (
+                                <span className="truncate">{log.model}</span>
+                              )}
+                            </span>
+                          </Table.Cell>
+                          <Table.Cell className="text-center">
+                            <span className="inline-flex items-center gap-2">
+                              <StatusBadge tone={statusCodeTone(log.statusCode)}>
+                                {log.statusCode}
+                              </StatusBadge>
+                              {log.statusCode === 503 && (
+                                <StatusBadge tone="warning" title="网关无可用渠道">
+                                  无
+                                </StatusBadge>
+                              )}
+                            </span>
+                          </Table.Cell>
+                          <Table.Cell
+                            className="text-left font-mono text-kumo-subtle"
+                            title={log.upstreamIp || '本机出口'}
+                          >
+                            <div
+                              className="inline-flex items-center gap-2"
+                              title="经代理池出口"
+                            >
+                              <IpCell value={log.upstreamIp} viaProxy={log.viaProxy} />
+                            </div>
+                          </Table.Cell>
+                          <Table.Cell
+                            className="truncate text-left font-mono text-kumo-subtle"
+                            title={log.clientIp || '无客户端 IP'}
+                          >
+                            <IpCell value={log.clientIp} v6EdgeOnly />
+                          </Table.Cell>
+                          <Table.Cell className="text-left">
+                            <div
+                              className="inline-flex items-center gap-1"
+                              title={log.stream ? '流式响应' : '非流式响应'}
+                            >
+                              <StatusBadge
+                                tone={log.stream ? 'info' : 'warning'}
+                                className="!px-1 !text-[10px]"
+                              >
+                                {log.stream ? '流' : '非'}
+                              </StatusBadge>
+                              <StatusBadge tone={ttfbTone(log.ttfbMs)} className="!px-1 !text-[10px]">
+                                {log.ttfbMs > 0 ? (log.ttfbMs / 1000).toFixed(1) + 's' : '—'}
+                              </StatusBadge>
+                              <StatusBadge
+                                tone={resultTone(log.statusCode, log.completionTokens, log.latencyMs)}
+                                className="!px-1 !text-[10px]"
+                              >
+                                {(log.latencyMs / 1000).toFixed(1)}s
+                              </StatusBadge>
+                            </div>
+                          </Table.Cell>
+                          <Table.Cell className="text-left font-mono">
+                            <div className="flex w-full items-baseline justify-start whitespace-nowrap">
+                              <span className="text-right text-kumo-strong">
+                                {log.promptTokens}
+                              </span>
+                              <span className="shrink-0 px-0.5 text-kumo-subtle">/</span>
+                              <span className="text-left text-kumo-strong">
+                                {log.completionTokens}
+                              </span>
+                            </div>
+                          </Table.Cell>
+                          <Table.Cell
+                            className="text-left font-mono"
+                            title="缓存命中 词元（占比 = 缓存 / 输入）"
+                          >
+                            <div className="flex w-full items-baseline justify-start whitespace-nowrap">
+                              <span className="text-right text-kumo-strong">
+                                {log.cachedTokens}
+                              </span>
+                              <span className="shrink-0 px-0.5 text-kumo-subtle">（</span>
+                              <span className="text-left text-kumo-strong">
+                                {log.promptTokens > 0
+                                  ? ((log.cachedTokens / log.promptTokens) * 100).toFixed(1)
+                                  : '0.0'}
+                                %
+                              </span>
+                              <span className="shrink-0 text-kumo-subtle">）</span>
+                            </div>
+                          </Table.Cell>
+                          <Table.Cell
+                            className="text-left font-mono"
+                            title="总消耗（实际消耗 = 总消耗 − 缓存）"
+                          >
+                            {detail ? (
+                              <Popover>
+                                <Popover.Trigger
+                                  nativeButton={false}
+                                  title="点击查看费用详情"
+                                  render={
+                                    <div className="flex w-full cursor-pointer items-baseline justify-start whitespace-nowrap">
+                                      <span className="text-right font-semibold leading-none text-kumo-success">
+                                        {formatCostAmount(detail.cost, detail.currency)}
+                                      </span>
+                                      <span className="shrink-0 px-0.5 leading-none text-kumo-subtle">（</span>
+                                      <span className="text-left font-mono leading-none text-kumo-subtle">
+                                        {Math.max(0, log.totalTokens - log.cachedTokens)}
+                                      </span>
+                                      <span className="shrink-0 leading-none text-kumo-subtle">）</span>
+                                    </div>
+                                  }
+                                />
+                                <Popover.Content className="w-72 p-3">
+                                  <Popover.Title className="truncate text-sm font-semibold text-kumo-strong">
+                                    费用详情
+                                  </Popover.Title>
+                                  <div className="mt-2 flex flex-col gap-1.5 text-xs text-kumo-strong">
+                                    <div className="flex items-center justify-between gap-3">
+                                      <span className="text-kumo-subtle">模型</span>
+                                      <span className="max-w-44 truncate font-mono">{detail.model || '—'}</span>
+                                    </div>
+                                    <div className="flex items-center justify-between gap-3">
+                                      <span className="text-kumo-subtle">端点</span>
+                                      <span className="max-w-44 truncate">{detail.endpointName || '—'}</span>
+                                    </div>
+                                    <div className="flex items-center justify-between gap-3">
+                                      <span className="text-kumo-subtle">货币</span>
+                                      <span className="font-mono">{detail.currency}</span>
+                                    </div>
+                                    {detail.hasPricing ? (
+                                      <>
+                                        <div className="border-t border-kumo-line pt-1.5">
+                                          <span className="text-kumo-subtle">单价（每百万词元）</span>
+                                        </div>
+                                        <div className="flex items-center justify-between gap-3">
+                                          <span className="text-kumo-subtle">输入</span>
+                                          <span className="font-mono">{formatUnitPrice(detail.inputUnit)}</span>
+                                        </div>
+                                        <div className="flex items-center justify-between gap-3">
+                                          <span className="text-kumo-subtle">输出</span>
+                                          <span className="font-mono">{formatUnitPrice(detail.outputUnit)}</span>
+                                        </div>
+                                        {detail.cacheUnit > 0 && (
+                                          <div className="flex items-center justify-between gap-3">
+                                            <span className="text-kumo-subtle">缓存</span>
+                                            <span className="font-mono">{formatUnitPrice(detail.cacheUnit)}</span>
+                                          </div>
+                                        )}
+                                        <div className="border-t border-kumo-line pt-1.5">
+                                          <span className="text-kumo-subtle">用量分解</span>
+                                        </div>
+                                        <div className="flex items-center justify-between gap-3">
+                                          <span className="text-kumo-subtle">输入（未缓存）</span>
+                                          <span className="font-mono">{detail.input}</span>
+                                        </div>
+                                        {detail.cached > 0 && (
+                                          <div className="flex items-center justify-between gap-3">
+                                            <span className="text-kumo-subtle">缓存命中</span>
+                                            <span className="font-mono">{detail.cached}</span>
+                                          </div>
+                                        )}
+                                        <div className="flex items-center justify-between gap-3">
+                                          <span className="text-kumo-subtle">输出</span>
+                                          <span className="font-mono">{detail.completion}</span>
+                                        </div>
+                                        <div className="border-t border-kumo-line pt-1.5">
+                                          <span className="text-kumo-subtle">费用分解</span>
+                                        </div>
+                                        {detail.inputCost > 0 && (
+                                          <div className="flex items-center justify-between gap-3">
+                                            <span className="text-kumo-subtle">输入费用</span>
+                                            <span className="font-mono">{formatCostAmount(detail.inputCost, detail.currency)}</span>
+                                          </div>
+                                        )}
+                                        {detail.cacheCost > 0 && (
+                                          <div className="flex items-center justify-between gap-3">
+                                            <span className="text-kumo-subtle">缓存费用</span>
+                                            <span className="font-mono">{formatCostAmount(detail.cacheCost, detail.currency)}</span>
+                                          </div>
+                                        )}
+                                        {detail.outputCost > 0 && (
+                                          <div className="flex items-center justify-between gap-3">
+                                            <span className="text-kumo-subtle">输出费用</span>
+                                            <span className="font-mono">{formatCostAmount(detail.outputCost, detail.currency)}</span>
+                                          </div>
+                                        )}
+                                        <div className="flex items-center justify-between gap-3 border-t border-kumo-line pt-1.5 font-semibold">
+                                          <span className="text-kumo-subtle">合计</span>
+                                          <span className="font-mono text-kumo-success">
+                                            {formatCostAmount(detail.cost, detail.currency)}
+                                          </span>
+                                        </div>
+                                      </>
+                                    ) : (
+                                      <div className="mt-1 text-xs text-kumo-subtle">
+                                        端点未返回该模型的定价信息，仅展示已记录的费用金额。
+                                      </div>
+                                    )}
+                                  </div>
+                                </Popover.Content>
+                              </Popover>
+                            ) : (
+                              <div className="flex w-full items-baseline justify-start whitespace-nowrap">
+                                <span className="text-right font-semibold leading-none text-brand">
+                                  {log.totalTokens}
+                                </span>
+                                <span className="shrink-0 px-0.5 leading-none text-kumo-subtle">（</span>
+                                <span className="text-left font-mono leading-none text-kumo-subtle">
+                                  {Math.max(0, log.totalTokens - log.cachedTokens)}
+                                </span>
+                                <span className="shrink-0 leading-none text-kumo-subtle">）</span>
+                              </div>
+                            )}
+                          </Table.Cell>
+                          <Table.Cell
+                            className="text-left font-mono text-kumo-strong"
+                            title={
+                              logOutputSpeedText(log) != null
+                                ? (() => {
+                                    const genSec = Math.max(0, (Number(log.latencyMs) || 0) - (Number(log.ttfbMs) || 0)) / 1000;
+                                    return `输出速度 ${logOutputSpeedText(log)} T/S（输出词元 ${log.completionTokens} ÷ 输出耗时 ${genSec.toFixed(1)}s）`;
+                                  })()
+                                : '无输出或无法计时'
+                            }
+                          >
+                            {logOutputSpeedText(log) || '—'}
+                          </Table.Cell>
+                        </Table.Row>
+                      );
+                    })
+                  )}
+                </Table.Body>
+              </AppTable>
+            </div>
+
+            <MobileCardList className="min-h-0 overflow-y-auto p-2">
+              {analyticsLoading && analyticsLogs.length === 0 ? (
+                <>
+                  <MobileCardSkeleton rows={4} />
+                  <MobileCardSkeleton rows={4} />
+                </>
+              ) : analyticsLogs.length === 0 ? (
+                <MobileCardEmpty>暂无网关日志记录</MobileCardEmpty>
+              ) : (
+                analyticsLogs.map(renderLogCard)
+              )}
+            </MobileCardList>
+
+            {analyticsTotal > 0 && (
+              <Pagination
+                page={analyticsPage}
+                setPage={setAnalyticsPage}
+                perPage={analyticsPageSize}
+                totalCount={analyticsTotal}
+                labels={{
+                  navigation: '网关日志分页',
+                  firstPage: '第一页',
+                  previousPage: '上一页',
+                  nextPage: '下一页',
+                  lastPage: '最后一页',
+                  pageNumber: '页码',
+                  pageSize: '每页数量',
+                }}
+                className="shrink-0 flex-wrap gap-x-3 gap-y-1 border-x-0 border-b-0 border-t border-kumo-line bg-kumo-base px-3 py-2 text-sm shadow-none [&_[data-slot=pagination-controls]]:ml-auto [&_[data-slot=pagination-info]]:min-w-0 max-sm:[&_[data-slot=pagination-info]]:hidden max-sm:[&_[data-slot=pagination-page-size]]:hidden max-sm:[&_[data-slot=pagination-separator]]:hidden max-sm:[&_[data-slot=pagination-controls]]:m-auto"
+              >
+                <Pagination.Info>
+                  {({ pageShowingRange, totalCount }) => (
+                    <span className="text-kumo-subtle">
+                      显示 {pageShowingRange}，共 {totalCount} 条
+                    </span>
+                  )}
+                </Pagination.Info>
+                <Pagination.Separator />
+                <Pagination.PageSize
+                  value={analyticsPageSize}
+                  onChange={size => {
+                    setAnalyticsPageSize(size);
+                    setAnalyticsPage(1);
+                  }}
+                  options={[10, 20, 50, 100]}
+                  label="每页"
+                />
+                <Pagination.Controls />
+              </Pagination>
+            )}
+          </LayerCard>
+          <MobileLogDetailDialog
+            log={logDetailCard}
+            endpoints={endpoints}
+            onClose={() => setLogDetailCard(null)}
+            onShowError={log => {
+              setLogDetailCard(null);
+              setLogDetailExpanded(false);
+              setLogDetail(log);
+            }}
+          />
+        </div>
+  );
+}

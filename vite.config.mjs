@@ -125,19 +125,19 @@ export default defineConfig(({ mode }) => {
               if (id.includes('@xterm')) {
                 return 'vendor-xterm';
               }
-              if (id.includes('echarts')) {
-                return 'vendor-echarts';
-              }
-              if (id.includes('zrender')) {
-                return 'vendor-zrender';
-              }
+              // 注意:不要给 echarts / zrender 建手动 chunk。手动分组会把「状态页只用
+              // 的 line chart」与「服务器页用的 map/scatter」合并成一个约 645KB 的
+              // vendor-echarts,任何用到图表的页面都要全量下载;交给自动分割后各页只
+              // 加载自己实际用到的部分。
               // 其他大型工具库与状态管理
-              if (
-                id.includes('axios') ||
-                id.includes('marked') ||
-                id.includes('dompurify') ||
-                id.includes('zustand')
-              ) {
+              // 注意:marked / DOMPurify 只被渲染 Markdown 的少数页面(公开分享页/
+              // 提示词页/API 文档)用到,绝不能与 zustand/axios(入口即需要)归入同一
+              // 手动 chunk —— 否则入口会连带预载这两个库,所有页面(含公开页)白白多下
+              // 载约 65KB。拆成独立 chunk 后按需加载。
+              if (id.includes('marked') || id.includes('dompurify')) {
+                return 'vendor-markdown';
+              }
+              if (id.includes('axios') || id.includes('zustand')) {
                 return 'vendor-utils';
               }
             }
@@ -166,7 +166,6 @@ export default defineConfig(({ mode }) => {
       allowedHosts: true,
       hmr: {
         protocol: 'ws',
-        host: 'localhost',
       },
       // 文件系统访问控制：阻止 dev server 暴露后端源代码与敏感数据文件
       fs: {
@@ -203,6 +202,7 @@ export default defineConfig(({ mode }) => {
           ws: true,
         },
         '/uploads': proxyTarget(),
+        '^/agent(?:/|$)': proxyTarget(),
         '^/site-brand-icons(?:/|$)': proxyTarget(),
       },
     },

@@ -1,8 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Button } from '@cloudflare/kumo/components/button';
 import { Loader } from '@cloudflare/kumo/components/loader';
-import { Copy, ExternalLink } from '../components/Icons.jsx';
-import { iconButtonIconClass } from '../components/ui/AppPrimitives.jsx';
+import { Copy, ExternalLink } from '../components/PublicIcons.jsx';
+import { iconButtonIconClass } from '../components/ui/CardPrimitives.jsx';
 import { renderMarkdown } from '../modules/markdown.js';
 import { toast } from '../modules/toast.js';
 

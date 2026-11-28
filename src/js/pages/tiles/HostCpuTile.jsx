@@ -20,13 +20,24 @@ export default function HostCpuTile({ data, isDarkMode, density = 'full', w = 1 
   const disk = data?.disk;
   const load1 = data?.cpu?.loadAverage?.[0];
   const cores = data?.cpu?.cores;
+  // 图表与进度条共用同一套取色（ChartPalette），避免两处颜色各写一份而对不上。
+  // 索引保持既有取值，颜色以这里为唯一来源。
+  const perfColors = useMemo(
+    () => ({
+      cpu: ChartPalette.categorical(5, isDarkMode),
+      mem: ChartPalette.categorical(1, isDarkMode),
+      disk: ChartPalette.categorical(2, isDarkMode),
+      gpu: ChartPalette.categorical(3, isDarkMode),
+    }),
+    [isDarkMode]
+  );
   // 1 分钟滚动窗口多折线：CPU / 内存 / 磁盘 / GPU（缺数据序列自动剔除）
   const perfSeries = useMemo(() => [
-    { name: 'CPU', color: ChartPalette.categorical(5, isDarkMode), data: samples },
-    { name: '内存', color: ChartPalette.categorical(1, isDarkMode), data: memSamples },
-    { name: '磁盘', color: ChartPalette.categorical(2, isDarkMode), data: diskSamples },
-    ...(gpuSamples.length ? [{ name: 'GPU', color: ChartPalette.categorical(3, isDarkMode), data: gpuSamples }] : []),
-  ].filter((s) => s.data.length > 0), [samples, memSamples, diskSamples, gpuSamples, isDarkMode]);
+    { name: 'CPU', color: perfColors.cpu, data: samples },
+    { name: '内存', color: perfColors.mem, data: memSamples },
+    { name: '磁盘', color: perfColors.disk, data: diskSamples },
+    ...(gpuSamples.length ? [{ name: 'GPU', color: perfColors.gpu, data: gpuSamples }] : []),
+  ].filter((s) => s.data.length > 0), [perfColors, samples, memSamples, diskSamples, gpuSamples]);
 
   if (current == null) return <TileSkeleton variant={isHalf || tier === 'narrow' ? 'chart' : 'bars'} />;
 
@@ -35,19 +46,19 @@ export default function HostCpuTile({ data, isDarkMode, density = 'full', w = 1 
       label: 'CPU',
       usage: Number(current) || 0,
       detail: [cores ? `${cores} 核` : '', load1 != null ? `负载 ${Number(load1).toFixed(2)}` : ''].filter(Boolean).join(' · ') || '—',
-      tone: 'success',
+      color: perfColors.cpu,
     },
     {
       label: '内存',
       usage: Number(mem?.usage) || 0,
       detail: mem ? `${fmtBytes(mem.used)} / ${fmtBytes(mem.total)}` : '—',
-      tone: 'info',
+      color: perfColors.mem,
     },
     {
       label: '磁盘',
       usage: Number(disk?.usage) || 0,
       detail: disk ? `${fmtBytes(disk.used)} / ${fmtBytes(disk.total)}` : '—',
-      tone: 'brand',
+      color: perfColors.disk,
     },
   ];
   const barList = (
@@ -57,7 +68,7 @@ export default function HostCpuTile({ data, isDarkMode, density = 'full', w = 1 
           key={b.label}
           label={b.label}
           usage={b.usage}
-          tone={b.tone}
+          color={b.color}
           detail={b.detail}
           title={b.detail}
           hideValue={isHalf && tier === 'narrow'}

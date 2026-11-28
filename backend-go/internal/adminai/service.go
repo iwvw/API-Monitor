@@ -343,7 +343,7 @@ func (s *Service) ensureMessageSeq(ctx context.Context, db *sql.DB) error {
 	return nil
 }
 
-// ensureSQLiteColumn 幂等加列（模式与 openai 包一致，PRD-04 要求）。
+// ensureSQLiteColumn 幂等加列（模式与 modelhub 包一致，PRD-04 要求）。
 // 表不存在时静默跳过（表由其他模块创建，如 ai_access_audit 属 system 包）。
 func ensureSQLiteColumn(ctx context.Context, db *sql.DB, table, column, definition string) error {
 	var exists int

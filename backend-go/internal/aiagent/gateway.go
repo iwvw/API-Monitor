@@ -28,8 +28,39 @@ const (
 	// 长时间无数据视为上游或客户端卡死，释放并发槽位。
 	gatewayStreamIdleTimeout = 10 * time.Minute
 	// gatewayStreamWriteTimeout 是单次写出的上限：慢客户端不读取导致的写阻塞会被此截止时间打断。
-	gatewayStreamWriteTimeout = 2 * time.Minute
+	gatewayStreamWriteTimeout   = 2 * time.Minute
+	gatewayWebSocketIdleTimeout = 30 * time.Minute
 )
+
+type readDeadlineConn interface{ SetReadDeadline(time.Time) error }
+
+type writeDeadlineConn interface{ SetWriteDeadline(time.Time) error }
+
+func proxyBytes(dst io.Writer, dstDeadline writeDeadlineConn, flush func() error, src io.Reader, srcDeadline readDeadlineConn, timeout time.Duration) error {
+	buf := make([]byte, 32*1024)
+	for {
+		if srcDeadline != nil {
+			_ = srcDeadline.SetReadDeadline(time.Now().Add(timeout))
+		}
+		n, readErr := src.Read(buf)
+		if n > 0 {
+			if dstDeadline != nil {
+				_ = dstDeadline.SetWriteDeadline(time.Now().Add(timeout))
+			}
+			if _, writeErr := dst.Write(buf[:n]); writeErr != nil {
+				return writeErr
+			}
+			if flush != nil {
+				if flushErr := flush(); flushErr != nil {
+					return flushErr
+				}
+			}
+		}
+		if readErr != nil {
+			return readErr
+		}
+	}
+}
 
 // AgentHTTPRequest 是网关要转发给主机 Agent 的一次 HTTP 请求。
 type AgentHTTPRequest struct {
@@ -265,6 +296,29 @@ func filterRequestHeaders(source http.Header) http.Header {
 	for _, header := range []string{
 		"X-Forwarded-For", "X-Forwarded-Host", "X-Forwarded-Proto", "X-Forwarded-Port",
 		"X-Real-IP", "CF-Connecting-IP", "True-Client-IP", "X-Original-URL",
+	} {
+		filtered.Del(header)
+	}
+	/**
+	 * 浏览器跨站指纹必须剥离。
+	 *
+	 * 上游 opencode 有跨站防护(packages/server/src/request-site.ts):同时带
+	 * `Origin` + `Sec-Fetch-Site: cross-site`、且 Origin 不在它自己的允许列表
+	 * (localhost / tauri / *.opencode.ai / 显式 cors 列表 / 与 Host 同源)时,
+	 * 一律 403 "Cross-site requests to the API are not allowed";`Sec-Fetch-Mode:
+	 * navigate` 更是直接拒绝。
+	 *
+	 * 浏览器从任意面板域(例如 https://occ.dmuk.org)发出的跨源请求必然同时带
+	 * 这两个头 —— 不剥掉,经网关的**所有** /api/* 都会 403(实例明明在线、
+	 * 授权也正常,日志里只有 403,极难定位)。
+	 *
+	 * 网关对上游就是本机反向代理:Origin/Sec-Fetch 描述的是「浏览器←→面板」的
+	 * 关系,与上游无关,剥离后上游按「非浏览器客户端」处理即可。WebSocket 分支
+	 * 早已按同一理由剥掉 Origin(见 buildWebSocketUpgradeRequest)。
+	 */
+	for _, header := range []string{
+		"Origin",
+		"Sec-Fetch-Site", "Sec-Fetch-Mode", "Sec-Fetch-Dest", "Sec-Fetch-User",
 	} {
 		filtered.Del(header)
 	}
@@ -526,16 +580,18 @@ func (s *Service) handleGatewayWebSocket(
 
 	// 双向字节流搬运：客户端 → 目标 与 目标 → 客户端。
 	// 任一端关闭即结束整个隧道；缓冲写入端需要显式 Flush。
+	upstreamReadDeadliner, _ := upstream.(interface{ SetReadDeadline(time.Time) error })
+	upstreamWriteDeadliner, _ := upstream.(interface{ SetWriteDeadline(time.Time) error })
 	errc := make(chan struct{}, 2)
 	go func() {
 		defer func() { errc <- struct{}{} }()
-		_, _ = io.Copy(upstream, rw.Reader)
+		_ = proxyBytes(upstream, upstreamWriteDeadliner, nil, rw.Reader, clientConn, gatewayWebSocketIdleTimeout)
 		// 客户端侧 EOF/关闭：通知目标关闭（data channel 的 Close 会终止流）。
 		_ = upstream.Close()
 	}()
 	go func() {
 		defer func() { errc <- struct{}{} }()
-		_, _ = io.Copy(rw.Writer, br)
+		_ = proxyBytes(rw.Writer, clientConn, rw.Flush, br, upstreamReadDeadliner, gatewayWebSocketIdleTimeout)
 		_ = rw.Flush()
 		// 目标侧 EOF/关闭：通知客户端关闭。
 		_ = clientConn.Close()
@@ -583,7 +639,9 @@ func buildWebSocketUpgradeRequest(r *http.Request, targetPath string, injectAuth
 		 * 这是网关侧的同源反代，上游再做 Origin 校验没有意义；不改成重写 Origin
 		 * 是因为目标服务端口不固定（数据通道隐含），拼不出可靠值。
 		 */
-		if lower == "origin" {
+		// Origin 与非必要的 Sec-Fetch-* 一并剥离:上游据此判定跨站(见
+		// filterRequestHeaders 的说明),握手并不需要这些头。
+		if lower == "origin" || strings.HasPrefix(lower, "sec-fetch-") {
 			continue
 		}
 		// 剥离面板鉴权/转发/逐跳头，避免泄漏云端口令或让上游被伪造来源头欺骗。
@@ -772,6 +830,8 @@ func (s *Service) handleGateway(w http.ResponseWriter, r *http.Request, instance
 
 	started := time.Now()
 	resp, err := s.runtime.RoundTrip(ctx, instance.ServerID, instance.Port, req)
+	// headerMS 是拿到上游响应头的耗时，近似首包延迟；后续流式传输不再计入。
+	headerMS := time.Since(started).Milliseconds()
 	if err != nil {
 		s.writeAccessLog(r.Context(), AccessLog{
 			UserID:     auth.UserID,
@@ -782,6 +842,7 @@ func (s *Service) handleGateway(w http.ResponseWriter, r *http.Request, instance
 			Error:      err.Error(),
 			IP:         s.clientIP(r),
 			UserAgent:  r.UserAgent(),
+			DurationMS: time.Since(started).Milliseconds(),
 		})
 		// 面向客户端返回通用错误，细节只留在服务端访问日志，避免泄漏内部信息。
 		s.writeGatewayError(w, http.StatusBadGateway, CodeChannelError, "upstream agent request failed")
@@ -803,16 +864,20 @@ func (s *Service) handleGateway(w http.ResponseWriter, r *http.Request, instance
 
 	bytesWritten, copyErr := copyStream(r.Context(), w, resp.Body, func() { _ = resp.Body.Close() })
 	// 审计写入由 writeAccessLog 内部脱离请求上下文，客户端断开也能落地。
+	// 耗时拆成独立列：latency 是拿到上游响应头的耗时（近似首包延迟），
+	// duration 是含流式传输的全流程耗时；action 文本不再内嵌耗时。
 	s.writeAccessLog(r.Context(), AccessLog{
 		UserID:     auth.UserID,
 		TokenID:    auth.TokenID,
 		InstanceID: instance.ID,
-		Action:     fmt.Sprintf("gw %s %s (%s, %d bytes)", sanitizeLogToken(r.Method), sanitizeLogToken(req.Path), time.Since(started).Round(time.Millisecond), bytesWritten),
+		Action:     fmt.Sprintf("gw %s %s (%d bytes)", sanitizeLogToken(r.Method), sanitizeLogToken(req.Path), bytesWritten),
 		Result:     resultFor(resp.StatusCode, copyErr),
 		StatusCode: resp.StatusCode,
 		Error:      errorText(copyErr),
 		IP:         s.clientIP(r),
 		UserAgent:  r.UserAgent(),
+		LatencyMS:  headerMS,
+		DurationMS: time.Since(started).Milliseconds(),
 	})
 }
 

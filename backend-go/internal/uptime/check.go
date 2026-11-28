@@ -70,11 +70,12 @@ func (s *Service) check(ctx context.Context, db *sql.DB, monitor map[string]inte
 		_, _ = db.ExecContext(ctx, `UPDATE uptime_monitor_states SET ssl_expiry = ? WHERE monitor_id = ?`,
 			result.SslExpiry.UTC().Format(time.RFC3339), monitorID)
 
-		// Check if SSL is expiring soon (<= 30 days)
+		threshold := intValue(monitor["expiryNotification"], 30)
 		daysLeft := int(time.Until(*result.SslExpiry).Hours() / 24)
-		if daysLeft <= 30 {
-			lastExpiry, exists := s.lastSslAlerts.Load(monitorID)
-			if !exists || !lastExpiry.(time.Time).Equal(*result.SslExpiry) {
+		if daysLeft <= threshold {
+			cursor := sslAlertCursor{Expiry: *result.SslExpiry, Threshold: threshold}
+			last, exists := s.lastSslAlerts.Load(monitorID)
+			if !exists || last.(sslAlertCursor) != cursor {
 				if s.notifier != nil {
 					eventData := map[string]interface{}{
 						"monitorId":   monitorID,
@@ -87,10 +88,10 @@ func (s *Service) check(ctx context.Context, db *sql.DB, monitor map[string]inte
 					// 只在通知成功时才记录去重游标：失败留待下轮重试，
 					// 否则告警会因落库成功而永不重发。
 					if triggerErr == nil {
-						s.lastSslAlerts.Store(monitorID, *result.SslExpiry)
+						s.lastSslAlerts.Store(monitorID, cursor)
 					}
 				} else {
-					s.lastSslAlerts.Store(monitorID, *result.SslExpiry)
+					s.lastSslAlerts.Store(monitorID, cursor)
 				}
 			}
 		}

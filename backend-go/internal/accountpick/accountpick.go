@@ -1,8 +1,8 @@
 // Package accountpick 提供模型网关各插件共享的多账号选号原语：策略归一化、
 // 按原始列表下标锚定的轮询游标，以及带 TTL 与刷新节流的额度快照。
 //
-// 这些原语在 posthogcode 插件里已被验证，抽到共享包后供 geminicli / lobsterai /
-// workbuddy / antigravity 复用，避免每个插件各写一份易错的轮询与快照逻辑。
+// 这些原语最早在网关插件的多账号选号里沉淀验证，抽到共享包后供 lobsterai / workbuddy /
+// antigravity / qoder 复用，避免每个插件各写一份易错的轮询与快照逻辑。
 // 本包不依赖任何插件，也不查库、不打上游。
 package accountpick
 

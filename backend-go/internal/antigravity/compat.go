@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 
@@ -56,16 +57,18 @@ func (s *Service) handleOpenAIModels(w http.ResponseWriter, r *http.Request) {
 		response.Error(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
 	defer cancel()
-	models, err := s.FetchModels(ctx, "")
-	if err != nil {
+	// 多账号取并集：不同账号的模型权限不同，只按单个账号拉会让别的账号独有的
+	// 模型从 /v1/models 里消失，网关据此刷新端点列表时也会漏掉。
+	models := s.fetchModelsUnion(ctx)
+	if len(models) == 0 {
 		// 上游拉取失败时返回非 2xx，而不是 200 + 空列表：网关侧 listModelsWithPricing
 		// 会把「验证成功但空列表」当成真实空并覆盖已获取的模型，导致端点不稳定时
 		// 模型列表被清空（加前缀后仍需手动刷新）。返回错误让网关保留旧模型列表。
 		response.JSON(w, http.StatusBadGateway, map[string]interface{}{
 			"object": "list",
-			"error":  err.Error(),
+			"error":  "没有可用账号或全部账号拉取模型失败",
 		})
 		return
 	}
@@ -73,8 +76,13 @@ func (s *Service) handleOpenAIModels(w http.ResponseWriter, r *http.Request) {
 	for _, d := range s.Settings().DisabledModels {
 		disabled[d] = true
 	}
-	data := make([]map[string]interface{}, 0, len(models))
-	for id, mi := range models {
+	ids := make([]string, 0, len(models))
+	for id := range models {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	data := make([]map[string]interface{}, 0, len(ids))
+	for _, id := range ids {
 		if disabled[id] {
 			continue
 		}
@@ -88,7 +96,7 @@ func (s *Service) handleOpenAIModels(w http.ResponseWriter, r *http.Request) {
 			"object":      "model",
 			"created":     0,
 			"owned_by":    "antigravity",
-			"displayName": mi.DisplayName,
+			"displayName": models[id].DisplayName,
 		})
 	}
 	response.JSON(w, http.StatusOK, map[string]interface{}{"object": "list", "data": data})
@@ -361,7 +369,10 @@ func (s *Service) forwardOpenAIChat(ctx context.Context, w http.ResponseWriter, 
 	}
 	claudeReq.Stream = oaiReq.Stream
 
-	proxyURI := s.resolveProxy(ctx)
+	proxyURI, err := s.resolveProxy(ctx)
+	if err != nil {
+		return err
+	}
 	agClient, err := engineag.NewClient(proxyURI)
 	if err != nil {
 		return fmt.Errorf("构造客户端失败: %w", err)
@@ -428,7 +439,7 @@ func (s *Service) attemptOpenAIChat(ctx context.Context, w http.ResponseWriter, 
 		}
 		full, err := io.ReadAll(resp.Body)
 		if err != nil {
-			return attemptResult{retryable: true, err: fmt.Errorf("读取上游响应失败: %w", err)}
+			return attemptResult{err: fmt.Errorf("读取上游响应失败: %w", err)}
 		}
 		claudeOut, usage, err := engineag.TransformGeminiToClaude(full, claudeReq.Model)
 		if err != nil {
@@ -688,7 +699,7 @@ func (s *Service) pipeOpenAIStream(ctx context.Context, w http.ResponseWriter, b
 		 * 这里必须加回去，否则：
 		 *   - 调用方看到的「输入词元」只有未命中部分（199065 显示成 1551）；
 		 *   - 网关按 cached_tokens / prompt_tokens 算命中率会 > 100%，被 clamp 成 100%。
-		 * 记账同样用回加后的总量，保证与 OpenAI 兼容插件（geminicli/qoder/workbuddy）
+		 * 记账同样用回加后的总量，保证与 OpenAI 兼容插件（qoder/workbuddy）
 		 * 的「prompt_tokens 含缓存」口径一致。
 		 */
 		promptTotal := inTok + cacheReadTok

@@ -231,6 +231,7 @@ func (s *Service) exportAccounts(w http.ResponseWriter, r *http.Request) {
 		response.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	applog.Warn(r.Context(), "aliyun", "account credentials exported in plaintext", "count", len(accounts), "remote", r.RemoteAddr)
 	response.JSON(w, http.StatusOK, map[string]interface{}{
 		"success":    true,
 		"accounts":   accounts,
@@ -324,6 +325,17 @@ func (s *Service) accountMutation(w http.ResponseWriter, r *http.Request, idText
 			response.Error(w, http.StatusBadRequest, err.Error())
 			return
 		}
+		existing, err := loadAccount(r.Context(), db, id)
+		if err != nil {
+			status := http.StatusInternalServerError
+			message := "Database error"
+			if errors.Is(err, sql.ErrNoRows) {
+				status = http.StatusNotFound
+				message = "Account not found"
+			}
+			response.JSON(w, status, map[string]interface{}{"error": message})
+			return
+		}
 		name := strings.TrimSpace(stringValue(payload["name"], ""))
 		regionID := strings.TrimSpace(stringValue(payload["regionId"], stringValue(payload["region_id"], defaultRegion)))
 		if regionID == "" {
@@ -331,7 +343,13 @@ func (s *Service) accountMutation(w http.ResponseWriter, r *http.Request, idText
 		}
 		description := stringValue(payload["description"], "")
 		accessKeyID := strings.TrimSpace(stringValue(payload["accessKeyId"], stringValue(payload["access_key_id"], "")))
+		if accessKeyID == "" || strings.Contains(accessKeyID, "****") {
+			accessKeyID = stringValue(existing["access_key_id"], "")
+		}
 		accessKeySecret := strings.TrimSpace(stringValue(payload["accessKeySecret"], stringValue(payload["access_key_secret"], "")))
+		if accessKeySecret == "" {
+			accessKeySecret = stringValue(existing["access_key_secret"], "")
+		}
 		if accessKeyID != "" && accessKeySecret != "" {
 			_, err = db.ExecContext(
 				r.Context(),
@@ -708,6 +726,7 @@ func (s *Service) listDomainRecords(ctx context.Context, account map[string]inte
 func (s *Service) listAllInstances(ctx context.Context, account map[string]interface{}, options map[string]string) (map[string]interface{}, error) {
 	regions := s.listRegions(ctx, account)
 	all := make([]interface{}, 0)
+	failedRegions := []string{}
 	var mu sync.Mutex
 	var wg sync.WaitGroup
 	limit := make(chan struct{}, 6)
@@ -726,6 +745,9 @@ func (s *Service) listAllInstances(ctx context.Context, account map[string]inter
 			})
 			if err != nil {
 				applog.Warn(ctx, "aliyun", "failed to list instances for region", "region", regionID, "error", err.Error())
+				mu.Lock()
+				failedRegions = append(failedRegions, regionID)
+				mu.Unlock()
 				return
 			}
 			items := make([]interface{}, 0)
@@ -762,7 +784,7 @@ func (s *Service) listAllInstances(ctx context.Context, account map[string]inter
 		}()
 	}
 	wg.Wait()
-	return map[string]interface{}{"instances": all, "total": len(all)}, nil
+	return instanceListResult(all, failedRegions)
 }
 
 func (s *Service) listRegions(ctx context.Context, account map[string]interface{}) []string {
@@ -786,6 +808,7 @@ func (s *Service) listRegions(ctx context.Context, account map[string]interface{
 func (s *Service) listAllSwasInstances(ctx context.Context, account map[string]interface{}, options map[string]string) (map[string]interface{}, error) {
 	regions := s.listSwasRegions(ctx, account)
 	all := make([]interface{}, 0)
+	failedRegions := []string{}
 	var mu sync.Mutex
 	var wg sync.WaitGroup
 	limit := make(chan struct{}, 6)
@@ -804,6 +827,9 @@ func (s *Service) listAllSwasInstances(ctx context.Context, account map[string]i
 			})
 			if err != nil {
 				applog.Warn(ctx, "aliyun", "failed to list swas instances for region", "region", regionID, "error", err.Error())
+				mu.Lock()
+				failedRegions = append(failedRegions, regionID)
+				mu.Unlock()
 				return
 			}
 			normalized := make([]interface{}, 0)
@@ -844,7 +870,20 @@ func (s *Service) listAllSwasInstances(ctx context.Context, account map[string]i
 		}()
 	}
 	wg.Wait()
-	return map[string]interface{}{"instances": all, "total": len(all)}, nil
+	return instanceListResult(all, failedRegions)
+}
+
+// instanceListResult 汇总分区分页结果:全部分区失败时返回错误,部分失败时标注 partial。
+func instanceListResult(all []interface{}, failedRegions []string) (map[string]interface{}, error) {
+	if len(all) == 0 && len(failedRegions) > 0 {
+		return nil, fmt.Errorf("所有分区查询失败:%s", strings.Join(failedRegions, ","))
+	}
+	result := map[string]interface{}{"instances": all, "total": len(all)}
+	if len(failedRegions) > 0 {
+		result["failedRegions"] = failedRegions
+		result["partial"] = true
+	}
+	return result, nil
 }
 
 func (s *Service) listSwasRegions(ctx context.Context, account map[string]interface{}) []string {
@@ -1017,7 +1056,7 @@ func readObject(r *http.Request) (map[string]interface{}, error) {
 	}
 	defer r.Body.Close()
 	var payload map[string]interface{}
-	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil && !errors.Is(err, io.EOF) {
+	if err := json.NewDecoder(io.LimitReader(r.Body, 5*1024*1024)).Decode(&payload); err != nil && !errors.Is(err, io.EOF) {
 		return nil, err
 	}
 	if payload == nil {

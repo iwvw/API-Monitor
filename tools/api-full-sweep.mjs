@@ -131,7 +131,7 @@ class Sweeper {
     if (status === 403) return 'forbidden';
     // 用响应体语义区分「路由不存在/未实现」与「路由存在但资源/参数异常」。
     const routeMissing =
-      /route not implemented|v1 endpoint not found|管理 AI 路由不存在|openai admin route not found|agent route not found|monitor sub-route not found|remote desktop route not found|v2 docker route not found|Docker operation not found/i.test(body);
+      /route not implemented|v1 endpoint not found|管理 AI 路由不存在|modelhub admin route not found|agent route not found|monitor sub-route not found|remote desktop route not found|v2 docker route not found|Docker operation not found/i.test(body);
     if (status === 404) {
       if (routeMissing) return 'not_implemented';
       return isWrite ? 'resource_missing_write' : 'resource_missing';
@@ -233,7 +233,7 @@ class Sweeper {
     if (status === 401 || status === 403 || status === 405 || status === 429) return true;
     if (status >= 500) return false; // 5xx 视为存在但异常（归入 server_err，另行复核）
     if (status === 404) {
-      return !/route not implemented|v1 endpoint not found|管理 AI 路由不存在|openai admin route not found|agent route not found|monitor sub-route not found|remote desktop route not found|v2 docker route not found|Docker operation not found/i.test(body);
+      return !/route not implemented|v1 endpoint not found|管理 AI 路由不存在|modelhub admin route not found|agent route not found|monitor sub-route not found|remote desktop route not found|v2 docker route not found|Docker operation not found/i.test(body);
     }
     return true; // 其余 4xx 参数校验 = 路由存在
   }

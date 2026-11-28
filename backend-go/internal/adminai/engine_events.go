@@ -17,6 +17,9 @@ func (e SSEEvent) MarshalJSON() ([]byte, error) {
 	m := make(map[string]interface{}, len(e.Fields)+1)
 	m["type"] = e.Type
 	for k, v := range e.Fields {
+		if k == "__seq" {
+			continue // 内部序号只用于 SSE id,不进入事件 JSON
+		}
 		m[k] = v
 	}
 	return json.Marshal(m)
@@ -28,7 +31,14 @@ func (s *Service) emit(ch chan SSEEvent, event SSEEvent) {
 	// 补发事件时 send-on-closed panic。
 	defer func() { _ = recover() }()
 	if buf := s.bufferFor(ch); buf != nil {
-		buf.appendSeq(event)
+		seq := buf.appendSeq(event)
+		// appendSeq 只在缓冲副本上写 __seq;实时下发的副本需要独立的 __seq,
+		// 否则前端拿不到断线重连所需的 lastEventId。两份 map 互不共享,
+		// 避免实时消费者与重放消费者对同一 map 并发读写而致命崩溃。
+		if event.Fields == nil {
+			event.Fields = map[string]interface{}{}
+		}
+		event.Fields["__seq"] = seq
 	}
 	select {
 	case ch <- event:
@@ -136,10 +146,15 @@ func (b *runEventBuffer) appendSeq(ev SSEEvent) int64 {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.seq++
-	if ev.Fields == nil {
-		ev.Fields = map[string]interface{}{}
+	// 缓冲持有自己的 Fields 副本,不与实时通道共享同一个 map。否则断线重放
+	// 消费者(持 b.mu)与实时消费者会同时对同一 map 做遍历/删除/序列化,
+	// 触发 Go 运行时的 "concurrent map read and map write" 致命错误。
+	fields := make(map[string]interface{}, len(ev.Fields)+1)
+	for k, v := range ev.Fields {
+		fields[k] = v
 	}
-	ev.Fields["__seq"] = b.seq
+	fields["__seq"] = b.seq
+	ev.Fields = fields
 	if b.count < len(b.events) {
 		idx := (b.start + b.count) % len(b.events)
 		b.events[idx] = bufferedEvent{seq: b.seq, ev: ev}

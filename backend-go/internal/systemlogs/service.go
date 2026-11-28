@@ -103,6 +103,7 @@ func readTail(path string, limit int) ([]string, error) {
 	defer file.Close()
 	lines := []string{}
 	scanner := bufio.NewScanner(file)
+	scanner.Buffer(make([]byte, 0, 64*1024), 1<<20)
 	for scanner.Scan() {
 		lines = append(lines, scanner.Text())
 		if len(lines) > limit {

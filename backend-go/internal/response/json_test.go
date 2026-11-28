@@ -18,6 +18,9 @@ func TestJSON(t *testing.T) {
 	if ct := rec.Header().Get("Content-Type"); ct != "application/json; charset=utf-8" {
 		t.Fatalf("unexpected content type: %s", ct)
 	}
+	if cc := rec.Header().Get("Cache-Control"); cc != "no-store" {
+		t.Fatalf("unexpected cache control: %q", cc)
+	}
 	var res map[string]string
 	if err := json.Unmarshal(rec.Body.Bytes(), &res); err != nil {
 		t.Fatalf("failed to decode body: %v", err)
@@ -66,5 +69,15 @@ func TestError(t *testing.T) {
 	}
 	if env.RequestID != "req-12345" {
 		t.Fatalf("expected RequestID req-12345, got %s", env.RequestID)
+	}
+}
+
+func TestJSONPreservesExplicitCacheControl(t *testing.T) {
+	rec := httptest.NewRecorder()
+	rec.Header().Set("Cache-Control", "public, max-age=60")
+	JSON(rec, http.StatusOK, map[string]string{"ok": "1"})
+
+	if cc := rec.Header().Get("Cache-Control"); cc != "public, max-age=60" {
+		t.Fatalf("explicit cache control was overwritten: %q", cc)
 	}
 }

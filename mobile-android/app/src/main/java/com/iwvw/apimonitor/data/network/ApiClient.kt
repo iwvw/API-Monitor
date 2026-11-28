@@ -145,20 +145,20 @@ class ApiClient(
     // ---- 模型网关 ----
 
     suspend fun listEndpoints(credentials: Credentials): Result<List<OpenAiEndpoint>> =
-        call(credentials, "api/openai/endpoints") { body ->
+        call(credentials, "api/modelhub/endpoints") { body ->
             json.decodeFromString<List<OpenAiEndpoint>>(body)
         }
 
     suspend fun toggleEndpoint(credentials: Credentials, id: String): Result<Unit> =
-        callUnit(credentials, "api/openai/endpoints/$id/toggle", method = "POST")
+        callUnit(credentials, "api/modelhub/endpoints/$id/toggle", method = "POST")
 
     suspend fun endpointModels(credentials: Credentials, id: String): Result<List<String>> =
-        call(credentials, "api/openai/endpoints/$id/models") { body ->
+        call(credentials, "api/modelhub/endpoints/$id/models") { body ->
             json.decodeFromString<EndpointModelList>(body).models
         }
 
     suspend fun endpointHealth(credentials: Credentials, id: String): Result<EndpointHealth> =
-        call(credentials, "api/openai/endpoints/$id/health") { body ->
+        call(credentials, "api/modelhub/endpoints/$id/health") { body ->
             json.decodeFromString<EndpointHealth>(body)
         }
 
@@ -173,7 +173,7 @@ class ApiClient(
         skipVerify: Boolean,
     ): Result<Unit> = callUnit(
         credentials,
-        "api/openai/endpoints/$id",
+        "api/modelhub/endpoints/$id",
         method = "PUT",
         body = buildString {
             append("{\"name\":").append(quote(name))
@@ -187,7 +187,7 @@ class ApiClient(
     )
 
     suspend fun deleteEndpoint(credentials: Credentials, id: String): Result<Unit> =
-        callUnit(credentials, "api/openai/endpoints/$id", method = "DELETE")
+        callUnit(credentials, "api/modelhub/endpoints/$id", method = "DELETE")
 
     suspend fun toggleEndpointModel(
         credentials: Credentials,
@@ -196,13 +196,13 @@ class ApiClient(
         enabled: Boolean,
     ): Result<Unit> = callUnit(
         credentials,
-        "api/openai/endpoints/$id/models/toggle",
+        "api/modelhub/endpoints/$id/models/toggle",
         method = "POST",
         body = "{\"model\":${quote(model)},\"enabled\":$enabled}",
     )
 
     suspend fun listGatewayKeys(credentials: Credentials): Result<List<GatewayKey>> =
-        call(credentials, "api/openai/keys") { body ->
+        call(credentials, "api/modelhub/keys") { body ->
             json.decodeFromString<List<GatewayKey>>(body)
         }
 
@@ -213,13 +213,13 @@ class ApiClient(
         expiresAt: String?,
     ): Result<Unit> = callUnit(
         credentials,
-        "api/openai/keys/$id",
+        "api/modelhub/keys/$id",
         method = "PUT",
         body = "{\"name\":${quote(name)},\"expiresAt\":${quote(expiresAt.orEmpty())}}",
     )
 
     suspend fun deleteGatewayKey(credentials: Credentials, id: String): Result<Unit> =
-        callUnit(credentials, "api/openai/keys/$id", method = "DELETE")
+        callUnit(credentials, "api/modelhub/keys/$id", method = "DELETE")
 
     suspend fun toggleGatewayKey(
         credentials: Credentials,
@@ -227,7 +227,7 @@ class ApiClient(
         enabled: Boolean,
     ): Result<Unit> = callUnit(
         credentials,
-        "api/openai/keys/$id/toggle",
+        "api/modelhub/keys/$id/toggle",
         method = "POST",
         body = "{\"enabled\":$enabled}",
     )
@@ -237,7 +237,7 @@ class ApiClient(
             ?: return Result.failure(IllegalArgumentException("面板地址格式不正确"))
         val result = try {
             request(
-                base.newBuilder().addPathSegments("api/openai/keys/$id/rotate").build(),
+                base.newBuilder().addPathSegments("api/modelhub/keys/$id/rotate").build(),
                 credentials,
                 method = "POST",
                 body = "{}",
@@ -264,7 +264,7 @@ class ApiClient(
         val base = credentials.normalizedBaseUrl.toHttpUrlOrNull()
             ?: return Result.failure(IllegalArgumentException("面板地址格式不正确"))
         val url = base.newBuilder()
-            .addPathSegments("api/openai/analytics/logs")
+            .addPathSegments("api/modelhub/analytics/logs")
             .addQueryParameter("page", page.toString())
             .addQueryParameter("pageSize", pageSize.toString())
             .build()

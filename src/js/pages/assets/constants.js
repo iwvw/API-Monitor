@@ -103,7 +103,7 @@ export const SOURCE_MODULE_LABEL = {
   server_accounts: '主机实例',
   subscription_subscriptions: '订阅套餐',
   uptime_monitor_states: 'SSL 证书',
-  openai_gateway_keys: '模型网关 Key',
+  modelhub_gateway_keys: '模型网关 Key',
   api_access_keys: '集中访问密钥',
   aiagent_tokens: 'Agent 令牌',
   managed_proxy_nodes: '托管代理节点',

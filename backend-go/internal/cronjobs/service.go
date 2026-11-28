@@ -44,6 +44,8 @@ type Service struct {
 	scheduler       *cron.Cron
 	entries         map[int64]cron.EntryID
 	workflowEntries map[int64]cron.EntryID
+	builtins        []BuiltinTask
+	builtinEntries  map[string]cron.EntryID
 	activeRuns      map[int64]int
 	mu              sync.Mutex
 	client          *http.Client
@@ -107,6 +109,7 @@ func New(cfg config.Config) *Service {
 		store:           database.New(cfg),
 		entries:         map[int64]cron.EntryID{},
 		workflowEntries: map[int64]cron.EntryID{},
+		builtinEntries:  map[string]cron.EntryID{},
 		activeRuns:      map[int64]int{},
 		client:          &http.Client{},
 	}
@@ -267,6 +270,7 @@ func (s *Service) ReloadAll(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	builtinPlan := s.builtinPlan()
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -292,6 +296,7 @@ func (s *Service) ReloadAll(ctx context.Context) error {
 			_ = s.scheduleWorkflowLocked(workflow)
 		}
 	}
+	s.applyBuiltinsLocked(builtinPlan)
 	return nil
 }
 
@@ -432,7 +437,11 @@ func (s *Service) createTask(w http.ResponseWriter, r *http.Request) {
 		response.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	_ = s.ReloadTask(context.Background(), created.ID)
+	if err := s.ReloadTask(context.Background(), created.ID); err != nil {
+		_, _ = db.ExecContext(r.Context(), `DELETE FROM cron_tasks WHERE id = ?`, created.ID)
+		response.Error(w, http.StatusInternalServerError, "任务创建失败,调度注册失败: "+err.Error())
+		return
+	}
 	response.OK(w, created)
 }
 
@@ -466,12 +475,32 @@ func (s *Service) updateTask(w http.ResponseWriter, r *http.Request, idText stri
 		return
 	}
 	defer db.Close()
+	existing, exists, err := findSchedulerTask(r.Context(), db, id)
+	if err != nil {
+		response.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if !exists {
+		response.JSON(w, http.StatusNotFound, map[string]interface{}{"success": false, "error": "task not found"})
+		return
+	}
 	task, err := updateTaskFields(r.Context(), db, id, payload)
 	if err != nil {
 		response.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	_ = s.ReloadTask(context.Background(), id)
+	if err := s.ReloadTask(context.Background(), id); err != nil {
+		if _, rollbackErr := updateSchedulerTaskRow(r.Context(), db, existing); rollbackErr != nil {
+			response.Error(w, http.StatusInternalServerError, "任务已更新但调度注册失败,旧值恢复也失败: "+err.Error())
+			return
+		}
+		if rollbackErr := s.ReloadTask(context.Background(), id); rollbackErr != nil {
+			response.Error(w, http.StatusInternalServerError, "任务已更新但调度注册失败(旧值已写回,调度恢复失败): "+err.Error())
+			return
+		}
+		response.Error(w, http.StatusInternalServerError, "任务已回滚,调度注册失败: "+err.Error())
+		return
+	}
 	response.OK(w, task)
 }
 
@@ -491,7 +520,9 @@ func (s *Service) deleteTask(w http.ResponseWriter, r *http.Request, idText stri
 		response.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	_ = s.ReloadTask(context.Background(), id)
+	if err := s.ReloadTask(context.Background(), id); err != nil {
+		slog.Warn("cron-task-reload-after-delete-failed", "id", id, "err", err.Error())
+	}
 	response.JSON(w, http.StatusOK, map[string]interface{}{"success": true})
 }
 
@@ -542,7 +573,7 @@ func (s *Service) deleteLogs(w http.ResponseWriter, r *http.Request) {
 	} else {
 		days := 7
 		if text := strings.TrimSpace(r.URL.Query().Get("days")); text != "" {
-			if parsed, parseErr := strconv.Atoi(text); parseErr == nil {
+			if parsed, parseErr := strconv.Atoi(text); parseErr == nil && parsed > 0 {
 				days = parsed
 			}
 		}
@@ -623,17 +654,6 @@ func (s *Service) notifyTaskResult(ctx context.Context, task SchedulerTask, stat
 		"eventType": "cron." + eventType,
 	}
 	_ = s.notifier.Trigger(ctx, "cron", eventType, payload)
-}
-
-func (s *Service) executeTaskCommand(ctx context.Context, task Task) (string, error) {
-	return s.executeSchedulerTaskCommand(ctx, SchedulerTask{
-		Task:                 task,
-		TimeoutSeconds:       int(shellTaskTimeout / time.Second),
-		RetryCount:           0,
-		RetryIntervalSeconds: 30,
-		MaxConcurrency:       1,
-		NodeID:               "local",
-	})
 }
 
 func (s *Service) executeSchedulerTaskCommand(ctx context.Context, task SchedulerTask) (string, error) {
@@ -802,7 +822,11 @@ func (s *Service) executeHTTPTask(ctx context.Context, target string, timeout ti
 	}
 	defer res.Body.Close()
 	body, _ := io.ReadAll(io.LimitReader(res.Body, maxLogOutput))
-	return fmt.Sprintf("Status: %d\nData: %s", res.StatusCode, formatBody(body)), nil
+	output := fmt.Sprintf("Status: %d\nData: %s", res.StatusCode, formatBody(body))
+	if res.StatusCode >= 400 {
+		return "", errors.New(output)
+	}
+	return output, nil
 }
 
 func (s *Service) executeInternalTask(ctx context.Context, command string, timeout time.Duration) (string, error) {
@@ -838,7 +862,11 @@ func (s *Service) executeInternalTask(ctx context.Context, command string, timeo
 	}
 	defer res.Body.Close()
 	body, _ := io.ReadAll(io.LimitReader(res.Body, maxLogOutput))
-	return fmt.Sprintf("Status: %d\nData: %s", res.StatusCode, formatBody(body)), nil
+	output := fmt.Sprintf("Status: %d\nData: %s", res.StatusCode, formatBody(body))
+	if res.StatusCode >= 400 {
+		return "", errors.New(output)
+	}
+	return output, nil
 }
 
 func executeShellTask(ctx context.Context, command string, timeout time.Duration) (string, error) {

@@ -583,7 +583,8 @@ func (s *Service) deleteAccount(w http.ResponseWriter, r *http.Request, db *sql.
 	if !ok {
 		return
 	}
-	if _, err := db.ExecContext(r.Context(), `UPDATE managed_proxy_nodes SET enabled=0,publishable=0,apply_status='removing',updated_at=datetime('now') WHERE server_id=?`, id); err != nil {
+	snapshots, err := loadManagedProxyNodeDeleteSnapshots(r.Context(), db, id)
+	if err != nil {
 		s.taskRegistry.Fail(task.ID, err.Error())
 		response.Error(w, http.StatusInternalServerError, err.Error())
 		return
@@ -597,7 +598,7 @@ func (s *Service) deleteAccount(w http.ResponseWriter, r *http.Request, db *sql.
 			"dependencies": dependencies.responseData(),
 		},
 	})
-	go s.runAccountCascadeDelete(task.ID, id, name, dependencies, requiresHostCleanup, forceDetach)
+	go s.runAccountCascadeDelete(task.ID, id, name, dependencies, requiresHostCleanup, forceDetach, snapshots)
 }
 
 func loadAccountDeleteDependencies(ctx context.Context, db *sql.DB, serverID string) (accountDeleteDependencies, error) {
@@ -643,7 +644,40 @@ func loadAccountDeleteDependencies(ctx context.Context, db *sql.DB, serverID str
 	return dependencies, rows.Close()
 }
 
-func (s *Service) runAccountCascadeDelete(taskID, serverID, serverName string, dependencies accountDeleteDependencies, requiresHostCleanup, forceDetach bool) {
+func loadManagedProxyNodeDeleteSnapshots(ctx context.Context, db *sql.DB, serverID string) ([]managedProxyNodeDeleteSnapshot, error) {
+	rows, err := db.QueryContext(ctx, `SELECT id,enabled,publishable,apply_status FROM managed_proxy_nodes WHERE server_id=?`, serverID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []managedProxyNodeDeleteSnapshot{}
+	for rows.Next() {
+		var snap managedProxyNodeDeleteSnapshot
+		if err := rows.Scan(&snap.ID, &snap.Enabled, &snap.Publishable, &snap.ApplyStatus); err != nil {
+			return nil, err
+		}
+		out = append(out, snap)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func restoreManagedProxyNodeDeleteState(ctx context.Context, db *sql.DB, snapshots []managedProxyNodeDeleteSnapshot) {
+	for _, snap := range snapshots {
+		_, _ = db.ExecContext(ctx, `UPDATE managed_proxy_nodes SET enabled=?,publishable=?,apply_status=?,updated_at=datetime('now') WHERE id=?`, snap.Enabled, snap.Publishable, snap.ApplyStatus, snap.ID)
+	}
+}
+
+type managedProxyNodeDeleteSnapshot struct {
+	ID          string
+	Enabled     int
+	Publishable int
+	ApplyStatus string
+}
+
+func (s *Service) runAccountCascadeDelete(taskID, serverID, serverName string, dependencies accountDeleteDependencies, requiresHostCleanup, forceDetach bool, snapshots []managedProxyNodeDeleteSnapshot) {
 	ctx, cancel := context.WithTimeout(s.backgroundCtx, 10*time.Minute)
 	defer cancel()
 	db, err := s.open(ctx)
@@ -658,14 +692,22 @@ func (s *Service) runAccountCascadeDelete(taskID, serverID, serverName string, d
 		})
 	}
 	fail := func(stage string, cause error) {
+		restoreManagedProxyNodeDeleteState(ctx, db, snapshots)
 		progress(100, stage, cause.Error())
 		s.taskRegistry.Fail(taskID, cause.Error())
+	}
+
+	if len(snapshots) > 0 {
+		if _, err := db.ExecContext(ctx, `UPDATE managed_proxy_nodes SET enabled=0,publishable=0,apply_status='removing',updated_at=datetime('now') WHERE server_id=?`, serverID); err != nil {
+			fail("unpublish", err)
+			return
+		}
 	}
 
 	progress(5, "unpublish", "已停止发布该主机的全部节点")
 	if requiresHostCleanup && !forceDetach {
 		if _, online := s.registry.Get(serverID); !online {
-			fail("agent_offline", errors.New("Agent 在级联删除期间离线；节点已停止发布，请重试或选择强制移除"))
+			fail("agent_offline", errors.New("Agent 在级联删除期间离线；未变更节点状态，请重试或选择强制移除"))
 			return
 		}
 		progress(15, "remove_nodes", "正在清理主机上的节点服务与防火墙规则")

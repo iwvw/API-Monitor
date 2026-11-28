@@ -659,7 +659,11 @@ func (w *WeChatChannel) handleMessage(msg map[string]interface{}) {
 	}
 
 	// 授权检查
-	if w.authorize != nil && !w.authorize(fromUserID, "", "dm") {
+	if w.authorize == nil {
+		slog.Warn("wechat-authorize-not-configured", "channelId", w.id, "userId", fromUserID)
+		return
+	}
+	if !w.authorize(fromUserID, "", "dm") {
 		slog.Info("wechat-unauthorized", "channelId", w.id, "userId", fromUserID)
 		return
 	}

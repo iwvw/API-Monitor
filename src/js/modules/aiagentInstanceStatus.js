@@ -127,7 +127,9 @@ export function formatBytes(value) {
 /** CPU 百分比格式化。0 也可能合法（空闲），因此只在缺失时显示 '—'。 */
 export function formatPercent(value) {
   if (value === undefined || value === null) return '—';
-  return `${Number(value).toFixed(1)}%`;
+  const num = Number(value);
+  if (!Number.isFinite(num)) return '—';
+  return `${num.toFixed(1)}%`;
 }
 
 /**

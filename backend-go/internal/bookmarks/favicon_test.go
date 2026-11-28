@@ -3,6 +3,7 @@ package bookmarks
 import (
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -342,5 +343,103 @@ func TestServeFaviconFileServesSVGWithCSP(t *testing.T) {
 		"/api/bookmarks/favicons/0123456789abcdef0123456789abcdef.exe", nil))
 	if recBad.Code != http.StatusBadRequest {
 		t.Errorf("non-image extension must be rejected, got %d", recBad.Code)
+	}
+}
+
+// 目录页/SPA 回退页:从 HTML 里的图片链接发现候选图标。
+// 复现 https://us.dsuk.top:8888/ 这类站点——/favicon.ico 其实是目录,
+// 真正的图标在 /favicon.ico/favicon.png。
+func TestImageLinksFromHTMLDirectoryListing(t *testing.T) {
+	const page = `<html><body><pre><a href="favicon.png">favicon.png</a></pre></body></html>`
+	doc, err := html.Parse(strings.NewReader(page))
+	if err != nil {
+		t.Fatal(err)
+	}
+	base, err := url.Parse("https://example.com/favicon.ico/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := imageLinksFromHTML(doc, base)
+	if len(got) != 1 || got[0] != "https://example.com/favicon.ico/favicon.png" {
+		t.Fatalf("unexpected discovered links: %v", got)
+	}
+}
+
+// 非图片链接不能被当成图标;图片链接数量上限生效。
+func TestImageLinksFromHTMLFiltersNonImages(t *testing.T) {
+	page := `<html><body>
+		<a href="/login">login</a>
+		<a href="/docs.html">docs</a>
+		<link rel="stylesheet" href="/a.css">
+		<a href="/logo.svg?x=1">logo</a>
+		<a href="/icon.webp">icon</a>
+	</body></html>`
+	doc, err := html.Parse(strings.NewReader(page))
+	if err != nil {
+		t.Fatal(err)
+	}
+	base, err := url.Parse("https://example.com/favicon.ico/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := imageLinksFromHTML(doc, base)
+	if len(got) != 2 {
+		t.Fatalf("expected 2 image links, got %v", got)
+	}
+	if got[0] != "https://example.com/logo.svg?x=1" || got[1] != "https://example.com/icon.webp" {
+		t.Fatalf("unexpected links: %v", got)
+	}
+}
+
+// javascript: 伪协议即使带图片后缀也不能被采纳。
+func TestIsImageHrefRejectsJavascriptScheme(t *testing.T) {
+	if isImageHref("javascript:alert(1)//a.png") {
+		t.Error("javascript: href must not be treated as an image")
+	}
+	if !isImageHref("/icon.png") || !isImageHref("favicon.ico") {
+		t.Error("plain image hrefs must be accepted")
+	}
+}
+
+// 页面未声明图标时,常见回退路径按「位图优先、SVG 最后」追加,
+// 且去掉继承自页面 URL 的 query/fragment。
+func TestAppendFallbackCandidates(t *testing.T) {
+	base, err := url.Parse("https://example.com/app/?q=1#frag")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := appendFallbackCandidates([]string{"https://example.com/custom.png"}, base)
+	want := []string{
+		"https://example.com/custom.png",
+		"https://example.com/favicon.ico",
+		"https://example.com/favicon.png",
+		"https://example.com/apple-touch-icon.png",
+		"https://example.com/favicon.svg",
+	}
+	if len(got) != len(want) {
+		t.Fatalf("got %v want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("index %d: got %q want %q (all=%v)", i, got[i], want[i], got)
+		}
+	}
+}
+
+// 已在候选里的地址不重复追加,已有顺序保持不变。
+func TestAppendFallbackCandidatesDedupes(t *testing.T) {
+	base, _ := url.Parse("https://example.com/")
+	got := appendFallbackCandidates([]string{"https://example.com/favicon.ico"}, base)
+	count := 0
+	for _, c := range got {
+		if c == "https://example.com/favicon.ico" {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Fatalf("favicon.ico should appear once, got %v", got)
+	}
+	if got[0] != "https://example.com/favicon.ico" {
+		t.Fatalf("existing candidate order must be preserved, got %v", got)
 	}
 }

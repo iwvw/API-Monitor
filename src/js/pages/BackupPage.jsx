@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { CaretDown, CaretRight } from '@phosphor-icons/react';
 import { Button } from '@cloudflare/kumo/components/button';
 import { Input } from '@cloudflare/kumo/components/input';
 import { Select } from '@cloudflare/kumo/components/select';
@@ -300,6 +301,8 @@ function ChannelFields({ channel, onChange }) {
 export function BackupPanel({ embedded = false } = {}) {
   const { isArmed, confirmPress } = useConfirmPress();
   const [config, setConfig] = useState(DEFAULT_CONFIG);
+  // 已配置渠道默认折叠；新增渠道自动展开。key 用 channelKey（id 优先），移除/重排不受影响。
+  const [expandedChannels, setExpandedChannels] = useState(() => new Set());
   const [schedule, setSchedule] = useState(parseSchedule(''));
   const [records, setRecords] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -370,7 +373,8 @@ export function BackupPanel({ embedded = false } = {}) {
     document.body.appendChild(anchor);
     anchor.click();
     anchor.remove();
-    URL.revokeObjectURL(url);
+    // Safari/Firefox 在 click 后立即 revoke 会取消下载,延迟回收对象 URL。
+    setTimeout(() => URL.revokeObjectURL(url), 4000);
     toast.success('备份配置已导出（包含各渠道密钥，请注意保管）');
   };
 
@@ -400,14 +404,25 @@ export function BackupPanel({ embedded = false } = {}) {
     });
   };
 
+  const toggleChannelExpanded = key => {
+    setExpandedChannels(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) {
+        next.delete(key);
+      } else {
+        next.add(key);
+      }
+      return next;
+    });
+  };
+
   const addChannel = () => {
+    const next = { ...DEFAULT_CHANNEL, id: `local-${Date.now()}-${Math.random().toString(36).slice(2, 8)}` };
     setConfig(prev => ({
       ...prev,
-      channels: [
-        ...(prev.channels || []),
-        { ...DEFAULT_CHANNEL, id: `local-${Date.now()}-${Math.random().toString(36).slice(2, 8)}` },
-      ],
+      channels: [...(prev.channels || []), next],
     }));
+    setExpandedChannels(prev => new Set(prev).add(channelKey(next, (config.channels || []).length)));
   };
 
   const removeChannel = index => {
@@ -431,26 +446,35 @@ export function BackupPanel({ embedded = false } = {}) {
 
   const remove = async record => {
     if (!confirmPress(`backup-record:${record.id}`, `删除备份「${record.file_name}」`)) return;
-    const res = await fetch(`/api/backup/records/${encodeURIComponent(record.id)}`, {
-      method: 'DELETE',
-      headers: authHeaders(),
-    });
-    const data = await res.json();
-    if (!data.success) return toast.error(data.error || '删除失败');
-    await load();
+    try {
+      const res = await fetch(`/api/backup/records/${encodeURIComponent(record.id)}`, {
+        method: 'DELETE',
+        headers: authHeaders(),
+      });
+      const data = await res.json();
+      if (!data.success) return toast.error(data.error || '删除失败');
+      await load();
+    } catch (error) {
+      toast.error(error.message || '删除失败');
+    }
   };
 
   const restore = async record => {
     if (!(await dialog.confirm(`确认从 ${record.file_name} 恢复？当前数据库和文件柜会被覆盖。`)))
       return;
-    const res = await fetch('/api/backup/restore', {
-      method: 'POST',
-      headers: authHeaders(),
-      body: JSON.stringify({ id: record.id, confirm: 'RESTORE' }),
-    });
-    const data = await res.json();
-    if (!data.success) return toast.error(data.error || '恢复失败');
-    toast.success('备份已恢复');
+    try {
+      const res = await fetch('/api/backup/restore', {
+        method: 'POST',
+        headers: authHeaders(),
+        body: JSON.stringify({ id: record.id, confirm: 'RESTORE' }),
+      });
+      const data = await res.json();
+      if (!data.success) return toast.error(data.error || '恢复失败');
+      toast.success('备份已恢复');
+      await load();
+    } catch (error) {
+      toast.error(error.message || '恢复失败');
+    }
   };
 
   return (
@@ -518,58 +542,97 @@ export function BackupPanel({ embedded = false } = {}) {
                 </p>
               )}
               <div className="space-y-3">
-                {config.channels.map((channel, index) => (
-                  <div
-                    key={channelKey(channel, index)}
-                    className="grid gap-2 rounded-md border border-kumo-line p-3"
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="flex items-center gap-2 text-xs font-semibold text-kumo-strong">
-                        <span>渠道 {index + 1}</span>
-                        <Badge
-                          variant={CHANNEL_PROVIDER_BADGE[channel.provider]?.variant || 'neutral'}
-                        >
-                          {CHANNEL_PROVIDER_BADGE[channel.provider]?.label || channel.provider}
-                        </Badge>
-                        {channel.name && (
-                          <span className="font-normal text-kumo-subtle">{channel.name}</span>
-                        )}
-                      </div>
-                      <Button
-                        size="sm"
-                        variant="secondary-destructive"
-                        onClick={() => removeChannel(index)}
+                {config.channels.map((channel, index) => {
+                  const key = channelKey(channel, index);
+                  const expanded = expandedChannels.has(key);
+                  return (
+                    <div
+                      key={key}
+                      className="rounded-md border border-kumo-line"
+                    >
+                      <div
+                        role="button"
+                        tabIndex={0}
+                        aria-expanded={expanded}
+                        className="flex cursor-pointer items-center justify-between gap-2 p-3 select-none"
+                        onClick={() => toggleChannelExpanded(key)}
+                        onKeyDown={event => {
+                          if (event.key === 'Enter' || event.key === ' ') {
+                            event.preventDefault();
+                            toggleChannelExpanded(key);
+                          }
+                        }}
                       >
-                        <Trash className="h-3.5 w-3.5" />
-                        移除
-                      </Button>
+                        <div className="flex min-w-0 items-center gap-2 text-xs font-semibold text-kumo-strong">
+                          {expanded ? (
+                            <CaretDown className="h-3.5 w-3.5 shrink-0 text-kumo-subtle" />
+                          ) : (
+                            <CaretRight className="h-3.5 w-3.5 shrink-0 text-kumo-subtle" />
+                          )}
+                          <span>渠道 {index + 1}</span>
+                          <Badge
+                            variant={CHANNEL_PROVIDER_BADGE[channel.provider]?.variant || 'neutral'}
+                          >
+                            {CHANNEL_PROVIDER_BADGE[channel.provider]?.label || channel.provider}
+                          </Badge>
+                          {channel.name && (
+                            <span className="font-normal text-kumo-subtle">{channel.name}</span>
+                          )}
+                        </div>
+                        <Button
+                          size="sm"
+                          variant="secondary-destructive"
+                          onClick={event => {
+                            event.stopPropagation();
+                            removeChannel(index);
+                          }}
+                        >
+                          <Trash className="h-3.5 w-3.5" />
+                          移除
+                        </Button>
+                      </div>
+                      {expanded ? (
+                        <div className="grid gap-2 border-t border-kumo-line p-3">
+                          <Input
+                            size="sm"
+                            label="渠道名称（可选）"
+                            value={channel.name || ''}
+                            onChange={event =>
+                              updateChannel(index, { ...channel, name: event.target.value })
+                            }
+                            placeholder="如 主备 OSS"
+                          />
+                          <Select
+                            alignItemWithTrigger
+                            size="sm"
+                            label="渠道类型"
+                            className="w-full"
+                            value={channel.provider}
+                            onValueChange={value => {
+                              const oldKey = channelKey(channel, index);
+                              const next = { ...channel, provider: value, id: '' };
+                              updateChannel(index, next);
+                              const newKey = channelKey(next, index);
+                              if (oldKey !== newKey && expandedChannels.has(oldKey)) {
+                                setExpandedChannels(prev => {
+                                  const migrated = new Set(prev);
+                                  migrated.delete(oldKey);
+                                  migrated.add(newKey);
+                                  return migrated;
+                                });
+                              }
+                            }}
+                            items={CHANNEL_PROVIDERS}
+                          />
+                          <ChannelFields
+                            channel={channel}
+                            onChange={next => updateChannel(index, next)}
+                          />
+                        </div>
+                      ) : null}
                     </div>
-                    <Input
-                      size="sm"
-                      label="渠道名称（可选）"
-                      value={channel.name || ''}
-                      onChange={event =>
-                        updateChannel(index, { ...channel, name: event.target.value })
-                      }
-                      placeholder="如 主备 OSS"
-                    />
-                    <Select
-                      alignItemWithTrigger
-                      size="sm"
-                      label="渠道类型"
-                      className="w-full"
-                      value={channel.provider}
-                      onValueChange={value =>
-                        updateChannel(index, { ...channel, provider: value, id: '' })
-                      }
-                      items={CHANNEL_PROVIDERS}
-                    />
-                    <ChannelFields
-                      channel={channel}
-                      onChange={next => updateChannel(index, next)}
-                    />
-                  </div>
-                ))}
+                  );
+                })}
               </div>
               <Button size="sm" variant="secondary" onClick={addChannel}>
                 <Plus className="h-3.5 w-3.5" />

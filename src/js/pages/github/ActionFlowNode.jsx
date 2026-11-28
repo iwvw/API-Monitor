@@ -36,7 +36,7 @@ function ActionFlowNode({
   const metaTextClass = actionFlowStatusMetaClass(node.status, muted);
   const completedVariants = variantPreview.filter((variant) => ['success', 'completed'].includes(normalizeWorkflowJobName(variant.status))).length;
   const matrixSummary = node.count > 0
-    ? `${completedVariants || node.count}/${node.count} 个任务${completedVariants === node.count ? '已完成' : '处理中'}`
+    ? `${completedVariants}/${node.count} 个任务${completedVariants === node.count ? '已完成' : '处理中'}`
     : '矩阵任务';
   return (
     <div

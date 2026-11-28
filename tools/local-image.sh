@@ -37,25 +37,20 @@ log "2/4 构建 Go 后端 (CGO_ENABLED=0 GOARCH=$GOARCH，静态)"
 CGO_ENABLED=0 GOOS=linux GOARCH="$GOARCH" \
   go build -C backend-go -trimpath -ldflags="-s -w" -o api-monitor ./cmd/api-monitor
 
-log "3/4 构建 Agent ($RUST_TARGET)"
+log "3/4 构建 Agent ($RUST_TARGET,仅本机平台)"
+# Agent 已从正式镜像剥离:本地镜像只带本机平台的 Agent(供同平台调试)。
+# 其它平台由本仓库 release 提供,面板按 AGENT_DOWNLOAD_URL 下载。
 mkdir -p dist/agent
+rm -f dist/agent/agent-linux-amd64 dist/agent/agent-linux-arm64 dist/agent/agent-windows-amd64.exe \
+      dist/agent/agent-linux-amd64.sha256 dist/agent/agent-linux-arm64.sha256 dist/agent/agent-windows-amd64.exe.sha256
 if command -v rustup >/dev/null 2>&1 && rustup target list --installed | grep -qx "$RUST_TARGET"; then
   CC_aarch64_unknown_linux_musl=aarch64-linux-musl-gcc \
   CC_x86_64_unknown_linux_musl=x86_64-linux-musl-gcc \
     cargo build --release --target "$RUST_TARGET" --manifest-path agent-rust/Cargo.toml >/dev/null
   cp "agent-rust/target/$RUST_TARGET/release/api-monitor-agent" "dist/agent/$AGENT_OUT"
 else
-  log "   跳过 Agent 编译（未安装 $RUST_TARGET），沿用基底镜像里的旧二进制"
+  log "   跳过 Agent 编译(未安装 $RUST_TARGET);本地镜像将不带 Agent,走远端下载"
 fi
-
-# 其它平台二进制从基底镜像取回，避免把它们从 dist/agent 里删掉
-for other in agent-linux-amd64 agent-linux-arm64 agent-windows-amd64.exe; do
-  if [ ! -s "dist/agent/$other" ] && docker image inspect "$RUNTIME_BASE" >/dev/null 2>&1; then
-    cid=$(docker create "$RUNTIME_BASE")
-    docker cp "$cid:/app/dist/agent/$other" "dist/agent/$other" >/dev/null 2>&1 || true
-    docker rm -f "$cid" >/dev/null
-  fi
-done
 
 log "4/4 打镜像 $IMAGE (基底 $RUNTIME_BASE)"
 # .dockerignore 排除了 dist，这里临时放开，构建后还原
@@ -67,6 +62,7 @@ sed -i '/^dist$/d' .dockerignore
 docker build -f Dockerfile.local \
   --build-arg RUNTIME_BASE="$RUNTIME_BASE" \
   --build-arg APP_VERSION="${APP_VERSION:-local-$(date +%Y%m%d%H%M)}" \
+  --build-arg AGENT_DOWNLOAD_URL="${AGENT_DOWNLOAD_URL:-https://github.com/iwvw/API-Monitor/releases/download/built-agents}" \
   -t "$IMAGE" . >/dev/null
 
 log "完成：$IMAGE"

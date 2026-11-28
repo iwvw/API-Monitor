@@ -1,0 +1,327 @@
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { toast } from '../../modules/toast.js';
+import { dialog } from '../../modules/dialog.js';
+import { getAuthHeaders } from './utils.js';
+
+export function useAnalytics(activeTab, endpoints = []) {
+  const [analyticsDays, setAnalyticsDays] = useState(() => {
+    const stored = Number(localStorage.getItem('modelhub_analytics_days'));
+    return stored >= 1 ? stored : 7;
+  });
+  // 分钟级窗口（30/60/360/720）：与「过去 24 小时」共用 days=1，但带 minutes 精确过滤。
+  const [analyticsMinutes, setAnalyticsMinutes] = useState(() => {
+    const stored = Number(localStorage.getItem('modelhub_analytics_minutes'));
+    return [30, 60, 360, 720].includes(stored) ? stored : null;
+  });
+  const [analyticsGranularity, setAnalyticsGranularity] = useState(() => {
+    const stored = localStorage.getItem('modelhub_analytics_granularity');
+    return ['hour', 'day', 'week'].includes(stored) ? stored : 'day';
+  });
+  // 数据看板范围按钮文案：默认按持久化的分析范围推断，应用后同步记录。
+  const [analyticsRangeLabel, setAnalyticsRangeLabel] = useState(() => {
+    const stored = localStorage.getItem('modelhub_analytics_range_label');
+    if (stored) return stored;
+    const days = Number(localStorage.getItem('modelhub_analytics_days'));
+    return days === 1 ? '过去 24 小时' : days === 30 ? '过去 30 天' : days >= 36500 ? '全部' : '过去 7 天';
+  });
+  const [analyticsSummary, setAnalyticsSummary] = useState({
+    totalRequests: 0,
+    avgLatency: 0,
+    avgTtfbMs: 0,
+    totalTokens: 0,
+    totalCachedTokens: 0,
+    cachedRatio: 0,
+    totalPromptTokens: 0,
+    totalCompletionTokens: 0,
+    errorRate: 0,
+    errorCount: 0,
+    endpointErrorRates: [],
+    totalCost: 0,
+    costs: [],
+    costByEndpoint: [],
+  });
+  // 请求量趋势视角：all（全部请求）| success（成功请求）| failed（失败请求）。
+  const [requestTrendMode, setRequestTrendMode] = useState('all');
+  // 词元趋势视角：all（全部词元）| uncached（未缓存词元）。
+  const [tokenTrendMode, setTokenTrendMode] = useState('all');
+  // 延迟趋势视角：total（端到端总耗时均值）| ttfb（首字延迟均值）。
+  const [latencyTrendMode, setLatencyTrendMode] = useState('total');
+  // 错误趋势视角：rate（错误率）| count（错误数）。
+  const [errorTrendMode, setErrorTrendMode] = useState('rate');
+  // 全宽趋势视角：model（按模型调用次数）| endpoint（按站点调用次数）。
+  const [modelTrendMode, setModelTrendMode] = useState('model');
+  // 模型调用趋势指标：调用量（count）| 词元（tokens），词元下再分全部/未缓存。
+  const [modelTrendMetric, setModelTrendMetric] = useState('count');
+  const [modelTrendCache, setModelTrendCache] = useState('all');
+  // 排行视角：model（按模型）| endpoint（按站点），词元分布与调用次数两个排行独立切换。
+  const [tokenShareMode, setTokenShareMode] = useState('model');
+  const [countShareMode, setCountShareMode] = useState('model');
+  const [analyticsCharts, setAnalyticsCharts] = useState({
+    models: [],
+  });
+  const [analyticsLogs, setAnalyticsLogs] = useState([]);
+  const [analyticsPage, setAnalyticsPage] = useState(1);
+  const [analyticsPageSize, setAnalyticsPageSize] = useState(() => {
+    const stored = Number(localStorage.getItem('modelhub_analytics_page_size'));
+    return [10, 20, 50, 100].includes(stored) ? stored : 50;
+  });
+  const [analyticsTotal, setAnalyticsTotal] = useState(0);
+  const [analyticsLoading, setAnalyticsLoading] = useState(false);
+  // 分析请求竞态防护：序号递增，过期响应（慢请求覆盖新筛选/新分页）直接丢弃。
+  const analyticsSeqRef = useRef(0);
+  // 日志筛选：status(全部/成功/失败/429/5xx)、model、endpoint。
+  const [logStatusFilter, setLogStatusFilter] = useState('');
+  const [logModelFilter, setLogModelFilter] = useState('');
+  const [logEndpointFilter, setLogEndpointFilter] = useState('');
+  // 日志行的报错详情弹窗（仅失败请求记录 errorKind/errorMessage/errorResponse）。
+  const [logDetail, setLogDetail] = useState(null);
+  // 超长请求体在弹窗内默认折叠，点击「展开全部」后显示完整内容。
+  const [logDetailExpanded, setLogDetailExpanded] = useState(false);
+
+  const fetchAnalytics = useCallback(async ({ silent = false, skipSummary = false } = {}) => {
+    const seq = ++analyticsSeqRef.current;
+    if (!silent) setAnalyticsLoading(true);
+    try {
+      const headers = getAuthHeaders();
+      // 日志筛选参数：data 由各路状态拼成查询串，供 logs/summary 复用。
+      const logQuery = new URLSearchParams({
+        days: String(analyticsDays),
+        page: String(analyticsPage),
+        pageSize: String(analyticsPageSize),
+      });
+      if (analyticsMinutes) logQuery.set('minutes', String(analyticsMinutes));
+      if (logStatusFilter) logQuery.set('status', logStatusFilter);
+      if (logModelFilter) logQuery.set('model', logModelFilter);
+      if (logEndpointFilter) logQuery.set('endpoint', logEndpointFilter);
+      const logsURL = `/api/modelhub/analytics/logs?${logQuery.toString()}`;
+      // 分钟窗口下图表固定按小时粒度；其余沿用工具栏手动粒度。
+      const chartsGran = analyticsMinutes ? 'hour' : analyticsGranularity;
+      const chartsQ = new URLSearchParams({ days: String(analyticsDays), granularity: chartsGran });
+      if (analyticsMinutes) chartsQ.set('minutes', String(analyticsMinutes));
+      const summaryQ = new URLSearchParams({
+        days: String(analyticsDays),
+        model: logModelFilter,
+        endpoint: logEndpointFilter,
+      });
+      if (analyticsMinutes) summaryQ.set('minutes', String(analyticsMinutes));
+      // skipSummary（切换时间粒度触发）：跳过 summary，只刷图表+日志。
+      const [sumRes, chartsRes, logsRes] = skipSummary
+        ? [undefined, await fetch(`/api/modelhub/analytics/charts?${chartsQ.toString()}`, { headers }),
+           await fetch(logsURL, { headers })]
+        : await Promise.all([
+            fetch(`/api/modelhub/analytics/summary?${summaryQ.toString()}`, { headers }),
+            fetch(`/api/modelhub/analytics/charts?${chartsQ.toString()}`, { headers }),
+            fetch(logsURL, { headers }),
+          ]);
+
+      if (seq !== analyticsSeqRef.current) return; // 已有更新的请求，丢弃过期响应
+
+      if (sumRes?.ok) {
+        const data = await sumRes.json();
+        setAnalyticsSummary(data);
+      }
+      if (chartsRes?.ok) {
+        const data = await chartsRes.json();
+        setAnalyticsCharts(data);
+      }
+      if (logsRes?.ok) {
+        const data = await logsRes.json();
+        setAnalyticsLogs(data.records || []);
+        setAnalyticsTotal(data.total || 0);
+      }
+    } catch (err) {
+      if (seq !== analyticsSeqRef.current) return;
+      console.error('Failed to fetch analytics:', err);
+      toast.error('获取分析数据失败');
+    } finally {
+      if (seq === analyticsSeqRef.current && !silent) setAnalyticsLoading(false);
+    }
+  }, [analyticsDays, analyticsMinutes, analyticsGranularity, analyticsPage, analyticsPageSize, logStatusFilter, logModelFilter, logEndpointFilter]);
+
+  // 参数变化触发的刷新：切换时间粒度只刷图表+日志（summary 不依赖粒度），
+  // 切换分析范围/翻页则全量刷新（summary 也依赖天数）。首次进入 Tab 全量刷。
+  const prevDaysRef = useRef(analyticsDays);
+  const prevGranularityRef = useRef(analyticsGranularity);
+  const prevMinutesRef = useRef(analyticsMinutes);
+  useEffect(() => {
+    if (activeTab !== 'analytics' && activeTab !== 'logs') return;
+    const daysChanged = prevDaysRef.current !== analyticsDays;
+    const granularityChanged = prevGranularityRef.current !== analyticsGranularity;
+    const minutesChanged = prevMinutesRef.current !== analyticsMinutes;
+    prevDaysRef.current = analyticsDays;
+    prevGranularityRef.current = analyticsGranularity;
+    prevMinutesRef.current = analyticsMinutes;
+    if (granularityChanged && !daysChanged && !minutesChanged) {
+      fetchAnalytics({ silent: true, skipSummary: true });
+    } else {
+      fetchAnalytics();
+    }
+  }, [activeTab, analyticsDays, analyticsMinutes, analyticsGranularity, fetchAnalytics]);
+
+  // SSE 实时插入前的筛选匹配：语义与 /analytics/logs 后端一致（状态枚举、model 精确、端点 id/名称精确）。
+  const sseFiltersRef = useRef(null);
+  sseFiltersRef.current = {
+    status: logStatusFilter,
+    model: logModelFilter,
+    endpoint: logEndpointFilter,
+    endpoints,
+  };
+
+  // 网关实时推送（SSE）：仅在网关日志 Tab 连接，后端出现请求立即插入日志列表顶部。
+  useEffect(() => {
+    if (activeTab !== 'logs') return undefined;
+    let source = null;
+    const matchesSseFilters = log => {
+      const { status, model, endpoint, endpoints: eps } = sseFiltersRef.current;
+      if (status) {
+        const code = Number(log.statusCode) || 0;
+        if (status === 'error' && !(code >= 400)) return false;
+        if (status === '429' && code !== 429) return false;
+        if (status === '5xx' && !(code >= 500)) return false;
+        if (status === 'success' && !(code >= 200 && code < 400)) return false;
+      }
+      if (model && log.model !== model) return false;
+      if (endpoint) {
+        // 只放行「名称或 id 命中筛选值」的端点对应的日志；初始集合不能预填
+        // 全量端点 id，否则任何已知端点的日志都会绕过端点筛选。
+        const idHits = new Set(
+          eps
+            .filter(e => e?.name === endpoint || e?.id === endpoint)
+            .map(e => e.id)
+            .filter(Boolean)
+        );
+        if (!(idHits.has(log.endpointId) || log.endpointName === endpoint)) return false;
+      }
+      return true;
+    };
+    try {
+      source = new EventSource('/api/modelhub/analytics/stream');
+      source.addEventListener('log', event => {
+        try {
+          const log = JSON.parse(event.data);
+          if (!matchesSseFilters(log)) return;
+          setAnalyticsLogs(prev => {
+            if (!prev || prev.length === 0) return [log, ...prev];
+            const dedupOf = item => `${item.timestamp}|${item.model ?? ''}|${item.statusCode ?? ''}|${item.endpoint ?? ''}|${item.clientIp ?? ''}|${item.latencyMs ?? ''}|${item.completionTokens ?? ''}`;
+            const existing = new Set(prev.map(dedupOf));
+            if (existing.has(dedupOf(log))) return prev;
+            return [log, ...prev].slice(0, analyticsPageSize);
+          });
+        } catch {
+          // 忽略无法解析的事件
+        }
+      });
+    } catch {
+      source = null;
+    }
+    return () => {
+      if (source) source.close();
+    };
+  }, [activeTab, analyticsPageSize]);
+
+  // 记住日志分页数量，下次进入自动沿用。
+  useEffect(() => {
+    localStorage.setItem('modelhub_analytics_page_size', String(analyticsPageSize));
+  }, [analyticsPageSize]);
+
+  // 记住数据看板的时间粒度（小时/天/周）。
+  useEffect(() => {
+    localStorage.setItem('modelhub_analytics_granularity', analyticsGranularity);
+  }, [analyticsGranularity]);
+
+  // 记住数据看板/网关日志的分析范围（天数）与时间粒度。
+  useEffect(() => {
+    localStorage.setItem('modelhub_analytics_days', String(analyticsDays));
+  }, [analyticsDays]);
+
+  // 记住分钟级窗口（无则清掉，恢复「过去 N 天」默认）。
+  useEffect(() => {
+    if (analyticsMinutes) {
+      localStorage.setItem('modelhub_analytics_minutes', String(analyticsMinutes));
+    } else {
+      localStorage.removeItem('modelhub_analytics_minutes');
+    }
+  }, [analyticsMinutes]);
+
+  // 记住数据看板范围按钮文案，刷新后保持一致。
+  useEffect(() => {
+    localStorage.setItem('modelhub_analytics_range_label', analyticsRangeLabel);
+  }, [analyticsRangeLabel]);
+
+  // 仪表盘同款时段选择器回调：更新分析范围（天数 + 可选分钟窗口），
+  // 粒度自适应：范围 ≤7 天（含分钟窗口）按小时粒度，>7 天按天粒度，设值后由上方参数变化效果驱动刷新。
+  const applyAnalyticsRange = useCallback((days, cfRange, label, minutes) => {
+    const d = Math.max(1, Number(days) || 1);
+    const m = minutes && minutes > 0 && minutes < 1440 ? minutes : null;
+    setAnalyticsDays(d);
+    setAnalyticsMinutes(m);
+    setAnalyticsGranularity(m || d <= 7 ? 'hour' : 'day');
+    if (label) setAnalyticsRangeLabel(label);
+    setAnalyticsPage(1);
+  }, []);
+
+  // 清空全部网关日志记录（只清明细日志，数据看板聚合历史不受影响）。
+  const clearGatewayLogs = useCallback(async () => {
+    if (!(await dialog.confirm('确认清除全部网关日志记录？数据看板历史保留。此操作不可恢复。'))) return;
+    try {
+      const response = await fetch('/api/modelhub/analytics/clear', {
+        method: 'POST',
+        headers: getAuthHeaders(),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.success) throw new Error(data.error || '清除失败');
+      toast.success(`已清除 ${data.deleted ?? 0} 条网关日志`);
+      await fetchAnalytics();
+    } catch (error) {
+      toast.error('清除日志失败: ' + error.message);
+    }
+  }, [fetchAnalytics]);
+
+  // 清空数据看板历史（独立的聚合表，不影响网关明细日志）。
+  const clearDashboardHistory = useCallback(async () => {
+    if (!(await dialog.confirm('确认清除全部数据看板历史？网关日志保留。此操作不可恢复。'))) return;
+    try {
+      const response = await fetch('/api/modelhub/analytics/clear-history', {
+        method: 'POST',
+        headers: getAuthHeaders(),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.success) throw new Error(data.error || '清除失败');
+      toast.success(`已清除 ${data.deleted ?? 0} 条看板历史`);
+      await fetchAnalytics({ silent: true });
+    } catch (error) {
+      toast.error('清除看板历史失败: ' + error.message);
+    }
+  }, [fetchAnalytics]);
+
+  return {
+    analyticsDays, setAnalyticsDays,
+    analyticsMinutes, setAnalyticsMinutes,
+    analyticsGranularity, setAnalyticsGranularity,
+    analyticsRangeLabel, setAnalyticsRangeLabel, applyAnalyticsRange,
+    analyticsSummary,
+    requestTrendMode, setRequestTrendMode,
+    tokenTrendMode, setTokenTrendMode,
+    latencyTrendMode, setLatencyTrendMode,
+    errorTrendMode, setErrorTrendMode,
+    modelTrendMode, setModelTrendMode,
+    modelTrendMetric, setModelTrendMetric,
+    modelTrendCache, setModelTrendCache,
+    tokenShareMode, setTokenShareMode,
+    countShareMode, setCountShareMode,
+    analyticsCharts,
+    analyticsLogs,
+    analyticsPage, setAnalyticsPage,
+    analyticsPageSize, setAnalyticsPageSize,
+    analyticsTotal,
+    analyticsLoading,
+    logStatusFilter, setLogStatusFilter,
+    logModelFilter, setLogModelFilter,
+    logEndpointFilter, setLogEndpointFilter,
+    logDetail, setLogDetail,
+    logDetailExpanded, setLogDetailExpanded,
+    fetchAnalytics,
+    clearGatewayLogs,
+    clearDashboardHistory,
+  };
+}
