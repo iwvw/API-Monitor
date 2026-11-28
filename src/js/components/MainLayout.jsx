@@ -58,7 +58,6 @@ const SettingsPage = lazy(() => import('../pages/SettingsPage.jsx'));
 const SchedulerPage = lazy(() => import('../pages/SchedulerPage.jsx'));
 const ApiDocsPage = lazy(() => import('../pages/ApiDocsPage.jsx'));
 const SystemLogsPage = lazy(() => import('../pages/SystemLogsPage.jsx'));
-const DrawioPage = lazy(() => import('../pages/DrawioPage.jsx'));
 const PromptLibraryPage = lazy(() => import('../pages/PromptLibraryPage.jsx'));
 const BookmarksPage = lazy(() => import('../pages/BookmarksPage.jsx'));
 const AdminAIPage = lazy(() => import('../pages/AdminAIPage.jsx'));
@@ -635,7 +634,7 @@ function MainLayout() {
     };
   }, [triggerHaptic]);
 
-  const viewportWorkspaceModule = ['systemlogs', 'drawio', 'prompts'].includes(mainActiveTab);
+  const viewportWorkspaceModule = ['systemlogs', 'prompts'].includes(mainActiveTab);
   const stickyHeaderScrollModule = [
     'server',
     'github',
@@ -732,8 +731,6 @@ function MainLayout() {
         return <ApiDocsPage />;
       case 'systemlogs':
         return <SystemLogsPage />;
-      case 'drawio':
-        return <DrawioPage />;
       case 'prompts':
         return <PromptLibraryPage />;
       case 'bookmarks':

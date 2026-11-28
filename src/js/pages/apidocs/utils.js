@@ -160,7 +160,6 @@ const routeGroup = route => {
     return '定时任务';
   if (prefix.startsWith(routePrefixLiteral(API_SEGMENT, 'uptime'))) return '可用性监测';
   if (prefix.startsWith(routePrefixLiteral(API_SEGMENT, 'filebox'))) return '文件柜';
-  if (prefix.startsWith(routePrefixLiteral(API_SEGMENT, 'drawio'))) return '图编辑器';
   if (prefix.startsWith(routePrefixLiteral(API_SEGMENT, 'prompts'))) return '提示词库';
   if (prefix.startsWith(routePrefixLiteral(API_SEGMENT, 'totp'))) return '双因子认证';
   if (prefix.startsWith(routePrefixLiteral(API_SEGMENT, 'assets'))) return '资产管理';

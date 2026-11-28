@@ -150,12 +150,6 @@ export const MODULE_CONFIG = {
     icon: 'fa-file-alt',
     description: '统一日志查看器',
   },
-  drawio: {
-    name: '图编辑器',
-    shortName: '图编辑',
-    icon: 'fa-diagram-project',
-    description: 'Draw.io 图文档',
-  },
   prompts: {
     name: '提示词库',
     shortName: '提示词',
@@ -229,7 +223,7 @@ export const MODULE_GROUPS = [
       {
         id: 'utility-tools',
         name: '实用工具',
-        modules: ['filebox', 'drawio', 'prompts', 'bookmarks', 'assets'],
+        modules: ['filebox', 'prompts', 'bookmarks', 'assets'],
       },
     ],
     trailingModules: ['totp'],
@@ -366,7 +360,6 @@ export const DEFAULT_MODULE_VISIBILITY = DEFAULT_MODULE_ORDER.reduce((acc, modul
   return acc;
 }, {});
 
-DEFAULT_MODULE_VISIBILITY.drawio = false;
 DEFAULT_MODULE_VISIBILITY.prompts = false;
 
 
