@@ -50,7 +50,7 @@ agent: build
    cd /opt/code/API-Monitor && export PATH="$PATH:$HOME/.cargo/bin:/usr/local/go/bin" && ./tools/local-image.sh
    cd /opt/1panel/docker/compose/api-monitor && docker compose up -d
    ```
-3. **6b｜其它主机改动**：先 `gh run watch` 等 CI 全绿（`CI/CD Pipeline`、`Security Baseline`，涉及 `agent-rust/**` 时另有 `Agent Release`），失败则修复重推；然后在 **am MCP** 上对「ARM」主机执行（先调 `/api/server/accounts` 按 name 查 serverId 并确认在线，**不要**部署到「香港」）：
+3. **6b｜其它主机改动**：先 `gh run watch` 等 CI 全绿（`CI/CD Pipeline`、`Security Baseline`，涉及 `agent-rust/**` 时另有 `Agent Release`），失败则修复重推；然后在 **am MCP** 上对「ARM」主机执行（先调 `/api/server/accounts` 按 name 查 serverId 并确认在线）：
    ```bash
    cd /opt/code/API-Monitor && git pull --rebase origin dev && \
    export PATH="$PATH:$HOME/.cargo/bin:/usr/local/go/bin" && ./tools/local-image.sh && \
