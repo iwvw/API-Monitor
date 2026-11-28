@@ -103,7 +103,10 @@ func (s *Service) fetchFaviconsBatch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	results := s.downloadFaviconsConcurrently(ctx, targets)
+	results := s.downloadFaviconsConcurrently(ctx, targets, req.Overwrite)
+
+	// 覆盖抓取可能因图标 URL 变化产生孤儿文件,批量结束后统一回收一次。
+	s.gcFaviconFiles(ctx, db)
 
 	succeeded, failed := 0, 0
 	for _, res := range results {
@@ -168,8 +171,9 @@ func (s *Service) selectFaviconTargets(ctx context.Context, db *sql.DB, ids []in
 		}
 		if onlyMissing {
 			existing := strings.TrimSpace(iconSrc.String)
-			// 已有本地/远端图标的跳过；文字图标（icon_src 为空）仍需抓取
-			if existing != "" {
+			// 已有图标的跳过;文字图标(icon_src 为空)与「引用失效的本地图标」
+			// (导出换实例、文件被删等)仍需抓取,否则会永久跳过。
+			if existing != "" && !s.faviconIconMissing(existing) {
 				continue
 			}
 		}
@@ -182,7 +186,7 @@ func (s *Service) selectFaviconTargets(ctx context.Context, db *sql.DB, ids []in
 }
 
 // downloadFaviconsConcurrently 限并发抓取，并逐条写回数据库。
-func (s *Service) downloadFaviconsConcurrently(ctx context.Context, targets []faviconTarget) []faviconResult {
+func (s *Service) downloadFaviconsConcurrently(ctx context.Context, targets []faviconTarget, overwrite bool) []faviconResult {
 	type job struct {
 		index  int
 		target faviconTarget
@@ -200,7 +204,7 @@ func (s *Service) downloadFaviconsConcurrently(ctx context.Context, targets []fa
 		go func() {
 			defer func() { done <- struct{}{} }()
 			for j := range jobs {
-				results[j.index] = s.fetchOneFavicon(ctx, j.target)
+				results[j.index] = s.fetchOneFavicon(ctx, j.target, overwrite)
 			}
 		}()
 	}
@@ -216,7 +220,7 @@ func (s *Service) downloadFaviconsConcurrently(ctx context.Context, targets []fa
 }
 
 // fetchOneFavicon 抓取单个条目的图标并落库。
-func (s *Service) fetchOneFavicon(ctx context.Context, target faviconTarget) faviconResult {
+func (s *Service) fetchOneFavicon(ctx context.Context, target faviconTarget, overwrite bool) faviconResult {
 	res := faviconResult{ID: target.ID, Title: target.Title}
 
 	candidates, err := resolveFaviconCandidates(target.URL)
@@ -224,7 +228,7 @@ func (s *Service) fetchOneFavicon(ctx context.Context, target faviconTarget) fav
 		res.Error = "解析图标地址失败：" + err.Error()
 		return res
 	}
-	localPath, err := s.downloadFaviconFromCandidates(candidates)
+	localPath, err := s.downloadFaviconFromCandidates(candidates, overwrite)
 	if err != nil {
 		res.Error = "下载图标失败：" + err.Error()
 		return res

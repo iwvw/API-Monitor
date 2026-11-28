@@ -656,6 +656,8 @@ func (s *Service) deleteGroup(w http.ResponseWriter, r *http.Request, id int64) 
 		response.Error(w, http.StatusInternalServerError, "Failed to commit delete")
 		return
 	}
+	// 整组删除后回收不再被引用的图标文件。
+	s.gcFaviconFiles(ctx, db)
 	response.OK(w, map[string]interface{}{"deleted": true})
 }
 
@@ -897,6 +899,8 @@ func (s *Service) updateItem(w http.ResponseWriter, r *http.Request, id int64) {
 		response.Error(w, http.StatusNotFound, "Bookmark not found")
 		return
 	}
+	// 改图标/网址后旧文件可能成为孤儿,顺手回收。
+	s.gcFaviconFiles(ctx, db)
 	response.OK(w, map[string]interface{}{"updated": true})
 }
 
@@ -919,6 +923,9 @@ func (s *Service) deleteItem(w http.ResponseWriter, r *http.Request, id int64) {
 		response.Error(w, http.StatusNotFound, "Bookmark not found")
 		return
 	}
+	// 删条目后回收不再被任何书签引用的图标文件(此前只删数据库行,
+	// 文件永久残留在 data/bookmarks-favicons 里)。
+	s.gcFaviconFiles(ctx, db)
 	response.OK(w, map[string]interface{}{"deleted": true})
 }
 
@@ -942,7 +949,7 @@ func (s *Service) fetchFavicon(w http.ResponseWriter, r *http.Request) {
 		response.Error(w, http.StatusBadRequest, "favicon resolve failed: "+err.Error())
 		return
 	}
-	localPath, err := s.downloadFaviconFromCandidates(candidates)
+	localPath, err := s.downloadFaviconFromCandidates(candidates, true)
 	if err != nil {
 		response.Error(w, http.StatusBadRequest, "favicon download failed: "+err.Error())
 		return

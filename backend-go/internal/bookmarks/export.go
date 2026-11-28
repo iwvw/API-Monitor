@@ -469,6 +469,14 @@ func (s *Service) importNative(ctx context.Context, db *sql.DB, file exportFile,
 				report.ItemsSkipped++
 				continue
 			}
+			iconSrc := item.IconSrc
+			// 导出不含图标二进制(见文件头)。若引用的本地图标在本实例并不存在
+			// (换实例导入,或文件已被清理),保留引用只会让卡片 404;而且因为
+			// icon_src 非空,「抓取缺少图标」会把它当成已有图标跳过。清空引用,
+			// 让它回归「缺少图标」,由抓取流程补齐。
+			if s.faviconIconMissing(iconSrc) {
+				iconSrc = ""
+			}
 			iconType := item.IconType
 			if iconType != 1 && iconType != 2 && iconType != 3 {
 				iconType = 2
@@ -481,7 +489,7 @@ func (s *Service) importNative(ctx context.Context, db *sql.DB, file exportFile,
 				`INSERT INTO bookmarks (group_id, title, url, description, icon_type, icon_src, icon_text, icon_bg_color, open_method, sort_order)
 				 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 				groupID, itemTitle, itemURL, item.Description,
-				iconType, item.IconSrc, item.IconText, item.IconBgColor, openMethod, baseSort+ii); err != nil {
+				iconType, iconSrc, item.IconText, item.IconBgColor, openMethod, baseSort+ii); err != nil {
 				return report, err
 			}
 			existingItems[itemKey(groupID, itemURL)] = true
@@ -511,6 +519,9 @@ func (s *Service) importNative(ctx context.Context, db *sql.DB, file exportFile,
 	if err := tx.Commit(); err != nil {
 		return report, err
 	}
+	// replace 模式会删掉旧条目,它们引用的图标随之变成孤儿;导入结束后统一回收一次。
+	// (merge 模式同样无害:只删不被引用的文件。)
+	s.gcFaviconFiles(ctx, db)
 	return report, nil
 }
 
