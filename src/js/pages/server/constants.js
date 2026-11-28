@@ -28,9 +28,9 @@ export const HOST_COMPACT_DEFAULT_VISIBLE_COLUMNS = Array.from(new Set([
 export const HOST_COMPACT_COLUMN_WIDTHS = {
   status: 74,
   name: 112,
-  country: 71,
-  uptime: 71,
-  load: 71,
+  country: 80,
+  uptime: 80,
+  load: 80,
   speed: 228,
   traffic: 228,
   cpu: 112,

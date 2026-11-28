@@ -6534,7 +6534,9 @@ function ServerPage() {
             return compactNameColumnWidth;
           }
           if (column.id === 'country' || column.id === 'uptime' || column.id === 'load') {
-            return compactAdaptiveColumnWidths[column.id] || base;
+            // 内容很短时(如「美国」「3天」「0.1」)实测宽度会把列压得过窄,
+            // 因此以 base 作为最小宽度,只有内容更宽时才采用实测值。
+            return Math.max(base, compactAdaptiveColumnWidths[column.id]);
           }
           return base;
         }),
